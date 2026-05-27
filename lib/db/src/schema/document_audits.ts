@@ -13,6 +13,8 @@ export const documentAuditsTable = pgTable("document_audits", {
   recommendation: text("recommendation"),
   nextAction: text("next_action"),
   auditDetail: jsonb("audit_detail"),
+  crossDocDetail: jsonb("cross_doc_detail"),
+  crossDocWarnings: text("cross_doc_warnings").array().notNull().default([]),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
