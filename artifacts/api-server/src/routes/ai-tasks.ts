@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { eq, desc, and } from "drizzle-orm";
 import { db, aiTasksTable, taskCommentsTable, activityTable, taskAttachmentsTable, documentAuditsTable } from "@workspace/db";
-import { runImportAuditChecks, runCrossDocumentValidation, generateAuditNarrative, buildAuditResult } from "../lib/audit";
+import { runAuditForTask } from "../lib/run-audit";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -270,42 +270,7 @@ router.post("/ai-tasks/:id/audit", async (req, res): Promise<void> => {
     const taskId = parseInt(req.params.id, 10);
     if (isNaN(taskId)) { res.status(400).json({ error: "Invalid id" }); return; }
 
-    const attachments = await db
-      .select()
-      .from(taskAttachmentsTable)
-      .where(eq(taskAttachmentsTable.taskId, taskId));
-
-    logger.info({ taskId, attachmentCount: attachments.length }, "Starting AI task audit");
-
-    const checks = runImportAuditChecks(attachments);
-    const crossChecks = runCrossDocumentValidation(attachments);
-    const narrative = await generateAuditNarrative(checks, crossChecks);
-    const result = buildAuditResult(checks, crossChecks, narrative);
-
-    const [audit] = await db
-      .insert(documentAuditsTable)
-      .values({
-        taskId,
-        auditStatus: result.auditStatus,
-        completeFields: result.completeFields,
-        missingFields: result.missingFields,
-        mismatchFields: result.mismatchFields,
-        unclearFields: result.unclearFields,
-        recommendation: result.recommendation,
-        nextAction: result.nextAction,
-        auditDetail: result.auditDetail as unknown as Record<string, unknown>[],
-        crossDocDetail: result.crossDocDetail as unknown as Record<string, unknown>[],
-        crossDocWarnings: result.crossDocWarnings,
-      })
-      .returning();
-
-    await db.insert(activityTable).values({
-      type: "task_updated",
-      description: `Document audit run for task ${taskId} — status: ${audit.auditStatus}`,
-      entityId: taskId,
-    });
-
-    logger.info({ taskId, auditId: audit.id, auditStatus: audit.auditStatus }, "AI task audit complete");
+    const audit = await runAuditForTask(taskId);
 
     res.status(201).json({
       ...audit,

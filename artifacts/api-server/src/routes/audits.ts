@@ -1,9 +1,9 @@
 import { Router, type IRouter } from "express";
 import { eq, desc } from "drizzle-orm";
-import { db, taskAttachmentsTable, documentAuditsTable } from "@workspace/db";
-import { runImportAuditChecks, generateAuditNarrative, buildAuditResult, generateWhatsAppReply } from "../lib/audit";
-import { runImportAuditChecks, runCrossDocumentValidation, generateAuditNarrative, buildAuditResult } from "../lib/audit";
+import { db, documentAuditsTable } from "@workspace/db";
+import { generateWhatsAppReply } from "../lib/audit";
 import type { AuditCheckItem } from "../lib/audit";
+import { runAuditForTask } from "../lib/run-audit";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -12,36 +12,7 @@ router.post("/tasks/:taskId/audit", async (req, res): Promise<void> => {
   const taskId = Number(req.params.taskId);
   if (isNaN(taskId)) { res.status(400).json({ error: "Invalid task ID" }); return; }
 
-  const attachments = await db
-    .select()
-    .from(taskAttachmentsTable)
-    .where(eq(taskAttachmentsTable.taskId, taskId));
-
-  logger.info({ taskId, attachmentCount: attachments.length }, "Starting import document audit");
-
-  const checks = runImportAuditChecks(attachments);
-  const crossChecks = runCrossDocumentValidation(attachments);
-  const narrative = await generateAuditNarrative(checks, crossChecks);
-  const result = buildAuditResult(checks, crossChecks, narrative);
-
-  const [audit] = await db
-    .insert(documentAuditsTable)
-    .values({
-      taskId,
-      auditStatus: result.auditStatus,
-      completeFields: result.completeFields,
-      missingFields: result.missingFields,
-      mismatchFields: result.mismatchFields,
-      unclearFields: result.unclearFields,
-      recommendation: result.recommendation,
-      nextAction: result.nextAction,
-      auditDetail: result.auditDetail as unknown as Record<string, unknown>[],
-      crossDocDetail: result.crossDocDetail as unknown as Record<string, unknown>[],
-      crossDocWarnings: result.crossDocWarnings,
-    })
-    .returning();
-
-  logger.info({ taskId, auditId: audit.id, auditStatus: audit.auditStatus, crossDocMismatches: result.crossDocWarnings.length }, "Audit complete");
+  const audit = await runAuditForTask(taskId);
 
   res.status(201).json({
     ...audit,

@@ -2,7 +2,17 @@ import { Router, type IRouter } from "express";
 import { eq } from "drizzle-orm";
 import { db, taskAttachmentsTable } from "@workspace/db";
 import { extractTextFromAttachment, detectDocumentType, extractDocumentFields } from "../lib/extraction";
+import { runAuditForTask } from "../lib/run-audit";
 import { logger } from "../lib/logger";
+
+function triggerAudit(taskId: number | null | undefined, source: string) {
+  if (!taskId || taskId <= 0) return;
+  setImmediate(() => {
+    runAuditForTask(taskId).catch((err) =>
+      logger.error({ taskId, source, err }, "OCR-triggered audit failed"),
+    );
+  });
+}
 
 const router: IRouter = Router();
 
@@ -82,6 +92,8 @@ router.post("/attachments/:id/extract", async (req, res): Promise<void> => {
 
   logger.info({ attachmentId: id, documentType, ocrStatus: updated.ocrStatus }, "Extraction pipeline complete");
   res.json({ ...updated, createdAt: updated.createdAt.toISOString() });
+
+  triggerAudit(updated.taskId, "single-extract");
 });
 
 router.post("/attachments/:id/detect-type", async (req, res): Promise<void> => {
@@ -193,6 +205,8 @@ router.post("/attachments/:id/extract/batch", async (req, res): Promise<void> =>
 
       logger.info({ attachmentId: attachment.id, documentType }, "Batch pipeline complete");
     }
+
+    triggerAudit(taskId, "batch-extract");
   });
 });
 

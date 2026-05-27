@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ClipboardCheck,
@@ -186,7 +186,22 @@ export function TaskAuditPanel({ taskId }: { taskId: number }) {
     queryKey: ["ai-task-audit", taskId],
     queryFn: () => apiFetch(`/ai-tasks/${taskId}/audit`),
     retry: false,
+    refetchInterval: 8000,
+    staleTime: 0,
   });
+
+  const prevAuditIdRef = useRef<number | undefined>(undefined);
+  const [autoUpdated, setAutoUpdated] = useState(false);
+  useEffect(() => {
+    if (audit?.id !== undefined && prevAuditIdRef.current !== undefined && audit.id !== prevAuditIdRef.current) {
+      setAutoUpdated(true);
+      const t = setTimeout(() => setAutoUpdated(false), 4000);
+      prevAuditIdRef.current = audit.id;
+      return () => clearTimeout(t);
+    }
+    prevAuditIdRef.current = audit?.id;
+    return undefined;
+  }, [audit?.id]);
 
   const runAuditMutation = useMutation({
     mutationFn: () => apiFetch(`/ai-tasks/${taskId}/audit`, { method: "POST" }),
@@ -265,6 +280,9 @@ export function TaskAuditPanel({ taskId }: { taskId: number }) {
           )}
           {audit && (
             <span className="text-xs text-slate-400">{completeCount}/{totalCount}</span>
+          )}
+          {autoUpdated && (
+            <span className="text-[10px] text-green-600 font-medium animate-pulse">● Auto-updated</span>
           )}
         </div>
         <div className="flex items-center gap-2">
