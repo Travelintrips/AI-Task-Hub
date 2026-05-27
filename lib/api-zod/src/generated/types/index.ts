@@ -37,3 +37,4 @@ export * from './verifyWhatsAppWebhookParams';
 export * from './webhookPayload';
 export * from './webhookPayloadEntryItem';
 export * from './whatsAppMessage';
+export * from './whatsAppReply';

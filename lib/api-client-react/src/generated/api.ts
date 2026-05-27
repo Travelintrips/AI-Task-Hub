@@ -41,7 +41,8 @@ import type {
   UploadUrlResponse,
   VerifyWhatsAppWebhookParams,
   WebhookPayload,
-  WhatsAppMessage
+  WhatsAppMessage,
+  WhatsAppReply
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -1838,4 +1839,74 @@ export function useGetRecentActivity<TData = Awaited<ReturnType<typeof getRecent
 
 
 
+
+export const getGenerateWhatsAppReplyUrl = (id: number,) => {
+
+
+
+
+  return `/api/audits/${id}/whatsapp-reply`
+}
+
+/**
+ * @summary Generate a polite Indonesian WhatsApp follow-up for missing audit items
+ */
+export const generateWhatsAppReply = async (id: number, options?: RequestInit): Promise<WhatsAppReply> => {
+
+  return customFetch<WhatsAppReply>(getGenerateWhatsAppReplyUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getGenerateWhatsAppReplyMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof generateWhatsAppReply>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof generateWhatsAppReply>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['generateWhatsAppReply'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof generateWhatsAppReply>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  generateWhatsAppReply(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type GenerateWhatsAppReplyMutationResult = NonNullable<Awaited<ReturnType<typeof generateWhatsAppReply>>>
+
+    export type GenerateWhatsAppReplyMutationError = ErrorType<void>
+
+    /**
+ * @summary Generate a polite Indonesian WhatsApp follow-up for missing audit items
+ */
+export const useGenerateWhatsAppReply = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof generateWhatsAppReply>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof generateWhatsAppReply>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getGenerateWhatsAppReplyMutationOptions(options));
+    }
 

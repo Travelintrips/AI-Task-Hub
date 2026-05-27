@@ -20,6 +20,8 @@ tags:
     description: Document audit management
   - name: dashboard
     description: Dashboard summaries and stats
+  - name: audits
+    description: Document audit results and WhatsApp reply generation
 
 paths:
   /healthz:
@@ -462,6 +464,28 @@ paths:
                 items:
                   $ref: "#/components/schemas/ActivityItem"
 
+  # ── Audits ───────────────────────────────────────────────────────────────────
+  /audits/{id}/whatsapp-reply:
+    post:
+      operationId: generateWhatsAppReply
+      tags: [audits]
+      summary: Generate a polite Indonesian WhatsApp follow-up for missing audit items
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Generated WhatsApp message
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WhatsAppReply"
+        "404":
+          description: Audit not found
+
 components:
   schemas:
     HealthStatus:
@@ -748,6 +772,14 @@ components:
         publicUrl:
           type: string
         path:
+          type: string
+
+    # ── Audit WhatsApp Reply ──────────────────────────────────────────────────
+    WhatsAppReply:
+      type: object
+      required: [message]
+      properties:
+        message:
           type: string
 
     # ── Dashboard ─────────────────────────────────────────────────────────────

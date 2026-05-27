@@ -438,3 +438,15 @@ export const GetRecentActivityResponseItem = zod.object({
 export const GetRecentActivityResponse = zod.array(GetRecentActivityResponseItem)
 
 
+/**
+ * @summary Generate a polite Indonesian WhatsApp follow-up for missing audit items
+ */
+export const GenerateWhatsAppReplyParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const GenerateWhatsAppReplyResponse = zod.object({
+  "message": zod.string()
+})
+
+

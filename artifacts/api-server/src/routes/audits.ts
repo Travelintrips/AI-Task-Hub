@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { eq, desc } from "drizzle-orm";
 import { db, taskAttachmentsTable, documentAuditsTable } from "@workspace/db";
-import { runImportAuditChecks, generateAuditNarrative, buildAuditResult } from "../lib/audit";
+import { runImportAuditChecks, generateAuditNarrative, buildAuditResult, generateWhatsAppReply } from "../lib/audit";
 import type { AuditCheckItem } from "../lib/audit";
 import { logger } from "../lib/logger";
 
@@ -99,6 +99,25 @@ router.get("/audits/:id", async (req, res): Promise<void> => {
     createdAt: audit.createdAt.toISOString(),
     updatedAt: audit.updatedAt.toISOString(),
   });
+});
+
+router.post("/audits/:id/whatsapp-reply", async (req, res): Promise<void> => {
+  const id = Number(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid audit ID" }); return; }
+
+  const [audit] = await db
+    .select()
+    .from(documentAuditsTable)
+    .where(eq(documentAuditsTable.id, id));
+
+  if (!audit) { res.status(404).json({ error: "Audit not found" }); return; }
+
+  const missingFields = Array.isArray(audit.missingFields) ? (audit.missingFields as string[]) : [];
+  const mismatchFields = Array.isArray(audit.mismatchFields) ? (audit.mismatchFields as string[]) : [];
+  const unclearFields = Array.isArray(audit.unclearFields) ? (audit.unclearFields as string[]) : [];
+
+  const message = await generateWhatsAppReply(missingFields, mismatchFields, unclearFields);
+  res.json({ message });
 });
 
 router.patch("/audits/:id/status", async (req, res): Promise<void> => {

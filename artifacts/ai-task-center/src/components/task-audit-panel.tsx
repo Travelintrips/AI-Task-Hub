@@ -12,6 +12,9 @@ import {
   ChevronUp,
   Lightbulb,
   ArrowRight,
+  MessageCircle,
+  Copy,
+  Check,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -115,10 +118,20 @@ function buildChecklistFromAudit(audit: AuditRecord): AuditCheckItem[] {
   });
 }
 
+function hasIncompleteItems(audit: AuditRecord): boolean {
+  return (
+    (audit.missingFields?.length ?? 0) > 0 ||
+    (audit.mismatchFields?.length ?? 0) > 0 ||
+    (audit.unclearFields?.length ?? 0) > 0
+  );
+}
+
 export function TaskAuditPanel({ taskId }: { taskId: number }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [expanded, setExpanded] = useState(true);
+  const [whatsappReply, setWhatsappReply] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const { data: audit, isLoading } = useQuery<AuditRecord | null>({
     queryKey: ["ai-task-audit", taskId],
@@ -131,6 +144,7 @@ export function TaskAuditPanel({ taskId }: { taskId: number }) {
       apiFetch(`/ai-tasks/${taskId}/audit`, { method: "POST" }),
     onSuccess: (data) => {
       queryClient.setQueryData(["ai-task-audit", taskId], data);
+      setWhatsappReply(null);
       toast({ title: "Audit complete", description: `Status: ${data?.auditStatus ?? "—"}` });
     },
     onError: (err) => {
@@ -138,9 +152,31 @@ export function TaskAuditPanel({ taskId }: { taskId: number }) {
     },
   });
 
+  const generateReplyMutation = useMutation({
+    mutationFn: async () => {
+      if (!audit?.id) throw new Error("No audit ID");
+      const result = await apiFetch(`/audits/${audit.id}/whatsapp-reply`, { method: "POST" });
+      return result as { message: string };
+    },
+    onSuccess: (data) => {
+      setWhatsappReply(data.message);
+    },
+    onError: (err) => {
+      toast({ title: "Gagal membuat pesan", description: String(err), variant: "destructive" });
+    },
+  });
+
+  async function handleCopy() {
+    if (!whatsappReply) return;
+    await navigator.clipboard.writeText(whatsappReply);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
   const checks = audit ? buildChecklistFromAudit(audit) : null;
   const completeCount = checks?.filter((c) => c.status === "complete").length ?? 0;
   const totalCount = checks?.length ?? ALL_CHECKS.length;
+  const showReplySection = audit && hasIncompleteItems(audit);
 
   return (
     <div className="border rounded-lg overflow-hidden">
@@ -262,6 +298,55 @@ export function TaskAuditPanel({ taskId }: { taskId: number }) {
                         <p className="text-[10px] font-semibold text-amber-700 uppercase tracking-wide mb-0.5">Next Action</p>
                         <p className="text-sm text-amber-900">{audit.nextAction}</p>
                       </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── WhatsApp Reply Generator ─────────────────────────────── */}
+              {showReplySection && (
+                <div className="border border-green-200 rounded-lg overflow-hidden">
+                  <div className="flex items-center justify-between px-3 py-2.5 bg-green-50">
+                    <div className="flex items-center gap-2">
+                      <MessageCircle className="h-4 w-4 text-green-600" />
+                      <span className="text-xs font-semibold text-green-800">Pesan Follow-up WhatsApp</span>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs border-green-300 text-green-700 hover:bg-green-100"
+                      onClick={() => generateReplyMutation.mutate()}
+                      disabled={generateReplyMutation.isPending}
+                    >
+                      {generateReplyMutation.isPending ? (
+                        <><Loader2 className="h-3 w-3 mr-1 animate-spin" /> Membuat…</>
+                      ) : (
+                        <><MessageCircle className="h-3 w-3 mr-1" /> {whatsappReply ? "Buat Ulang" : "Buat Pesan"}</>
+                      )}
+                    </Button>
+                  </div>
+
+                  {whatsappReply ? (
+                    <div className="p-3 space-y-2">
+                      <div className="bg-white border border-green-100 rounded-md p-3 text-sm text-slate-800 whitespace-pre-wrap leading-relaxed font-sans">
+                        {whatsappReply}
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="w-full h-8 text-xs"
+                        onClick={handleCopy}
+                      >
+                        {copied ? (
+                          <><Check className="h-3.5 w-3.5 mr-1.5 text-green-600" /> Tersalin!</>
+                        ) : (
+                          <><Copy className="h-3.5 w-3.5 mr-1.5" /> Salin Pesan</>
+                        )}
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="px-3 py-3 text-center text-xs text-slate-400">
+                      Klik "Buat Pesan" untuk membuat pesan WhatsApp yang meminta data yang masih kurang.
                     </div>
                   )}
                 </div>

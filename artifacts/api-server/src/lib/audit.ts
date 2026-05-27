@@ -202,6 +202,87 @@ Respond ONLY with valid JSON: {"recommendation": "...", "next_action": "..."}`,
   }
 }
 
+const FIELD_LABEL_ID: Record<string, string> = {
+  "Commercial Invoice": "Commercial Invoice",
+  "Packing List": "Packing List",
+  "HS Code": "HS Code",
+  "Product Catalog / Photo": "foto/katalog produk",
+  "Gross Weight": "berat kotor (gross weight)",
+  "Dimensions": "dimensi barang",
+  "Incoterm": "syarat pengiriman (Incoterm)",
+  "Port of Loading": "Port of Loading",
+  "Port of Discharge": "Port of Discharge",
+  "Importer Name": "nama importir",
+  "NIB / API (Import License)": "NIB/API importir",
+  "Machine Condition (New / Used)": "keterangan kondisi mesin (baru atau bekas)",
+};
+
+function toIdLabel(label: string): string {
+  return FIELD_LABEL_ID[label] ?? label;
+}
+
+function buildWhatsAppTemplate(items: string[]): string {
+  const numbered = items.map((item, i) => `${i + 1}. ${item}`).join("\n");
+  return (
+    `Baik Bapak/Ibu, dokumen sudah kami terima. Dari hasil pengecekan awal, masih diperlukan beberapa data berikut:\n` +
+    `${numbered}\n\n` +
+    `Mohon dapat dilengkapi agar team kami dapat melanjutkan pengecekan estimasi biaya dan kebutuhan perizinan.`
+  );
+}
+
+export async function generateWhatsAppReply(
+  missingFields: string[],
+  mismatchFields: string[],
+  unclearFields: string[],
+): Promise<string> {
+  const items: string[] = [
+    ...missingFields.map(toIdLabel),
+    ...mismatchFields.map((f) => `${toIdLabel(f)} (mohon dikonfirmasi ulang)`),
+    ...unclearFields.map((f) => `${toIdLabel(f)} (perlu klarifikasi)`),
+  ];
+
+  if (items.length === 0) {
+    return "Baik Bapak/Ibu, dokumen sudah kami terima dan semua data yang diperlukan telah lengkap. Team kami akan segera melanjutkan proses.";
+  }
+
+  const itemList = items.map((item, i) => `${i + 1}. ${item}`).join("\n");
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: `Kamu adalah staf layanan pelanggan perusahaan jasa freight forwarding dan impor ekspor.
+Tulis pesan WhatsApp dalam bahasa Indonesia yang sopan dan profesional untuk meminta data yang masih kurang dari pelanggan.
+
+Aturan ketat:
+- Gunakan sapaan "Bapak/Ibu"
+- Konfirmasi bahwa dokumen sudah diterima
+- Sebutkan hanya item data yang diberikan dalam daftar, dengan nomor urut
+- JANGAN menyebut istilah teknis internal (jangan sebut "audit", "status", "sistem", "pengecekan otomatis")
+- JANGAN menjanjikan atau menyebut harga, biaya final, atau timeline pasti
+- JANGAN menambahkan item lain di luar yang diberikan
+- Tutup dengan kalimat permohonan yang sopan
+- Panjang pesan: hanya intro singkat + daftar item + penutup (maksimal 3 kalimat di luar daftar)`,
+        },
+        {
+          role: "user",
+          content: `Data yang perlu diminta ke pelanggan:\n${itemList}`,
+        },
+      ],
+      max_tokens: 400,
+      temperature: 0.3,
+    });
+
+    const text = response.choices[0]?.message?.content?.trim();
+    return text && text.length > 20 ? text : buildWhatsAppTemplate(items);
+  } catch (err) {
+    logger.error({ err }, "Failed to generate WhatsApp reply via OpenAI — using template");
+    return buildWhatsAppTemplate(items);
+  }
+}
+
 export function buildAuditResult(
   checks: AuditCheckItem[],
   narrative: { recommendation: string; nextAction: string },

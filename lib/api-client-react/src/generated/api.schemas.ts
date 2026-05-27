@@ -242,6 +242,10 @@ export interface UploadUrlResponse {
   path: string;
 }
 
+export interface WhatsAppReply {
+  message: string;
+}
+
 export interface DashboardStats {
   totalTasks: number;
   openTasks: number;
