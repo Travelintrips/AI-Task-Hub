@@ -1,0 +1,126 @@
+import { Router, type IRouter } from "express";
+import { eq, desc } from "drizzle-orm";
+import { db, taskAttachmentsTable, documentAuditsTable } from "@workspace/db";
+import { runImportAuditChecks, generateAuditNarrative, buildAuditResult } from "../lib/audit";
+import type { AuditCheckItem } from "../lib/audit";
+import { logger } from "../lib/logger";
+
+const router: IRouter = Router();
+
+router.post("/tasks/:taskId/audit", async (req, res): Promise<void> => {
+  const taskId = Number(req.params.taskId);
+  if (isNaN(taskId)) { res.status(400).json({ error: "Invalid task ID" }); return; }
+
+  const attachments = await db
+    .select()
+    .from(taskAttachmentsTable)
+    .where(eq(taskAttachmentsTable.taskId, taskId));
+
+  logger.info({ taskId, attachmentCount: attachments.length }, "Starting import document audit");
+
+  const checks = runImportAuditChecks(attachments);
+  const narrative = await generateAuditNarrative(checks);
+  const result = buildAuditResult(checks, narrative);
+
+  const [audit] = await db
+    .insert(documentAuditsTable)
+    .values({
+      taskId,
+      auditStatus: result.auditStatus,
+      completeFields: result.completeFields,
+      missingFields: result.missingFields,
+      mismatchFields: result.mismatchFields,
+      unclearFields: result.unclearFields,
+      recommendation: result.recommendation,
+      nextAction: result.nextAction,
+      auditDetail: result.auditDetail as unknown as Record<string, unknown>[],
+    })
+    .returning();
+
+  logger.info({ taskId, auditId: audit.id, auditStatus: audit.auditStatus }, "Audit complete");
+
+  res.status(201).json({
+    ...audit,
+    createdAt: audit.createdAt.toISOString(),
+    updatedAt: audit.updatedAt.toISOString(),
+  });
+});
+
+router.get("/tasks/:taskId/audit", async (req, res): Promise<void> => {
+  const taskId = Number(req.params.taskId);
+  if (isNaN(taskId)) { res.status(400).json({ error: "Invalid task ID" }); return; }
+
+  const [audit] = await db
+    .select()
+    .from(documentAuditsTable)
+    .where(eq(documentAuditsTable.taskId, taskId))
+    .orderBy(desc(documentAuditsTable.createdAt))
+    .limit(1);
+
+  if (!audit) { res.status(404).json({ error: "No audit found for this task" }); return; }
+
+  res.json({
+    ...audit,
+    createdAt: audit.createdAt.toISOString(),
+    updatedAt: audit.updatedAt.toISOString(),
+  });
+});
+
+router.get("/tasks/:taskId/audits", async (req, res): Promise<void> => {
+  const taskId = Number(req.params.taskId);
+  if (isNaN(taskId)) { res.status(400).json({ error: "Invalid task ID" }); return; }
+
+  const audits = await db
+    .select()
+    .from(documentAuditsTable)
+    .where(eq(documentAuditsTable.taskId, taskId))
+    .orderBy(desc(documentAuditsTable.createdAt));
+
+  res.json(audits.map((a) => ({
+    ...a,
+    createdAt: a.createdAt.toISOString(),
+    updatedAt: a.updatedAt.toISOString(),
+  })));
+});
+
+router.get("/audits/:id", async (req, res): Promise<void> => {
+  const id = Number(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid audit ID" }); return; }
+
+  const [audit] = await db
+    .select()
+    .from(documentAuditsTable)
+    .where(eq(documentAuditsTable.id, id));
+
+  if (!audit) { res.status(404).json({ error: "Audit not found" }); return; }
+
+  res.json({
+    ...audit,
+    createdAt: audit.createdAt.toISOString(),
+    updatedAt: audit.updatedAt.toISOString(),
+  });
+});
+
+router.patch("/audits/:id/status", async (req, res): Promise<void> => {
+  const id = Number(req.params.id);
+  if (isNaN(id)) { res.status(400).json({ error: "Invalid audit ID" }); return; }
+
+  const { auditStatus } = req.body as { auditStatus?: string };
+  if (!auditStatus) { res.status(400).json({ error: "auditStatus is required" }); return; }
+
+  const [audit] = await db
+    .update(documentAuditsTable)
+    .set({ auditStatus })
+    .where(eq(documentAuditsTable.id, id))
+    .returning();
+
+  if (!audit) { res.status(404).json({ error: "Audit not found" }); return; }
+
+  res.json({
+    ...audit,
+    createdAt: audit.createdAt.toISOString(),
+    updatedAt: audit.updatedAt.toISOString(),
+  });
+});
+
+export default router;
