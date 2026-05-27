@@ -129,6 +129,77 @@ async function extractWord(buffer: Buffer): Promise<string> {
   return text;
 }
 
+export const DOCUMENT_TYPES = [
+  "Commercial Invoice",
+  "Packing List",
+  "Bill of Lading",
+  "Air Waybill",
+  "Certificate of Origin",
+  "Insurance",
+  "Product Catalog",
+  "Import License",
+  "Legal Document",
+  "Unknown",
+] as const;
+
+export type DocumentType = (typeof DOCUMENT_TYPES)[number];
+
+export type DetectionResult =
+  | { success: true; documentType: DocumentType }
+  | { success: false; error: string };
+
+export async function detectDocumentType(extractedText: string): Promise<DetectionResult> {
+  if (!extractedText || extractedText.trim().length < 10) {
+    return { success: true, documentType: "Unknown" };
+  }
+
+  const snippet = extractedText.slice(0, 3000);
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: `You are a trade document classifier. Classify the document text into exactly one of these types:
+- Commercial Invoice
+- Packing List
+- Bill of Lading
+- Air Waybill
+- Certificate of Origin
+- Insurance
+- Product Catalog
+- Import License
+- Legal Document
+- Unknown
+
+Rules:
+- Return ONLY the exact type name, nothing else — no explanation, no punctuation.
+- Use "Unknown" only when there is genuinely not enough information to classify.
+- Lean toward the most specific match based on structure, keywords, and content.`,
+        },
+        {
+          role: "user",
+          content: snippet,
+        },
+      ],
+      max_tokens: 10,
+      temperature: 0,
+    });
+
+    const raw = response.choices[0]?.message?.content?.trim() ?? "";
+    const matched = DOCUMENT_TYPES.find((t) => t.toLowerCase() === raw.toLowerCase());
+    const documentType: DocumentType = matched ?? "Unknown";
+
+    logger.info({ documentType, rawResponse: raw }, "Document type detected");
+    return { success: true, documentType };
+  } catch (err) {
+    const error = err instanceof Error ? err.message : "Unknown detection error";
+    logger.error({ err }, "Document type detection failed");
+    return { success: false, error };
+  }
+}
+
 export async function extractTextFromAttachment(params: {
   fileName: string;
   mimeType: string | null | undefined;

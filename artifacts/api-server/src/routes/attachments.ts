@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { eq } from "drizzle-orm";
 import { db, taskAttachmentsTable } from "@workspace/db";
-import { extractTextFromAttachment } from "../lib/extraction";
+import { extractTextFromAttachment, detectDocumentType } from "../lib/extraction";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -75,28 +75,10 @@ router.post("/attachments/:id/extract", async (req, res): Promise<void> => {
     objectPath: attachment.objectPath,
   });
 
-  if (result.success) {
+  if (!result.success) {
     const [updated] = await db
       .update(taskAttachmentsTable)
-      .set({
-        extractedText: result.text,
-        ocrStatus: "done",
-      })
-      .where(eq(taskAttachmentsTable.id, id))
-      .returning();
-
-    logger.info({ attachmentId: id }, "Text extraction succeeded");
-
-    res.json({
-      ...updated,
-      createdAt: updated.createdAt.toISOString(),
-    });
-  } else {
-    const [updated] = await db
-      .update(taskAttachmentsTable)
-      .set({
-        ocrStatus: "manual_review",
-      })
+      .set({ ocrStatus: "manual_review" })
       .where(eq(taskAttachmentsTable.id, id))
       .returning();
 
@@ -105,12 +87,83 @@ router.post("/attachments/:id/extract", async (req, res): Promise<void> => {
     res.status(422).json({
       error: "Extraction failed — file marked for manual review",
       reason: result.error,
-      attachment: {
-        ...updated,
-        createdAt: updated.createdAt.toISOString(),
-      },
+      attachment: { ...updated, createdAt: updated.createdAt.toISOString() },
     });
+    return;
   }
+
+  logger.info({ attachmentId: id }, "Text extraction succeeded, detecting document type");
+
+  const detection = await detectDocumentType(result.text);
+  const documentType = detection.success ? detection.documentType : null;
+  const isUnknown = documentType === "Unknown" || !detection.success;
+
+  const [updated] = await db
+    .update(taskAttachmentsTable)
+    .set({
+      extractedText: result.text,
+      ocrStatus: isUnknown ? "admin_review" : "done",
+      documentType: documentType ?? null,
+    })
+    .where(eq(taskAttachmentsTable.id, id))
+    .returning();
+
+  logger.info(
+    { attachmentId: id, documentType, ocrStatus: updated.ocrStatus },
+    "Extraction and detection complete",
+  );
+
+  res.json({ ...updated, createdAt: updated.createdAt.toISOString() });
+});
+
+router.post("/attachments/:id/detect-type", async (req, res): Promise<void> => {
+  const id = Number(req.params.id);
+  if (isNaN(id)) {
+    res.status(400).json({ error: "Invalid attachment ID" });
+    return;
+  }
+
+  const [attachment] = await db
+    .select()
+    .from(taskAttachmentsTable)
+    .where(eq(taskAttachmentsTable.id, id));
+
+  if (!attachment) {
+    res.status(404).json({ error: "Attachment not found" });
+    return;
+  }
+
+  if (!attachment.extractedText) {
+    res.status(422).json({ error: "No extracted text available — run /extract first" });
+    return;
+  }
+
+  logger.info({ attachmentId: id }, "Detecting document type");
+
+  const detection = await detectDocumentType(attachment.extractedText);
+
+  if (!detection.success) {
+    res.status(500).json({ error: "Document type detection failed", reason: detection.error });
+    return;
+  }
+
+  const isUnknown = detection.documentType === "Unknown";
+
+  const [updated] = await db
+    .update(taskAttachmentsTable)
+    .set({
+      documentType: detection.documentType,
+      ocrStatus: isUnknown ? "admin_review" : attachment.ocrStatus,
+    })
+    .where(eq(taskAttachmentsTable.id, id))
+    .returning();
+
+  logger.info(
+    { attachmentId: id, documentType: detection.documentType, markedAdminReview: isUnknown },
+    "Document type detection complete",
+  );
+
+  res.json({ ...updated, createdAt: updated.createdAt.toISOString() });
 });
 
 router.post("/attachments/:id/extract/batch", async (req, res): Promise<void> => {
@@ -135,7 +188,7 @@ router.post("/attachments/:id/extract/batch", async (req, res): Promise<void> =>
     .set({ ocrStatus: "processing" })
     .where(eq(taskAttachmentsTable.taskId, taskId));
 
-  res.json({ queued: attachments.length, message: "Extraction started for all attachments" });
+  res.json({ queued: attachments.length, message: "Extraction and detection started for all attachments" });
 
   setImmediate(async () => {
     for (const attachment of attachments) {
@@ -146,19 +199,29 @@ router.post("/attachments/:id/extract/batch", async (req, res): Promise<void> =>
         objectPath: attachment.objectPath,
       });
 
-      if (result.success) {
-        await db
-          .update(taskAttachmentsTable)
-          .set({ extractedText: result.text, ocrStatus: "done" })
-          .where(eq(taskAttachmentsTable.id, attachment.id));
-        logger.info({ attachmentId: attachment.id }, "Batch extraction succeeded");
-      } else {
+      if (!result.success) {
         await db
           .update(taskAttachmentsTable)
           .set({ ocrStatus: "manual_review" })
           .where(eq(taskAttachmentsTable.id, attachment.id));
         logger.warn({ attachmentId: attachment.id, error: result.error }, "Batch extraction failed");
+        continue;
       }
+
+      const detection = await detectDocumentType(result.text);
+      const documentType = detection.success ? detection.documentType : null;
+      const isUnknown = documentType === "Unknown" || !detection.success;
+
+      await db
+        .update(taskAttachmentsTable)
+        .set({
+          extractedText: result.text,
+          ocrStatus: isUnknown ? "admin_review" : "done",
+          documentType: documentType ?? null,
+        })
+        .where(eq(taskAttachmentsTable.id, attachment.id));
+
+      logger.info({ attachmentId: attachment.id, documentType }, "Batch extraction and detection complete");
     }
   });
 });
