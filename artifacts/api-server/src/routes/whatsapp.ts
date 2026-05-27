@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import { eq } from "drizzle-orm";
 import {
   db,
   whatsappMessagesTable,
@@ -6,7 +7,7 @@ import {
   taskAttachmentsTable,
   activityTable,
 } from "@workspace/db";
-import { detectIntent } from "../lib/openai";
+import { detectWhatsAppIntent } from "../lib/whatsapp-ai";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -276,65 +277,90 @@ async function runAiDetection({
   companyId: string;
 }): Promise<void> {
   try {
-    let intent = "general";
-
-    // Only run NLP for text-bearing messages
-    if (messageType === "text" || messageType === "document") {
-      intent = await detectIntent(bodyText);
-    } else if (messageType === "audio") {
-      // Placeholder for future voice transcription
-      intent = "voice_note";
-    } else {
-      intent = "attachment_submission";
-    }
-
-    const shouldCreateTask = intent !== "general";
-
-    if (shouldCreateTask) {
-      const taskNumber = `WA-${Date.now()}`;
-
-      const [task] = await db
-        .insert(aiTasksTable)
-        .values({
-          companyId,
-          taskNumber,
-          source: "whatsapp",
-          customerName: senderName ?? null,
-          customerPhone: from,
-          title: `[${intent.replace(/_/g, " ")}] ${bodyText.slice(0, 100)}`,
-          description: bodyText,
-          priority: intent === "complaint" ? "high" : "medium",
-          status: "pending",
-          aiIntent: intent,
-        })
-        .returning();
-
-      // Update message: mark AI processed and link to task
+    // Voice notes: placeholder — transcription not yet implemented
+    if (messageType === "audio") {
+      logger.info({ msgId: savedMsgId }, "Voice note received — skipping AI detection (pending transcription)");
       await db
-        .insert(whatsappMessagesTable)
-        .values({
-          companyId,
-          from,
-          senderPhone: from,
-          body: bodyText,
-          timestamp: Math.floor(Date.now() / 1000).toString(),
-          processed: true,
-          aiProcessed: true,
-          detectedIntent: intent,
-          taskId: task.id,
-        })
-        .onConflictDoNothing();
-
-      await db.insert(activityTable).values({
-        type: "task_created",
-        description: `AI task created from WhatsApp (intent: ${intent}) — ${taskNumber}`,
-        entityId: task.id,
-      });
-
-      logger.info({ taskId: task.id, taskNumber, intent }, "AI task created from WhatsApp message");
-    } else {
-      logger.info({ msgId: savedMsgId, intent }, "Message classified as general — no task created");
+        .update(whatsappMessagesTable)
+        .set({ aiProcessed: true, detectedIntent: "voice_note" })
+        .where(eq(whatsappMessagesTable.id, savedMsgId));
+      return;
     }
+
+    // Non-text attachments without caption: flag as attachment_submission
+    if ((messageType === "image" || messageType === "sticker") && !bodyText.startsWith("[")) {
+      // has caption — fall through to AI
+    } else if (messageType === "image" || messageType === "sticker") {
+      logger.info({ msgId: savedMsgId }, "Image/sticker without text — flagged as attachment_submission");
+      await db
+        .update(whatsappMessagesTable)
+        .set({ aiProcessed: true, detectedIntent: "attachment_submission" })
+        .where(eq(whatsappMessagesTable.id, savedMsgId));
+      return;
+    }
+
+    // Run full structured AI analysis
+    const result = await detectWhatsAppIntent(bodyText, {
+      name: senderName ?? null,
+      phone: from,
+      companyId,
+    });
+
+    const taskNumber = `WA-${Date.now()}`;
+    const isGeneralInquiry =
+      result.category === "General Inquiry" && result.priority === "Low";
+
+    // Always create a task — even general inquiries deserve tracking
+    const [task] = await db
+      .insert(aiTasksTable)
+      .values({
+        companyId,
+        taskNumber,
+        source: "whatsapp",
+        customerName: result.customer_name ?? senderName ?? null,
+        customerPhone: result.customer_phone ?? from,
+        title: `[${result.category}] ${bodyText.slice(0, 100)}`,
+        description: bodyText,
+        category: result.category,
+        division: result.division,
+        priority: result.priority.toLowerCase(),
+        status: "pending",
+        assignedRole: result.suggested_team,
+        aiSummary: result.suggested_reply,
+        aiIntent: result.intent,
+      })
+      .returning();
+
+    // Mark the source message as processed and linked
+    await db
+      .update(whatsappMessagesTable)
+      .set({
+        processed: true,
+        aiProcessed: true,
+        detectedIntent: result.intent,
+        taskId: task.id,
+      })
+      .where(eq(whatsappMessagesTable.id, savedMsgId));
+
+    await db.insert(activityTable).values({
+      type: "task_created",
+      description: `AI task ${taskNumber} created — ${result.category} / ${result.priority} priority (${result.intent})`,
+      entityId: task.id,
+    });
+
+    logger.info(
+      {
+        taskId: task.id,
+        taskNumber,
+        category: result.category,
+        priority: result.priority,
+        needs_quotation: result.needs_quotation,
+        needs_admin_review: result.needs_admin_review,
+        suggested_team: result.suggested_team,
+        isGeneralInquiry,
+      },
+      "AI task created from WhatsApp message",
+    );
   } catch (err) {
     logger.error({ err, msgId: savedMsgId }, "AI detection failed for message");
   }
