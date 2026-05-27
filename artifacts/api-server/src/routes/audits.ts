@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { eq, desc } from "drizzle-orm";
 import { db, taskAttachmentsTable, documentAuditsTable } from "@workspace/db";
 import { runImportAuditChecks, generateAuditNarrative, buildAuditResult, generateWhatsAppReply } from "../lib/audit";
+import { runImportAuditChecks, runCrossDocumentValidation, generateAuditNarrative, buildAuditResult } from "../lib/audit";
 import type { AuditCheckItem } from "../lib/audit";
 import { logger } from "../lib/logger";
 
@@ -19,8 +20,9 @@ router.post("/tasks/:taskId/audit", async (req, res): Promise<void> => {
   logger.info({ taskId, attachmentCount: attachments.length }, "Starting import document audit");
 
   const checks = runImportAuditChecks(attachments);
-  const narrative = await generateAuditNarrative(checks);
-  const result = buildAuditResult(checks, narrative);
+  const crossChecks = runCrossDocumentValidation(attachments);
+  const narrative = await generateAuditNarrative(checks, crossChecks);
+  const result = buildAuditResult(checks, crossChecks, narrative);
 
   const [audit] = await db
     .insert(documentAuditsTable)
@@ -34,10 +36,12 @@ router.post("/tasks/:taskId/audit", async (req, res): Promise<void> => {
       recommendation: result.recommendation,
       nextAction: result.nextAction,
       auditDetail: result.auditDetail as unknown as Record<string, unknown>[],
+      crossDocDetail: result.crossDocDetail as unknown as Record<string, unknown>[],
+      crossDocWarnings: result.crossDocWarnings,
     })
     .returning();
 
-  logger.info({ taskId, auditId: audit.id, auditStatus: audit.auditStatus }, "Audit complete");
+  logger.info({ taskId, auditId: audit.id, auditStatus: audit.auditStatus, crossDocMismatches: result.crossDocWarnings.length }, "Audit complete");
 
   res.status(201).json({
     ...audit,

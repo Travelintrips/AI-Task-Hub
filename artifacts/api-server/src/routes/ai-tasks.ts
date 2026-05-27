@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { eq, desc, and } from "drizzle-orm";
 import { db, aiTasksTable, taskCommentsTable, activityTable, taskAttachmentsTable, documentAuditsTable } from "@workspace/db";
-import { runImportAuditChecks, generateAuditNarrative, buildAuditResult } from "../lib/audit";
+import { runImportAuditChecks, runCrossDocumentValidation, generateAuditNarrative, buildAuditResult } from "../lib/audit";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -278,8 +278,9 @@ router.post("/ai-tasks/:id/audit", async (req, res): Promise<void> => {
     logger.info({ taskId, attachmentCount: attachments.length }, "Starting AI task audit");
 
     const checks = runImportAuditChecks(attachments);
-    const narrative = await generateAuditNarrative(checks);
-    const result = buildAuditResult(checks, narrative);
+    const crossChecks = runCrossDocumentValidation(attachments);
+    const narrative = await generateAuditNarrative(checks, crossChecks);
+    const result = buildAuditResult(checks, crossChecks, narrative);
 
     const [audit] = await db
       .insert(documentAuditsTable)
@@ -293,6 +294,8 @@ router.post("/ai-tasks/:id/audit", async (req, res): Promise<void> => {
         recommendation: result.recommendation,
         nextAction: result.nextAction,
         auditDetail: result.auditDetail as unknown as Record<string, unknown>[],
+        crossDocDetail: result.crossDocDetail as unknown as Record<string, unknown>[],
+        crossDocWarnings: result.crossDocWarnings,
       })
       .returning();
 
