@@ -8,6 +8,32 @@ if (!apiKey) {
 
 export const openai = new OpenAI({ apiKey: apiKey ?? "missing" });
 
+/**
+ * Transcribe an audio buffer using OpenAI Whisper.
+ * Returns the transcribed text, or null if transcription fails.
+ */
+export async function transcribeAudio(
+  audioBuffer: Buffer,
+  filename: string,
+  mimeType: string = "audio/ogg",
+): Promise<string | null> {
+  if (!apiKey) {
+    logger.warn("OPENAI_API_KEY not set — cannot transcribe audio");
+    return null;
+  }
+  try {
+    const file = new File([audioBuffer], filename, { type: mimeType });
+    const response = await openai.audio.transcriptions.create({
+      file,
+      model: "whisper-1",
+    });
+    return response.text?.trim() || null;
+  } catch (err) {
+    logger.error({ err }, "Failed to transcribe audio via OpenAI Whisper");
+    return null;
+  }
+}
+
 export async function detectIntent(messageBody: string): Promise<string> {
   try {
     const response = await openai.chat.completions.create({
