@@ -20,6 +20,7 @@ export const aiTasksTable = pgTable("ai_tasks", {
   dueDate: timestamp("due_date", { withTimezone: true }),
   aiSummary: text("ai_summary"),
   aiIntent: text("ai_intent"),
+  missingData: text("missing_data"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 });
