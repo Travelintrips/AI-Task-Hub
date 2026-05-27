@@ -242,6 +242,61 @@ export interface UploadUrlResponse {
   path: string;
 }
 
+export type WhatsAppSendRequestRecipientType = typeof WhatsAppSendRequestRecipientType[keyof typeof WhatsAppSendRequestRecipientType];
+
+
+export const WhatsAppSendRequestRecipientType = {
+  customer: 'customer',
+  admin: 'admin',
+  team: 'team',
+} as const;
+
+export type WhatsAppSendRequestTemplateName = typeof WhatsAppSendRequestTemplateName[keyof typeof WhatsAppSendRequestTemplateName];
+
+
+export const WhatsAppSendRequestTemplateName = {
+  missing_document_request: 'missing_document_request',
+  new_task_notification: 'new_task_notification',
+  task_assignment: 'task_assignment',
+  progress_update: 'progress_update',
+  customer_approval_request: 'customer_approval_request',
+  completed_task_notification: 'completed_task_notification',
+} as const;
+
+/**
+ * Template-specific variables. Keys by template: missing_document_request — customerName, taskNumber, missingDocs (string[]); new_task_notification — title, taskNumber, customerName, category, priority; task_assignment — assigneeName, title, taskNumber, dueDate; progress_update — title, status, taskNumber, customerName, updateNote; customer_approval_request — customerName, title, taskNumber, details; completed_task_notification — title, taskNumber, customerName, completedAt
+
+ */
+export type WhatsAppSendRequestVariables = { [key: string]: unknown };
+
+export interface WhatsAppSendRequest {
+  /** Recipient phone number (international format, e.g. 628123456789) */
+  to: string;
+  recipientType: WhatsAppSendRequestRecipientType;
+  templateName: WhatsAppSendRequestTemplateName;
+  /** Template-specific variables. Keys by template: missing_document_request — customerName, taskNumber, missingDocs (string[]); new_task_notification — title, taskNumber, customerName, category, priority; task_assignment — assigneeName, title, taskNumber, dueDate; progress_update — title, status, taskNumber, customerName, updateNote; customer_approval_request — customerName, title, taskNumber, details; completed_task_notification — title, taskNumber, customerName, completedAt
+   */
+  variables?: WhatsAppSendRequestVariables;
+  /** Associated task ID (optional) */
+  taskId?: number;
+  /** Company/tenant ID (defaults to "default") */
+  companyId?: string;
+}
+
+export interface WhatsAppSendResponse {
+  success: boolean;
+  /** ID of the saved whatsapp_notifications record */
+  notificationId: number;
+  /** Message ID returned by the WhatsApp gateway (if sent) */
+  externalMessageId?: string;
+  /** Rendered message body that was (or would be) sent */
+  messageText: string;
+  /** Error description if success is false */
+  error?: string;
+  /** True when gateway env vars are not set (202 response) */
+  configMissing?: boolean;
+}
+
 export interface WhatsAppReply {
   message: string;
 }

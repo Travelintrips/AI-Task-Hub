@@ -10,9 +10,61 @@ import {
 import { detectWhatsAppIntent } from "../lib/whatsapp-ai";
 import { createTaskFromWhatsAppMessage } from "../lib/task-service";
 import { transcribeAudio } from "../lib/openai";
+import { sendWhatsAppNotification, TEMPLATE_NAMES } from "../lib/whatsapp-sender";
+import type { TemplateName } from "../lib/whatsapp-sender";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
+
+// ─── POST /whatsapp/send ───────────────────────────────────────────────────────
+
+router.post("/whatsapp/send", async (req, res): Promise<void> => {
+  const {
+    to,
+    recipientType,
+    templateName,
+    variables,
+    taskId,
+    companyId,
+  } = req.body as {
+    to?: string;
+    recipientType?: string;
+    templateName?: string;
+    variables?: Record<string, unknown>;
+    taskId?: number;
+    companyId?: string;
+  };
+
+  if (!to || typeof to !== "string" || !to.trim()) {
+    res.status(400).json({ error: "Field 'to' (phone number) is required" });
+    return;
+  }
+
+  const validRecipientTypes = ["customer", "admin", "team"] as const;
+  if (!recipientType || !validRecipientTypes.includes(recipientType as typeof validRecipientTypes[number])) {
+    res.status(400).json({ error: "Field 'recipientType' must be one of: customer, admin, team" });
+    return;
+  }
+
+  if (!templateName || !(TEMPLATE_NAMES as string[]).includes(templateName)) {
+    res.status(400).json({
+      error: `Field 'templateName' must be one of: ${TEMPLATE_NAMES.join(", ")}`,
+    });
+    return;
+  }
+
+  const result = await sendWhatsAppNotification({
+    to: to.trim(),
+    recipientType: recipientType as "customer" | "admin" | "team",
+    templateName: templateName as TemplateName,
+    variables: variables ?? {},
+    taskId: taskId ?? null,
+    companyId: companyId ?? "default",
+  });
+
+  const httpStatus = result.success ? 200 : result.configMissing ? 202 : 500;
+  res.status(httpStatus).json(result);
+});
 
 type MessageType = "text" | "image" | "document" | "audio" | "video" | "sticker" | "location" | "unknown";
 

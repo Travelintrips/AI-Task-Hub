@@ -38,3 +38,8 @@ export * from './webhookPayload';
 export * from './webhookPayloadEntryItem';
 export * from './whatsAppMessage';
 export * from './whatsAppReply';
+export * from './whatsAppSendRequest';
+export * from './whatsAppSendRequestRecipientType';
+export * from './whatsAppSendRequestTemplateName';
+export * from './whatsAppSendRequestVariables';
+export * from './whatsAppSendResponse';

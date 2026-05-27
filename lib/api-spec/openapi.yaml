@@ -22,6 +22,8 @@ tags:
     description: Dashboard summaries and stats
   - name: audits
     description: Document audit results and WhatsApp reply generation
+  - name: whatsapp-send
+    description: WhatsApp outbound notification sender
 
 paths:
   /healthz:
@@ -464,6 +466,36 @@ paths:
                 items:
                   $ref: "#/components/schemas/ActivityItem"
 
+  # ── WhatsApp Send ─────────────────────────────────────────────────────────────
+  /whatsapp/send:
+    post:
+      operationId: sendWhatsAppNotification
+      tags: [whatsapp-send]
+      summary: Send a templated WhatsApp notification to a customer, admin, or team member
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WhatsAppSendRequest"
+      responses:
+        "200":
+          description: Message sent successfully
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WhatsAppSendResponse"
+        "202":
+          description: Notification saved but not sent (gateway not configured)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WhatsAppSendResponse"
+        "400":
+          description: Validation error
+        "500":
+          description: Gateway error
+
   # ── Audits ───────────────────────────────────────────────────────────────────
   /audits/{id}/whatsapp-reply:
     post:
@@ -773,6 +805,66 @@ components:
           type: string
         path:
           type: string
+
+    # ── WhatsApp Send ─────────────────────────────────────────────────────────
+    WhatsAppSendRequest:
+      type: object
+      required: [to, recipientType, templateName]
+      properties:
+        to:
+          type: string
+          description: Recipient phone number (international format, e.g. 628123456789)
+        recipientType:
+          type: string
+          enum: [customer, admin, team]
+        templateName:
+          type: string
+          enum:
+            - missing_document_request
+            - new_task_notification
+            - task_assignment
+            - progress_update
+            - customer_approval_request
+            - completed_task_notification
+        variables:
+          type: object
+          additionalProperties: true
+          description: >
+            Template-specific variables. Keys by template:
+            missing_document_request — customerName, taskNumber, missingDocs (string[]);
+            new_task_notification — title, taskNumber, customerName, category, priority;
+            task_assignment — assigneeName, title, taskNumber, dueDate;
+            progress_update — title, status, taskNumber, customerName, updateNote;
+            customer_approval_request — customerName, title, taskNumber, details;
+            completed_task_notification — title, taskNumber, customerName, completedAt
+        taskId:
+          type: integer
+          description: Associated task ID (optional)
+        companyId:
+          type: string
+          description: Company/tenant ID (defaults to "default")
+
+    WhatsAppSendResponse:
+      type: object
+      required: [success, notificationId, messageText]
+      properties:
+        success:
+          type: boolean
+        notificationId:
+          type: integer
+          description: ID of the saved whatsapp_notifications record
+        externalMessageId:
+          type: string
+          description: Message ID returned by the WhatsApp gateway (if sent)
+        messageText:
+          type: string
+          description: Rendered message body that was (or would be) sent
+        error:
+          type: string
+          description: Error description if success is false
+        configMissing:
+          type: boolean
+          description: True when gateway env vars are not set (202 response)
 
     # ── Audit WhatsApp Reply ──────────────────────────────────────────────────
     WhatsAppReply:

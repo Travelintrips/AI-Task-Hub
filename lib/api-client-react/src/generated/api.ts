@@ -42,7 +42,9 @@ import type {
   VerifyWhatsAppWebhookParams,
   WebhookPayload,
   WhatsAppMessage,
-  WhatsAppReply
+  WhatsAppReply,
+  WhatsAppSendRequest,
+  WhatsAppSendResponse
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -1839,6 +1841,77 @@ export function useGetRecentActivity<TData = Awaited<ReturnType<typeof getRecent
 
 
 
+
+export const getSendWhatsAppNotificationUrl = () => {
+
+
+
+
+  return `/api/whatsapp/send`
+}
+
+/**
+ * @summary Send a templated WhatsApp notification to a customer, admin, or team member
+ */
+export const sendWhatsAppNotification = async (whatsAppSendRequest: WhatsAppSendRequest, options?: RequestInit): Promise<WhatsAppSendResponse> => {
+
+  return customFetch<WhatsAppSendResponse>(getSendWhatsAppNotificationUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      whatsAppSendRequest,)
+  }
+);}
+
+
+
+
+export const getSendWhatsAppNotificationMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendWhatsAppNotification>>, TError,{data: BodyType<WhatsAppSendRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof sendWhatsAppNotification>>, TError,{data: BodyType<WhatsAppSendRequest>}, TContext> => {
+
+const mutationKey = ['sendWhatsAppNotification'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof sendWhatsAppNotification>>, {data: BodyType<WhatsAppSendRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  sendWhatsAppNotification(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SendWhatsAppNotificationMutationResult = NonNullable<Awaited<ReturnType<typeof sendWhatsAppNotification>>>
+    export type SendWhatsAppNotificationMutationBody = BodyType<WhatsAppSendRequest>
+    export type SendWhatsAppNotificationMutationError = ErrorType<void>
+
+    /**
+ * @summary Send a templated WhatsApp notification to a customer, admin, or team member
+ */
+export const useSendWhatsAppNotification = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendWhatsAppNotification>>, TError,{data: BodyType<WhatsAppSendRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof sendWhatsAppNotification>>,
+        TError,
+        {data: BodyType<WhatsAppSendRequest>},
+        TContext
+      > => {
+      return useMutation(getSendWhatsAppNotificationMutationOptions(options));
+    }
 
 export const getGenerateWhatsAppReplyUrl = (id: number,) => {
 

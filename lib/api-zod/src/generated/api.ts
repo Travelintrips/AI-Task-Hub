@@ -439,6 +439,28 @@ export const GetRecentActivityResponse = zod.array(GetRecentActivityResponseItem
 
 
 /**
+ * @summary Send a templated WhatsApp notification to a customer, admin, or team member
+ */
+export const SendWhatsAppNotificationBody = zod.object({
+  "to": zod.string().describe('Recipient phone number (international format, e.g. 628123456789)'),
+  "recipientType": zod.enum(['customer', 'admin', 'team']),
+  "templateName": zod.enum(['missing_document_request', 'new_task_notification', 'task_assignment', 'progress_update', 'customer_approval_request', 'completed_task_notification']),
+  "variables": zod.record(zod.string(), zod.unknown()).optional().describe('Template-specific variables. Keys by template: missing_document_request — customerName, taskNumber, missingDocs (string[]); new_task_notification — title, taskNumber, customerName, category, priority; task_assignment — assigneeName, title, taskNumber, dueDate; progress_update — title, status, taskNumber, customerName, updateNote; customer_approval_request — customerName, title, taskNumber, details; completed_task_notification — title, taskNumber, customerName, completedAt\n'),
+  "taskId": zod.number().optional().describe('Associated task ID (optional)'),
+  "companyId": zod.string().optional().describe('Company\/tenant ID (defaults to \"default\")')
+})
+
+export const SendWhatsAppNotificationResponse = zod.object({
+  "success": zod.boolean(),
+  "notificationId": zod.number().describe('ID of the saved whatsapp_notifications record'),
+  "externalMessageId": zod.string().optional().describe('Message ID returned by the WhatsApp gateway (if sent)'),
+  "messageText": zod.string().describe('Rendered message body that was (or would be) sent'),
+  "error": zod.string().optional().describe('Error description if success is false'),
+  "configMissing": zod.boolean().optional().describe('True when gateway env vars are not set (202 response)')
+})
+
+
+/**
  * @summary Generate a polite Indonesian WhatsApp follow-up for missing audit items
  */
 export const GenerateWhatsAppReplyParams = zod.object({
