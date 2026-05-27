@@ -1,1 +1,2 @@
 - [Object Storage upload flow](object-storage-upload-flow.md) — upload goes client → request-url → GCS presigned PUT → POST attachments endpoint; no server-side streaming needed.
+- [AI Task Center setup quirks](ai-task-center-setup.md) — Node 20 Supabase WebSocket fix + TanStack Query deduplication required on import.

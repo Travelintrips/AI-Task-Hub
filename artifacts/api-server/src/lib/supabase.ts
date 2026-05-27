@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import ws from "ws";
 import { logger } from "./logger";
 
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -9,7 +10,9 @@ if (!supabaseUrl || !supabaseServiceKey) {
 }
 
 export const supabase = supabaseUrl && supabaseServiceKey
-  ? createClient(supabaseUrl, supabaseServiceKey)
+  ? createClient(supabaseUrl, supabaseServiceKey, {
+      realtime: { transport: ws as unknown as typeof WebSocket },
+    })
   : null;
 
 const BUCKET = "ai-task-center-documents";
