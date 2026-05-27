@@ -6,7 +6,8 @@ import { format } from "date-fns";
 
 export default function Dashboard() {
   const { data: stats, isLoading: statsLoading } = useGetDashboardStats({ query: { queryKey: getGetDashboardStatsQueryKey() } });
-  const { data: activities, isLoading: activitiesLoading } = useGetRecentActivity({ query: { queryKey: getGetRecentActivityQueryKey() } });
+  const { data: activitiesRaw, isLoading: activitiesLoading } = useGetRecentActivity({ query: { queryKey: getGetRecentActivityQueryKey() } });
+  const activities = Array.isArray(activitiesRaw) ? activitiesRaw : [];
 
   return (
     <div className="p-8 max-w-7xl mx-auto w-full space-y-8">
@@ -22,12 +23,12 @@ export default function Dashboard() {
         </div>
       ) : stats ? (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-          <StatCard title="Open Tasks" value={stats.openTasks} icon={CheckSquare} description={`${stats.totalTasks} total tasks`} />
-          <StatCard title="Urgent Tasks" value={stats.urgentTasks} icon={AlertCircle} description="Requires immediate attention" valueClass="text-destructive" />
-          <StatCard title="Pending Messages" value={stats.pendingMessages} icon={MessageSquare} description={`${stats.totalMessages} total received`} />
-          <StatCard title="Completed Tasks" value={stats.completedTasks} icon={CheckSquare} description="All time" />
-          <StatCard title="Audited Documents" value={stats.auditedDocuments} icon={FileText} description={`${stats.totalDocuments} total documents`} />
-          <StatCard title="Team Members" value={stats.teamSize} icon={Users} description="Active on platform" />
+          <StatCard title="Open Tasks" value={(stats as any).openTasks} icon={CheckSquare} description={`${(stats as any).totalTasks} total tasks`} />
+          <StatCard title="Urgent Tasks" value={(stats as any).urgentTasks} icon={AlertCircle} description="Requires immediate attention" valueClass="text-destructive" />
+          <StatCard title="Pending Messages" value={(stats as any).pendingMessages} icon={MessageSquare} description={`${(stats as any).totalMessages} total received`} />
+          <StatCard title="Completed Tasks" value={(stats as any).completedTasks} icon={CheckSquare} description="All time" />
+          <StatCard title="Audited Documents" value={(stats as any).auditedDocuments} icon={FileText} description={`${(stats as any).totalDocuments} total documents`} />
+          <StatCard title="Team Members" value={(stats as any).teamSize} icon={Users} description="Active on platform" />
         </div>
       ) : null}
 
@@ -43,14 +44,16 @@ export default function Dashboard() {
                   <Skeleton key={i} className="h-12 w-full" />
                 ))}
               </div>
-            ) : activities && activities.length > 0 ? (
+            ) : activities.length > 0 ? (
               <div className="space-y-4">
-                {activities.map((activity) => (
+                {activities.map((activity: any) => (
                   <div key={activity.id} className="flex items-center gap-4 text-sm border-b pb-4 last:border-0 last:pb-0">
                     <Activity className="h-4 w-4 text-muted-foreground shrink-0" />
                     <div className="flex-1">
                       <p className="font-medium">{activity.description}</p>
-                      <p className="text-muted-foreground text-xs">{format(new Date(activity.createdAt), "PPp")}</p>
+                      <p className="text-muted-foreground text-xs">
+                        {activity.createdAt ? format(new Date(activity.createdAt), "PPp") : ""}
+                      </p>
                     </div>
                   </div>
                 ))}
@@ -75,7 +78,7 @@ function StatCard({ title, value, icon: Icon, description, valueClass = "" }: an
         <Icon className="h-4 w-4 text-muted-foreground" />
       </CardHeader>
       <CardContent>
-        <div className={`text-2xl font-bold ${valueClass}`}>{value}</div>
+        <div className={`text-2xl font-bold ${valueClass}`}>{value ?? 0}</div>
         <p className="text-xs text-muted-foreground">{description}</p>
       </CardContent>
     </Card>

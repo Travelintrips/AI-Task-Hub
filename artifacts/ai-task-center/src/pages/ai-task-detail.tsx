@@ -1,6 +1,7 @@
 import { useState, useRef } from "react";
 import { useParams, Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { TaskAuditPanel } from "@/components/task-audit-panel";
 import { formatDistanceToNow, format } from "date-fns";
 import {
   ArrowLeft,
@@ -361,6 +362,9 @@ export default function AiTaskDetail() {
 
         {/* ── Right / Sidebar ───────────────────────────────────────────────── */}
         <div className="space-y-5">
+
+          {/* Audit Panel */}
+          <TaskAuditPanel taskId={Number(id)} />
 
           {/* Meta */}
           <div className="bg-gray-50 rounded-lg p-4 space-y-2 text-sm">

@@ -9,6 +9,7 @@ import {
 } from "@workspace/db";
 import { detectWhatsAppIntent } from "../lib/whatsapp-ai";
 import { createTaskFromWhatsAppMessage } from "../lib/task-service";
+import { transcribeAudio } from "../lib/openai";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -17,6 +18,7 @@ type MessageType = "text" | "image" | "document" | "audio" | "video" | "sticker"
 
 interface AttachmentInfo {
   url?: string;
+  mediaId?: string;
   mimeType?: string;
   filename?: string;
 }
@@ -61,13 +63,16 @@ function extractMessageContent(msg: Record<string, unknown>): {
 
   if (type === "audio") {
     const audio = msg.audio as Record<string, unknown> | undefined;
+    const mimeType = audio?.mime_type as string | undefined;
+    const ext = mimeType?.split("/")[1]?.split(";")[0] ?? "ogg";
     return {
       type: "audio",
       text: null,
       attachment: {
         url: audio?.link as string | undefined,
-        mimeType: audio?.mime_type as string | undefined,
-        filename: `voice_${Date.now()}.ogg`,
+        mediaId: audio?.id as string | undefined,
+        mimeType,
+        filename: `voice_${Date.now()}.${ext}`,
       },
     };
   }
@@ -113,6 +118,45 @@ function resolveDocumentType(mimeType: string | undefined, filename: string | un
   if (mime.includes("audio") || mime.includes("ogg")) return "voice";
   if (mime.includes("video")) return "video";
   return "document";
+}
+
+/**
+ * Download a WhatsApp media file using the Media API.
+ * Handles the two-step flow: get URL, then download with auth.
+ */
+async function downloadWhatsAppMedia(
+  mediaId: string,
+): Promise<{ buffer: Buffer; mimeType: string; filename: string } | null> {
+  const token = process.env.WHATSAPP_TOKEN;
+  if (!token) {
+    logger.warn("WHATSAPP_TOKEN not set — cannot download WhatsApp media");
+    return null;
+  }
+  try {
+    const metaRes = await fetch(`https://graph.facebook.com/v18.0/${mediaId}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!metaRes.ok) {
+      logger.error({ status: metaRes.status, mediaId }, "Failed to get WhatsApp media URL");
+      return null;
+    }
+    const meta = (await metaRes.json()) as { url: string; mime_type?: string };
+    const dlRes = await fetch(meta.url, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!dlRes.ok) {
+      logger.error({ status: dlRes.status, mediaId }, "Failed to download WhatsApp media");
+      return null;
+    }
+    const mimeType = meta.mime_type ?? "audio/ogg";
+    const ext = mimeType.split("/")[1]?.split(";")[0] ?? "ogg";
+    const filename = `voice_${Date.now()}.${ext}`;
+    const buffer = Buffer.from(await dlRes.arrayBuffer());
+    return { buffer, mimeType, filename };
+  } catch (err) {
+    logger.error({ err, mediaId }, "Exception downloading WhatsApp media");
+    return null;
+  }
 }
 
 /**
@@ -253,7 +297,16 @@ async function processIncomingMessage({
 
     // 4. Trigger AI detection (non-blocking — errors are caught)
     setImmediate(() => {
-      runAiDetection({ savedMsgId: savedMsg.id, from, senderName, bodyText, messageType, companyId }).catch((err) => {
+      runAiDetection({
+        savedMsgId: savedMsg.id,
+        from,
+        senderName,
+        bodyText,
+        messageType,
+        companyId,
+        attachmentUrl: attachment?.url ?? null,
+        mediaId: attachment?.mediaId ?? null,
+      }).catch((err) => {
         logger.error({ err, msgId: savedMsg.id }, "AI detection background task failed");
       });
     });
@@ -269,6 +322,8 @@ async function runAiDetection({
   bodyText,
   messageType,
   companyId,
+  attachmentUrl,
+  mediaId,
 }: {
   savedMsgId: number;
   from: string;
@@ -276,15 +331,60 @@ async function runAiDetection({
   bodyText: string;
   messageType: string;
   companyId: string;
+  attachmentUrl?: string | null;
+  mediaId?: string | null;
 }): Promise<void> {
   try {
-    // Voice notes: placeholder — transcription not yet implemented
+    // Voice notes: transcribe with OpenAI Whisper, then run full AI detection
     if (messageType === "audio") {
-      logger.info({ msgId: savedMsgId }, "Voice note received — skipping AI detection (pending transcription)");
-      await db
-        .update(whatsappMessagesTable)
-        .set({ aiProcessed: true, detectedIntent: "voice_note" })
-        .where(eq(whatsappMessagesTable.id, savedMsgId));
+      logger.info({ msgId: savedMsgId, hasMediaId: !!mediaId, hasUrl: !!attachmentUrl }, "Voice note received — attempting Whisper transcription");
+
+      let transcript: string | null = null;
+
+      if (mediaId) {
+        const media = await downloadWhatsAppMedia(mediaId);
+        if (media) {
+          transcript = await transcribeAudio(media.buffer, media.filename, media.mimeType);
+        }
+      } else if (attachmentUrl) {
+        try {
+          const res = await fetch(attachmentUrl);
+          if (res.ok) {
+            const buffer = Buffer.from(await res.arrayBuffer());
+            transcript = await transcribeAudio(buffer, `voice_${Date.now()}.ogg`, "audio/ogg");
+          }
+        } catch (dlErr) {
+          logger.error({ dlErr, attachmentUrl }, "Failed to download audio from direct URL");
+        }
+      }
+
+      if (transcript) {
+        logger.info({ msgId: savedMsgId, chars: transcript.length }, "Voice note transcribed — running intent detection");
+
+        await db
+          .update(whatsappMessagesTable)
+          .set({ body: `[Voice Note] ${transcript}`, messageText: transcript })
+          .where(eq(whatsappMessagesTable.id, savedMsgId));
+
+        const result = await detectWhatsAppIntent(transcript, {
+          name: senderName ?? null,
+          phone: from,
+          companyId,
+        });
+
+        await createTaskFromWhatsAppMessage({ savedMsgId, from, senderName, bodyText: transcript, companyId, result });
+
+        await db
+          .update(whatsappMessagesTable)
+          .set({ aiProcessed: true, detectedIntent: result.intent })
+          .where(eq(whatsappMessagesTable.id, savedMsgId));
+      } else {
+        logger.warn({ msgId: savedMsgId }, "Voice note transcription failed — marking as voice_note");
+        await db
+          .update(whatsappMessagesTable)
+          .set({ aiProcessed: true, detectedIntent: "voice_note" })
+          .where(eq(whatsappMessagesTable.id, savedMsgId));
+      }
       return;
     }
 
