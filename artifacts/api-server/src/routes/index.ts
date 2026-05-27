@@ -5,6 +5,7 @@ import teamRouter from "./team";
 import messagesRouter from "./messages";
 import documentsRouter from "./documents";
 import dashboardRouter from "./dashboard";
+import whatsappRouter from "./whatsapp";
 
 const router: IRouter = Router();
 
@@ -14,5 +15,6 @@ router.use(teamRouter);
 router.use(messagesRouter);
 router.use(documentsRouter);
 router.use(dashboardRouter);
+router.use(whatsappRouter);
 
 export default router;
