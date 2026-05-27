@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { eq, desc, and } from "drizzle-orm";
-import { db, aiTasksTable, taskCommentsTable, activityTable, taskAttachmentsTable } from "@workspace/db";
+import { db, aiTasksTable, taskCommentsTable, activityTable, taskAttachmentsTable, documentAuditsTable } from "@workspace/db";
+import { runImportAuditChecks, generateAuditNarrative, buildAuditResult } from "../lib/audit";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -231,6 +232,85 @@ router.post("/ai-tasks/:id/attachments", async (req, res): Promise<void> => {
     res.status(201).json({ ...attachment, createdAt: attachment.createdAt.toISOString() });
   } catch (err) {
     logger.error({ err }, "POST /ai-tasks/:id/attachments failed");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── GET /ai-tasks/:id/audit ─────────────────────────────────────────────────
+
+router.get("/ai-tasks/:id/audit", async (req, res): Promise<void> => {
+  try {
+    const taskId = parseInt(req.params.id, 10);
+    if (isNaN(taskId)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+    const [audit] = await db
+      .select()
+      .from(documentAuditsTable)
+      .where(eq(documentAuditsTable.taskId, taskId))
+      .orderBy(desc(documentAuditsTable.createdAt))
+      .limit(1);
+
+    if (!audit) { res.status(404).json({ error: "No audit found" }); return; }
+
+    res.json({
+      ...audit,
+      createdAt: audit.createdAt.toISOString(),
+      updatedAt: audit.updatedAt.toISOString(),
+    });
+  } catch (err) {
+    logger.error({ err }, "GET /ai-tasks/:id/audit failed");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── POST /ai-tasks/:id/audit ─────────────────────────────────────────────────
+
+router.post("/ai-tasks/:id/audit", async (req, res): Promise<void> => {
+  try {
+    const taskId = parseInt(req.params.id, 10);
+    if (isNaN(taskId)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+    const attachments = await db
+      .select()
+      .from(taskAttachmentsTable)
+      .where(eq(taskAttachmentsTable.taskId, taskId));
+
+    logger.info({ taskId, attachmentCount: attachments.length }, "Starting AI task audit");
+
+    const checks = runImportAuditChecks(attachments);
+    const narrative = await generateAuditNarrative(checks);
+    const result = buildAuditResult(checks, narrative);
+
+    const [audit] = await db
+      .insert(documentAuditsTable)
+      .values({
+        taskId,
+        auditStatus: result.auditStatus,
+        completeFields: result.completeFields,
+        missingFields: result.missingFields,
+        mismatchFields: result.mismatchFields,
+        unclearFields: result.unclearFields,
+        recommendation: result.recommendation,
+        nextAction: result.nextAction,
+        auditDetail: result.auditDetail as unknown as Record<string, unknown>[],
+      })
+      .returning();
+
+    await db.insert(activityTable).values({
+      type: "task_updated",
+      description: `Document audit run for task ${taskId} — status: ${audit.auditStatus}`,
+      entityId: taskId,
+    });
+
+    logger.info({ taskId, auditId: audit.id, auditStatus: audit.auditStatus }, "AI task audit complete");
+
+    res.status(201).json({
+      ...audit,
+      createdAt: audit.createdAt.toISOString(),
+      updatedAt: audit.updatedAt.toISOString(),
+    });
+  } catch (err) {
+    logger.error({ err }, "POST /ai-tasks/:id/audit failed");
     res.status(500).json({ error: "Internal server error" });
   }
 });
