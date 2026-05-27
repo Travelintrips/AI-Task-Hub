@@ -7,9 +7,14 @@ export const taskAttachmentsTable = pgTable("task_attachments", {
   taskId: integer("task_id").notNull(),
   fileName: text("file_name").notNull(),
   fileUrl: text("file_url"),
+  objectPath: text("object_path"),
+  mimeType: text("mime_type"),
+  fileSize: integer("file_size"),
   fileType: text("file_type"),
   documentType: text("document_type"),
+  ocrStatus: text("ocr_status").default("pending"),
   extractedText: text("extracted_text"),
+  uploadedBy: text("uploaded_by"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

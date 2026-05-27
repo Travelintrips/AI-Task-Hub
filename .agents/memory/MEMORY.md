@@ -1,0 +1,1 @@
+- [Object Storage upload flow](object-storage-upload-flow.md) — upload goes client → request-url → GCS presigned PUT → POST attachments endpoint; no server-side streaming needed.

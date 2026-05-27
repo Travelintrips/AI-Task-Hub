@@ -7,6 +7,7 @@ import documentsRouter from "./documents";
 import dashboardRouter from "./dashboard";
 import whatsappRouter from "./whatsapp";
 import aiTasksRouter from "./ai-tasks";
+import storageRouter from "./storage";
 
 const router: IRouter = Router();
 
@@ -18,5 +19,6 @@ router.use(documentsRouter);
 router.use(dashboardRouter);
 router.use(whatsappRouter);
 router.use(aiTasksRouter);
+router.use(storageRouter);
 
 export default router;

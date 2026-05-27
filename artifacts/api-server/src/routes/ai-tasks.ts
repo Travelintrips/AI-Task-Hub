@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
-import { eq, desc, ilike, and, or } from "drizzle-orm";
-import { db, aiTasksTable, taskCommentsTable, activityTable } from "@workspace/db";
+import { eq, desc, and } from "drizzle-orm";
+import { db, aiTasksTable, taskCommentsTable, activityTable, taskAttachmentsTable } from "@workspace/db";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -154,6 +154,102 @@ router.post("/ai-tasks/:id/comments", async (req, res): Promise<void> => {
     res.status(201).json({ ...saved, createdAt: saved.createdAt.toISOString() });
   } catch (err) {
     logger.error({ err }, "POST /ai-tasks/:id/comments failed");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── GET /ai-tasks/:id/attachments ───────────────────────────────────────────
+
+router.get("/ai-tasks/:id/attachments", async (req, res): Promise<void> => {
+  try {
+    const taskId = parseInt(req.params.id, 10);
+    if (isNaN(taskId)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+    const attachments = await db
+      .select()
+      .from(taskAttachmentsTable)
+      .where(eq(taskAttachmentsTable.taskId, taskId))
+      .orderBy(desc(taskAttachmentsTable.createdAt));
+
+    res.json(attachments.map((a) => ({ ...a, createdAt: a.createdAt.toISOString() })));
+  } catch (err) {
+    logger.error({ err }, "GET /ai-tasks/:id/attachments failed");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── POST /ai-tasks/:id/attachments ──────────────────────────────────────────
+// Called after the client has uploaded the file directly to object storage.
+
+router.post("/ai-tasks/:id/attachments", async (req, res): Promise<void> => {
+  try {
+    const taskId = parseInt(req.params.id, 10);
+    if (isNaN(taskId)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+    const { fileName, objectPath, mimeType, fileSize, documentType, uploadedBy } = req.body as {
+      fileName: string;
+      objectPath: string;
+      mimeType?: string;
+      fileSize?: number;
+      documentType?: string;
+      uploadedBy?: string;
+    };
+
+    if (!fileName || !objectPath) {
+      res.status(400).json({ error: "fileName and objectPath are required" });
+      return;
+    }
+
+    const fileType = mimeType?.startsWith("image/")
+      ? "image"
+      : mimeType === "application/pdf"
+      ? "pdf"
+      : mimeType?.includes("word")
+      ? "word"
+      : mimeType?.includes("sheet") || mimeType?.includes("excel")
+      ? "spreadsheet"
+      : "document";
+
+    const fileUrl = `/api/storage/objects${objectPath}`;
+
+    const [attachment] = await db
+      .insert(taskAttachmentsTable)
+      .values({
+        taskId,
+        fileName,
+        fileUrl,
+        objectPath,
+        mimeType,
+        fileSize,
+        fileType,
+        documentType: documentType ?? null,
+        ocrStatus: "pending",
+        uploadedBy: uploadedBy ?? null,
+      })
+      .returning();
+
+    res.status(201).json({ ...attachment, createdAt: attachment.createdAt.toISOString() });
+  } catch (err) {
+    logger.error({ err }, "POST /ai-tasks/:id/attachments failed");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── DELETE /ai-tasks/:id/attachments/:attachmentId ──────────────────────────
+
+router.delete("/ai-tasks/:id/attachments/:attachmentId", async (req, res): Promise<void> => {
+  try {
+    const taskId = parseInt(req.params.id, 10);
+    const attachmentId = parseInt(req.params.attachmentId, 10);
+    if (isNaN(taskId) || isNaN(attachmentId)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+    await db
+      .delete(taskAttachmentsTable)
+      .where(and(eq(taskAttachmentsTable.id, attachmentId), eq(taskAttachmentsTable.taskId, taskId)));
+
+    res.status(204).end();
+  } catch (err) {
+    logger.error({ err }, "DELETE /ai-tasks/:id/attachments failed");
     res.status(500).json({ error: "Internal server error" });
   }
 });

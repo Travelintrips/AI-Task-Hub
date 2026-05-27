@@ -9,6 +9,7 @@ import Dashboard from "@/pages/dashboard";
 import Tasks from "@/pages/tasks";
 import TaskDetail from "@/pages/task-detail";
 import AiTaskBoard from "@/pages/ai-task-board";
+import AiTaskDetail from "@/pages/ai-task-detail";
 import Messages from "@/pages/messages";
 import Documents from "@/pages/documents";
 import Team from "@/pages/team";
@@ -23,6 +24,7 @@ function Router() {
         <Route path="/tasks" component={Tasks} />
         <Route path="/tasks/:id" component={TaskDetail} />
         <Route path="/ai-tasks" component={AiTaskBoard} />
+        <Route path="/ai-tasks/:id" component={AiTaskDetail} />
         <Route path="/messages" component={Messages} />
         <Route path="/documents" component={Documents} />
         <Route path="/team" component={Team} />
