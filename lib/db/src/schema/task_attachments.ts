@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp, integer } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, integer, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -14,6 +14,7 @@ export const taskAttachmentsTable = pgTable("task_attachments", {
   documentType: text("document_type"),
   ocrStatus: text("ocr_status").default("pending"),
   extractedText: text("extracted_text"),
+  extractedFields: jsonb("extracted_fields"),
   uploadedBy: text("uploaded_by"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });

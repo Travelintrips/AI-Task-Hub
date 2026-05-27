@@ -200,6 +200,130 @@ Rules:
   }
 }
 
+export interface DocumentFields {
+  importer_name: string | null;
+  supplier_name: string | null;
+  invoice_number: string | null;
+  invoice_date: string | null;
+  hs_code: string | null;
+  item_description: string | null;
+  quantity: string | null;
+  unit_price: string | null;
+  total_value: string | null;
+  currency: string | null;
+  gross_weight: string | null;
+  net_weight: string | null;
+  dimensions: string | null;
+  incoterm: string | null;
+  port_of_loading: string | null;
+  port_of_discharge: string | null;
+  country_of_origin: string | null;
+  delivery_address: string | null;
+  package_count: string | null;
+  machine_condition_new_or_used: string | null;
+}
+
+export type FieldExtractionResult =
+  | { success: true; fields: DocumentFields }
+  | { success: false; error: string };
+
+const FIELD_EXTRACTION_SYSTEM_PROMPT = `You are a trade document parser. Extract structured fields from the document text.
+
+Return ONLY a valid JSON object with these exact keys (use null for any field not found):
+{
+  "importer_name": string or null,
+  "supplier_name": string or null,
+  "invoice_number": string or null,
+  "invoice_date": string or null,
+  "hs_code": string or null,
+  "item_description": string or null,
+  "quantity": string or null,
+  "unit_price": string or null,
+  "total_value": string or null,
+  "currency": string or null,
+  "gross_weight": string or null,
+  "net_weight": string or null,
+  "dimensions": string or null,
+  "incoterm": string or null,
+  "port_of_loading": string or null,
+  "port_of_discharge": string or null,
+  "country_of_origin": string or null,
+  "delivery_address": string or null,
+  "package_count": string or null,
+  "machine_condition_new_or_used": string or null
+}
+
+Rules:
+- Return ONLY the JSON object — no markdown, no explanation, no code fences.
+- Preserve original values as strings (do not convert units or currencies).
+- For machine_condition_new_or_used: return "New", "Used", or null.
+- For incoterm: return the standard 3-letter code (e.g. "FOB", "CIF", "EXW") if found.
+- For hs_code: return the most specific code found (e.g. "8542.31.9000").
+- If multiple items exist, summarise item_description as a comma-separated list and sum quantity/total_value where logical.`;
+
+export async function extractDocumentFields(
+  extractedText: string,
+  documentType?: string | null,
+): Promise<FieldExtractionResult> {
+  if (!extractedText || extractedText.trim().length < 10) {
+    return {
+      success: true,
+      fields: Object.fromEntries(
+        [
+          "importer_name","supplier_name","invoice_number","invoice_date","hs_code",
+          "item_description","quantity","unit_price","total_value","currency",
+          "gross_weight","net_weight","dimensions","incoterm","port_of_loading",
+          "port_of_discharge","country_of_origin","delivery_address","package_count",
+          "machine_condition_new_or_used",
+        ].map((k) => [k, null]),
+      ) as DocumentFields,
+    };
+  }
+
+  const snippet = extractedText.slice(0, 6000);
+  const userContent = documentType
+    ? `Document type: ${documentType}\n\n${snippet}`
+    : snippet;
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: FIELD_EXTRACTION_SYSTEM_PROMPT },
+        { role: "user", content: userContent },
+      ],
+      max_tokens: 1024,
+      temperature: 0,
+      response_format: { type: "json_object" },
+    });
+
+    const raw = response.choices[0]?.message?.content?.trim() ?? "{}";
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+
+    const FIELD_KEYS: (keyof DocumentFields)[] = [
+      "importer_name","supplier_name","invoice_number","invoice_date","hs_code",
+      "item_description","quantity","unit_price","total_value","currency",
+      "gross_weight","net_weight","dimensions","incoterm","port_of_loading",
+      "port_of_discharge","country_of_origin","delivery_address","package_count",
+      "machine_condition_new_or_used",
+    ];
+
+    const fields = Object.fromEntries(
+      FIELD_KEYS.map((k) => {
+        const val = parsed[k];
+        return [k, typeof val === "string" && val.length > 0 ? val : null];
+      }),
+    ) as DocumentFields;
+
+    logger.info({ documentType, fieldsFound: FIELD_KEYS.filter((k) => fields[k] !== null).length }, "Document fields extracted");
+    return { success: true, fields };
+  } catch (err) {
+    const error = err instanceof Error ? err.message : "Unknown field extraction error";
+    logger.error({ err }, "Document field extraction failed");
+    return { success: false, error };
+  }
+}
+
 export async function extractTextFromAttachment(params: {
   fileName: string;
   mimeType: string | null | undefined;
