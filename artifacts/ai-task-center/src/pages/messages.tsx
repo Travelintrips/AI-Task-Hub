@@ -104,7 +104,7 @@ export default function Messages() {
                 </div>
                 <div className="text-xs text-muted-foreground flex items-center gap-1">
                   <Clock className="h-3 w-3" />
-                  {format(new Date(msg.timestamp), "PPp")}
+                  {format(new Date(Number(msg.timestamp) * 1000), "PPp")}
                 </div>
               </CardHeader>
               <CardContent className="pb-4">
