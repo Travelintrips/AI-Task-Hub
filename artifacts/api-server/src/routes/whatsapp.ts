@@ -8,6 +8,7 @@ import {
   activityTable,
 } from "@workspace/db";
 import { detectWhatsAppIntent } from "../lib/whatsapp-ai";
+import { createTaskFromWhatsAppMessage } from "../lib/task-service";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -306,61 +307,32 @@ async function runAiDetection({
       companyId,
     });
 
-    const taskNumber = `WA-${Date.now()}`;
-    const isGeneralInquiry =
-      result.category === "General Inquiry" && result.priority === "Low";
-
-    // Always create a task — even general inquiries deserve tracking
-    const [task] = await db
-      .insert(aiTasksTable)
-      .values({
-        companyId,
-        taskNumber,
-        source: "whatsapp",
-        customerName: result.customer_name ?? senderName ?? null,
-        customerPhone: result.customer_phone ?? from,
-        title: `[${result.category}] ${bodyText.slice(0, 100)}`,
-        description: bodyText,
-        category: result.category,
-        division: result.division,
-        priority: result.priority.toLowerCase(),
-        status: "pending",
-        assignedRole: result.suggested_team,
-        aiSummary: result.suggested_reply,
-        aiIntent: result.intent,
-      })
-      .returning();
-
-    // Mark the source message as processed and linked
-    await db
-      .update(whatsappMessagesTable)
-      .set({
-        processed: true,
-        aiProcessed: true,
-        detectedIntent: result.intent,
-        taskId: task.id,
-      })
-      .where(eq(whatsappMessagesTable.id, savedMsgId));
-
-    await db.insert(activityTable).values({
-      type: "task_created",
-      description: `AI task ${taskNumber} created — ${result.category} / ${result.priority} priority (${result.intent})`,
-      entityId: task.id,
+    // Create task or append to existing active task (duplicate guard built-in)
+    const taskOutput = await createTaskFromWhatsAppMessage({
+      savedMsgId,
+      from,
+      senderName,
+      bodyText,
+      companyId,
+      result,
     });
 
-    logger.info(
-      {
-        taskId: task.id,
-        taskNumber,
-        category: result.category,
-        priority: result.priority,
-        needs_quotation: result.needs_quotation,
-        needs_admin_review: result.needs_admin_review,
-        suggested_team: result.suggested_team,
-        isGeneralInquiry,
-      },
-      "AI task created from WhatsApp message",
-    );
+    if (taskOutput) {
+      logger.info(
+        {
+          action: taskOutput.action,
+          taskId: taskOutput.taskId,
+          taskNumber: taskOutput.taskNumber,
+          title: taskOutput.title,
+          status: taskOutput.status,
+          category: result.category,
+          priority: result.priority,
+        },
+        taskOutput.action === "created"
+          ? "New AI task created from WhatsApp message"
+          : "WhatsApp message appended to existing task",
+      );
+    }
   } catch (err) {
     logger.error({ err, msgId: savedMsgId }, "AI detection failed for message");
   }
