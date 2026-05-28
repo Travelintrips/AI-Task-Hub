@@ -78,7 +78,7 @@ export default function Login() {
 
         <p className="text-center text-xs text-muted-foreground">
           Belum ada akun admin?{" "}
-          <a href="/api/auth/setup" className="underline hover:text-foreground">
+          <a href={`${import.meta.env.BASE_URL.replace(/\/$/, "")}/setup`} className="underline hover:text-foreground">
             Setup awal
           </a>
         </p>

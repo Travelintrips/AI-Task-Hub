@@ -18,6 +18,7 @@ import Team from "@/pages/team";
 import Users from "@/pages/users";
 import Profile from "@/pages/profile";
 import Login from "@/pages/login";
+import Setup from "@/pages/setup";
 import MiniTaskForm from "@/pages/mini-task-form";
 import CustomerDataForm from "@/pages/customer-data-form";
 
