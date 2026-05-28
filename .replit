@@ -1,4 +1,4 @@
-modules = ["nodejs-20", "web", "bash"]
+modules = ["nodejs-20", "web", "bash", "postgresql-16"]
 
 [deployment]
 router = "application"
@@ -80,7 +80,7 @@ channel = "stable-25_05"
 
 [userenv.shared]
 WHATSAPP_PHONE_NUMBER_ID = "081382702074,087882639826"
-WHATSAPP_WEBHOOK_VERIFY_TOKEN = "https://cstlogistic.co.id/api/whatsapp/webhook"
+WHATSAPP_WEBHOOK_VERIFY_TOKEN = "f1add4cb13fcac68b030e521cd006e3e1faf5a3cd589fd0cdcc2793f1200d5f9"
 AI_INTEGRATIONS_OPENAI_BASE_URL = "http://localhost:1106/modelfarm/openai"
 AI_INTEGRATIONS_OPENAI_API_KEY = "_DUMMY_API_KEY_"
 PRIVATE_OBJECT_DIR = "/replit-objstore-e357cc66-19c3-4d73-9ca9-3069d78355d1/.private"
