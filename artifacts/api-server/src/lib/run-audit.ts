@@ -52,6 +52,32 @@ export async function runAuditForTask(taskId: number): Promise<typeof documentAu
     },
   });
 
+  // ── Write in-app notification + push SSE ────────────────────────────────────
+  const statusLabel: Record<string, string> = {
+    pass:    "✅ Lulus",
+    warning: "⚠️ Perlu perhatian",
+    fail:    "❌ Gagal",
+  };
+  const [notif] = await db.insert(adminNotificationsTable).values({
+    companyId: "default",
+    type: "audit_complete",
+    title: `Audit dokumen selesai — ${statusLabel[audit.auditStatus] ?? audit.auditStatus}`,
+    body: `Task #${taskId} · Missing: ${Array.isArray(audit.missingFields) ? (audit.missingFields as string[]).length : 0} · Mismatch: ${Array.isArray(audit.mismatchFields) ? (audit.mismatchFields as string[]).length : 0}`,
+    taskId,
+  }).returning();
+
+  emitSseEvent(
+    "audit_complete",
+    {
+      taskId,
+      auditId:     audit.id,
+      auditStatus: audit.auditStatus,
+      missingCount: Array.isArray(audit.missingFields) ? (audit.missingFields as string[]).length : 0,
+      notifId:     notif.id,
+    },
+    "default",
+  );
+
   logger.info({ taskId, auditId: audit.id, auditStatus: audit.auditStatus }, "Audit complete");
 
   return audit;
