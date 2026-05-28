@@ -13,6 +13,8 @@ import { transcribeAudio } from "../lib/openai";
 import { sendWhatsAppNotification, TEMPLATE_NAMES } from "../lib/whatsapp-sender";
 import type { TemplateName } from "../lib/whatsapp-sender";
 import { logger } from "../lib/logger";
+import { getOrCreateCustomerContext, updateCustomerContextAfterTask } from "../lib/customer-context";
+import { createAdminNotification } from "../lib/admin-notifications";
 
 const router: IRouter = Router();
 
@@ -347,7 +349,20 @@ async function processIncomingMessage({
       logger.error({ actErr }, "Failed to log activity for incoming message");
     }
 
-    // 4. Trigger AI detection (non-blocking — errors are caught)
+    // 4. Look up customer context (non-blocking)
+    const customerCtx = await getOrCreateCustomerContext({ phone: from, companyId, name: senderName });
+
+    // 5. Create admin notification for new WhatsApp inquiry
+    await createAdminNotification({
+      type: "new_inquiry",
+      title: "Pesan WhatsApp Baru",
+      body: `Pesan dari ${senderName ?? from}: "${bodyText.slice(0, 100)}${bodyText.length > 100 ? "…" : ""}"`,
+      customerPhone: from,
+      customerName: senderName ?? customerCtx?.name ?? null,
+      companyId,
+    });
+
+    // 6. Trigger AI detection (non-blocking — errors are caught)
     setImmediate(() => {
       runAiDetection({
         savedMsgId: savedMsg.id,
@@ -358,6 +373,8 @@ async function processIncomingMessage({
         companyId,
         attachmentUrl: attachment?.url ?? null,
         mediaId: attachment?.mediaId ?? null,
+        customerCtxName: customerCtx?.name ?? senderName ?? null,
+        previousIntents: customerCtx?.previousIntents ?? null,
       }).catch((err) => {
         logger.error({ err, msgId: savedMsg.id }, "AI detection background task failed");
       });
@@ -376,6 +393,8 @@ async function runAiDetection({
   companyId,
   attachmentUrl,
   mediaId,
+  customerCtxName,
+  previousIntents,
 }: {
   savedMsgId: number;
   from: string;
@@ -385,7 +404,13 @@ async function runAiDetection({
   companyId: string;
   attachmentUrl?: string | null;
   mediaId?: string | null;
+  customerCtxName?: string | null;
+  previousIntents?: string | null;
 }): Promise<void> {
+  const effectiveName = senderName ?? customerCtxName ?? null;
+  let parsedPrevIntents: string[] = [];
+  try { parsedPrevIntents = JSON.parse(previousIntents ?? "[]"); } catch { parsedPrevIntents = []; }
+
   try {
     // Voice notes: transcribe with OpenAI Whisper, then run full AI detection
     if (messageType === "audio") {
@@ -419,12 +444,18 @@ async function runAiDetection({
           .where(eq(whatsappMessagesTable.id, savedMsgId));
 
         const result = await detectWhatsAppIntent(transcript, {
-          name: senderName ?? null,
+          name: effectiveName,
           phone: from,
           companyId,
+          previousIntents: parsedPrevIntents,
         });
 
-        await createTaskFromWhatsAppMessage({ savedMsgId, from, senderName, bodyText: transcript, companyId, result });
+        const taskOutput = await createTaskFromWhatsAppMessage({ savedMsgId, from, senderName, bodyText: transcript, companyId, result });
+
+        if (taskOutput) {
+          await updateCustomerContextAfterTask({ phone: from, companyId, taskId: taskOutput.taskId, intent: result.intent, name: effectiveName });
+          await _notifyForTask({ taskOutput, result, from, effectiveName, companyId });
+        }
 
         await db
           .update(whatsappMessagesTable)
@@ -436,6 +467,15 @@ async function runAiDetection({
           .update(whatsappMessagesTable)
           .set({ aiProcessed: true, detectedIntent: "voice_note" })
           .where(eq(whatsappMessagesTable.id, savedMsgId));
+        // Error handling: save failed transcription as manual review notification
+        await createAdminNotification({
+          type: "waiting_review",
+          title: "Voice Note Perlu Review Manual",
+          body: `Voice note dari ${effectiveName ?? from} tidak bisa ditranskrip. Perlu review manual.`,
+          customerPhone: from,
+          customerName: effectiveName,
+          companyId,
+        });
       }
       return;
     }
@@ -449,14 +489,24 @@ async function runAiDetection({
         .update(whatsappMessagesTable)
         .set({ aiProcessed: true, detectedIntent: "attachment_submission" })
         .where(eq(whatsappMessagesTable.id, savedMsgId));
+      // Notify admin: customer uploaded document
+      await createAdminNotification({
+        type: "document_uploaded",
+        title: "Dokumen Diterima",
+        body: `${effectiveName ?? from} mengirimkan gambar/dokumen via WhatsApp.`,
+        customerPhone: from,
+        customerName: effectiveName,
+        companyId,
+      });
       return;
     }
 
     // Run full structured AI analysis
     const result = await detectWhatsAppIntent(bodyText, {
-      name: senderName ?? null,
+      name: effectiveName,
       phone: from,
       companyId,
+      previousIntents: parsedPrevIntents,
     });
 
     // Create task or append to existing active task (duplicate guard built-in)
@@ -484,9 +534,76 @@ async function runAiDetection({
           ? "New AI task created from WhatsApp message"
           : "WhatsApp message appended to existing task",
       );
+
+      // Update customer context
+      await updateCustomerContextAfterTask({ phone: from, companyId, taskId: taskOutput.taskId, intent: result.intent, name: effectiveName });
+
+      // Admin notification based on priority / task action
+      await _notifyForTask({ taskOutput, result, from, effectiveName, companyId });
+    } else {
+      // AI failed to produce task — create manual review notification
+      await createAdminNotification({
+        type: "waiting_review",
+        title: "Pesan Perlu Review Manual",
+        body: `AI tidak bisa membuat task untuk pesan dari ${effectiveName ?? from}. Perlu review manual.`,
+        customerPhone: from,
+        customerName: effectiveName,
+        companyId,
+      });
     }
   } catch (err) {
     logger.error({ err, msgId: savedMsgId }, "AI detection failed for message");
+    // Safe error handling: create manual review notification even if AI crashes
+    try {
+      await createAdminNotification({
+        type: "waiting_review",
+        title: "Error Pemrosesan AI",
+        body: `Terjadi error saat memproses pesan dari ${effectiveName ?? from}. Pesan tetap tersimpan, perlu review manual.`,
+        customerPhone: from,
+        customerName: effectiveName,
+        companyId,
+      });
+    } catch { /* ignore secondary failure */ }
+  }
+}
+
+/** Create the right admin notification depending on the task outcome. */
+async function _notifyForTask({
+  taskOutput,
+  result,
+  from,
+  effectiveName,
+  companyId,
+}: {
+  taskOutput: { action: string; taskId: number; title: string; taskNumber: string | null };
+  result: { priority: string; category: string };
+  from: string;
+  effectiveName: string | null;
+  companyId: string;
+}) {
+  const customerLabel = effectiveName ?? from;
+  const taskLabel = taskOutput.taskNumber ? `[${taskOutput.taskNumber}]` : "";
+
+  if (result.priority === "High" && taskOutput.action === "created") {
+    await createAdminNotification({
+      type: "high_priority_task",
+      title: `Task Prioritas Tinggi ${taskLabel}`,
+      body: `Task baru prioritas TINGGI dari ${customerLabel}: "${taskOutput.title}". Segera ditangani.`,
+      taskId: taskOutput.taskId,
+      customerPhone: from,
+      customerName: effectiveName,
+      companyId,
+    });
+  } else if (taskOutput.action === "created") {
+    await createAdminNotification({
+      type: "new_inquiry",
+      title: `Task Baru ${taskLabel}`,
+      body: `Task "${taskOutput.title}" dibuat untuk ${customerLabel} (${result.category}).`,
+      taskId: taskOutput.taskId,
+      customerPhone: from,
+      customerName: effectiveName,
+      companyId,
+    });
   }
 }
 

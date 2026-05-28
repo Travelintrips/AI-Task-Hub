@@ -13,10 +13,21 @@ import AiTaskDetail from "@/pages/ai-task-detail";
 import Messages from "@/pages/messages";
 import Documents from "@/pages/documents";
 import Team from "@/pages/team";
+import MiniTaskForm from "@/pages/mini-task-form";
+import CustomerDataForm from "@/pages/customer-data-form";
 
 const queryClient = new QueryClient();
 
-function Router() {
+function PublicRouter() {
+  return (
+    <Switch>
+      <Route path="/mini-task/:taskId/:token" component={MiniTaskForm} />
+      <Route path="/customer-data/:taskId/:token" component={CustomerDataForm} />
+    </Switch>
+  );
+}
+
+function AppRouter() {
   return (
     <AppLayout>
       <Switch>
@@ -31,6 +42,18 @@ function Router() {
         <Route component={NotFound} />
       </Switch>
     </AppLayout>
+  );
+}
+
+function Router() {
+  return (
+    <Switch>
+      <Route path="/mini-task/:taskId/:token" component={MiniTaskForm} />
+      <Route path="/customer-data/:taskId/:token" component={CustomerDataForm} />
+      <Route>
+        {() => <AppRouter />}
+      </Route>
+    </Switch>
   );
 }
 

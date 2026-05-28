@@ -508,6 +508,121 @@ export const SendWhatsAppNotificationResponse = zod.object({
 
 
 /**
+ * @summary Get stored customer context by phone number
+ */
+export const GetCustomerContextParams = zod.object({
+  "phone": zod.coerce.string()
+})
+
+export const GetCustomerContextResponse = zod.object({
+  "id": zod.number(),
+  "companyId": zod.string(),
+  "phone": zod.string(),
+  "name": zod.string().nullish(),
+  "companyName": zod.string().nullish(),
+  "frequentService": zod.string().nullish(),
+  "specialNotes": zod.string().nullish(),
+  "previousIntents": zod.string().nullish(),
+  "totalTasks": zod.number(),
+  "lastActiveTaskId": zod.number().nullish(),
+  "lastSeenAt": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary Update customer context notes
+ */
+export const UpdateCustomerContextParams = zod.object({
+  "phone": zod.coerce.string()
+})
+
+export const UpdateCustomerContextBody = zod.object({
+  "name": zod.string().optional(),
+  "companyName": zod.string().optional(),
+  "frequentService": zod.string().optional(),
+  "specialNotes": zod.string().optional()
+})
+
+export const UpdateCustomerContextResponse = zod.object({
+  "id": zod.number(),
+  "companyId": zod.string(),
+  "phone": zod.string(),
+  "name": zod.string().nullish(),
+  "companyName": zod.string().nullish(),
+  "frequentService": zod.string().nullish(),
+  "specialNotes": zod.string().nullish(),
+  "previousIntents": zod.string().nullish(),
+  "totalTasks": zod.number(),
+  "lastActiveTaskId": zod.number().nullish(),
+  "lastSeenAt": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary List admin notifications (most recent first)
+ */
+export const ListNotificationsQueryParams = zod.object({
+  "unreadOnly": zod.coerce.boolean().optional(),
+  "limit": zod.coerce.number().optional()
+})
+
+export const ListNotificationsResponseItem = zod.object({
+  "id": zod.number(),
+  "companyId": zod.string().optional(),
+  "type": zod.enum(['new_inquiry', 'high_priority_task', 'document_uploaded', 'audit_missing_data', 'missing_data_resolved', 'team_progress_update', 'vendor_quotation', 'waiting_review']),
+  "title": zod.string(),
+  "body": zod.string(),
+  "taskId": zod.number().nullish(),
+  "customerPhone": zod.string().nullish(),
+  "customerName": zod.string().nullish(),
+  "isRead": zod.boolean(),
+  "createdAt": zod.string()
+})
+export const ListNotificationsResponse = zod.array(ListNotificationsResponseItem)
+
+
+/**
+ * @summary Get count of unread notifications
+ */
+export const GetUnreadNotificationCountResponse = zod.object({
+  "count": zod.number()
+})
+
+
+/**
+ * @summary Mark a notification as read
+ */
+export const MarkNotificationReadParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const MarkNotificationReadResponse = zod.object({
+  "id": zod.number(),
+  "companyId": zod.string().optional(),
+  "type": zod.enum(['new_inquiry', 'high_priority_task', 'document_uploaded', 'audit_missing_data', 'missing_data_resolved', 'team_progress_update', 'vendor_quotation', 'waiting_review']),
+  "title": zod.string(),
+  "body": zod.string(),
+  "taskId": zod.number().nullish(),
+  "customerPhone": zod.string().nullish(),
+  "customerName": zod.string().nullish(),
+  "isRead": zod.boolean(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Mark all notifications as read
+ */
+export const MarkAllNotificationsReadResponse = zod.object({
+  "count": zod.number()
+})
+
+
+/**
  * @summary Generate a polite Indonesian WhatsApp follow-up for missing audit items
  */
 export const GenerateWhatsAppReplyParams = zod.object({

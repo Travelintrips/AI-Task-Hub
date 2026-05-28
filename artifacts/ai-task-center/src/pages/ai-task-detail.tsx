@@ -16,6 +16,12 @@ import {
   AlertCircle,
   CheckCircle2,
   Loader2,
+  User,
+  Building2,
+  History,
+  Link2,
+  History,
+  Copy,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -81,14 +87,58 @@ interface Attachment {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+const AI_TASK_STATUSES: Record<string, string> = {
+  new_inquiry: "Inquiry Baru",
+  waiting_documents: "Menunggu Dokumen",
+  documents_received: "Dokumen Diterima",
+  audit_in_progress: "Audit Berjalan",
+  missing_data: "Data Kurang",
+  ready_for_review: "Siap Direview",
+  assigned: "Ditugaskan",
+  in_progress: "Sedang Dikerjakan",
+  waiting_customer: "Menunggu Customer",
+  waiting_vendor: "Menunggu Vendor",
+  quotation_ready: "Quotation Siap",
+  approved_by_customer: "Disetujui Customer",
+  completed: "Selesai",
+  cancelled: "Dibatalkan",
+};
+
 const STATUS_COLORS: Record<string, string> = {
-  "New": "bg-blue-100 text-blue-800",
-  "Waiting Info": "bg-yellow-100 text-yellow-800",
-  "Waiting Documents": "bg-orange-100 text-orange-800",
-  "Ready for Review": "bg-purple-100 text-purple-800",
-  "In Progress": "bg-indigo-100 text-indigo-800",
-  "Pending Approval": "bg-pink-100 text-pink-800",
-  "Completed": "bg-green-100 text-green-800",
+  new_inquiry: "bg-blue-100 text-blue-800",
+  waiting_documents: "bg-yellow-100 text-yellow-800",
+  documents_received: "bg-teal-100 text-teal-800",
+  audit_in_progress: "bg-purple-100 text-purple-800",
+  missing_data: "bg-orange-100 text-orange-800",
+  ready_for_review: "bg-indigo-100 text-indigo-800",
+  assigned: "bg-cyan-100 text-cyan-800",
+  in_progress: "bg-blue-100 text-blue-800",
+  waiting_customer: "bg-amber-100 text-amber-800",
+  waiting_vendor: "bg-orange-100 text-orange-800",
+  quotation_ready: "bg-green-100 text-green-800",
+  approved_by_customer: "bg-emerald-100 text-emerald-800",
+  completed: "bg-green-100 text-green-800",
+  cancelled: "bg-gray-100 text-gray-600",
+};
+
+const TIMELINE_ICONS: Record<string, string> = {
+  whatsapp_received: "💬",
+  ai_intent_detected: "🤖",
+  task_created: "✨",
+  document_uploaded: "📎",
+  ocr_completed: "🔍",
+  audit_completed: "✅",
+  missing_data_requested: "❓",
+  customer_submitted_data: "📤",
+  task_assigned: "👤",
+  progress_updated: "📝",
+  whatsapp_sent: "📱",
+  admin_approved: "✔️",
+  task_completed: "🎉",
+  status_changed: "🔄",
+  quotation_submitted: "💰",
+  trucking_info_added: "🚛",
+  token_created: "🔗",
 };
 
 const PRIORITY_COLORS: Record<string, string> = {
@@ -122,6 +172,9 @@ export default function AiTaskDetail() {
 
   const [comment, setComment] = useState("");
   const [isUploading, setIsUploading] = useState(false);
+  const [showTimeline, setShowTimeline] = useState(false);
+  const [showLinkGen, setShowLinkGen] = useState(false);
+  const [generatedLinks, setGeneratedLinks] = useState<{ mini?: string; customer?: string }>({});
 
   // ── Task query ─────────────────────────────────────────────────────────────
 
@@ -136,6 +189,25 @@ export default function AiTaskDetail() {
   const { data: attachments = [], isLoading: attachmentsLoading } = useQuery<Attachment[]>({
     queryKey: ["ai-task-attachments", id],
     queryFn: () => apiFetch(`/ai-tasks/${id}/attachments`),
+  });
+
+  // ── Customer context query ─────────────────────────────────────────────────
+
+  const { data: customerCtx } = useQuery<{
+    id: number; phone: string; name: string | null; companyName: string | null;
+    frequentService: string | null; specialNotes: string | null;
+    previousIntents: string | null; totalTasks: number; lastSeenAt: string | null;
+  } | null>({
+    queryKey: ["customer-ctx", task?.customerPhone],
+    queryFn: async () => {
+      if (!task?.customerPhone) return null;
+      try {
+        const res = await fetch(`${BASE}/api/customers/${encodeURIComponent(task.customerPhone)}`);
+        if (res.status === 404) return null;
+        return res.json();
+      } catch { return null; }
+    },
+    enabled: !!task?.customerPhone,
   });
 
   // ── Post comment ───────────────────────────────────────────────────────────
@@ -164,6 +236,37 @@ export default function AiTaskDetail() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ai-task", id] }),
     onError: () => toast({ title: "Failed to update status", variant: "destructive" }),
   });
+
+  // ── Timeline query ─────────────────────────────────────────────────────────
+
+  const { data: timeline = [] } = useQuery<{ id: number; eventType: string; title: string; description: string | null; actor: string | null; actorType: string; createdAt: string }[]>({
+    queryKey: ["ai-task-timeline", id],
+    queryFn: () => apiFetch(`/ai-tasks/${id}/timeline`),
+    enabled: showTimeline,
+  });
+
+  // ── Generate public link ───────────────────────────────────────────────────
+
+  const generateLinkMutation = useMutation({
+    mutationFn: (tokenType: "mini_task" | "customer_data") =>
+      apiFetch(`/ai-tasks/${id}/generate-token`, {
+        method: "POST",
+        body: JSON.stringify({ tokenType, createdBy: "Admin" }),
+      }),
+    onSuccess: (data: { url: string }, tokenType) => {
+      setGeneratedLinks((prev) => ({
+        ...prev,
+        [tokenType === "mini_task" ? "mini" : "customer"]: data.url,
+      }));
+      queryClient.invalidateQueries({ queryKey: ["ai-task-timeline", id] });
+    },
+    onError: () => toast({ title: "Gagal membuat link", variant: "destructive" }),
+  });
+
+  function copyToClipboard(text: string) {
+    navigator.clipboard.writeText(text);
+    toast({ title: "Link disalin!" });
+  }
 
   // ── Delete attachment ──────────────────────────────────────────────────────
 
@@ -269,12 +372,16 @@ export default function AiTaskDetail() {
 
         {/* Status picker */}
         <Select value={task.status} onValueChange={(v) => statusMutation.mutate(v)}>
-          <SelectTrigger className="w-44 shrink-0">
-            <SelectValue />
+          <SelectTrigger className="w-52 shrink-0">
+            <SelectValue>
+              <span className={`text-xs px-2 py-0.5 rounded-full ${STATUS_COLORS[task.status] ?? "bg-gray-100 text-gray-700"}`}>
+                {AI_TASK_STATUSES[task.status] ?? task.status}
+              </span>
+            </SelectValue>
           </SelectTrigger>
           <SelectContent>
-            {Object.keys(STATUS_COLORS).map((s) => (
-              <SelectItem key={s} value={s}>{s}</SelectItem>
+            {Object.entries(AI_TASK_STATUSES).map(([val, label]) => (
+              <SelectItem key={val} value={val}>{label}</SelectItem>
             ))}
           </SelectContent>
         </Select>
@@ -362,6 +469,70 @@ export default function AiTaskDetail() {
 
         {/* ── Right / Sidebar ───────────────────────────────────────────────── */}
         <div className="space-y-5">
+
+          {/* Customer Context */}
+          {task.customerPhone && (
+            <div className="bg-gray-50 rounded-lg p-4 space-y-2.5 text-sm border border-gray-200">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1.5">
+                <User className="h-3.5 w-3.5" /> Konteks Pelanggan
+              </p>
+              {customerCtx ? (
+                <>
+                  <div className="flex items-start gap-2">
+                    <User className="h-3.5 w-3.5 text-gray-400 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="font-medium text-gray-800">{customerCtx.name ?? task.customerName ?? "—"}</p>
+                      <p className="text-[11px] text-gray-400">{task.customerPhone}</p>
+                    </div>
+                  </div>
+                  {customerCtx.companyName && (
+                    <div className="flex items-center gap-2">
+                      <Building2 className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+                      <span className="text-gray-700">{customerCtx.companyName}</span>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <History className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+                    <span className="text-gray-700">{customerCtx.totalTasks} total task</span>
+                  </div>
+                  {customerCtx.frequentService && (
+                    <div>
+                      <p className="text-[11px] text-gray-400">Layanan sering dipakai</p>
+                      <p className="text-gray-700">{customerCtx.frequentService}</p>
+                    </div>
+                  )}
+                  {customerCtx.previousIntents && (() => {
+                    try {
+                      const intents: string[] = JSON.parse(customerCtx.previousIntents ?? "[]");
+                      if (intents.length === 0) return null;
+                      return (
+                        <div>
+                          <p className="text-[11px] text-gray-400 mb-1">Intent sebelumnya</p>
+                          <div className="flex flex-wrap gap-1">
+                            {intents.slice(0, 5).map((i) => (
+                              <span key={i} className="bg-blue-100 text-blue-700 text-[10px] px-1.5 py-0.5 rounded-full">{i}</span>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    } catch { return null; }
+                  })()}
+                  {customerCtx.specialNotes && (
+                    <div className="bg-amber-50 border border-amber-200 rounded p-2 mt-1">
+                      <p className="text-[11px] text-amber-600 font-semibold mb-0.5">Catatan Khusus</p>
+                      <p className="text-xs text-amber-800">{customerCtx.specialNotes}</p>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div>
+                  <p className="text-[12px] text-gray-600">{task.customerName ?? "—"}</p>
+                  <p className="text-[11px] text-gray-400">{task.customerPhone}</p>
+                  <p className="text-[11px] text-gray-400 mt-1 italic">Belum ada riwayat tersimpan</p>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Audit Panel */}
           <TaskAuditPanel taskId={Number(id)} />
@@ -475,6 +646,113 @@ export default function AiTaskDetail() {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* ── Generate Public Links ─────────────────────────────────────────────── */}
+      <div className="border border-gray-200 rounded-xl overflow-hidden">
+        <button
+          onClick={() => setShowLinkGen((v) => !v)}
+          className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors text-sm font-medium text-gray-700"
+        >
+          <span className="flex items-center gap-2"><Link2 className="h-4 w-4" /> Generate Link Publik</span>
+          <span className="text-gray-400">{showLinkGen ? "▲" : "▼"}</span>
+        </button>
+        {showLinkGen && (
+          <div className="p-4 space-y-4">
+            <p className="text-xs text-gray-500">Buat link aman untuk dikirim ke tim (Mini Task) atau customer (Customer Data).</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* Mini Task Link */}
+              <div className="border rounded-lg p-3 space-y-2">
+                <p className="text-xs font-semibold text-gray-600">🚛 Mini Task Form (Tim/Vendor)</p>
+                <p className="text-xs text-gray-400">Tim/vendor bisa update progress, upload foto, isi info trucking & quotation.</p>
+                <Button size="sm" variant="outline" className="w-full text-xs"
+                  onClick={() => generateLinkMutation.mutate("mini_task")}
+                  disabled={generateLinkMutation.isPending}>
+                  {generateLinkMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+                  Generate Link
+                </Button>
+                {generatedLinks.mini && (
+                  <div className="bg-blue-50 rounded p-2 flex items-center gap-1">
+                    <span className="text-xs text-blue-700 truncate flex-1">{generatedLinks.mini}</span>
+                    <button onClick={() => copyToClipboard(generatedLinks.mini!)} className="shrink-0 text-blue-500 hover:text-blue-700">
+                      <Copy className="h-3 w-3" />
+                    </button>
+                  </div>
+                )}
+              </div>
+              {/* Customer Data Link */}
+              <div className="border rounded-lg p-3 space-y-2">
+                <p className="text-xs font-semibold text-gray-600">📋 Customer Data Form</p>
+                <p className="text-xs text-gray-400">Customer bisa lihat checklist data yang kurang & upload dokumen.</p>
+                <Button size="sm" variant="outline" className="w-full text-xs"
+                  onClick={() => generateLinkMutation.mutate("customer_data")}
+                  disabled={generateLinkMutation.isPending}>
+                  {generateLinkMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+                  Generate Link
+                </Button>
+                {generatedLinks.customer && (
+                  <div className="bg-blue-50 rounded p-2 flex items-center gap-1">
+                    <span className="text-xs text-blue-700 truncate flex-1">{generatedLinks.customer}</span>
+                    <button onClick={() => copyToClipboard(generatedLinks.customer!)} className="shrink-0 text-blue-500 hover:text-blue-700">
+                      <Copy className="h-3 w-3" />
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+              <p className="text-xs text-yellow-800">⚠️ <strong>AI tidak boleh:</strong> approve customs declaration, beri quotation final, konfirmasi izin impor, submit dokumen customs, janji jadwal pengiriman, atau tutup komplain. Semua keputusan final harus ditandai <em>Need Admin Review</em>.</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── Task Timeline ─────────────────────────────────────────────────────── */}
+      <div className="border border-gray-200 rounded-xl overflow-hidden">
+        <button
+          onClick={() => setShowTimeline((v) => !v)}
+          className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors text-sm font-medium text-gray-700"
+        >
+          <span className="flex items-center gap-2"><History className="h-4 w-4" /> Timeline Aktivitas</span>
+          <span className="text-gray-400">{showTimeline ? "▲" : "▼"}</span>
+        </button>
+        {showTimeline && (
+          <div className="p-4">
+            {timeline.length === 0 ? (
+              <p className="text-sm text-gray-400 italic text-center py-4">Belum ada aktivitas tercatat.</p>
+            ) : (
+              <div className="relative">
+                <div className="absolute left-4 top-0 bottom-0 w-0.5 bg-gray-200" />
+                <div className="space-y-4 pl-10">
+                  {timeline.map((event) => (
+                    <div key={event.id} className="relative">
+                      <div className="absolute -left-10 w-7 h-7 rounded-full bg-white border-2 border-gray-200 flex items-center justify-center text-sm">
+                        {TIMELINE_ICONS[event.eventType] ?? "•"}
+                      </div>
+                      <div className="bg-white border border-gray-100 rounded-lg p-3 shadow-sm">
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="text-sm font-medium text-gray-800">{event.title}</p>
+                          <span className="text-xs text-gray-400 shrink-0">
+                            {formatDistanceToNow(new Date(event.createdAt), { addSuffix: true })}
+                          </span>
+                        </div>
+                        {event.description && (
+                          <p className="text-xs text-gray-500 mt-1">{event.description}</p>
+                        )}
+                        {event.actor && (
+                          <p className="text-xs text-gray-400 mt-1">
+                            oleh <span className="font-medium">{event.actor}</span>
+                            <span className="ml-1 px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">{event.actorType}</span>
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
