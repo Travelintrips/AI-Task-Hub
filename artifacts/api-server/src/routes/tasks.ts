@@ -173,28 +173,84 @@ router.patch("/tasks/:id/assign", async (req, res): Promise<void> => {
     return;
   }
 
-  const [member] = await db.select().from(teamMembersTable).where(eq(teamMembersTable.id, parsed.data.assigneeId));
-  if (!member) {
-    res.status(404).json({ error: "Team member not found" });
+  const { assigneeId, assignedRole, assignedDivision, assignedVendor, customerName, miniTaskUrl } = parsed.data;
+
+  if (!assigneeId && !assignedRole && !assignedDivision && !assignedVendor) {
+    res.status(400).json({ error: "Harus menentukan salah satu: assigneeId, assignedRole, assignedDivision, atau assignedVendor" });
+    return;
+  }
+
+  let member: { id: number; name: string; phone: string | null } | undefined;
+  if (assigneeId) {
+    const [found] = await db.select().from(teamMembersTable).where(eq(teamMembersTable.id, assigneeId));
+    if (!found) {
+      res.status(404).json({ error: "Team member not found" });
+      return;
+    }
+    member = found;
+  }
+
+  const [existingTask] = await db.select().from(tasksTable).where(eq(tasksTable.id, params.data.id));
+  if (!existingTask) {
+    res.status(404).json({ error: "Task not found" });
     return;
   }
 
   const [task] = await db
     .update(tasksTable)
-    .set({ assigneeId: parsed.data.assigneeId })
+    .set({
+      assigneeId: assigneeId ?? null,
+      assignedRole: assignedRole ?? null,
+      assignedDivision: assignedDivision ?? null,
+      assignedVendor: assignedVendor ?? null,
+      customerName: customerName ?? existingTask.customerName ?? null,
+      status: "assigned",
+    })
     .where(eq(tasksTable.id, params.data.id))
     .returning();
 
-  if (!task) {
-    res.status(404).json({ error: "Task not found" });
-    return;
-  }
+  const assignedToLabel =
+    member?.name ??
+    (assignedRole ? `role: ${assignedRole}` : null) ??
+    (assignedDivision ? `divisi: ${assignedDivision}` : null) ??
+    (assignedVendor ? `vendor: ${assignedVendor}` : null) ??
+    "Tim";
+
+  await db.insert(taskAssignmentsTable).values({
+    taskId: task.id,
+    assignedTo: member ? String(member.id) : null,
+    assignedRole: assignedRole ?? null,
+    assignedDivision: assignedDivision ?? null,
+    assignedVendor: assignedVendor ?? null,
+    status: "active",
+  });
 
   await db.insert(activityTable).values({
     type: "task_assigned",
-    description: `Task "${task.title}" was assigned to ${member.name}`,
+    description: `Task "${task.title}" ditugaskan ke ${assignedToLabel}`,
     entityId: task.id,
   });
+
+  if (member?.phone) {
+    try {
+      await sendWhatsAppNotification({
+        to: member.phone,
+        recipientType: "team",
+        templateName: "task_assignment",
+        variables: {
+          customerName: customerName ?? existingTask.customerName ?? "-",
+          title: task.title,
+          priority: task.priority,
+          miniTaskUrl: miniTaskUrl ?? "",
+        },
+        taskId: task.id,
+      });
+    } catch (err) {
+      logger.warn({ err, taskId: task.id }, "WhatsApp notification gagal saat assign task, melanjutkan");
+    }
+  } else {
+    logger.info({ taskId: task.id, assignedToLabel }, "Tidak ada nomor HP — notifikasi WhatsApp dilewati");
+  }
 
   const members = await db.select().from(teamMembersTable);
   const memberMap = new Map(members.map((m) => [m.id, m.name]));
