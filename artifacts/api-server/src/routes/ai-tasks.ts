@@ -337,6 +337,30 @@ router.post("/ai-tasks/:id/attachments", requireAuth, async (req: Request, res: 
   }
 });
 
+// ─── DELETE /ai-tasks/:id ────────────────────────────────────────────────────
+
+router.delete("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const id = Number(req.params.id);
+    if (Number.isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+    await db.delete(taskCommentsTable).where(eq(taskCommentsTable.taskId, id));
+    await db.delete(taskAttachmentsTable).where(eq(taskAttachmentsTable.taskId, id));
+
+    const [deleted] = await db
+      .delete(aiTasksTable)
+      .where(eq(aiTasksTable.id, id))
+      .returning();
+
+    if (!deleted) { res.status(404).json({ error: "Task not found" }); return; }
+
+    res.sendStatus(204);
+  } catch (err) {
+    logger.error({ err }, "DELETE /ai-tasks/:id failed");
+    res.status(500).json({ error: "Failed to delete task" });
+  }
+});
+
 // ─── DELETE /ai-tasks/:id/attachments/:attachmentId ───────────────────────────
 
 router.delete("/ai-tasks/:id/attachments/:attachmentId", requireAuth, async (req: Request, res: Response): Promise<void> => {
