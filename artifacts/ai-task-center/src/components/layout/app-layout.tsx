@@ -18,12 +18,17 @@ import {
   MessageSquare,
   FileText,
   Users,
-  Activity
+  Activity,
+  ShieldCheck,
+  LogOut,
 } from "lucide-react";
 import { NotificationsBell } from "@/components/notifications-bell";
+import { useAuth } from "@/contexts/auth-context";
+import { Button } from "@/components/ui/button";
 
 export function AppLayout({ children }: { children: ReactNode }) {
   const [location] = useLocation();
+  const { user, logout } = useAuth();
 
   const navigation = [
     { name: "Dashboard",    href: "/",          icon: LayoutDashboard },
@@ -32,6 +37,9 @@ export function AppLayout({ children }: { children: ReactNode }) {
     { name: "Messages",     href: "/messages",  icon: MessageSquare },
     { name: "Documents",    href: "/documents", icon: FileText },
     { name: "Team",         href: "/team",      icon: Users },
+    ...(user?.role === "super_admin" || user?.role === "company_admin"
+      ? [{ name: "Users", href: "/users", icon: ShieldCheck }]
+      : []),
   ];
 
   return (
@@ -68,6 +76,29 @@ export function AppLayout({ children }: { children: ReactNode }) {
               </SidebarGroupContent>
             </SidebarGroup>
           </SidebarContent>
+
+          {user && (
+            <div className="border-t p-3">
+              <div className="flex items-center gap-2 mb-2 px-1">
+                <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-bold shrink-0">
+                  {user.name.split(" ").map(n => n[0]).join("").substring(0, 2).toUpperCase()}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium leading-none truncate">{user.name}</p>
+                  <p className="text-xs text-muted-foreground truncate">{user.role.replace("_", " ")}</p>
+                </div>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full justify-start text-muted-foreground hover:text-destructive hover:bg-destructive/10 h-8"
+                onClick={logout}
+              >
+                <LogOut className="h-3.5 w-3.5 mr-2" />
+                Keluar
+              </Button>
+            </div>
+          )}
         </Sidebar>
 
         <main className="flex-1 overflow-auto flex flex-col">
