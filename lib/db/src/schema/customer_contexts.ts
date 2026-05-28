@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp, integer } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, integer, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -16,7 +16,10 @@ export const customerContextsTable = pgTable("customer_contexts", {
   lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
-});
+}, (t) => [
+  index("customer_ctx_phone_company_idx").on(t.phone, t.companyId),
+  index("customer_ctx_phone_idx").on(t.phone),
+]);
 
 export const insertCustomerContextSchema = createInsertSchema(customerContextsTable).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertCustomerContext = z.infer<typeof insertCustomerContextSchema>;

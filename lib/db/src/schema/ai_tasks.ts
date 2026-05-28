@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp, integer } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, integer, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -51,7 +51,14 @@ export const aiTasksTable = pgTable("ai_tasks", {
   adminNotes: text("admin_notes"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
-});
+}, (t) => [
+  index("ai_tasks_company_status_idx").on(t.companyId, t.status),
+  index("ai_tasks_customer_phone_idx").on(t.customerPhone),
+  index("ai_tasks_status_idx").on(t.status),
+  index("ai_tasks_category_idx").on(t.category),
+  index("ai_tasks_division_idx").on(t.division),
+  index("ai_tasks_created_at_idx").on(t.createdAt),
+]);
 
 export const insertAiTaskSchema = createInsertSchema(aiTasksTable).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertAiTask = z.infer<typeof insertAiTaskSchema>;

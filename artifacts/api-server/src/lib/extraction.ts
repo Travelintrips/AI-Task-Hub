@@ -57,10 +57,13 @@ function resolveMimeType(mimeType: string | null | undefined, filename: string):
   return map[ext] ?? "application/octet-stream";
 }
 
-async function extractPdf(buffer: Buffer): Promise<string> {
+async function extractPdf(buffer: Buffer, filename?: string): Promise<string> {
   const data = await pdfParse(buffer);
   const text = data.text?.trim() ?? "";
-  if (!text) throw new Error("PDF contains no selectable text (may be a scanned image)");
+  if (!text) {
+    logger.warn({ filename }, "PDF has no selectable text — falling back to GPT-4o Vision OCR");
+    return extractImageOcr(buffer, filename ?? "document.pdf");
+  }
   return text;
 }
 
@@ -339,7 +342,7 @@ export async function extractTextFromAttachment(params: {
     let text: string;
 
     if (mimeType === "application/pdf") {
-      text = await extractPdf(buffer);
+      text = await extractPdf(buffer, fileName);
     } else if (mimeType.startsWith("image/")) {
       text = await extractImageOcr(buffer, fileName);
     } else if (

@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and, type SQL } from "drizzle-orm";
 import { db, whatsappMessagesTable, tasksTable, activityTable } from "@workspace/db";
 import {
   ListMessagesQueryParams,
@@ -18,18 +18,20 @@ router.get("/messages", async (req, res): Promise<void> => {
   const parsed = ListMessagesQueryParams.safeParse(req.query);
   const filters = parsed.success ? parsed.data : {};
 
+  const conditions: SQL[] = [];
+  if (filters.processed !== undefined) {
+    conditions.push(eq(whatsappMessagesTable.processed, filters.processed));
+  }
+
   const messages = await db
     .select()
     .from(whatsappMessagesTable)
-    .orderBy(desc(whatsappMessagesTable.createdAt));
-
-  const filtered = messages.filter((m) => {
-    if (filters.processed !== undefined && m.processed !== filters.processed) return false;
-    return true;
-  });
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .orderBy(desc(whatsappMessagesTable.createdAt))
+    .limit(300);
 
   res.json(
-    filtered.map((m) => ({
+    messages.map((m) => ({
       ...m,
       createdAt: m.createdAt.toISOString(),
     }))
@@ -135,10 +137,13 @@ router.get("/webhook/whatsapp", (req, res): void => {
   }
 });
 
-// WhatsApp webhook receiver
+// WhatsApp webhook receiver — simple/legacy handler
+// Advanced handler with AI processing is in whatsapp.ts
 router.post("/webhook/whatsapp", async (req, res): Promise<void> => {
   const parsed = ReceiveWhatsAppWebhookBody.safeParse(req.body);
   const body = parsed.success ? parsed.data : req.body;
+
+  res.sendStatus(200); // Respond immediately to WhatsApp gateway
 
   try {
     if (body?.object === "whatsapp_business_account") {
@@ -150,57 +155,72 @@ router.post("/webhook/whatsapp", async (req, res): Promise<void> => {
           const messages = value?.messages as Array<Record<string, unknown>> | undefined;
 
           for (const msg of messages ?? []) {
+            const wamid = msg.id as string | undefined;
             const from = msg.from as string;
             const timestamp = msg.timestamp as string;
             const textBody = (msg.text as Record<string, unknown> | undefined)?.body as string | undefined;
             const contactName = ((value?.contacts as Array<Record<string, unknown>> | undefined)?.[0]?.profile as Record<string, unknown> | undefined)?.name as string | undefined;
 
-            if (textBody) {
-              const intent = await detectIntent(textBody);
-              const shouldCreateTask = intent !== "general";
+            if (!textBody) continue;
 
-              const [savedMsg] = await db
-                .insert(whatsappMessagesTable)
+            // Deduplication: skip if wamid already processed
+            if (wamid) {
+              const [existing] = await db
+                .select({ id: whatsappMessagesTable.id })
+                .from(whatsappMessagesTable)
+                .where(eq(whatsappMessagesTable.wamid, wamid))
+                .limit(1);
+              if (existing) {
+                logger.warn({ wamid, from }, "Duplicate WhatsApp message ignored");
+                continue;
+              }
+            }
+
+            const intent = await detectIntent(textBody);
+            const shouldCreateTask = intent !== "general";
+
+            const [savedMsg] = await db
+              .insert(whatsappMessagesTable)
+              .values({
+                wamid: wamid ?? null,
+                from,
+                senderName: contactName ?? null,
+                body: textBody,
+                timestamp,
+                processed: shouldCreateTask,
+                detectedIntent: intent,
+              })
+              .returning();
+
+            await db.insert(activityTable).values({
+              type: "message_received",
+              description: `WhatsApp message received from ${contactName ?? from}`,
+              entityId: savedMsg.id,
+            });
+
+            if (shouldCreateTask) {
+              const [task] = await db
+                .insert(tasksTable)
                 .values({
-                  from,
-                  senderName: contactName ?? null,
-                  body: textBody,
-                  timestamp,
-                  processed: shouldCreateTask,
-                  detectedIntent: intent,
+                  title: `[${intent.replace(/_/g, " ")}] ${textBody.slice(0, 80)}`,
+                  description: textBody,
+                  status: "pending",
+                  priority: intent === "complaint" ? "high" : "medium",
+                  sourceMessageId: savedMsg.id,
+                  tags: [intent],
                 })
                 .returning();
 
+              await db
+                .update(whatsappMessagesTable)
+                .set({ taskId: task.id })
+                .where(eq(whatsappMessagesTable.id, savedMsg.id));
+
               await db.insert(activityTable).values({
-                type: "message_received",
-                description: `WhatsApp message received from ${contactName ?? from}`,
-                entityId: savedMsg.id,
+                type: "task_created",
+                description: `Auto-task created from WhatsApp message: ${intent}`,
+                entityId: task.id,
               });
-
-              if (shouldCreateTask) {
-                const [task] = await db
-                  .insert(tasksTable)
-                  .values({
-                    title: `[${intent.replace(/_/g, " ")}] ${textBody.slice(0, 80)}`,
-                    description: textBody,
-                    status: "pending",
-                    priority: intent === "complaint" ? "high" : "medium",
-                    sourceMessageId: savedMsg.id,
-                    tags: [intent],
-                  })
-                  .returning();
-
-                await db
-                  .update(whatsappMessagesTable)
-                  .set({ taskId: task.id })
-                  .where(eq(whatsappMessagesTable.id, savedMsg.id));
-
-                await db.insert(activityTable).values({
-                  type: "task_created",
-                  description: `Auto-task created from WhatsApp message: ${intent}`,
-                  entityId: task.id,
-                });
-              }
             }
           }
         }
@@ -209,8 +229,6 @@ router.post("/webhook/whatsapp", async (req, res): Promise<void> => {
   } catch (err) {
     logger.error({ err }, "Error processing WhatsApp webhook");
   }
-
-  res.sendStatus(200);
 });
 
 export default router;

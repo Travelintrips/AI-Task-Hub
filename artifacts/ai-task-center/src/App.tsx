@@ -4,6 +4,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import { AppLayout } from "@/components/layout/app-layout";
+import { ErrorBoundary } from "@/components/error-boundary";
 
 import Dashboard from "@/pages/dashboard";
 import Tasks from "@/pages/tasks";
@@ -30,30 +31,34 @@ function PublicRouter() {
 function AppRouter() {
   return (
     <AppLayout>
-      <Switch>
-        <Route path="/" component={Dashboard} />
-        <Route path="/tasks" component={Tasks} />
-        <Route path="/tasks/:id" component={TaskDetail} />
-        <Route path="/ai-tasks" component={AiTaskBoard} />
-        <Route path="/ai-tasks/:id" component={AiTaskDetail} />
-        <Route path="/messages" component={Messages} />
-        <Route path="/documents" component={Documents} />
-        <Route path="/team" component={Team} />
-        <Route component={NotFound} />
-      </Switch>
+      <ErrorBoundary>
+        <Switch>
+          <Route path="/" component={Dashboard} />
+          <Route path="/tasks" component={Tasks} />
+          <Route path="/tasks/:id" component={TaskDetail} />
+          <Route path="/ai-tasks" component={AiTaskBoard} />
+          <Route path="/ai-tasks/:id" component={AiTaskDetail} />
+          <Route path="/messages" component={Messages} />
+          <Route path="/documents" component={Documents} />
+          <Route path="/team" component={Team} />
+          <Route component={NotFound} />
+        </Switch>
+      </ErrorBoundary>
     </AppLayout>
   );
 }
 
 function Router() {
   return (
-    <Switch>
-      <Route path="/mini-task/:taskId/:token" component={MiniTaskForm} />
-      <Route path="/customer-data/:taskId/:token" component={CustomerDataForm} />
-      <Route>
-        {() => <AppRouter />}
-      </Route>
-    </Switch>
+    <ErrorBoundary>
+      <Switch>
+        <Route path="/mini-task/:taskId/:token" component={MiniTaskForm} />
+        <Route path="/customer-data/:taskId/:token" component={CustomerDataForm} />
+        <Route>
+          {() => <AppRouter />}
+        </Route>
+      </Switch>
+    </ErrorBoundary>
   );
 }
 

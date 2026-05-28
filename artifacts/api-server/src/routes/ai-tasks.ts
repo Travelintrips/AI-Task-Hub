@@ -61,6 +61,7 @@ router.get("/ai-tasks", async (req, res): Promise<void> => {
       const msgs = await db
         .select({ senderPhone: whatsappMessagesTable.senderPhone, body: whatsappMessagesTable.body })
         .from(whatsappMessagesTable)
+        .where(inArray(whatsappMessagesTable.senderPhone, phones))
         .orderBy(desc(whatsappMessagesTable.createdAt));
       for (const m of msgs) {
         const key = m.senderPhone ?? "";

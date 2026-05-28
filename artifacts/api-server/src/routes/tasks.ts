@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and, type SQL } from "drizzle-orm";
 import { db, tasksTable, teamMembersTable, activityTable, taskAssignmentsTable } from "@workspace/db";
 import {
   ListTasksQueryParams,
@@ -16,31 +16,36 @@ import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
+async function getMemberMap(): Promise<Map<number, string>> {
+  const members = await db.select({ id: teamMembersTable.id, name: teamMembersTable.name }).from(teamMembersTable);
+  return new Map(members.map((m) => [m.id, m.name]));
+}
+
 router.get("/tasks", async (req, res): Promise<void> => {
   const parsed = ListTasksQueryParams.safeParse(req.query);
   const filters = parsed.success ? parsed.data : {};
 
-  const tasks = await db.select().from(tasksTable).orderBy(desc(tasksTable.createdAt));
+  const conditions: SQL[] = [];
+  if (filters.status) conditions.push(eq(tasksTable.status, filters.status));
+  if (filters.assigneeId) conditions.push(eq(tasksTable.assigneeId, filters.assigneeId));
 
-  const filtered = tasks.filter((t) => {
-    if (filters.status && t.status !== filters.status) return false;
-    if (filters.assigneeId && t.assigneeId !== filters.assigneeId) return false;
-    return true;
-  });
+  const tasks = await db
+    .select()
+    .from(tasksTable)
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .orderBy(desc(tasksTable.createdAt))
+    .limit(200);
 
-  const members = await db.select().from(teamMembersTable);
-  const memberMap = new Map(members.map((m) => [m.id, m.name]));
+  const memberMap = await getMemberMap();
 
-  const result = filtered.map((t) => ({
+  res.json(tasks.map((t) => ({
     ...t,
     assigneeName: t.assigneeId ? (memberMap.get(t.assigneeId) ?? null) : null,
     createdAt: t.createdAt.toISOString(),
     updatedAt: t.updatedAt.toISOString(),
     dueDate: t.dueDate ?? null,
     tags: t.tags ?? [],
-  }));
-
-  res.json(result);
+  })));
 });
 
 router.post("/tasks", async (req, res): Promise<void> => {
@@ -62,8 +67,7 @@ router.post("/tasks", async (req, res): Promise<void> => {
     entityId: task.id,
   });
 
-  const members = await db.select().from(teamMembersTable);
-  const memberMap = new Map(members.map((m) => [m.id, m.name]));
+  const memberMap = await getMemberMap();
 
   res.status(201).json({
     ...task,
@@ -88,12 +92,13 @@ router.get("/tasks/:id", async (req, res): Promise<void> => {
     return;
   }
 
-  const members = await db.select().from(teamMembersTable);
-  const memberMap = new Map(members.map((m) => [m.id, m.name]));
+  const [member] = task.assigneeId
+    ? await db.select({ id: teamMembersTable.id, name: teamMembersTable.name }).from(teamMembersTable).where(eq(teamMembersTable.id, task.assigneeId)).limit(1)
+    : [];
 
   res.json({
     ...task,
-    assigneeName: task.assigneeId ? (memberMap.get(task.assigneeId) ?? null) : null,
+    assigneeName: member?.name ?? null,
     createdAt: task.createdAt.toISOString(),
     updatedAt: task.updatedAt.toISOString(),
     dueDate: task.dueDate ?? null,
@@ -131,12 +136,13 @@ router.patch("/tasks/:id", async (req, res): Promise<void> => {
     entityId: task.id,
   });
 
-  const members = await db.select().from(teamMembersTable);
-  const memberMap = new Map(members.map((m) => [m.id, m.name]));
+  const [member] = task.assigneeId
+    ? await db.select({ id: teamMembersTable.id, name: teamMembersTable.name }).from(teamMembersTable).where(eq(teamMembersTable.id, task.assigneeId)).limit(1)
+    : [];
 
   res.json({
     ...task,
-    assigneeName: task.assigneeId ? (memberMap.get(task.assigneeId) ?? null) : null,
+    assigneeName: member?.name ?? null,
     createdAt: task.createdAt.toISOString(),
     updatedAt: task.updatedAt.toISOString(),
     dueDate: task.dueDate ?? null,
@@ -252,8 +258,7 @@ router.patch("/tasks/:id/assign", async (req, res): Promise<void> => {
     logger.info({ taskId: task.id, assignedToLabel }, "Tidak ada nomor HP — notifikasi WhatsApp dilewati");
   }
 
-  const members = await db.select().from(teamMembersTable);
-  const memberMap = new Map(members.map((m) => [m.id, m.name]));
+  const memberMap = await getMemberMap();
 
   res.json({
     ...task,

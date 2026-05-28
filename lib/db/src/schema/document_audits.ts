@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp, integer, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, integer, jsonb, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -17,7 +17,10 @@ export const documentAuditsTable = pgTable("document_audits", {
   crossDocWarnings: text("cross_doc_warnings").array().notNull().default([]),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
-});
+}, (t) => [
+  index("doc_audits_task_id_idx").on(t.taskId),
+  index("doc_audits_status_idx").on(t.auditStatus),
+]);
 
 export const insertDocumentAuditSchema = createInsertSchema(documentAuditsTable).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertDocumentAudit = z.infer<typeof insertDocumentAuditSchema>;

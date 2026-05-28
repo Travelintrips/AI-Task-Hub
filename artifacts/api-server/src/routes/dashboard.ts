@@ -1,30 +1,57 @@
 import { Router, type IRouter } from "express";
-import { desc } from "drizzle-orm";
-import { db, tasksTable, whatsappMessagesTable, documentsTable, teamMembersTable, activityTable } from "@workspace/db";
+import { desc, eq, sql } from "drizzle-orm";
+import { db, tasksTable, whatsappMessagesTable, documentsTable, teamMembersTable, activityTable, aiTasksTable } from "@workspace/db";
 
 const router: IRouter = Router();
 
 router.get("/dashboard/stats", async (_req, res): Promise<void> => {
-  const [tasks, messages, documents, members] = await Promise.all([
-    db.select().from(tasksTable),
-    db.select().from(whatsappMessagesTable),
-    db.select().from(documentsTable),
-    db.select().from(teamMembersTable),
+  const [
+    [{ total: totalTasks, open: openTasks, completed: completedTasks, urgent: urgentTasks }],
+    [{ total: totalMessages, pending: pendingMessages }],
+    [{ total: totalDocuments, audited: auditedDocuments }],
+    [{ total: teamSize }],
+    [{ total: totalAiTasks, active: activeAiTasks }],
+  ] = await Promise.all([
+    db.select({
+      total: sql<number>`count(*)::int`,
+      open: sql<number>`count(*) filter (where status in ('pending','in_progress'))::int`,
+      completed: sql<number>`count(*) filter (where status = 'completed')::int`,
+      urgent: sql<number>`count(*) filter (where priority = 'urgent')::int`,
+    }).from(tasksTable),
+
+    db.select({
+      total: sql<number>`count(*)::int`,
+      pending: sql<number>`count(*) filter (where processed = false)::int`,
+    }).from(whatsappMessagesTable),
+
+    db.select({
+      total: sql<number>`count(*)::int`,
+      audited: sql<number>`count(*) filter (where status = 'audited')::int`,
+    }).from(documentsTable),
+
+    db.select({
+      total: sql<number>`count(*)::int`,
+    }).from(teamMembersTable),
+
+    db.select({
+      total: sql<number>`count(*)::int`,
+      active: sql<number>`count(*) filter (where status not in ('completed','cancelled'))::int`,
+    }).from(aiTasksTable),
   ]);
 
-  const stats = {
-    totalTasks: tasks.length,
-    openTasks: tasks.filter((t) => t.status === "pending" || t.status === "in_progress").length,
-    completedTasks: tasks.filter((t) => t.status === "completed").length,
-    urgentTasks: tasks.filter((t) => t.priority === "urgent").length,
-    totalMessages: messages.length,
-    pendingMessages: messages.filter((m) => !m.processed).length,
-    totalDocuments: documents.length,
-    auditedDocuments: documents.filter((d) => d.status === "audited").length,
-    teamSize: members.length,
-  };
-
-  res.json(stats);
+  res.json({
+    totalTasks,
+    openTasks,
+    completedTasks,
+    urgentTasks,
+    totalMessages,
+    pendingMessages,
+    totalDocuments,
+    auditedDocuments,
+    teamSize,
+    totalAiTasks,
+    activeAiTasks,
+  });
 });
 
 router.get("/dashboard/activity", async (_req, res): Promise<void> => {
