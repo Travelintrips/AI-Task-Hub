@@ -85,7 +85,7 @@ router.post("/attachments/:id/extract", async (req, res): Promise<void> => {
       extractedText: result.text,
       ocrStatus: isUnknown ? "admin_review" : "done",
       documentType: documentType ?? null,
-      extractedFields: extractedFields as Record<string, unknown> | null,
+      extractedFields: extractedFields as unknown as Record<string, unknown> | null,
     })
     .where(eq(taskAttachmentsTable.id, id))
     .returning();
@@ -148,7 +148,7 @@ router.post("/attachments/:id/extract-fields", async (req, res): Promise<void> =
 
   const [updated] = await db
     .update(taskAttachmentsTable)
-    .set({ extractedFields: fieldResult.fields as Record<string, unknown> })
+    .set({ extractedFields: fieldResult.fields as unknown as Record<string, unknown> })
     .where(eq(taskAttachmentsTable.id, id))
     .returning();
 
@@ -199,7 +199,7 @@ router.post("/attachments/:id/extract/batch", async (req, res): Promise<void> =>
           extractedText: result.text,
           ocrStatus: isUnknown ? "admin_review" : "done",
           documentType: documentType ?? null,
-          extractedFields: extractedFields as Record<string, unknown> | null,
+          extractedFields: extractedFields as unknown as Record<string, unknown> | null,
         })
         .where(eq(taskAttachmentsTable.id, attachment.id));
 
