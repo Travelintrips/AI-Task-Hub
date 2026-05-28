@@ -1,9 +1,33 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request, type Response } from "express";
 import { eq, desc, and, count } from "drizzle-orm";
 import { db, adminNotificationsTable } from "@workspace/db";
 import { logger } from "../lib/logger";
+import { registerSseClient } from "../lib/sse";
 
 const router: IRouter = Router();
+
+// ─── GET /api/events — Server-Sent Events stream ────────────────────────────
+
+router.get("/events", (req: Request, res: Response): void => {
+  const companyId = (req.query.companyId as string | undefined) ?? "default";
+
+  // SSE headers
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no"); // disable nginx buffering
+  res.flushHeaders();
+
+  // Send initial connected event
+  res.write(`event: connected\ndata: ${JSON.stringify({ ok: true, companyId })}\n\n`);
+
+  // Register client; get cleanup function
+  const cleanup = registerSseClient(res, companyId);
+
+  // Clean up when the client disconnects
+  req.on("close", cleanup);
+  req.on("error", cleanup);
+});
 
 // GET /api/notifications
 router.get("/notifications", async (req, res): Promise<void> => {

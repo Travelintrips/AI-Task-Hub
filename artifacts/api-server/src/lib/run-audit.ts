@@ -1,8 +1,9 @@
 import { eq } from "drizzle-orm";
-import { db, taskAttachmentsTable, documentAuditsTable, activityTable } from "@workspace/db";
+import { db, taskAttachmentsTable, documentAuditsTable, activityTable, adminNotificationsTable } from "@workspace/db";
 import { runImportAuditChecks, runCrossDocumentValidation, generateAuditNarrative, buildAuditResult } from "./audit";
 import { logTimeline } from "./timeline";
 import { logger } from "./logger";
+import { emitSseEvent } from "./sse";
 
 export async function runAuditForTask(taskId: number): Promise<typeof documentAuditsTable.$inferSelect> {
   const attachments = await db

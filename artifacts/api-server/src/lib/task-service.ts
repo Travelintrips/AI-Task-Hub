@@ -5,10 +5,12 @@ import {
   taskCommentsTable,
   whatsappMessagesTable,
   activityTable,
+  adminNotificationsTable,
   type AiTask,
 } from "@workspace/db";
 import { type WhatsAppIntentResult, IMPORT_REQUIRED_FIELDS } from "./whatsapp-ai";
 import { logger } from "./logger";
+import { emitSseEvent } from "./sse";
 
 // ─── Status vocabulary ────────────────────────────────────────────────────────
 
@@ -520,6 +522,37 @@ async function createNewTask({
     description: `Task ${taskNumber} created (${action}) — ${result.category} / ${result.priority} (${status}) — ${title}`,
     entityId: task.id,
   });
+
+  // ── Write in-app notification + push SSE ────────────────────────────────────
+  const notifType = result.priority.toLowerCase() === "high" ? "high_priority_task" : "new_inquiry";
+  const [notif] = await db.insert(adminNotificationsTable).values({
+    companyId,
+    type: notifType,
+    title: result.priority.toLowerCase() === "high"
+      ? `🔴 Task prioritas tinggi: ${title}`
+      : `💬 Task baru dari WhatsApp: ${title}`,
+    body: `${result.category} · ${result.division} · Status: ${status}${customerName ? ` · ${customerName}` : ""}`,
+    taskId: task.id,
+    customerPhone: customerPhone ?? null,
+    customerName: customerName ?? null,
+  }).returning();
+
+  emitSseEvent(
+    "new_task",
+    {
+      taskId:    task.id,
+      taskNumber,
+      title,
+      category:  result.category,
+      priority:  result.priority,
+      status,
+      customerName:  customerName ?? null,
+      customerPhone: customerPhone ?? null,
+      notifId:   notif.id,
+      notifType,
+    },
+    companyId,
+  );
 
   logger.info(
     { taskId: task.id, taskNumber, title, status, category: result.category, action },
