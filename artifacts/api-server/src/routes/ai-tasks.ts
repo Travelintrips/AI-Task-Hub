@@ -197,6 +197,18 @@ router.post("/ai-tasks", requireAuth, async (req: Request, res: Response): Promi
       entityId: created.id,
     });
 
+    notifyTaskCreated({
+      taskId:       created.id,
+      taskNumber:   created.taskNumber ?? `SO/2026/${String(created.id).padStart(5, "0")}`,
+      title:        created.title,
+      customerName: created.customerName,
+      customerPhone: created.customerPhone,
+      assignedTo:   created.assignedTo,
+      status:       toDisplay(created.status),
+      priority:     created.priority ?? "medium",
+      companyId:    created.companyId,
+    }).catch((err) => logger.error({ err }, "notifyTaskCreated failed"));
+
     res.status(201).json(mapAiTask(created));
   } catch (err) {
     logger.error({ err }, "POST /ai-tasks failed");
