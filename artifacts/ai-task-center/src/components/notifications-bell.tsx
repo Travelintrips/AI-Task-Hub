@@ -1,6 +1,9 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Bell, CheckCheck, AlertTriangle, MessageSquare, FileText, TrendingUp, Clock } from "lucide-react";
+import {
+  Bell, CheckCheck, AlertTriangle, MessageSquare, FileText,
+  TrendingUp, Clock, ShieldCheck,
+} from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import {
   Popover,
@@ -8,7 +11,8 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/hooks/use-toast";
+import { useServerEvents } from "@/hooks/use-server-events";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -25,27 +29,63 @@ interface AdminNotification {
 }
 
 const NOTIF_ICONS: Record<string, React.ReactNode> = {
-  new_inquiry:            <MessageSquare className="h-3.5 w-3.5 text-blue-500" />,
-  high_priority_task:     <AlertTriangle className="h-3.5 w-3.5 text-red-500" />,
-  document_uploaded:      <FileText className="h-3.5 w-3.5 text-green-500" />,
-  audit_missing_data:     <AlertTriangle className="h-3.5 w-3.5 text-orange-500" />,
-  missing_data_resolved:  <CheckCheck className="h-3.5 w-3.5 text-green-500" />,
-  team_progress_update:   <TrendingUp className="h-3.5 w-3.5 text-indigo-500" />,
-  vendor_quotation:       <FileText className="h-3.5 w-3.5 text-purple-500" />,
-  waiting_review:         <Clock className="h-3.5 w-3.5 text-amber-500" />,
+  new_inquiry:           <MessageSquare className="h-3.5 w-3.5 text-blue-500" />,
+  high_priority_task:    <AlertTriangle className="h-3.5 w-3.5 text-red-500" />,
+  document_uploaded:     <FileText className="h-3.5 w-3.5 text-green-500" />,
+  audit_missing_data:    <AlertTriangle className="h-3.5 w-3.5 text-orange-500" />,
+  audit_complete:        <ShieldCheck className="h-3.5 w-3.5 text-indigo-500" />,
+  missing_data_resolved: <CheckCheck className="h-3.5 w-3.5 text-green-500" />,
+  team_progress_update:  <TrendingUp className="h-3.5 w-3.5 text-indigo-500" />,
+  vendor_quotation:      <FileText className="h-3.5 w-3.5 text-purple-500" />,
+  waiting_review:        <Clock className="h-3.5 w-3.5 text-amber-500" />,
 };
 
 export function NotificationsBell() {
   const [open, setOpen] = useState(false);
   const queryClient = useQueryClient();
+  const { toast } = useToast();
 
+  const invalidateNotifs = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["notifications-count"] });
+    queryClient.invalidateQueries({ queryKey: ["notifications-list"] });
+  }, [queryClient]);
+
+  // ── SSE real-time updates ─────────────────────────────────────────────────
+  useServerEvents({
+    new_task: (data) => {
+      invalidateNotifs();
+      const priority = String(data.priority ?? "");
+      const title    = String(data.title ?? "Task baru");
+      toast({
+        title: priority.toLowerCase() === "high"
+          ? "🔴 Task prioritas tinggi!"
+          : "💬 Task baru dari WhatsApp",
+        description: title.length > 80 ? title.slice(0, 77) + "…" : title,
+      });
+    },
+    audit_complete: (data) => {
+      invalidateNotifs();
+      const status = String(data.auditStatus ?? "");
+      const statusLabel: Record<string, string> = {
+        pass:    "✅ Lulus",
+        warning: "⚠️ Perlu perhatian",
+        fail:    "❌ Gagal",
+      };
+      toast({
+        title: "Audit dokumen selesai",
+        description: `Task #${data.taskId} — ${statusLabel[status] ?? status}`,
+      });
+    },
+  });
+
+  // ── Data fetching (fallback polling removed — SSE handles refresh) ─────────
   const { data: countData } = useQuery<{ count: number }>({
     queryKey: ["notifications-count"],
     queryFn: async () => {
       const res = await fetch(`${BASE}/api/notifications/unread-count`);
       return res.json();
     },
-    refetchInterval: 15000,
+    refetchInterval: 60_000, // safety fallback every 60s (was 15s)
   });
 
   const { data: notifications = [] } = useQuery<AdminNotification[]>({
@@ -55,7 +95,7 @@ export function NotificationsBell() {
       return res.json();
     },
     enabled: open,
-    refetchInterval: open ? 15000 : false,
+    refetchInterval: open ? 60_000 : false,
   });
 
   const markRead = useMutation({
