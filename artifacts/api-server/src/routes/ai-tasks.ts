@@ -88,7 +88,6 @@ router.get("/ai-tasks", async (req, res): Promise<void> => {
               customer_name, ai_source_wa_phone, origin, destination, grand_total, notes,
               expected_date, eta, created_at, updated_at
        FROM sales_documents
-       WHERE ai_generated = true
        ORDER BY created_at DESC NULLS LAST
        LIMIT 300`,
     );

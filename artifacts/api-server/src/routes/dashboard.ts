@@ -39,7 +39,7 @@ router.get("/dashboard/stats", async (_req, res): Promise<void> => {
     const [aiRow] = await supabaseQuery<{ total: string; active: string }>(
       `SELECT COUNT(*)::text AS total,
               COUNT(*) FILTER (WHERE payment_status::text NOT IN ('paid','cancelled'))::text AS active
-       FROM sales_documents WHERE ai_generated = true`,
+       FROM sales_documents`,
     );
 
     res.json({
