@@ -1,80 +1,86 @@
-import { Router, type IRouter } from "express";
-import { supabaseQuery } from "../lib/supabase-db";
+import { Router, type IRouter, type Request, type Response } from "express";
+import { eq, desc } from "drizzle-orm";
+import { db, whatsappMessagesTable } from "@workspace/db";
+import { requireAuth } from "../middleware/auth";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
-interface WaRow {
-  id: number;
-  sender: string | null;
-  sender_name: string | null;
-  message: string | null;
-  is_read: boolean | null;
-  message_type: string | null;
-  received_at: Date | null;
-  created_at: Date | null;
-  replied_at: Date | null;
-  reply_message: string | null;
-}
-
-function mapMessage(r: WaRow) {
-  const created = r.received_at ?? r.created_at ?? new Date();
+function mapMessage(r: typeof whatsappMessagesTable.$inferSelect) {
   return {
-    id: r.id,
-    from: r.sender ?? "",
-    senderName: r.sender_name ?? null,
-    body: r.message ?? "",
-    processed: r.is_read ?? false,
-    detectedIntent: r.message_type ?? null,
-    taskId: null as number | null,
-    wamid: null as string | null,
-    timestamp: String(Math.floor(created.getTime() / 1000)),
-    createdAt: created.toISOString(),
-    repliedAt: r.replied_at ? r.replied_at.toISOString() : null,
-    replyMessage: r.reply_message ?? null,
+    id:             r.id,
+    from:           r.from,
+    senderName:     r.senderName,
+    body:           r.body,
+    processed:      r.processed,
+    detectedIntent: r.detectedIntent,
+    taskId:         r.taskId,
+    wamid:          r.wamid,
+    timestamp:      r.timestamp,
+    createdAt:      r.createdAt.toISOString(),
+    repliedAt:      null as string | null,
+    replyMessage:   null as string | null,
   };
 }
 
-router.get("/messages", async (req, res): Promise<void> => {
+// ─── GET /messages ────────────────────────────────────────────────────────────
+
+router.get("/messages", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
-    const processed = req.query.processed;
-    const where =
-      processed === "true"
-        ? "WHERE is_read = true"
-        : processed === "false"
-          ? "WHERE (is_read IS NULL OR is_read = false)"
-          : "";
-    const rows = await supabaseQuery<WaRow>(
-      `SELECT id, sender, sender_name, message, is_read, message_type,
-              received_at, created_at, replied_at, reply_message
-       FROM wa_incoming_messages
-       ${where}
-       ORDER BY COALESCE(received_at, created_at) DESC NULLS LAST
-       LIMIT 300`,
-    );
-    res.json(rows.map(mapMessage));
+    const rows = await db
+      .select()
+      .from(whatsappMessagesTable)
+      .orderBy(desc(whatsappMessagesTable.createdAt))
+      .limit(300);
+
+    const { processed } = req.query as Record<string, string | undefined>;
+    let filtered = rows;
+    if (processed === "true") filtered = rows.filter((r) => r.processed);
+    if (processed === "false") filtered = rows.filter((r) => !r.processed);
+
+    res.json(filtered.map(mapMessage));
   } catch (err) {
     logger.error({ err }, "GET /messages failed");
     res.status(500).json({ error: "Failed to load messages" });
   }
 });
 
-router.post("/messages/:id/process", async (_req, res): Promise<void> => {
-  res
-    .status(501)
-    .json({ error: "Read-only mode: messages are sourced from Supabase" });
+// ─── POST /messages/:id/process ───────────────────────────────────────────────
+
+router.post("/messages/:id/process", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const id = Number(req.params.id);
+    if (Number.isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+    const [updated] = await db
+      .update(whatsappMessagesTable)
+      .set({ processed: true })
+      .where(eq(whatsappMessagesTable.id, id))
+      .returning();
+
+    if (!updated) { res.status(404).json({ error: "Message not found" }); return; }
+
+    res.json(mapMessage(updated));
+  } catch (err) {
+    logger.error({ err }, "POST /messages/:id/process failed");
+    res.status(500).json({ error: "Failed to process message" });
+  }
 });
 
-router.post("/messages/send", async (_req, res): Promise<void> => {
-  res.status(501).json({ error: "Send WhatsApp not available in read-only mode" });
+// ─── POST /messages/send ──────────────────────────────────────────────────────
+
+router.post("/messages/send", requireAuth, async (_req: Request, res: Response): Promise<void> => {
+  res.status(501).json({ error: "Send WhatsApp requires WHATSAPP_TOKEN and WHATSAPP_PHONE_NUMBER_ID" });
 });
 
-// Keep WhatsApp webhook verification (Meta still pings it)
-router.get("/webhook/whatsapp", (req, res): void => {
-  const mode = req.query["hub.mode"] as string | undefined;
-  const token = req.query["hub.verify_token"] as string | undefined;
+// ─── WhatsApp webhook verification ────────────────────────────────────────────
+
+router.get("/webhook/whatsapp", (req: Request, res: Response): void => {
+  const mode      = req.query["hub.mode"] as string | undefined;
+  const token     = req.query["hub.verify_token"] as string | undefined;
   const challenge = req.query["hub.challenge"] as string | undefined;
   const verifyToken = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN;
+
   if (mode === "subscribe" && token === verifyToken) {
     res.status(200).send(challenge);
   } else {
@@ -82,7 +88,7 @@ router.get("/webhook/whatsapp", (req, res): void => {
   }
 });
 
-router.post("/webhook/whatsapp", (_req, res): void => {
+router.post("/webhook/whatsapp", (_req: Request, res: Response): void => {
   res.sendStatus(200);
 });
 

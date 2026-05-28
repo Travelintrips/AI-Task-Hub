@@ -1,99 +1,115 @@
-import { Router, type IRouter } from "express";
-import { supabaseQuery } from "../lib/supabase-db";
+import { Router, type IRouter, type Request, type Response } from "express";
+import { eq, desc, ilike, or, and } from "drizzle-orm";
+import {
+  db,
+  aiTasksTable,
+  taskCommentsTable,
+  taskAttachmentsTable,
+  activityTable,
+  type AiTaskStatus,
+} from "@workspace/db";
+import { requireAuth, getCompanyId } from "../middleware/auth";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
-interface AiRow {
-  id: number;
-  doc_number: string | null;
-  kind: string | null;
-  status: string | null;
-  invoice_status: string | null;
-  delivery_status: string | null;
-  payment_status: string | null;
-  customer_name: string | null;
-  ai_source_wa_phone: string | null;
-  origin: string | null;
-  destination: string | null;
-  grand_total: string | null;
-  notes: string | null;
-  expected_date: Date | null;
-  eta: Date | null;
-  created_at: Date | null;
-  updated_at: Date | null;
+// ─── Status mapping ────────────────────────────────────────────────────────────
+
+const DB_TO_DISPLAY: Record<string, string> = {
+  new_inquiry:          "New Inquiry",
+  waiting_documents:    "Waiting Documents",
+  documents_received:   "Waiting Documents",
+  audit_in_progress:    "Ready for Review",
+  missing_data:         "Waiting Documents",
+  ready_for_review:     "Ready for Review",
+  assigned:             "Assigned",
+  in_progress:          "In Progress",
+  waiting_customer:     "Waiting Customer",
+  waiting_vendor:       "In Progress",
+  quotation_ready:      "Ready for Review",
+  approved_by_customer: "In Progress",
+  completed:            "Completed",
+  cancelled:            "Completed",
+};
+
+const DISPLAY_TO_DB: Record<string, AiTaskStatus> = {
+  "New Inquiry":       "new_inquiry",
+  "Waiting Documents": "waiting_documents",
+  "Ready for Review":  "ready_for_review",
+  "Assigned":          "assigned",
+  "In Progress":       "in_progress",
+  "Waiting Customer":  "waiting_customer",
+  "Completed":         "completed",
+};
+
+function toDisplay(dbStatus: string): string {
+  return DB_TO_DISPLAY[dbStatus] ?? dbStatus;
 }
 
-function statusOf(r: AiRow): string {
-  if (r.payment_status === "paid") return "completed";
-  if (r.delivery_status === "shipped" || r.delivery_status === "in_progress") return "in_progress";
-  if (r.status === "draft" || r.status === "pending") return "pending";
-  if (r.status === "cancelled") return "cancelled";
-  return "pending";
+function toDbStatus(displayOrDb: string): AiTaskStatus {
+  if (DISPLAY_TO_DB[displayOrDb]) return DISPLAY_TO_DB[displayOrDb];
+  return (displayOrDb as AiTaskStatus) ?? "new_inquiry";
 }
 
-function mapAi(r: AiRow) {
-  const created = r.created_at ?? new Date();
-  const updated = r.updated_at ?? created;
-  const titleParts: string[] = [];
-  if (r.origin && r.destination) titleParts.push(`${r.origin} → ${r.destination}`);
-  if (r.customer_name) titleParts.push(r.customer_name);
-  const title = titleParts.join(" · ") || r.doc_number || `AI Task #${r.id}`;
-
-  const summary = [
-    r.customer_name && `Pelanggan: ${r.customer_name}`,
-    r.origin && r.destination && `Rute: ${r.origin} → ${r.destination}`,
-    r.grand_total && `Nilai: Rp ${Number(r.grand_total).toLocaleString("id-ID")}`,
-    r.notes,
-  ].filter(Boolean).join(" · ");
-
+function mapAiTask(r: typeof aiTasksTable.$inferSelect) {
   return {
-    id: r.id,
-    taskNumber: r.doc_number ?? `AI-${r.id}`,
-    title,
-    description: r.notes ?? null,
-    customerName: r.customer_name ?? null,
-    customerPhone: r.ai_source_wa_phone ?? null,
-    status: statusOf(r),
-    priority: r.payment_status === "overdue" ? "high" : "medium",
-    category: r.kind ?? "sales_order",
-    division: null as string | null,
-    assignedTo: null as string | null,
-    assignedRole: null as string | null,
-    assignedDivision: null as string | null,
-    assignedVendor: null as string | null,
-    aiSummary: summary || null,
-    requiredAction: null as string | null,
-    adminNotes: null as string | null,
-    driverName: null as string | null,
-    driverPhone: null as string | null,
-    plateNumber: null as string | null,
-    quotationAmount: r.grand_total ? Number(r.grand_total) : null,
-    quotationNotes: null as string | null,
-    companyId: null as string | null,
-    dueDate: (r.eta ?? r.expected_date)?.toISOString() ?? null,
-    createdAt: created.toISOString(),
-    updatedAt: updated.toISOString(),
-    auditStatus: null as string | null,
-    latestMessage: null as string | null,
+    id:              r.id,
+    companyId:       r.companyId,
+    taskNumber:      r.taskNumber ?? `SO/2026/${String(r.id).padStart(5, "0")}`,
+    source:          r.source,
+    customerName:    r.customerName,
+    customerPhone:   r.customerPhone,
+    title:           r.title,
+    description:     r.description,
+    category:        r.category,
+    division:        r.division,
+    priority:        r.priority,
+    status:          toDisplay(r.status),
+    assignedTo:      r.assignedTo,
+    assignedRole:    r.assignedRole,
+    assignedDivision: r.assignedDivision,
+    assignedVendor:  r.assignedVendor,
+    driverName:      r.driverName,
+    driverPhone:     r.driverPhone,
+    plateNumber:     r.plateNumber,
+    quotationAmount: r.quotationAmount ? Number(r.quotationAmount) : null,
+    quotationNotes:  r.quotationNotes,
+    dueDate:         r.dueDate?.toISOString() ?? null,
+    aiSummary:       r.aiSummary,
+    aiIntent:        r.aiIntent,
+    missingData:     r.missingData,
+    requiredAction:  r.requiredAction,
+    adminNotes:      r.adminNotes,
+    auditStatus:     null as string | null,
+    latestMessage:   null as string | null,
+    createdAt:       r.createdAt.toISOString(),
+    updatedAt:       r.updatedAt.toISOString(),
   };
 }
 
-router.get("/ai-tasks", async (req, res): Promise<void> => {
+// ─── GET /ai-tasks ─────────────────────────────────────────────────────────────
+
+router.get("/ai-tasks", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const { status, priority, search } = req.query as Record<string, string | undefined>;
-    const rows = await supabaseQuery<AiRow>(
-      `SELECT id, doc_number, kind, status::text AS status, invoice_status::text AS invoice_status,
-              delivery_status::text AS delivery_status, payment_status::text AS payment_status,
-              customer_name, ai_source_wa_phone, origin, destination, grand_total, notes,
-              expected_date, eta, created_at, updated_at
-       FROM sales_documents
-       ORDER BY created_at DESC NULLS LAST
-       LIMIT 300`,
-    );
-    let mapped = rows.map(mapAi);
-    if (status) mapped = mapped.filter((t) => t.status === status);
-    if (priority) mapped = mapped.filter((t) => t.priority === priority);
+    const companyId = getCompanyId(req);
+
+    const rows = await db
+      .select()
+      .from(aiTasksTable)
+      .where(eq(aiTasksTable.companyId, companyId))
+      .orderBy(desc(aiTasksTable.createdAt))
+      .limit(300);
+
+    let mapped = rows.map(mapAiTask);
+
+    if (status) {
+      const dbStatus = toDbStatus(status);
+      mapped = mapped.filter((t) => t.status === toDisplay(dbStatus));
+    }
+    if (priority) {
+      mapped = mapped.filter((t) => t.priority === priority);
+    }
     if (search) {
       const q = search.toLowerCase();
       mapped = mapped.filter(
@@ -101,9 +117,11 @@ router.get("/ai-tasks", async (req, res): Promise<void> => {
           t.title.toLowerCase().includes(q) ||
           (t.customerName ?? "").toLowerCase().includes(q) ||
           (t.taskNumber ?? "").toLowerCase().includes(q) ||
+          (t.customerPhone ?? "").toLowerCase().includes(q) ||
           (t.aiSummary ?? "").toLowerCase().includes(q),
       );
     }
+
     res.json(mapped);
   } catch (err) {
     logger.error({ err }, "GET /ai-tasks failed");
@@ -111,58 +129,255 @@ router.get("/ai-tasks", async (req, res): Promise<void> => {
   }
 });
 
-router.get("/ai-tasks/:id", async (req, res): Promise<void> => {
+// ─── GET /ai-tasks/:id ────────────────────────────────────────────────────────
+
+router.get("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const id = Number(req.params.id);
-    if (Number.isNaN(id)) {
-      res.status(400).json({ error: "Invalid id" });
-      return;
-    }
-    const rows = await supabaseQuery<AiRow>(
-      `SELECT id, doc_number, kind, status::text AS status, invoice_status::text AS invoice_status,
-              delivery_status::text AS delivery_status, payment_status::text AS payment_status,
-              customer_name, ai_source_wa_phone, origin, destination, grand_total, notes,
-              expected_date, eta, created_at, updated_at
-       FROM sales_documents WHERE id = $1 LIMIT 1`,
-      [id],
-    );
-    if (!rows[0]) {
-      res.status(404).json({ error: "AI task not found" });
-      return;
-    }
-    res.json({ ...mapAi(rows[0]), comments: [] });
+    if (Number.isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+    const [row] = await db
+      .select()
+      .from(aiTasksTable)
+      .where(eq(aiTasksTable.id, id))
+      .limit(1);
+
+    if (!row) { res.status(404).json({ error: "AI task not found" }); return; }
+
+    const comments = await db
+      .select()
+      .from(taskCommentsTable)
+      .where(eq(taskCommentsTable.taskId, id))
+      .orderBy(taskCommentsTable.createdAt);
+
+    res.json({ ...mapAiTask(row), comments });
   } catch (err) {
     logger.error({ err }, "GET /ai-tasks/:id failed");
     res.status(500).json({ error: "Failed to load AI task" });
   }
 });
 
-router.patch("/ai-tasks/:id", (_req, res): void => {
-  res.status(501).json({ error: "Read-only mode" });
+// ─── POST /ai-tasks ───────────────────────────────────────────────────────────
+
+router.post("/ai-tasks", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const companyId = getCompanyId(req);
+    const body = req.body as Record<string, unknown>;
+
+    if (!body.title) { res.status(400).json({ error: "title is required" }); return; }
+
+    const taskNumber = `SO/${new Date().getFullYear()}/${String(
+      (await db.select().from(aiTasksTable).where(eq(aiTasksTable.companyId, companyId))).length + 1
+    ).padStart(5, "0")}`;
+
+    const [created] = await db.insert(aiTasksTable).values({
+      companyId,
+      taskNumber: body.taskNumber ? String(body.taskNumber) : taskNumber,
+      source: body.source ? String(body.source) : "manual",
+      title: String(body.title),
+      description: body.description ? String(body.description) : undefined,
+      customerName: body.customerName ? String(body.customerName) : undefined,
+      customerPhone: body.customerPhone ? String(body.customerPhone) : undefined,
+      category: body.category ? String(body.category) : undefined,
+      division: body.division ? String(body.division) : undefined,
+      priority: body.priority ? String(body.priority) : "medium",
+      status: body.status ? toDbStatus(String(body.status)) : "new_inquiry",
+      assignedTo: body.assignedTo ? String(body.assignedTo) : undefined,
+      assignedRole: body.assignedRole ? String(body.assignedRole) : undefined,
+      assignedDivision: body.assignedDivision ? String(body.assignedDivision) : undefined,
+      assignedVendor: body.assignedVendor ? String(body.assignedVendor) : undefined,
+      adminNotes: body.adminNotes ? String(body.adminNotes) : undefined,
+      requiredAction: body.requiredAction ? String(body.requiredAction) : undefined,
+    }).returning();
+
+    await db.insert(activityTable).values({
+      type: "task_created",
+      description: `Task ${created.taskNumber} dibuat`,
+      entityId: created.id,
+    });
+
+    res.status(201).json(mapAiTask(created));
+  } catch (err) {
+    logger.error({ err }, "POST /ai-tasks failed");
+    res.status(500).json({ error: "Failed to create AI task" });
+  }
 });
-router.post("/ai-tasks/:id/comments", (_req, res): void => {
-  res.status(501).json({ error: "Read-only mode" });
+
+// ─── PATCH /ai-tasks/:id ──────────────────────────────────────────────────────
+
+router.patch("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const id = Number(req.params.id);
+    if (Number.isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+    const body = req.body as Record<string, unknown>;
+    const updates: Partial<typeof aiTasksTable.$inferInsert> = {};
+
+    if (body.status != null)          updates.status = toDbStatus(String(body.status));
+    if (body.priority != null)        updates.priority = String(body.priority);
+    if (body.title != null)           updates.title = String(body.title);
+    if (body.description != null)     updates.description = String(body.description);
+    if (body.category != null)        updates.category = String(body.category);
+    if (body.division != null)        updates.division = String(body.division);
+    if (body.assignedTo != null)      updates.assignedTo = String(body.assignedTo);
+    if (body.assignedRole != null)    updates.assignedRole = String(body.assignedRole);
+    if (body.assignedDivision != null) updates.assignedDivision = String(body.assignedDivision);
+    if (body.assignedVendor != null)  updates.assignedVendor = String(body.assignedVendor);
+    if (body.driverName != null)      updates.driverName = String(body.driverName);
+    if (body.driverPhone != null)     updates.driverPhone = String(body.driverPhone);
+    if (body.plateNumber != null)     updates.plateNumber = String(body.plateNumber);
+    if (body.quotationAmount != null) updates.quotationAmount = String(body.quotationAmount);
+    if (body.quotationNotes != null)  updates.quotationNotes = String(body.quotationNotes);
+    if (body.requiredAction != null)  updates.requiredAction = String(body.requiredAction);
+    if (body.adminNotes != null)      updates.adminNotes = String(body.adminNotes);
+    if (body.missingData != null)     updates.missingData = String(body.missingData);
+
+    const [updated] = await db
+      .update(aiTasksTable)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(aiTasksTable.id, id))
+      .returning();
+
+    if (!updated) { res.status(404).json({ error: "AI task not found" }); return; }
+
+    await db.insert(activityTable).values({
+      type: "task_updated",
+      description: `Task ${updated.taskNumber ?? id} diperbarui`,
+      entityId: id,
+    });
+
+    res.json(mapAiTask(updated));
+  } catch (err) {
+    logger.error({ err }, "PATCH /ai-tasks/:id failed");
+    res.status(500).json({ error: "Failed to update AI task" });
+  }
 });
-router.get("/ai-tasks/:id/attachments", (_req, res): void => {
-  res.json([]);
+
+// ─── POST /ai-tasks/:id/comments ──────────────────────────────────────────────
+
+router.post("/ai-tasks/:id/comments", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const id = Number(req.params.id);
+    if (Number.isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+    const { comment, senderType, senderName } = req.body as {
+      comment?: string; senderType?: string; senderName?: string;
+    };
+    if (!comment) { res.status(400).json({ error: "comment is required" }); return; }
+
+    const [newComment] = await db
+      .insert(taskCommentsTable)
+      .values({
+        taskId: id,
+        comment,
+        senderType: senderType ?? "agent",
+        senderName: senderName ?? req.user?.name ?? "Admin",
+      })
+      .returning();
+
+    res.status(201).json(newComment);
+  } catch (err) {
+    logger.error({ err }, "POST /ai-tasks/:id/comments failed");
+    res.status(500).json({ error: "Failed to add comment" });
+  }
 });
-router.post("/ai-tasks/:id/attachments", (_req, res): void => {
-  res.status(501).json({ error: "Read-only mode" });
+
+// ─── GET /ai-tasks/:id/attachments ────────────────────────────────────────────
+
+router.get("/ai-tasks/:id/attachments", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const id = Number(req.params.id);
+    if (Number.isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+    const attachments = await db
+      .select()
+      .from(taskAttachmentsTable)
+      .where(eq(taskAttachmentsTable.taskId, id))
+      .orderBy(taskAttachmentsTable.createdAt);
+
+    res.json(attachments);
+  } catch (err) {
+    logger.error({ err }, "GET /ai-tasks/:id/attachments failed");
+    res.status(500).json({ error: "Failed to load attachments" });
+  }
 });
-router.get("/ai-tasks/:id/audit", (_req, res): void => {
+
+// ─── POST /ai-tasks/:id/attachments ───────────────────────────────────────────
+
+router.post("/ai-tasks/:id/attachments", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const id = Number(req.params.id);
+    if (Number.isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+    const { fileName, fileUrl, objectPath, mimeType, fileSize, documentType } = req.body as {
+      fileName?: string; fileUrl?: string; objectPath?: string;
+      mimeType?: string; fileSize?: number; documentType?: string;
+    };
+
+    if (!fileName) { res.status(400).json({ error: "fileName is required" }); return; }
+
+    const [attachment] = await db
+      .insert(taskAttachmentsTable)
+      .values({
+        taskId: id,
+        fileName,
+        fileUrl: fileUrl ?? null,
+        objectPath: objectPath ?? null,
+        mimeType: mimeType ?? null,
+        fileSize: fileSize ?? null,
+        documentType: documentType ?? null,
+        uploadedBy: req.user?.name ?? "Admin",
+      })
+      .returning();
+
+    res.status(201).json(attachment);
+  } catch (err) {
+    logger.error({ err }, "POST /ai-tasks/:id/attachments failed");
+    res.status(500).json({ error: "Failed to upload attachment" });
+  }
+});
+
+// ─── DELETE /ai-tasks/:id/attachments/:attachmentId ───────────────────────────
+
+router.delete("/ai-tasks/:id/attachments/:attachmentId", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const attachmentId = Number(req.params.attachmentId);
+    if (Number.isNaN(attachmentId)) { res.status(400).json({ error: "Invalid attachment id" }); return; }
+
+    const [deleted] = await db
+      .delete(taskAttachmentsTable)
+      .where(eq(taskAttachmentsTable.id, attachmentId))
+      .returning();
+
+    if (!deleted) { res.status(404).json({ error: "Attachment not found" }); return; }
+
+    res.sendStatus(204);
+  } catch (err) {
+    logger.error({ err }, "DELETE /ai-tasks/:id/attachments/:attachmentId failed");
+    res.status(500).json({ error: "Failed to delete attachment" });
+  }
+});
+
+// ─── GET /ai-tasks/:id/audit ──────────────────────────────────────────────────
+
+router.get("/ai-tasks/:id/audit", requireAuth, (_req: Request, res: Response): void => {
   res.status(404).json({ error: "No audit" });
 });
-router.post("/ai-tasks/:id/audit", (_req, res): void => {
-  res.status(501).json({ error: "Read-only mode" });
+
+router.post("/ai-tasks/:id/audit", requireAuth, (_req: Request, res: Response): void => {
+  res.status(501).json({ error: "Audit not implemented" });
 });
-router.get("/ai-tasks/:id/timeline", (_req, res): void => {
+
+// ─── GET /ai-tasks/:id/timeline ───────────────────────────────────────────────
+
+router.get("/ai-tasks/:id/timeline", requireAuth, (_req: Request, res: Response): void => {
   res.json([]);
 });
-router.post("/ai-tasks/:id/generate-token", (_req, res): void => {
-  res.status(501).json({ error: "Read-only mode" });
-});
-router.delete("/ai-tasks/:id/attachments/:attachmentId", (_req, res): void => {
-  res.status(501).json({ error: "Read-only mode" });
+
+// ─── POST /ai-tasks/:id/generate-token ───────────────────────────────────────
+
+router.post("/ai-tasks/:id/generate-token", requireAuth, (_req: Request, res: Response): void => {
+  res.status(501).json({ error: "Token generation not implemented" });
 });
 
 export default router;
