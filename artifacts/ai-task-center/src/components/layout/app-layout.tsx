@@ -20,6 +20,7 @@ import {
   Users,
   Activity
 } from "lucide-react";
+import { NotificationsBell } from "@/components/notifications-bell";
 
 export function AppLayout({ children }: { children: ReactNode }) {
   const [location] = useLocation();
@@ -37,10 +38,13 @@ export function AppLayout({ children }: { children: ReactNode }) {
     <SidebarProvider>
       <div className="flex h-screen w-full bg-background overflow-hidden">
         <Sidebar>
-          <SidebarHeader className="h-14 flex items-center justify-center border-b">
-            <div className="flex items-center gap-2 font-bold text-primary px-4 w-full">
-              <Activity className="h-5 w-5" />
-              <span>AI Task Center</span>
+          <SidebarHeader className="h-14 flex items-center border-b">
+            <div className="flex items-center justify-between w-full px-4">
+              <div className="flex items-center gap-2 font-bold text-primary">
+                <Activity className="h-5 w-5" />
+                <span>AI Task Center</span>
+              </div>
+              <NotificationsBell />
             </div>
           </SidebarHeader>
           <SidebarContent>

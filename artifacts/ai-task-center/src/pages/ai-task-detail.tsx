@@ -16,6 +16,9 @@ import {
   AlertCircle,
   CheckCircle2,
   Loader2,
+  User,
+  Building2,
+  History,
   Link2,
   History,
   Copy,
@@ -186,6 +189,25 @@ export default function AiTaskDetail() {
   const { data: attachments = [], isLoading: attachmentsLoading } = useQuery<Attachment[]>({
     queryKey: ["ai-task-attachments", id],
     queryFn: () => apiFetch(`/ai-tasks/${id}/attachments`),
+  });
+
+  // ── Customer context query ─────────────────────────────────────────────────
+
+  const { data: customerCtx } = useQuery<{
+    id: number; phone: string; name: string | null; companyName: string | null;
+    frequentService: string | null; specialNotes: string | null;
+    previousIntents: string | null; totalTasks: number; lastSeenAt: string | null;
+  } | null>({
+    queryKey: ["customer-ctx", task?.customerPhone],
+    queryFn: async () => {
+      if (!task?.customerPhone) return null;
+      try {
+        const res = await fetch(`${BASE}/api/customers/${encodeURIComponent(task.customerPhone)}`);
+        if (res.status === 404) return null;
+        return res.json();
+      } catch { return null; }
+    },
+    enabled: !!task?.customerPhone,
   });
 
   // ── Post comment ───────────────────────────────────────────────────────────
@@ -447,6 +469,70 @@ export default function AiTaskDetail() {
 
         {/* ── Right / Sidebar ───────────────────────────────────────────────── */}
         <div className="space-y-5">
+
+          {/* Customer Context */}
+          {task.customerPhone && (
+            <div className="bg-gray-50 rounded-lg p-4 space-y-2.5 text-sm border border-gray-200">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1.5">
+                <User className="h-3.5 w-3.5" /> Konteks Pelanggan
+              </p>
+              {customerCtx ? (
+                <>
+                  <div className="flex items-start gap-2">
+                    <User className="h-3.5 w-3.5 text-gray-400 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="font-medium text-gray-800">{customerCtx.name ?? task.customerName ?? "—"}</p>
+                      <p className="text-[11px] text-gray-400">{task.customerPhone}</p>
+                    </div>
+                  </div>
+                  {customerCtx.companyName && (
+                    <div className="flex items-center gap-2">
+                      <Building2 className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+                      <span className="text-gray-700">{customerCtx.companyName}</span>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2">
+                    <History className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+                    <span className="text-gray-700">{customerCtx.totalTasks} total task</span>
+                  </div>
+                  {customerCtx.frequentService && (
+                    <div>
+                      <p className="text-[11px] text-gray-400">Layanan sering dipakai</p>
+                      <p className="text-gray-700">{customerCtx.frequentService}</p>
+                    </div>
+                  )}
+                  {customerCtx.previousIntents && (() => {
+                    try {
+                      const intents: string[] = JSON.parse(customerCtx.previousIntents ?? "[]");
+                      if (intents.length === 0) return null;
+                      return (
+                        <div>
+                          <p className="text-[11px] text-gray-400 mb-1">Intent sebelumnya</p>
+                          <div className="flex flex-wrap gap-1">
+                            {intents.slice(0, 5).map((i) => (
+                              <span key={i} className="bg-blue-100 text-blue-700 text-[10px] px-1.5 py-0.5 rounded-full">{i}</span>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    } catch { return null; }
+                  })()}
+                  {customerCtx.specialNotes && (
+                    <div className="bg-amber-50 border border-amber-200 rounded p-2 mt-1">
+                      <p className="text-[11px] text-amber-600 font-semibold mb-0.5">Catatan Khusus</p>
+                      <p className="text-xs text-amber-800">{customerCtx.specialNotes}</p>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div>
+                  <p className="text-[12px] text-gray-600">{task.customerName ?? "—"}</p>
+                  <p className="text-[11px] text-gray-400">{task.customerPhone}</p>
+                  <p className="text-[11px] text-gray-400 mt-1 italic">Belum ada riwayat tersimpan</p>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Audit Panel */}
           <TaskAuditPanel taskId={Number(id)} />
