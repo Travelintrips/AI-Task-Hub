@@ -21,10 +21,12 @@ import {
   Activity,
   ShieldCheck,
   LogOut,
+  UserCircle,
 } from "lucide-react";
 import { NotificationsBell } from "@/components/notifications-bell";
 import { useAuth } from "@/contexts/auth-context";
 import { Button } from "@/components/ui/button";
+import { Link as WouterLink } from "wouter";
 
 export function AppLayout({ children }: { children: ReactNode }) {
   const [location] = useLocation();
@@ -78,16 +80,19 @@ export function AppLayout({ children }: { children: ReactNode }) {
           </SidebarContent>
 
           {user && (
-            <div className="border-t p-3">
-              <div className="flex items-center gap-2 mb-2 px-1">
-                <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-bold shrink-0">
-                  {user.name.split(" ").map(n => n[0]).join("").substring(0, 2).toUpperCase()}
+            <div className="border-t p-3 space-y-1">
+              <WouterLink href="/profile">
+                <div className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-accent cursor-pointer transition-colors">
+                  <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-bold shrink-0">
+                    {user.name.split(" ").map(n => n[0]).join("").substring(0, 2).toUpperCase()}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium leading-none truncate">{user.name}</p>
+                    <p className="text-xs text-muted-foreground truncate">{user.role.replace(/_/g, " ")}</p>
+                  </div>
+                  <UserCircle className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                 </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium leading-none truncate">{user.name}</p>
-                  <p className="text-xs text-muted-foreground truncate">{user.role.replace("_", " ")}</p>
-                </div>
-              </div>
+              </WouterLink>
               <Button
                 variant="ghost"
                 size="sm"

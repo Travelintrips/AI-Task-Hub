@@ -16,6 +16,7 @@ import Messages from "@/pages/messages";
 import Documents from "@/pages/documents";
 import Team from "@/pages/team";
 import Users from "@/pages/users";
+import Profile from "@/pages/profile";
 import Login from "@/pages/login";
 import MiniTaskForm from "@/pages/mini-task-form";
 import CustomerDataForm from "@/pages/customer-data-form";
@@ -65,6 +66,7 @@ function AppRouter() {
         <Route path="/documents" component={Documents} />
         <Route path="/team" component={Team} />
         <Route path="/users" component={Users} />
+        <Route path="/profile" component={Profile} />
         <Route component={NotFound} />
       </Switch>
     </AppLayout>
