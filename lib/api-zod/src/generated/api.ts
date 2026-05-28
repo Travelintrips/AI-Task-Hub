@@ -138,6 +138,20 @@ export const DeleteTaskParams = zod.object({
 
 
 /**
+ * @summary Generate AI operational summary for a task
+ */
+export const GenerateTaskAiSummaryParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const GenerateTaskAiSummaryResponse = zod.object({
+  "summary": zod.string().describe('Short operational narrative about the task'),
+  "missingData": zod.array(zod.string()).describe('List of missing data or documents'),
+  "recommendation": zod.string().describe('Recommended next action')
+})
+
+
+/**
  * @summary Assign task to a team member
  */
 export const AssignTaskParams = zod.object({

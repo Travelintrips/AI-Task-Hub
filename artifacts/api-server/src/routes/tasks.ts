@@ -13,6 +13,7 @@ import {
 } from "@workspace/api-zod";
 import { sendWhatsAppNotification } from "../lib/whatsapp-sender";
 import { logger } from "../lib/logger";
+import { openai } from "../lib/openai";
 
 const router: IRouter = Router();
 
@@ -158,6 +159,77 @@ router.delete("/tasks/:id", async (req, res): Promise<void> => {
   }
 
   res.sendStatus(204);
+});
+
+router.post("/tasks/:id/ai-summary", async (req, res): Promise<void> => {
+  const params = GetTaskParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+
+  const [task] = await db.select().from(tasksTable).where(eq(tasksTable.id, params.data.id));
+  if (!task) {
+    res.status(404).json({ error: "Task not found" });
+    return;
+  }
+
+  const members = await db.select().from(teamMembersTable);
+  const memberMap = new Map(members.map((m) => [m.id, m.name]));
+  const assigneeName = task.assigneeId ? (memberMap.get(task.assigneeId) ?? "Tidak diketahui") : "Belum ditugaskan";
+
+  const taskContext = [
+    `Judul: ${task.title}`,
+    `Deskripsi: ${task.description || "Tidak ada deskripsi"}`,
+    `Status: ${task.status}`,
+    `Prioritas: ${task.priority}`,
+    `Ditugaskan ke: ${assigneeName}`,
+    task.customerName ? `Nama pelanggan: ${task.customerName}` : null,
+    task.assignedRole ? `Peran yang ditugaskan: ${task.assignedRole}` : null,
+    task.assignedDivision ? `Divisi: ${task.assignedDivision}` : null,
+    task.assignedVendor ? `Vendor: ${task.assignedVendor}` : null,
+    task.dueDate ? `Tenggat waktu: ${task.dueDate}` : null,
+    task.tags?.length ? `Tag: ${task.tags.join(", ")}` : null,
+    task.sourceMessageId ? `Berasal dari pesan WhatsApp ID: ${task.sourceMessageId}` : null,
+  ].filter(Boolean).join("\n");
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: `Kamu adalah asisten admin operasional yang membantu tim logistik dan kepabeanan di Indonesia.
+Diberikan data task dari sistem manajemen tugas, buatkan ringkasan operasional singkat dalam Bahasa Indonesia.
+
+Kembalikan HANYA objek JSON valid tanpa markdown, dengan format:
+{
+  "summary": "narasi singkat 1-2 kalimat tentang apa yang diminta pelanggan dan kondisi task saat ini",
+  "missingData": ["item data atau dokumen yang hilang/belum tersedia — kosongkan array jika semua sudah lengkap"],
+  "recommendation": "rekomendasi tindakan selanjutnya yang konkret untuk admin"
+}`,
+        },
+        {
+          role: "user",
+          content: `Berikut data task:\n\n${taskContext}`,
+        },
+      ],
+      max_tokens: 500,
+      response_format: { type: "json_object" },
+    });
+
+    const content = response.choices[0]?.message?.content?.trim() ?? "{}";
+    const parsed = JSON.parse(content);
+
+    res.json({
+      summary: parsed.summary ?? "Ringkasan tidak tersedia.",
+      missingData: Array.isArray(parsed.missingData) ? parsed.missingData : [],
+      recommendation: parsed.recommendation ?? "Tidak ada rekomendasi.",
+    });
+  } catch (err) {
+    logger.error({ err }, "Gagal generate AI summary untuk task");
+    res.status(500).json({ error: "Gagal generate ringkasan AI" });
+  }
 });
 
 router.patch("/tasks/:id/assign", async (req, res): Promise<void> => {

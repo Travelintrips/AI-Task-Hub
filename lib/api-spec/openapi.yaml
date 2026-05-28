@@ -140,6 +140,27 @@ paths:
         "204":
           description: Deleted
 
+  /tasks/{id}/ai-summary:
+    post:
+      operationId: generateTaskAiSummary
+      tags: [tasks]
+      summary: Generate AI operational summary for a task
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: AI summary generated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskAiSummary"
+        "404":
+          description: Not found
+
   /tasks/{id}/assign:
     patch:
       operationId: assignTask
@@ -615,6 +636,22 @@ components:
           type: array
           items:
             type: string
+
+    TaskAiSummary:
+      type: object
+      required: [summary, missingData, recommendation]
+      properties:
+        summary:
+          type: string
+          description: Short operational narrative about the task
+        missingData:
+          type: array
+          items:
+            type: string
+          description: List of missing data or documents
+        recommendation:
+          type: string
+          description: Recommended next action
 
     TaskAssignment:
       type: object
