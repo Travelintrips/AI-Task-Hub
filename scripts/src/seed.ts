@@ -7,14 +7,12 @@
 
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
-import bcrypt from "bcryptjs";
 import {
   tasksTable,
   teamMembersTable,
   whatsappMessagesTable,
   documentsTable,
   activityTable,
-  usersTable,
 } from "@workspace/db";
 
 const { Pool } = pg;
@@ -38,25 +36,7 @@ async function seed() {
     return;
   }
 
-  // ── 2. Buat akun admin (jika belum ada) ─────────────────────────────────────
-  const existingUsers = await db.select({ id: usersTable.id }).from(usersTable).limit(1);
-  let adminId = 0;
-  if (existingUsers.length === 0) {
-    const passwordHash = await bcrypt.hash("admin123!", 12);
-    const [admin] = await db.insert(usersTable).values({
-      name: "Admin Utama",
-      email: "admin@example.com",
-      passwordHash,
-      role: "super_admin",
-      companyId: "default",
-      isActive: true,
-    }).returning({ id: usersTable.id });
-    adminId = admin.id;
-    console.log("✅ Akun admin dibuat: admin@example.com / admin123!");
-  } else {
-    adminId = existingUsers[0].id;
-    console.log("ℹ️  Akun admin sudah ada, dilewati.");
-  }
+  // Seed tidak membuat akun admin — gunakan halaman /setup untuk buat akun Anda sendiri
 
   // ── 3. Anggota Tim ───────────────────────────────────────────────────────────
   const [budi, sari, reza, tono, maya] = await db.insert(teamMembersTable).values([
