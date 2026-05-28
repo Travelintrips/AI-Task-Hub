@@ -8,12 +8,17 @@
 
 export * from './activityItem';
 export * from './activityItemType';
+export * from './adminNotification';
+export * from './adminNotificationType';
+export * from './customerContextRecord';
+export * from './customerContextUpdate';
 export * from './dashboardStats';
 export * from './document';
 export * from './documentInput';
 export * from './documentStatus';
 export * from './healthStatus';
 export * from './listMessagesParams';
+export * from './listNotificationsParams';
 export * from './listTasksParams';
 export * from './messageProcessResult';
 export * from './sendMessageInput';
@@ -31,6 +36,7 @@ export * from './taskUpdateStatus';
 export * from './teamMember';
 export * from './teamMemberInput';
 export * from './teamMemberUpdate';
+export * from './unreadCount';
 export * from './uploadUrlRequest';
 export * from './uploadUrlResponse';
 export * from './verifyWhatsAppWebhookParams';

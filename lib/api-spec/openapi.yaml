@@ -24,6 +24,10 @@ tags:
     description: Document audit results and WhatsApp reply generation
   - name: whatsapp-send
     description: WhatsApp outbound notification sender
+  - name: customers
+    description: Customer context management
+  - name: notifications
+    description: Admin in-app notifications
 
 paths:
   /healthz:
@@ -496,6 +500,121 @@ paths:
         "500":
           description: Gateway error
 
+  # ── Customer Context ─────────────────────────────────────────────────────────
+  /customers/{phone}:
+    get:
+      operationId: getCustomerContext
+      tags: [customers]
+      summary: Get stored customer context by phone number
+      parameters:
+        - in: path
+          name: phone
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Customer context
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerContextRecord"
+        "404":
+          description: Not found
+    patch:
+      operationId: updateCustomerContext
+      tags: [customers]
+      summary: Update customer context notes
+      parameters:
+        - in: path
+          name: phone
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CustomerContextUpdate"
+      responses:
+        "200":
+          description: Updated customer context
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CustomerContextRecord"
+
+  # ── Admin Notifications ───────────────────────────────────────────────────────
+  /notifications:
+    get:
+      operationId: listNotifications
+      tags: [notifications]
+      summary: List admin notifications (most recent first)
+      parameters:
+        - in: query
+          name: unreadOnly
+          schema:
+            type: boolean
+        - in: query
+          name: limit
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of notifications
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdminNotification"
+
+  /notifications/unread-count:
+    get:
+      operationId: getUnreadNotificationCount
+      tags: [notifications]
+      summary: Get count of unread notifications
+      responses:
+        "200":
+          description: Unread count
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UnreadCount"
+
+  /notifications/{id}/read:
+    patch:
+      operationId: markNotificationRead
+      tags: [notifications]
+      summary: Mark a notification as read
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Updated notification
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminNotification"
+
+  /notifications/read-all:
+    post:
+      operationId: markAllNotificationsRead
+      tags: [notifications]
+      summary: Mark all notifications as read
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UnreadCount"
+
   # ── Audits ───────────────────────────────────────────────────────────────────
   /audits/{id}/whatsapp-reply:
     post:
@@ -942,3 +1061,81 @@ components:
           type: ["integer", "null"]
         createdAt:
           type: string
+
+    # ── Customer Context ──────────────────────────────────────────────────────
+    CustomerContextRecord:
+      type: object
+      required: [id, phone, companyId, totalTasks, createdAt, updatedAt]
+      properties:
+        id:
+          type: integer
+        companyId:
+          type: string
+        phone:
+          type: string
+        name:
+          type: ["string", "null"]
+        companyName:
+          type: ["string", "null"]
+        frequentService:
+          type: ["string", "null"]
+        specialNotes:
+          type: ["string", "null"]
+        previousIntents:
+          type: ["string", "null"]
+        totalTasks:
+          type: integer
+        lastActiveTaskId:
+          type: ["integer", "null"]
+        lastSeenAt:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+
+    CustomerContextUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        companyName:
+          type: string
+        frequentService:
+          type: string
+        specialNotes:
+          type: string
+
+    # ── Admin Notification ────────────────────────────────────────────────────
+    AdminNotification:
+      type: object
+      required: [id, type, title, body, isRead, createdAt]
+      properties:
+        id:
+          type: integer
+        companyId:
+          type: string
+        type:
+          type: string
+          enum: [new_inquiry, high_priority_task, document_uploaded, audit_missing_data, missing_data_resolved, team_progress_update, vendor_quotation, waiting_review]
+        title:
+          type: string
+        body:
+          type: string
+        taskId:
+          type: ["integer", "null"]
+        customerPhone:
+          type: ["string", "null"]
+        customerName:
+          type: ["string", "null"]
+        isRead:
+          type: boolean
+        createdAt:
+          type: string
+
+    UnreadCount:
+      type: object
+      required: [count]
+      properties:
+        count:
+          type: integer
