@@ -1,4 +1,5 @@
 - [Object Storage upload flow](object-storage-upload-flow.md) — upload goes client → request-url → GCS presigned PUT → POST attachments endpoint; no server-side streaming needed.
 - [AI Task Center setup quirks](ai-task-center-setup.md) — Node 20 Supabase WebSocket fix + TanStack Query deduplication required on import.
+- [Two databases (Helium vs Supabase)](two-databases.md) — auth stays on Helium/Drizzle; display routes read Supabase via raw pg.Pool. Never collapse them.
 - [Auth & User Management](auth-user-management.md) — JWT via bcryptjs+jsonwebtoken; Frontend workflow BASE_PATH=/ai-task-center port 5000; auth-api.ts uses direct fetch (not generated hooks).
 - [API server config module](api-server-config.md) — non-sensitive values live in config.ts, not env vars; only true secrets stay in Replit secrets.

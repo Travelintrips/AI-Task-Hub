@@ -1,234 +1,89 @@
 import { Router, type IRouter } from "express";
-import { eq, desc, and, type SQL } from "drizzle-orm";
-import { db, whatsappMessagesTable, tasksTable, activityTable } from "@workspace/db";
-import {
-  ListMessagesQueryParams,
-  ProcessMessageParams,
-  SendWhatsAppMessageBody,
-  ReceiveWhatsAppWebhookBody,
-  VerifyWhatsAppWebhookQueryParams,
-} from "@workspace/api-zod";
-import { detectIntent } from "../lib/openai";
-import { sendWhatsAppMessage } from "../lib/whatsapp";
+import { supabaseQuery } from "../lib/supabase-db";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
+interface WaRow {
+  id: number;
+  sender: string | null;
+  sender_name: string | null;
+  message: string | null;
+  is_read: boolean | null;
+  message_type: string | null;
+  received_at: Date | null;
+  created_at: Date | null;
+  replied_at: Date | null;
+  reply_message: string | null;
+}
+
+function mapMessage(r: WaRow) {
+  const created = r.received_at ?? r.created_at ?? new Date();
+  return {
+    id: r.id,
+    from: r.sender ?? "",
+    senderName: r.sender_name ?? null,
+    body: r.message ?? "",
+    processed: r.is_read ?? false,
+    detectedIntent: r.message_type ?? null,
+    taskId: null as number | null,
+    wamid: null as string | null,
+    timestamp: created.toISOString(),
+    createdAt: created.toISOString(),
+    repliedAt: r.replied_at ? r.replied_at.toISOString() : null,
+    replyMessage: r.reply_message ?? null,
+  };
+}
+
 router.get("/messages", async (req, res): Promise<void> => {
-  const parsed = ListMessagesQueryParams.safeParse(req.query);
-  const filters = parsed.success ? parsed.data : {};
-
-  const conditions: SQL[] = [];
-  if (filters.processed !== undefined) {
-    conditions.push(eq(whatsappMessagesTable.processed, filters.processed));
+  try {
+    const processed = req.query.processed;
+    const where =
+      processed === "true"
+        ? "WHERE is_read = true"
+        : processed === "false"
+          ? "WHERE (is_read IS NULL OR is_read = false)"
+          : "";
+    const rows = await supabaseQuery<WaRow>(
+      `SELECT id, sender, sender_name, message, is_read, message_type,
+              received_at, created_at, replied_at, reply_message
+       FROM wa_incoming_messages
+       ${where}
+       ORDER BY COALESCE(received_at, created_at) DESC NULLS LAST
+       LIMIT 300`,
+    );
+    res.json(rows.map(mapMessage));
+  } catch (err) {
+    logger.error({ err }, "GET /messages failed");
+    res.status(500).json({ error: "Failed to load messages" });
   }
-
-  const messages = await db
-    .select()
-    .from(whatsappMessagesTable)
-    .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .orderBy(desc(whatsappMessagesTable.createdAt))
-    .limit(300);
-
-  res.json(
-    messages.map((m) => ({
-      ...m,
-      createdAt: m.createdAt.toISOString(),
-    }))
-  );
 });
 
-router.post("/messages/:id/process", async (req, res): Promise<void> => {
-  const params = ProcessMessageParams.safeParse(req.params);
-  if (!params.success) {
-    res.status(400).json({ error: params.error.message });
-    return;
-  }
-
-  const [message] = await db
-    .select()
-    .from(whatsappMessagesTable)
-    .where(eq(whatsappMessagesTable.id, params.data.id));
-
-  if (!message) {
-    res.status(404).json({ error: "Message not found" });
-    return;
-  }
-
-  const intent = await detectIntent(message.body);
-
-  const shouldCreateTask = intent !== "general";
-  let createdTask = null;
-
-  if (shouldCreateTask) {
-    const [task] = await db
-      .insert(tasksTable)
-      .values({
-        title: `[${intent.replace(/_/g, " ")}] ${message.body.slice(0, 80)}`,
-        description: message.body,
-        status: "pending",
-        priority: intent === "complaint" ? "high" : "medium",
-        sourceMessageId: message.id,
-        tags: [intent],
-      })
-      .returning();
-
-    await db
-      .update(whatsappMessagesTable)
-      .set({ processed: true, detectedIntent: intent, taskId: task.id })
-      .where(eq(whatsappMessagesTable.id, message.id));
-
-    await db.insert(activityTable).values({
-      type: "task_created",
-      description: `Task created from WhatsApp message with intent: ${intent}`,
-      entityId: task.id,
-    });
-
-    createdTask = {
-      ...task,
-      assigneeName: null,
-      createdAt: task.createdAt.toISOString(),
-      updatedAt: task.updatedAt.toISOString(),
-      dueDate: task.dueDate ?? null,
-      tags: task.tags ?? [],
-    };
-  } else {
-    await db
-      .update(whatsappMessagesTable)
-      .set({ processed: true, detectedIntent: intent })
-      .where(eq(whatsappMessagesTable.id, message.id));
-  }
-
-  res.json({
-    intent,
-    taskCreated: shouldCreateTask && createdTask !== null,
-    task: createdTask,
-  });
+router.post("/messages/:id/process", async (_req, res): Promise<void> => {
+  res
+    .status(501)
+    .json({ error: "Read-only mode: messages are sourced from Supabase" });
 });
 
-router.post("/messages/send", async (req, res): Promise<void> => {
-  const parsed = SendWhatsAppMessageBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
-    return;
-  }
-
-  const result = await sendWhatsAppMessage(parsed.data.to, parsed.data.message);
-  res.json(result);
+router.post("/messages/send", async (_req, res): Promise<void> => {
+  res.status(501).json({ error: "Send WhatsApp not available in read-only mode" });
 });
 
-// WhatsApp webhook verification
+// Keep WhatsApp webhook verification (Meta still pings it)
 router.get("/webhook/whatsapp", (req, res): void => {
-  const params = VerifyWhatsAppWebhookQueryParams.safeParse(req.query);
-  const query = params.success ? params.data : req.query;
-
-  const mode = query["hub.mode"] as string | undefined;
-  const token = query["hub.verify_token"] as string | undefined;
-  const challenge = query["hub.challenge"] as string | undefined;
-
+  const mode = req.query["hub.mode"] as string | undefined;
+  const token = req.query["hub.verify_token"] as string | undefined;
+  const challenge = req.query["hub.challenge"] as string | undefined;
   const verifyToken = process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN;
-
   if (mode === "subscribe" && token === verifyToken) {
-    req.log.info("WhatsApp webhook verified");
     res.status(200).send(challenge);
   } else {
-    req.log.warn({ mode, token }, "WhatsApp webhook verification failed");
     res.sendStatus(403);
   }
 });
 
-// WhatsApp webhook receiver — simple/legacy handler
-// Advanced handler with AI processing is in whatsapp.ts
-router.post("/webhook/whatsapp", async (req, res): Promise<void> => {
-  const parsed = ReceiveWhatsAppWebhookBody.safeParse(req.body);
-  const body = parsed.success ? parsed.data : req.body;
-
-  res.sendStatus(200); // Respond immediately to WhatsApp gateway
-
-  try {
-    if (body?.object === "whatsapp_business_account") {
-      const entries = body?.entry ?? [];
-      for (const entry of entries) {
-        const changes = (entry as Record<string, unknown>)?.changes as unknown[] | undefined;
-        for (const change of changes ?? []) {
-          const value = (change as Record<string, unknown>)?.value as Record<string, unknown> | undefined;
-          const messages = value?.messages as Array<Record<string, unknown>> | undefined;
-
-          for (const msg of messages ?? []) {
-            const wamid = msg.id as string | undefined;
-            const from = msg.from as string;
-            const timestamp = msg.timestamp as string;
-            const textBody = (msg.text as Record<string, unknown> | undefined)?.body as string | undefined;
-            const contactName = ((value?.contacts as Array<Record<string, unknown>> | undefined)?.[0]?.profile as Record<string, unknown> | undefined)?.name as string | undefined;
-
-            if (!textBody) continue;
-
-            // Deduplication: skip if wamid already processed
-            if (wamid) {
-              const [existing] = await db
-                .select({ id: whatsappMessagesTable.id })
-                .from(whatsappMessagesTable)
-                .where(eq(whatsappMessagesTable.wamid, wamid))
-                .limit(1);
-              if (existing) {
-                logger.warn({ wamid, from }, "Duplicate WhatsApp message ignored");
-                continue;
-              }
-            }
-
-            const intent = await detectIntent(textBody);
-            const shouldCreateTask = intent !== "general";
-
-            const [savedMsg] = await db
-              .insert(whatsappMessagesTable)
-              .values({
-                wamid: wamid ?? null,
-                from,
-                senderName: contactName ?? null,
-                body: textBody,
-                timestamp,
-                processed: shouldCreateTask,
-                detectedIntent: intent,
-              })
-              .returning();
-
-            await db.insert(activityTable).values({
-              type: "message_received",
-              description: `WhatsApp message received from ${contactName ?? from}`,
-              entityId: savedMsg.id,
-            });
-
-            if (shouldCreateTask) {
-              const [task] = await db
-                .insert(tasksTable)
-                .values({
-                  title: `[${intent.replace(/_/g, " ")}] ${textBody.slice(0, 80)}`,
-                  description: textBody,
-                  status: "pending",
-                  priority: intent === "complaint" ? "high" : "medium",
-                  sourceMessageId: savedMsg.id,
-                  tags: [intent],
-                })
-                .returning();
-
-              await db
-                .update(whatsappMessagesTable)
-                .set({ taskId: task.id })
-                .where(eq(whatsappMessagesTable.id, savedMsg.id));
-
-              await db.insert(activityTable).values({
-                type: "task_created",
-                description: `Auto-task created from WhatsApp message: ${intent}`,
-                entityId: task.id,
-              });
-            }
-          }
-        }
-      }
-    }
-  } catch (err) {
-    logger.error({ err }, "Error processing WhatsApp webhook");
-  }
+router.post("/webhook/whatsapp", (_req, res): void => {
+  res.sendStatus(200);
 });
 
 export default router;

@@ -1,72 +1,109 @@
 import { Router, type IRouter } from "express";
-import { desc, eq, sql } from "drizzle-orm";
-import { db, tasksTable, whatsappMessagesTable, documentsTable, teamMembersTable, activityTable, aiTasksTable } from "@workspace/db";
+import { supabaseQuery } from "../lib/supabase-db";
+import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
 router.get("/dashboard/stats", async (_req, res): Promise<void> => {
-  const [
-    [{ total: totalTasks, open: openTasks, completed: completedTasks, urgent: urgentTasks }],
-    [{ total: totalMessages, pending: pendingMessages }],
-    [{ total: totalDocuments, audited: auditedDocuments }],
-    [{ total: teamSize }],
-    [{ total: totalAiTasks, active: activeAiTasks }],
-  ] = await Promise.all([
-    db.select({
-      total: sql<number>`count(*)::int`,
-      open: sql<number>`count(*) filter (where status in ('pending','in_progress'))::int`,
-      completed: sql<number>`count(*) filter (where status = 'completed')::int`,
-      urgent: sql<number>`count(*) filter (where priority = 'urgent')::int`,
-    }).from(tasksTable),
+  try {
+    const [tasksRow] = await supabaseQuery<{
+      total: string;
+      open: string;
+      completed: string;
+      urgent: string;
+    }>(
+      `SELECT COUNT(*)::text AS total,
+              COUNT(*) FILTER (WHERE payment_status::text != 'paid')::text AS open,
+              COUNT(*) FILTER (WHERE payment_status::text = 'paid')::text AS completed,
+              COUNT(*) FILTER (WHERE payment_status::text = 'overdue')::text AS urgent
+       FROM sales_documents`,
+    );
 
-    db.select({
-      total: sql<number>`count(*)::int`,
-      pending: sql<number>`count(*) filter (where processed = false)::int`,
-    }).from(whatsappMessagesTable),
+    const [msgRow] = await supabaseQuery<{ total: string; pending: string }>(
+      `SELECT COUNT(*)::text AS total,
+              COUNT(*) FILTER (WHERE is_read IS NULL OR is_read = false)::text AS pending
+       FROM wa_incoming_messages`,
+    );
 
-    db.select({
-      total: sql<number>`count(*)::int`,
-      audited: sql<number>`count(*) filter (where status = 'audited')::int`,
-    }).from(documentsTable),
+    const [docRow] = await supabaseQuery<{ total: string }>(
+      `SELECT (
+         (SELECT COUNT(*) FROM sales_documents) +
+         (SELECT COUNT(*) FROM purchase_documents)
+       )::text AS total`,
+    );
 
-    db.select({
-      total: sql<number>`count(*)::int`,
-    }).from(teamMembersTable),
+    const [teamRow] = await supabaseQuery<{ total: string }>(
+      `SELECT COUNT(*)::text AS total FROM users WHERE is_active IS NOT FALSE`,
+    );
 
-    db.select({
-      total: sql<number>`count(*)::int`,
-      active: sql<number>`count(*) filter (where status not in ('completed','cancelled'))::int`,
-    }).from(aiTasksTable),
-  ]);
+    const [aiRow] = await supabaseQuery<{ total: string; active: string }>(
+      `SELECT COUNT(*)::text AS total,
+              COUNT(*) FILTER (WHERE payment_status::text NOT IN ('paid','cancelled'))::text AS active
+       FROM sales_documents WHERE ai_generated = true`,
+    );
 
-  res.json({
-    totalTasks,
-    openTasks,
-    completedTasks,
-    urgentTasks,
-    totalMessages,
-    pendingMessages,
-    totalDocuments,
-    auditedDocuments,
-    teamSize,
-    totalAiTasks,
-    activeAiTasks,
-  });
+    res.json({
+      totalTasks: Number(tasksRow.total),
+      openTasks: Number(tasksRow.open),
+      completedTasks: Number(tasksRow.completed),
+      urgentTasks: Number(tasksRow.urgent),
+      totalMessages: Number(msgRow.total),
+      pendingMessages: Number(msgRow.pending),
+      totalDocuments: Number(docRow.total),
+      auditedDocuments: 0,
+      teamSize: Number(teamRow.total),
+      totalAiTasks: Number(aiRow.total),
+      activeAiTasks: Number(aiRow.active),
+    });
+  } catch (err) {
+    logger.error({ err }, "GET /dashboard/stats failed");
+    res.status(500).json({ error: "Failed to load stats" });
+  }
 });
 
 router.get("/dashboard/activity", async (_req, res): Promise<void> => {
-  const activity = await db
-    .select()
-    .from(activityTable)
-    .orderBy(desc(activityTable.createdAt))
-    .limit(20);
-
-  res.json(
-    activity.map((a) => ({
-      ...a,
-      createdAt: a.createdAt.toISOString(),
-    }))
-  );
+  try {
+    const rows = await supabaseQuery<{
+      id: number;
+      kind: string;
+      description: string;
+      created_at: Date;
+    }>(
+      `SELECT id, 'message_received'::text AS kind,
+              ('WhatsApp dari ' || COALESCE(sender_name, sender)) AS description,
+              COALESCE(received_at, created_at) AS created_at
+       FROM wa_incoming_messages
+       WHERE COALESCE(received_at, created_at) IS NOT NULL
+       ORDER BY created_at DESC LIMIT 10`,
+    );
+    const rows2 = await supabaseQuery<{
+      id: number;
+      kind: string;
+      description: string;
+      created_at: Date;
+    }>(
+      `SELECT id, 'task_created'::text AS kind,
+              ('Sales doc ' || COALESCE(doc_number, id::text) || ' — ' || COALESCE(customer_name, '?')) AS description,
+              created_at
+       FROM sales_documents
+       WHERE created_at IS NOT NULL
+       ORDER BY created_at DESC LIMIT 10`,
+    );
+    const combined = [...rows, ...rows2]
+      .sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at))
+      .slice(0, 20)
+      .map((r, i) => ({
+        id: i + 1,
+        type: r.kind,
+        description: r.description,
+        entityId: r.id,
+        createdAt: new Date(r.created_at).toISOString(),
+      }));
+    res.json(combined);
+  } catch (err) {
+    logger.error({ err }, "GET /dashboard/activity failed");
+    res.status(500).json({ error: "Failed to load activity" });
+  }
 });
 
 export default router;

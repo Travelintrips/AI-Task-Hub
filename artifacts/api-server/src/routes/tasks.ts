@@ -1,345 +1,149 @@
 import { Router, type IRouter } from "express";
-import { eq, desc, and, type SQL } from "drizzle-orm";
-import { db, tasksTable, teamMembersTable, activityTable, taskAssignmentsTable } from "@workspace/db";
-import {
-  ListTasksQueryParams,
-  CreateTaskBody,
-  GetTaskParams,
-  UpdateTaskParams,
-  UpdateTaskBody,
-  DeleteTaskParams,
-  AssignTaskParams,
-  AssignTaskBody,
-} from "@workspace/api-zod";
-import { sendWhatsAppNotification } from "../lib/whatsapp-sender";
+import { supabaseQuery } from "../lib/supabase-db";
 import { logger } from "../lib/logger";
-import { openai } from "../lib/openai";
 
 const router: IRouter = Router();
 
-async function getMemberMap(): Promise<Map<number, string>> {
-  const members = await db.select({ id: teamMembersTable.id, name: teamMembersTable.name }).from(teamMembersTable);
-  return new Map(members.map((m) => [m.id, m.name]));
+interface SalesRow {
+  id: number;
+  doc_number: string | null;
+  kind: string | null;
+  status: string | null;
+  invoice_status: string | null;
+  delivery_status: string | null;
+  payment_status: string | null;
+  customer_id: number | null;
+  customer_name: string | null;
+  total_amount: string | null;
+  grand_total: string | null;
+  origin: string | null;
+  destination: string | null;
+  transport_mode: string | null;
+  etd: Date | null;
+  eta: Date | null;
+  expected_date: Date | null;
+  notes: string | null;
+  ai_generated: boolean | null;
+  created_at: Date | null;
+  updated_at: Date | null;
+}
+
+function mapStatus(s: string | null, paid: string | null): string {
+  if (paid === "paid") return "completed";
+  if (s === "draft" || s === "pending") return "pending";
+  if (s === "confirmed" || s === "in_progress" || s === "shipped") return "in_progress";
+  if (s === "delivered" || s === "completed") return "completed";
+  if (s === "cancelled") return "cancelled";
+  return "pending";
+}
+
+function mapPriority(s: SalesRow): string {
+  if (s.kind?.toLowerCase().includes("urgent")) return "urgent";
+  if (s.payment_status === "overdue") return "high";
+  return "medium";
+}
+
+function mapTask(r: SalesRow) {
+  const created = r.created_at ?? new Date();
+  const updated = r.updated_at ?? created;
+  const titleParts: string[] = [];
+  if (r.doc_number) titleParts.push(r.doc_number);
+  if (r.origin && r.destination) titleParts.push(`${r.origin} → ${r.destination}`);
+  else if (r.customer_name) titleParts.push(r.customer_name);
+  const title = titleParts.join(" — ") || `Order #${r.id}`;
+
+  const descParts: string[] = [];
+  if (r.customer_name) descParts.push(`Pelanggan: ${r.customer_name}`);
+  if (r.transport_mode) descParts.push(`Mode: ${r.transport_mode}`);
+  if (r.grand_total) descParts.push(`Total: Rp ${Number(r.grand_total).toLocaleString("id-ID")}`);
+  if (r.notes) descParts.push(r.notes);
+
+  const tags: string[] = [];
+  if (r.kind) tags.push(r.kind);
+  if (r.ai_generated) tags.push("ai-generated");
+  if (r.transport_mode) tags.push(r.transport_mode);
+
+  return {
+    id: r.id,
+    title,
+    description: descParts.join("\n") || null,
+    status: mapStatus(r.delivery_status ?? r.status, r.payment_status),
+    priority: mapPriority(r),
+    assigneeId: null as number | null,
+    assigneeName: null as string | null,
+    customerName: r.customer_name ?? null,
+    assignedRole: null,
+    assignedDivision: null,
+    assignedVendor: null,
+    sourceMessageId: null,
+    tags,
+    dueDate: (r.eta ?? r.expected_date)?.toISOString() ?? null,
+    createdAt: created.toISOString(),
+    updatedAt: updated.toISOString(),
+  };
 }
 
 router.get("/tasks", async (req, res): Promise<void> => {
-  const parsed = ListTasksQueryParams.safeParse(req.query);
-  const filters = parsed.success ? parsed.data : {};
-
-  const conditions: SQL[] = [];
-  if (filters.status) conditions.push(eq(tasksTable.status, filters.status));
-  if (filters.assigneeId) conditions.push(eq(tasksTable.assigneeId, filters.assigneeId));
-
-  const tasks = await db
-    .select()
-    .from(tasksTable)
-    .where(conditions.length > 0 ? and(...conditions) : undefined)
-    .orderBy(desc(tasksTable.createdAt))
-    .limit(200);
-
-  const memberMap = await getMemberMap();
-
-  res.json(tasks.map((t) => ({
-    ...t,
-    assigneeName: t.assigneeId ? (memberMap.get(t.assigneeId) ?? null) : null,
-    createdAt: t.createdAt.toISOString(),
-    updatedAt: t.updatedAt.toISOString(),
-    dueDate: t.dueDate ?? null,
-    tags: t.tags ?? [],
-  })));
-});
-
-router.post("/tasks", async (req, res): Promise<void> => {
-  const parsed = CreateTaskBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
-    return;
+  try {
+    const { status } = req.query as Record<string, string | undefined>;
+    const rows = await supabaseQuery<SalesRow>(
+      `SELECT id, doc_number, kind, status, invoice_status, delivery_status, payment_status,
+              customer_id, customer_name, total_amount, grand_total,
+              origin, destination, transport_mode, etd, eta, expected_date,
+              notes, ai_generated, created_at, updated_at
+       FROM sales_documents
+       ORDER BY created_at DESC NULLS LAST
+       LIMIT 300`,
+    );
+    let mapped = rows.map(mapTask);
+    if (status) mapped = mapped.filter((t) => t.status === status);
+    res.json(mapped);
+  } catch (err) {
+    logger.error({ err }, "GET /tasks failed");
+    res.status(500).json({ error: "Failed to load tasks" });
   }
-
-  const { tags, ...rest } = parsed.data;
-  const [task] = await db
-    .insert(tasksTable)
-    .values({ ...rest, tags: tags ?? [] })
-    .returning();
-
-  await db.insert(activityTable).values({
-    type: "task_created",
-    description: `Task "${task.title}" was created`,
-    entityId: task.id,
-  });
-
-  const memberMap = await getMemberMap();
-
-  res.status(201).json({
-    ...task,
-    assigneeName: task.assigneeId ? (memberMap.get(task.assigneeId) ?? null) : null,
-    createdAt: task.createdAt.toISOString(),
-    updatedAt: task.updatedAt.toISOString(),
-    dueDate: task.dueDate ?? null,
-    tags: task.tags ?? [],
-  });
 });
 
 router.get("/tasks/:id", async (req, res): Promise<void> => {
-  const params = GetTaskParams.safeParse(req.params);
-  if (!params.success) {
-    res.status(400).json({ error: params.error.message });
-    return;
-  }
-
-  const [task] = await db.select().from(tasksTable).where(eq(tasksTable.id, params.data.id));
-  if (!task) {
-    res.status(404).json({ error: "Task not found" });
-    return;
-  }
-
-  const [member] = task.assigneeId
-    ? await db.select({ id: teamMembersTable.id, name: teamMembersTable.name }).from(teamMembersTable).where(eq(teamMembersTable.id, task.assigneeId)).limit(1)
-    : [];
-
-  res.json({
-    ...task,
-    assigneeName: member?.name ?? null,
-    createdAt: task.createdAt.toISOString(),
-    updatedAt: task.updatedAt.toISOString(),
-    dueDate: task.dueDate ?? null,
-    tags: task.tags ?? [],
-  });
-});
-
-router.patch("/tasks/:id", async (req, res): Promise<void> => {
-  const params = UpdateTaskParams.safeParse(req.params);
-  if (!params.success) {
-    res.status(400).json({ error: params.error.message });
-    return;
-  }
-
-  const parsed = UpdateTaskBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
-    return;
-  }
-
-  const [task] = await db
-    .update(tasksTable)
-    .set(parsed.data)
-    .where(eq(tasksTable.id, params.data.id))
-    .returning();
-
-  if (!task) {
-    res.status(404).json({ error: "Task not found" });
-    return;
-  }
-
-  await db.insert(activityTable).values({
-    type: "task_updated",
-    description: `Task "${task.title}" was updated`,
-    entityId: task.id,
-  });
-
-  const [member] = task.assigneeId
-    ? await db.select({ id: teamMembersTable.id, name: teamMembersTable.name }).from(teamMembersTable).where(eq(teamMembersTable.id, task.assigneeId)).limit(1)
-    : [];
-
-  res.json({
-    ...task,
-    assigneeName: member?.name ?? null,
-    createdAt: task.createdAt.toISOString(),
-    updatedAt: task.updatedAt.toISOString(),
-    dueDate: task.dueDate ?? null,
-    tags: task.tags ?? [],
-  });
-});
-
-router.delete("/tasks/:id", async (req, res): Promise<void> => {
-  const params = DeleteTaskParams.safeParse(req.params);
-  if (!params.success) {
-    res.status(400).json({ error: params.error.message });
-    return;
-  }
-
-  const [task] = await db.delete(tasksTable).where(eq(tasksTable.id, params.data.id)).returning();
-  if (!task) {
-    res.status(404).json({ error: "Task not found" });
-    return;
-  }
-
-  res.sendStatus(204);
-});
-
-router.post("/tasks/:id/ai-summary", async (req, res): Promise<void> => {
-  const params = GetTaskParams.safeParse(req.params);
-  if (!params.success) {
-    res.status(400).json({ error: params.error.message });
-    return;
-  }
-
-  const [task] = await db.select().from(tasksTable).where(eq(tasksTable.id, params.data.id));
-  if (!task) {
-    res.status(404).json({ error: "Task not found" });
-    return;
-  }
-
-  const members = await db.select().from(teamMembersTable);
-  const memberMap = new Map(members.map((m) => [m.id, m.name]));
-  const assigneeName = task.assigneeId ? (memberMap.get(task.assigneeId) ?? "Tidak diketahui") : "Belum ditugaskan";
-
-  const taskContext = [
-    `Judul: ${task.title}`,
-    `Deskripsi: ${task.description || "Tidak ada deskripsi"}`,
-    `Status: ${task.status}`,
-    `Prioritas: ${task.priority}`,
-    `Ditugaskan ke: ${assigneeName}`,
-    task.customerName ? `Nama pelanggan: ${task.customerName}` : null,
-    task.assignedRole ? `Peran yang ditugaskan: ${task.assignedRole}` : null,
-    task.assignedDivision ? `Divisi: ${task.assignedDivision}` : null,
-    task.assignedVendor ? `Vendor: ${task.assignedVendor}` : null,
-    task.dueDate ? `Tenggat waktu: ${task.dueDate}` : null,
-    task.tags?.length ? `Tag: ${task.tags.join(", ")}` : null,
-    task.sourceMessageId ? `Berasal dari pesan WhatsApp ID: ${task.sourceMessageId}` : null,
-  ].filter(Boolean).join("\n");
-
   try {
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
-      messages: [
-        {
-          role: "system",
-          content: `Kamu adalah asisten admin operasional yang membantu tim logistik dan kepabeanan di Indonesia.
-Diberikan data task dari sistem manajemen tugas, buatkan ringkasan operasional singkat dalam Bahasa Indonesia.
-
-Kembalikan HANYA objek JSON valid tanpa markdown, dengan format:
-{
-  "summary": "narasi singkat 1-2 kalimat tentang apa yang diminta pelanggan dan kondisi task saat ini",
-  "missingData": ["item data atau dokumen yang hilang/belum tersedia — kosongkan array jika semua sudah lengkap"],
-  "recommendation": "rekomendasi tindakan selanjutnya yang konkret untuk admin"
-}`,
-        },
-        {
-          role: "user",
-          content: `Berikut data task:\n\n${taskContext}`,
-        },
-      ],
-      max_tokens: 500,
-      response_format: { type: "json_object" },
-    });
-
-    const content = response.choices[0]?.message?.content?.trim() ?? "{}";
-    const parsed = JSON.parse(content);
-
-    res.json({
-      summary: parsed.summary ?? "Ringkasan tidak tersedia.",
-      missingData: Array.isArray(parsed.missingData) ? parsed.missingData : [],
-      recommendation: parsed.recommendation ?? "Tidak ada rekomendasi.",
-    });
-  } catch (err) {
-    logger.error({ err }, "Gagal generate AI summary untuk task");
-    res.status(500).json({ error: "Gagal generate ringkasan AI" });
-  }
-});
-
-router.patch("/tasks/:id/assign", async (req, res): Promise<void> => {
-  const params = AssignTaskParams.safeParse(req.params);
-  if (!params.success) {
-    res.status(400).json({ error: params.error.message });
-    return;
-  }
-
-  const parsed = AssignTaskBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
-    return;
-  }
-
-  const { assigneeId, assignedRole, assignedDivision, assignedVendor, customerName, miniTaskUrl } = parsed.data;
-
-  if (!assigneeId && !assignedRole && !assignedDivision && !assignedVendor) {
-    res.status(400).json({ error: "Harus menentukan salah satu: assigneeId, assignedRole, assignedDivision, atau assignedVendor" });
-    return;
-  }
-
-  let member: { id: number; name: string; phone: string | null } | undefined;
-  if (assigneeId) {
-    const [found] = await db.select().from(teamMembersTable).where(eq(teamMembersTable.id, assigneeId));
-    if (!found) {
-      res.status(404).json({ error: "Team member not found" });
+    const id = Number(req.params.id);
+    if (Number.isNaN(id)) {
+      res.status(400).json({ error: "Invalid id" });
       return;
     }
-    member = found;
-  }
-
-  const [existingTask] = await db.select().from(tasksTable).where(eq(tasksTable.id, params.data.id));
-  if (!existingTask) {
-    res.status(404).json({ error: "Task not found" });
-    return;
-  }
-
-  const [task] = await db
-    .update(tasksTable)
-    .set({
-      assigneeId: assigneeId ?? null,
-      assignedRole: assignedRole ?? null,
-      assignedDivision: assignedDivision ?? null,
-      assignedVendor: assignedVendor ?? null,
-      customerName: customerName ?? existingTask.customerName ?? null,
-      status: "assigned",
-    })
-    .where(eq(tasksTable.id, params.data.id))
-    .returning();
-
-  const assignedToLabel =
-    member?.name ??
-    (assignedRole ? `role: ${assignedRole}` : null) ??
-    (assignedDivision ? `divisi: ${assignedDivision}` : null) ??
-    (assignedVendor ? `vendor: ${assignedVendor}` : null) ??
-    "Tim";
-
-  await db.insert(taskAssignmentsTable).values({
-    taskId: task.id,
-    assignedTo: member ? String(member.id) : null,
-    assignedRole: assignedRole ?? null,
-    assignedDivision: assignedDivision ?? null,
-    assignedVendor: assignedVendor ?? null,
-    status: "active",
-  });
-
-  await db.insert(activityTable).values({
-    type: "task_assigned",
-    description: `Task "${task.title}" ditugaskan ke ${assignedToLabel}`,
-    entityId: task.id,
-  });
-
-  if (member?.phone) {
-    try {
-      await sendWhatsAppNotification({
-        to: member.phone,
-        recipientType: "team",
-        templateName: "task_assignment",
-        variables: {
-          customerName: customerName ?? existingTask.customerName ?? "-",
-          title: task.title,
-          priority: task.priority,
-          miniTaskUrl: miniTaskUrl ?? "",
-        },
-        taskId: task.id,
-      });
-    } catch (err) {
-      logger.warn({ err, taskId: task.id }, "WhatsApp notification gagal saat assign task, melanjutkan");
+    const rows = await supabaseQuery<SalesRow>(
+      `SELECT id, doc_number, kind, status, invoice_status, delivery_status, payment_status,
+              customer_id, customer_name, total_amount, grand_total,
+              origin, destination, transport_mode, etd, eta, expected_date,
+              notes, ai_generated, created_at, updated_at
+       FROM sales_documents WHERE id = $1 LIMIT 1`,
+      [id],
+    );
+    if (!rows[0]) {
+      res.status(404).json({ error: "Task not found" });
+      return;
     }
-  } else {
-    logger.info({ taskId: task.id, assignedToLabel }, "Tidak ada nomor HP — notifikasi WhatsApp dilewati");
+    res.json(mapTask(rows[0]));
+  } catch (err) {
+    logger.error({ err }, "GET /tasks/:id failed");
+    res.status(500).json({ error: "Failed to load task" });
   }
+});
 
-  const memberMap = await getMemberMap();
-
-  res.json({
-    ...task,
-    assigneeName: task.assigneeId ? (memberMap.get(task.assigneeId) ?? null) : null,
-    createdAt: task.createdAt.toISOString(),
-    updatedAt: task.updatedAt.toISOString(),
-    dueDate: task.dueDate ?? null,
-    tags: task.tags ?? [],
-  });
+router.post("/tasks", (_req, res): void => {
+  res.status(501).json({ error: "Read-only mode: tasks are sourced from Supabase sales_documents" });
+});
+router.patch("/tasks/:id", (_req, res): void => {
+  res.status(501).json({ error: "Read-only mode" });
+});
+router.delete("/tasks/:id", (_req, res): void => {
+  res.status(501).json({ error: "Read-only mode" });
+});
+router.patch("/tasks/:id/assign", (_req, res): void => {
+  res.status(501).json({ error: "Read-only mode" });
+});
+router.post("/tasks/:id/ai-summary", (_req, res): void => {
+  res.status(501).json({ error: "AI summary not available in read-only mode" });
 });
 
 export default router;

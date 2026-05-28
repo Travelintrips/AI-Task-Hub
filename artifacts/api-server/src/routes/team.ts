@@ -1,88 +1,68 @@
 import { Router, type IRouter } from "express";
-import { eq } from "drizzle-orm";
-import { db, teamMembersTable, activityTable } from "@workspace/db";
-import {
-  CreateTeamMemberBody,
-  UpdateTeamMemberParams,
-  UpdateTeamMemberBody,
-  DeleteTeamMemberParams,
-} from "@workspace/api-zod";
+import { supabaseQuery } from "../lib/supabase-db";
+import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
+interface UserRow {
+  rn: number;
+  id: string;
+  name: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
+  phone: string | null;
+  role: string | null;
+  division: string | null;
+  department: string | null;
+  is_active: boolean | null;
+  created_at: Date | null;
+}
+
+function mapMember(r: UserRow) {
+  const created = r.created_at ?? new Date();
+  const fullName =
+    r.name ??
+    [r.first_name, r.last_name].filter(Boolean).join(" ").trim() ??
+    r.email ??
+    "(no name)";
+  return {
+    id: r.rn,
+    name: fullName || "(no name)",
+    role: r.role ?? "staff",
+    email: r.email ?? null,
+    phone: r.phone ?? null,
+    division: r.division ?? r.department ?? null,
+    isActive: r.is_active ?? true,
+    createdAt: created.toISOString(),
+  };
+}
+
 router.get("/team", async (_req, res): Promise<void> => {
-  const members = await db.select().from(teamMembersTable).orderBy(teamMembersTable.name);
-  res.json(
-    members.map((m) => ({
-      ...m,
-      createdAt: m.createdAt.toISOString(),
-    }))
-  );
+  try {
+    const rows = await supabaseQuery<UserRow>(
+      `SELECT ROW_NUMBER() OVER (ORDER BY name NULLS LAST, email) AS rn,
+              id, name, first_name, last_name, email, phone,
+              role::text AS role, division, department, is_active, created_at
+       FROM users
+       WHERE is_active IS NOT FALSE
+       ORDER BY name NULLS LAST, email`,
+    );
+    res.json(rows.map(mapMember));
+  } catch (err) {
+    logger.error({ err }, "GET /team failed");
+    res.status(500).json({ error: "Failed to load team" });
+  }
 });
 
-router.post("/team", async (req, res): Promise<void> => {
-  const parsed = CreateTeamMemberBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
-    return;
-  }
-
-  const [member] = await db.insert(teamMembersTable).values(parsed.data).returning();
-
-  await db.insert(activityTable).values({
-    type: "member_added",
-    description: `${member.name} joined the team as ${member.role}`,
-    entityId: member.id,
-  });
-
-  res.status(201).json({ ...member, createdAt: member.createdAt.toISOString() });
+router.post("/team", (_req, res): void => {
+  res.status(501).json({ error: "Read-only mode: team sourced from Supabase users" });
 });
-
-router.patch("/team/:id", async (req, res): Promise<void> => {
-  const params = UpdateTeamMemberParams.safeParse(req.params);
-  if (!params.success) {
-    res.status(400).json({ error: params.error.message });
-    return;
-  }
-
-  const parsed = UpdateTeamMemberBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
-    return;
-  }
-
-  const [member] = await db
-    .update(teamMembersTable)
-    .set(parsed.data)
-    .where(eq(teamMembersTable.id, params.data.id))
-    .returning();
-
-  if (!member) {
-    res.status(404).json({ error: "Team member not found" });
-    return;
-  }
-
-  res.json({ ...member, createdAt: member.createdAt.toISOString() });
+router.patch("/team/:id", (_req, res): void => {
+  res.status(501).json({ error: "Read-only mode" });
 });
-
-router.delete("/team/:id", async (req, res): Promise<void> => {
-  const params = DeleteTeamMemberParams.safeParse(req.params);
-  if (!params.success) {
-    res.status(400).json({ error: params.error.message });
-    return;
-  }
-
-  const [member] = await db
-    .delete(teamMembersTable)
-    .where(eq(teamMembersTable.id, params.data.id))
-    .returning();
-
-  if (!member) {
-    res.status(404).json({ error: "Team member not found" });
-    return;
-  }
-
-  res.sendStatus(204);
+router.delete("/team/:id", (_req, res): void => {
+  res.status(501).json({ error: "Read-only mode" });
 });
 
 export default router;
