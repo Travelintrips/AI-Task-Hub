@@ -21,7 +21,7 @@ async function fetchFileBuffer(
     const file = await service.getObjectEntityFile(objectPath);
     const response = await service.downloadObject(file);
     const arrayBuffer = await response.arrayBuffer();
-    return Buffer.from(arrayBuffer);
+    return Buffer.from(arrayBuffer as ArrayBuffer);
   }
 
   if (fileUrl) {
@@ -30,7 +30,7 @@ async function fetchFileBuffer(
       throw new Error(`Failed to fetch file: HTTP ${response.status}`);
     }
     const arrayBuffer = await response.arrayBuffer();
-    return Buffer.from(arrayBuffer);
+    return Buffer.from(arrayBuffer as ArrayBuffer);
   }
 
   throw new Error("No file URL or object path available for extraction");
@@ -279,7 +279,7 @@ export async function extractDocumentFields(
           "port_of_discharge","country_of_origin","delivery_address","package_count",
           "machine_condition_new_or_used",
         ].map((k) => [k, null]),
-      ) as DocumentFields,
+      ) as unknown as DocumentFields,
     };
   }
 
@@ -316,7 +316,7 @@ export async function extractDocumentFields(
         const val = parsed[k];
         return [k, typeof val === "string" && val.length > 0 ? val : null];
       }),
-    ) as DocumentFields;
+    ) as unknown as DocumentFields;
 
     logger.info({ documentType, fieldsFound: FIELD_KEYS.filter((k) => fields[k] !== null).length }, "Document fields extracted");
     return { success: true, fields };
