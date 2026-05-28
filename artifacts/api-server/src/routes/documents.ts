@@ -9,10 +9,11 @@ import {
   GetUploadUrlBody,
 } from "@workspace/api-zod";
 import { auditDocument } from "../lib/openai";
-import { getUploadUrl } from "../lib/supabase";
+import { ObjectStorageService } from "../lib/objectStorage";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
+const objectStorageService = new ObjectStorageService();
 
 router.post("/documents/upload-url", async (req, res): Promise<void> => {
   const parsed = GetUploadUrlBody.safeParse(req.body);
@@ -22,8 +23,9 @@ router.post("/documents/upload-url", async (req, res): Promise<void> => {
   }
 
   try {
-    const result = await getUploadUrl(parsed.data.filename, parsed.data.mimeType);
-    res.json(result);
+    const uploadURL = await objectStorageService.getObjectEntityUploadURL();
+    const objectPath = objectStorageService.normalizeObjectEntityPath(uploadURL);
+    res.json({ uploadUrl: uploadURL, publicUrl: uploadURL, path: objectPath });
   } catch (err) {
     logger.error({ err }, "Failed to get upload URL");
     res.status(500).json({ error: "Failed to generate upload URL" });

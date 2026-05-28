@@ -356,6 +356,70 @@ export interface ActivityItem {
   createdAt: string;
 }
 
+export interface CustomerContextRecord {
+  id: number;
+  companyId: string;
+  phone: string;
+  /** @nullable */
+  name?: string | null;
+  /** @nullable */
+  companyName?: string | null;
+  /** @nullable */
+  frequentService?: string | null;
+  /** @nullable */
+  specialNotes?: string | null;
+  /** @nullable */
+  previousIntents?: string | null;
+  totalTasks: number;
+  /** @nullable */
+  lastActiveTaskId?: number | null;
+  /** @nullable */
+  lastSeenAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CustomerContextUpdate {
+  name?: string;
+  companyName?: string;
+  frequentService?: string;
+  specialNotes?: string;
+}
+
+export type AdminNotificationType = typeof AdminNotificationType[keyof typeof AdminNotificationType];
+
+
+export const AdminNotificationType = {
+  new_inquiry: 'new_inquiry',
+  high_priority_task: 'high_priority_task',
+  document_uploaded: 'document_uploaded',
+  audit_missing_data: 'audit_missing_data',
+  missing_data_resolved: 'missing_data_resolved',
+  team_progress_update: 'team_progress_update',
+  vendor_quotation: 'vendor_quotation',
+  waiting_review: 'waiting_review',
+} as const;
+
+export interface AdminNotification {
+  id: number;
+  companyId?: string;
+  type: AdminNotificationType;
+  title: string;
+  body: string;
+  /** @nullable */
+  taskId?: number | null;
+  /** @nullable */
+  customerPhone?: string | null;
+  /** @nullable */
+  customerName?: string | null;
+  isRead: boolean;
+  createdAt: string;
+}
+
+export interface UnreadCount {
+  count: number;
+}
+
 export type ListTasksParams = {
 status?: string;
 assigneeId?: number;
@@ -369,5 +433,10 @@ export type VerifyWhatsAppWebhookParams = {
 'hub.mode'?: string;
 'hub.verify_token'?: string;
 'hub.challenge'?: string;
+};
+
+export type ListNotificationsParams = {
+unreadOnly?: boolean;
+limit?: number;
 };
 

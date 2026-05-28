@@ -120,7 +120,11 @@ router.patch("/ai-tasks/:id", async (req, res): Promise<void> => {
     const id = parseInt(req.params.id, 10);
     if (isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
 
-    const allowed = ["status", "priority", "assignedTo", "assignedRole", "division", "aiSummary"] as const;
+    const allowed = [
+      "status", "priority", "assignedTo", "assignedRole", "assignedDivision", "assignedVendor",
+      "division", "aiSummary", "requiredAction", "adminNotes",
+      "driverName", "driverPhone", "plateNumber", "quotationAmount", "quotationNotes",
+    ] as const;
     const updates: Record<string, unknown> = {};
     for (const key of allowed) {
       if (req.body[key] !== undefined) updates[key] = req.body[key];
@@ -131,19 +135,32 @@ router.patch("/ai-tasks/:id", async (req, res): Promise<void> => {
       return;
     }
 
+    const [existing] = await db.select().from(aiTasksTable).where(eq(aiTasksTable.id, id));
+    if (!existing) { res.status(404).json({ error: "Task not found" }); return; }
+
     const [task] = await db
       .update(aiTasksTable)
       .set(updates)
       .where(eq(aiTasksTable.id, id))
       .returning();
 
-    if (!task) { res.status(404).json({ error: "Task not found" }); return; }
-
     await db.insert(activityTable).values({
       type: "task_updated",
       description: `AI task ${task.taskNumber ?? id} updated — ${JSON.stringify(updates)}`,
       entityId: task.id,
     });
+
+    if (updates.status && updates.status !== existing.status) {
+      const { logTimeline } = await import("../lib/timeline");
+      await logTimeline({
+        taskId: id,
+        eventType: "status_changed",
+        title: `Status berubah: ${existing.status} → ${updates.status as string}`,
+        actor: (req.body.updatedBy as string) ?? "Admin",
+        actorType: "admin",
+        metadata: { from: existing.status, to: updates.status },
+      });
+    }
 
     res.json({
       ...task,
@@ -312,6 +329,71 @@ router.post("/ai-tasks/:id/audit", async (req, res): Promise<void> => {
     });
   } catch (err) {
     logger.error({ err }, "POST /ai-tasks/:id/audit failed");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── GET /ai-tasks/:id/timeline ──────────────────────────────────────────────
+
+router.get("/ai-tasks/:id/timeline", async (req, res): Promise<void> => {
+  try {
+    const taskId = parseInt(req.params.id, 10);
+    if (isNaN(taskId)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+    const { taskTimelineTable } = await import("@workspace/db");
+    const { desc: descOrd } = await import("drizzle-orm");
+
+    const timeline = await db
+      .select()
+      .from(taskTimelineTable)
+      .where(eq(taskTimelineTable.taskId, taskId))
+      .orderBy(descOrd(taskTimelineTable.createdAt));
+
+    res.json(timeline.map((t) => ({ ...t, createdAt: t.createdAt.toISOString() })));
+  } catch (err) {
+    logger.error({ err }, "GET /ai-tasks/:id/timeline failed");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── POST /ai-tasks/:id/generate-token ───────────────────────────────────────
+
+router.post("/ai-tasks/:id/generate-token", async (req, res): Promise<void> => {
+  try {
+    const taskId = parseInt(req.params.id, 10);
+    if (isNaN(taskId)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+    const { tokenType, createdBy, expiresInDays } = req.body as {
+      tokenType: "mini_task" | "customer_data";
+      createdBy?: string;
+      expiresInDays?: number;
+    };
+
+    if (!tokenType || !["mini_task", "customer_data"].includes(tokenType)) {
+      res.status(400).json({ error: "tokenType must be mini_task or customer_data" });
+      return;
+    }
+
+    const { createPublicToken } = await import("../lib/tokens");
+    const { logTimeline } = await import("../lib/timeline");
+    const token = await createPublicToken(taskId, tokenType, createdBy, expiresInDays ?? 30);
+
+    const baseUrl = process.env.PUBLIC_BASE_URL ?? `https://${process.env.REPLIT_DEV_DOMAIN ?? "localhost:5173"}`;
+    const path = tokenType === "mini_task" ? "mini-task" : "customer-data";
+    const url = `${baseUrl}/${path}/${taskId}/${token}`;
+
+    await logTimeline({
+      taskId,
+      eventType: "token_created",
+      title: `Link publik dibuat (${tokenType === "mini_task" ? "Mini Task" : "Customer Data"})`,
+      actor: createdBy ?? "Admin",
+      actorType: "admin",
+      metadata: { tokenType, url },
+    });
+
+    res.json({ token, url, expiresInDays: expiresInDays ?? 30 });
+  } catch (err) {
+    logger.error({ err }, "POST /ai-tasks/:id/generate-token failed");
     res.status(500).json({ error: "Internal server error" });
   }
 });

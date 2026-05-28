@@ -10,6 +10,9 @@ import aiTasksRouter from "./ai-tasks";
 import storageRouter from "./storage";
 import attachmentsRouter from "./attachments";
 import auditsRouter from "./audits";
+import publicRouter from "./public";
+import customersRouter from "./customers";
+import notificationsRouter from "./notifications";
 
 const router: IRouter = Router();
 
@@ -24,5 +27,8 @@ router.use(aiTasksRouter);
 router.use(storageRouter);
 router.use(attachmentsRouter);
 router.use(auditsRouter);
+router.use(publicRouter);
+router.use(customersRouter);
+router.use(notificationsRouter);
 
 export default router;
