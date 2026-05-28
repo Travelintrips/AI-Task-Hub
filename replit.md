@@ -73,6 +73,10 @@ Verify token: the value of `WHATSAPP_WEBHOOK_VERIFY_TOKEN` secret.
 - Supabase bucket `ai-task-center-documents` is auto-created on first upload URL request
 - WhatsApp webhook only fires for `whatsapp_business_account` object type events
 
+## User Preferences
+
+- Gunakan bahasa Indonesia dalam semua komunikasi dengan pengguna.
+
 ## Pointers
 
 - See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details
