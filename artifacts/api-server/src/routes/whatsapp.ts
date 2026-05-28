@@ -349,7 +349,20 @@ async function processIncomingMessage({
       logger.error({ actErr }, "Failed to log activity for incoming message");
     }
 
-    // 4. Trigger AI detection (non-blocking — errors are caught)
+    // 4. Look up customer context (non-blocking)
+    const customerCtx = await getOrCreateCustomerContext({ phone: from, companyId, name: senderName });
+
+    // 5. Create admin notification for new WhatsApp inquiry
+    await createAdminNotification({
+      type: "new_inquiry",
+      title: "Pesan WhatsApp Baru",
+      body: `Pesan dari ${senderName ?? from}: "${bodyText.slice(0, 100)}${bodyText.length > 100 ? "…" : ""}"`,
+      customerPhone: from,
+      customerName: senderName ?? customerCtx?.name ?? null,
+      companyId,
+    });
+
+    // 6. Trigger AI detection (non-blocking — errors are caught)
     setImmediate(() => {
       runAiDetection({
         savedMsgId: savedMsg.id,
@@ -360,6 +373,8 @@ async function processIncomingMessage({
         companyId,
         attachmentUrl: attachment?.url ?? null,
         mediaId: attachment?.mediaId ?? null,
+        customerCtxName: customerCtx?.name ?? senderName ?? null,
+        previousIntents: customerCtx?.previousIntents ?? null,
       }).catch((err) => {
         logger.error({ err, msgId: savedMsg.id }, "AI detection background task failed");
       });
