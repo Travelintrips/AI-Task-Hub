@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
-import { eq, desc, and } from "drizzle-orm";
-import { db, aiTasksTable, taskCommentsTable, activityTable, taskAttachmentsTable, documentAuditsTable } from "@workspace/db";
+import { eq, desc, and, inArray } from "drizzle-orm";
+import { db, aiTasksTable, taskCommentsTable, activityTable, taskAttachmentsTable, documentAuditsTable, whatsappMessagesTable } from "@workspace/db";
 import { runAuditForTask } from "../lib/run-audit";
 import { logger } from "../lib/logger";
 
@@ -10,14 +10,16 @@ const router: IRouter = Router();
 
 router.get("/ai-tasks", async (req, res): Promise<void> => {
   try {
-    const { status, category, priority, search, companyId } = req.query as Record<string, string>;
+    const { status, category, priority, search, companyId, division, assignedTo } = req.query as Record<string, string>;
 
     const conditions = [];
 
-    if (companyId) conditions.push(eq(aiTasksTable.companyId, companyId));
-    if (status)    conditions.push(eq(aiTasksTable.status, status));
-    if (category)  conditions.push(eq(aiTasksTable.category, category));
-    if (priority)  conditions.push(eq(aiTasksTable.priority, priority));
+    if (companyId)  conditions.push(eq(aiTasksTable.companyId, companyId));
+    if (status)     conditions.push(eq(aiTasksTable.status, status));
+    if (category)   conditions.push(eq(aiTasksTable.category, category));
+    if (priority)   conditions.push(eq(aiTasksTable.priority, priority));
+    if (division)   conditions.push(eq(aiTasksTable.division, division));
+    if (assignedTo) conditions.push(eq(aiTasksTable.assignedTo, assignedTo));
 
     const rows = await db
       .select()
@@ -25,17 +27,46 @@ router.get("/ai-tasks", async (req, res): Promise<void> => {
       .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(desc(aiTasksTable.createdAt));
 
-    // Apply search client-side (simpler than SQL ILIKE on multiple cols)
+    // Apply search client-side (name, phone, title, taskNumber, aiSummary)
     const q = search?.toLowerCase().trim();
     const filtered = q
       ? rows.filter(
           (t) =>
             t.title.toLowerCase().includes(q) ||
             (t.customerName ?? "").toLowerCase().includes(q) ||
+            (t.customerPhone ?? "").toLowerCase().includes(q) ||
             (t.taskNumber ?? "").toLowerCase().includes(q) ||
             (t.aiSummary ?? "").toLowerCase().includes(q),
         )
       : rows;
+
+    // ── Enrich with latest audit status ──────────────────────────────────────
+    const taskIds = filtered.map((t) => t.id);
+    const auditMap: Record<number, string> = {};
+    if (taskIds.length > 0) {
+      const audits = await db
+        .select({ taskId: documentAuditsTable.taskId, auditStatus: documentAuditsTable.auditStatus })
+        .from(documentAuditsTable)
+        .where(inArray(documentAuditsTable.taskId, taskIds))
+        .orderBy(desc(documentAuditsTable.updatedAt));
+      for (const a of audits) {
+        if (!(a.taskId in auditMap)) auditMap[a.taskId] = a.auditStatus;
+      }
+    }
+
+    // ── Enrich with latest WhatsApp message per customer phone ────────────────
+    const phones = [...new Set(filtered.map((t) => t.customerPhone).filter(Boolean))] as string[];
+    const msgMap: Record<string, string> = {};
+    if (phones.length > 0) {
+      const msgs = await db
+        .select({ senderPhone: whatsappMessagesTable.senderPhone, body: whatsappMessagesTable.body })
+        .from(whatsappMessagesTable)
+        .orderBy(desc(whatsappMessagesTable.createdAt));
+      for (const m of msgs) {
+        const key = m.senderPhone ?? "";
+        if (key && !msgMap[key]) msgMap[key] = m.body;
+      }
+    }
 
     res.json(
       filtered.map((t) => ({
@@ -43,6 +74,8 @@ router.get("/ai-tasks", async (req, res): Promise<void> => {
         createdAt: t.createdAt.toISOString(),
         updatedAt: t.updatedAt.toISOString(),
         dueDate: t.dueDate ? t.dueDate.toISOString() : null,
+        auditStatus: auditMap[t.id] ?? null,
+        latestMessage: t.customerPhone ? (msgMap[t.customerPhone] ?? null) : null,
       })),
     );
   } catch (err) {
