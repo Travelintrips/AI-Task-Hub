@@ -1,0 +1,579 @@
+Create a new module called AI Task Center integrated into the existing system without replacing or deleting current features.
+
+Existing modules such as customer order, quotation, shipment, trucking, warehouse, vendor, finance, RFQ, and BizPortal must remain active and connected.
+
+Purpose:
+AI Task Center acts as an AI Operational Brain that handles:
+- WhatsApp inquiries
+- AI intent detection
+- AI task creation
+- document upload
+- OCR and text extraction
+- document audit
+- workflow routing
+- team assignment
+- WhatsApp notifications
+- mini task forms
+- customer missing data forms
+- operational timeline
+- customer context memory
+
+Use:
+- React frontend
+- Tailwind
+- Node.js
+- Express
+- Supabase database
+- Supabase Storage
+- OpenAI API
+- WhatsApp Gateway webhook integration
+
+Create clean, modular, scalable, mobile responsive architecture.
+
+==================================================
+DATABASE STRUCTURE
+==================================================
+
+Create tables:
+1. whatsapp_messages
+2. ai_tasks
+3. task_attachments
+4. document_audits
+5. task_comments
+6. task_assignments
+7. whatsapp_notifications
+8. customer_context
+9. task_timeline
+
+Support:
+- multi-company
+- role permissions
+- secure public links
+- scalable workflow
+
+==================================================
+WHATSAPP WEBHOOK
+==================================================
+
+Create:
+POST /api/whatsapp/webhook
+
+Function:
+1. Receive incoming WhatsApp messages.
+2. Save sender, message, attachment, raw payload.
+3. Support:
+   - text
+   - image
+   - PDF
+   - Excel
+   - Word
+   - voice note placeholder
+4. Save all messages to whatsapp_messages.
+5. Trigger AI intent detection.
+6. Do not block webhook if AI fails.
+
+==================================================
+AI INTENT DETECTION
+==================================================
+
+Create AI service:
+detectWhatsAppIntent(messageText, customerContext)
+
+Detect:
+- intent
+- category
+- division
+- priority
+- customer sentiment
+- quotation request
+- shipment type
+- commodity
+- origin
+- destination
+- operational needs
+- suggested team
+- suggested reply
+
+Categories:
+- Import
+- Export
+- Trucking
+- Customs
+- Warehouse
+- Freight
+- Finance
+- Complaint
+- General Inquiry
+
+Priority logic:
+- urgent/today/complaint = High
+- normal inquiry = Medium
+- general question = Low
+
+Return JSON only.
+
+==================================================
+IMPORT LOGIC
+==================================================
+
+If customer says:
+- import machine from China
+- import barang
+- customs clearance
+- mesin dari China
+
+Then:
+category = Import
+division = Import / Customs
+needs_document_audit = true
+needs_admin_review = true
+
+AI must ask for:
+1. Commercial Invoice
+2. Packing List
+3. HS Code
+4. Product photo/catalog
+5. Supplier name
+6. Origin country/city
+7. Port of loading
+8. Port of discharge
+9. Delivery city
+10. Gross weight
+11. Net weight
+12. Dimensions
+13. Incoterm
+14. Importer name
+15. NIB/API
+16. Machine condition (new or used)
+
+If missing data exists:
+generate polite Indonesian WhatsApp reply asking only missing items.
+
+==================================================
+AUTO TASK CREATION
+==================================================
+
+After AI detection:
+1. Create ai_tasks record.
+2. Generate task title automatically.
+3. Generate AI summary.
+4. Set category, division, priority, status.
+5. Link all WhatsApp messages to task.
+6. Prevent duplicate tasks.
+7. Continue same topic in same task.
+
+Statuses:
+- New Inquiry
+- Waiting Documents
+- Documents Received
+- Audit In Progress
+- Missing Data
+- Ready for Review
+- Assigned
+- In Progress
+- Waiting Customer
+- Waiting Vendor
+- Quotation Ready
+- Completed
+- Cancelled
+
+==================================================
+DOCUMENT UPLOAD & STORAGE
+==================================================
+
+When customer uploads files:
+1. Save to Supabase Storage.
+2. Link to task.
+3. Detect file type.
+4. Save metadata.
+
+Support:
+- PDF
+- image
+- Excel
+- Word
+
+==================================================
+OCR & TEXT EXTRACTION
+==================================================
+
+Create OCR/text extraction:
+- PDF text extraction
+- image OCR
+- Excel parser
+- Word extraction
+
+Save extracted text to database.
+
+If OCR fails:
+mark Need Manual Review.
+
+==================================================
+DOCUMENT TYPE DETECTION
+==================================================
+
+Detect:
+- Commercial Invoice
+- Packing List
+- Bill of Lading
+- Air Waybill
+- Certificate of Origin
+- Insurance
+- Product Catalog
+- Legal Document
+- Unknown
+
+==================================================
+DOCUMENT FIELD EXTRACTION
+==================================================
+
+Extract:
+- importer_name
+- supplier_name
+- invoice_number
+- invoice_date
+- hs_code
+- item_description
+- quantity
+- unit_price
+- total_value
+- currency
+- gross_weight
+- net_weight
+- dimensions
+- incoterm
+- port_of_loading
+- port_of_discharge
+- country_of_origin
+- package_count
+- machine_condition
+
+Return structured JSON.
+
+==================================================
+DOCUMENT AUDIT
+==================================================
+
+AI must audit:
+- required documents
+- missing fields
+- mismatch fields
+- unclear fields
+- recommendation
+- next action
+
+Check:
+- Invoice available
+- Packing List available
+- HS Code
+- dimensions
+- gross weight
+- Incoterm
+- ports
+- importer data
+- NIB/API
+- machine condition
+
+==================================================
+CROSS DOCUMENT VALIDATION
+==================================================
+
+Compare Invoice vs Packing List:
+- quantity
+- weight
+- supplier
+- importer
+- package count
+- description
+- HS code
+
+If mismatch:
+- warning
+- admin review required
+
+==================================================
+AUTO WHATSAPP REPLY
+==================================================
+
+Generate polite Indonesian replies:
+- missing documents
+- task updates
+- assignment notifications
+- customer progress updates
+
+Never give final quotation automatically.
+
+==================================================
+WHATSAPP SENDER
+==================================================
+
+Create:
+POST /api/whatsapp/send
+
+Support:
+- customer notifications
+- admin notifications
+- team notifications
+- vendor notifications
+
+Use environment variables:
+- WHATSAPP_API_URL
+- WHATSAPP_API_TOKEN
+- WHATSAPP_SENDER_ID
+
+==================================================
+AI TASK CENTER DASHBOARD
+==================================================
+
+Create dashboard:
+- task summary
+- filters
+- search
+- AI summary
+- latest WhatsApp
+- audit status
+- assignment status
+- timeline
+- mobile responsive
+
+==================================================
+TASK DETAIL PAGE
+==================================================
+
+Show:
+- customer info
+- AI summary
+- WhatsApp conversation
+- uploaded files
+- audit results
+- missing checklist
+- timeline
+- comments
+- assignment panel
+- WhatsApp reply panel
+
+Admin can:
+- edit category
+- edit priority
+- assign team
+- approve replies
+- mark completed
+
+==================================================
+TASK ASSIGNMENT
+==================================================
+
+Admin can assign:
+- user
+- role
+- division
+- vendor
+
+When assigned:
+1. Update task.
+2. Save assignment.
+3. Send WhatsApp notification.
+4. Generate secure mini task link.
+
+==================================================
+MINI TASK FORM
+==================================================
+
+Create public mini task form:
+URL:
+ /mini-task/:taskId/:secureToken
+
+Fast mobile UI.
+
+Team can:
+- update progress
+- upload photo
+- upload surat jalan
+- input driver
+- mark complete
+
+No heavy login required.
+
+==================================================
+CUSTOMER DATA FORM
+==================================================
+
+Create customer mini form:
+URL:
+ /customer-data/:taskId/:secureToken
+
+Customer can:
+- upload missing documents
+- fill missing fields
+- submit data
+
+After submit:
+- re-run audit
+- update task
+- notify admin
+
+==================================================
+RE-AUDIT LOGIC
+==================================================
+
+When customer uploads new data:
+1. OCR again
+2. Re-extract fields
+3. Re-audit documents
+4. Update missing checklist
+5. Update task status
+6. Notify admin
+
+==================================================
+HUMAN APPROVAL RULE
+==================================================
+
+AI may:
+- detect intent
+- summarize
+- audit
+- request missing data
+- suggest reply
+- suggest division
+
+AI may NOT:
+- approve customs declaration
+- give final quotation
+- finalize permit
+- close complaints automatically
+
+All final decisions require admin review.
+
+==================================================
+ROLE & PERMISSION
+==================================================
+
+Roles:
+- Super Admin
+- Company Admin
+- Supervisor
+- Staff
+- Vendor
+- Customer Public Link
+
+Permissions must be isolated and secure.
+
+==================================================
+TIMELINE LOG
+==================================================
+
+Track:
+- WhatsApp received
+- AI detection
+- task created
+- document uploaded
+- OCR completed
+- audit completed
+- assignment
+- progress update
+- notification sent
+- task completed
+
+==================================================
+AI ADMIN SUMMARY
+==================================================
+
+Generate short operational summary automatically.
+
+Example:
+Customer wants to import machine from China.
+Received:
+Invoice and Packing List.
+Missing:
+HS Code, NIB/API, Port of Loading.
+Recommendation:
+Request missing data before quotation and customs review.
+
+==================================================
+CUSTOMER CONTEXT MEMORY
+==================================================
+
+Store:
+- previous orders
+- previous complaints
+- frequent services
+- VIP notes
+- customer behavior
+
+Use customer context during AI detection.
+
+==================================================
+ADMIN NOTIFICATIONS
+==================================================
+
+Notify admin when:
+- new inquiry
+- urgent task
+- document upload
+- missing data
+- assignment
+- progress update
+- re-audit complete
+
+==================================================
+ERROR HANDLING
+==================================================
+
+If AI fails:
+- save messages
+- create manual review task
+- never lose data
+
+If OCR fails:
+- keep file
+- mark manual review
+
+If WhatsApp send fails:
+- save failed status
+- allow retry
+
+==================================================
+SECURITY
+==================================================
+
+1. Prevent duplicate tasks.
+2. Use secure token public links.
+3. Customer cannot see internal notes.
+4. Vendor cannot access unrelated tasks.
+5. Add AI confidence score:
+   - High
+   - Medium
+   - Low
+
+If confidence is low:
+mark Need Manual Review.
+
+==================================================
+FINAL WORKFLOW
+==================================================
+
+Customer Website Order or WhatsApp
+↓
+AI Detect Intent
+↓
+Create Task
+↓
+Request Missing Documents
+↓
+Document Upload
+↓
+OCR & Extraction
+↓
+Document Audit
+↓
+Admin Review
+↓
+Task Assignment
+↓
+Mini Form Team Update
+↓
+Customer Progress Notification
+↓
+Task Completed
+
+This AI Task Center must work as a modular AI operational system integrated into the existing logistics and business platform.
