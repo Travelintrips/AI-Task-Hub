@@ -1,5 +1,8 @@
 # AI Task Center
 
+## User Preferences
+- Gunakan bahasa Indonesia dalam semua respons kepada pengguna.
+
 An operations platform that receives WhatsApp messages, uses AI (OpenAI) to detect customer intent, creates tasks, audits uploaded documents, assigns work to team members, and sends WhatsApp notifications.
 
 ## Run & Operate
