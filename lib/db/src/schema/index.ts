@@ -9,5 +9,7 @@ export * from "./document_audits";
 export * from "./task_comments";
 export * from "./task_assignments";
 export * from "./whatsapp_notifications";
+export * from "./public_tokens";
+export * from "./task_timeline";
 export * from "./customer_contexts";
 export * from "./admin_notifications";
