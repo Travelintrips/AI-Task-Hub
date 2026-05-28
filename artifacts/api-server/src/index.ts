@@ -1,6 +1,5 @@
 import app from "./app";
 import { logger } from "./lib/logger";
-import { ensureBucket } from "./lib/supabase";
 
 const rawPort = process.env["PORT"];
 
@@ -23,8 +22,4 @@ app.listen(port, (err) => {
   }
 
   logger.info({ port }, "Server listening");
-
-  ensureBucket().catch((e) =>
-    logger.error({ err: e }, "Failed to ensure Supabase bucket on startup"),
-  );
 });
