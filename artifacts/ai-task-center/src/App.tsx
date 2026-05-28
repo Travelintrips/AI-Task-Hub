@@ -4,7 +4,6 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import { AppLayout } from "@/components/layout/app-layout";
-import { ErrorBoundary } from "@/components/error-boundary";
 import { AuthProvider, useAuth } from "@/contexts/auth-context";
 
 import Dashboard from "@/pages/dashboard";
@@ -44,19 +43,6 @@ function AppRouter() {
 
   return (
     <AppLayout>
-      <ErrorBoundary>
-        <Switch>
-          <Route path="/" component={Dashboard} />
-          <Route path="/tasks" component={Tasks} />
-          <Route path="/tasks/:id" component={TaskDetail} />
-          <Route path="/ai-tasks" component={AiTaskBoard} />
-          <Route path="/ai-tasks/:id" component={AiTaskDetail} />
-          <Route path="/messages" component={Messages} />
-          <Route path="/documents" component={Documents} />
-          <Route path="/team" component={Team} />
-          <Route component={NotFound} />
-        </Switch>
-      </ErrorBoundary>
       <Switch>
         <Route path="/" component={Dashboard} />
         <Route path="/tasks" component={Tasks} />
@@ -76,15 +62,14 @@ function AppRouter() {
 
 function Router() {
   return (
-    <ErrorBoundary>
-      <Switch>
-        <Route path="/mini-task/:taskId/:token" component={MiniTaskForm} />
-        <Route path="/customer-data/:taskId/:token" component={CustomerDataForm} />
-        <Route>
-          {() => <AppRouter />}
-        </Route>
-      </Switch>
-    </ErrorBoundary>
+    <Switch>
+      <Route path="/mini-task/:taskId/:token" component={MiniTaskForm} />
+      <Route path="/customer-data/:taskId/:token" component={CustomerDataForm} />
+      <Route path="/setup" component={Setup} />
+      <Route>
+        {() => <AppRouter />}
+      </Route>
+    </Switch>
   );
 }
 
