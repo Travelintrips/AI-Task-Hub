@@ -28,7 +28,7 @@ function mapMessage(r: WaRow) {
     detectedIntent: r.message_type ?? null,
     taskId: null as number | null,
     wamid: null as string | null,
-    timestamp: created.toISOString(),
+    timestamp: String(Math.floor(created.getTime() / 1000)),
     createdAt: created.toISOString(),
     repliedAt: r.replied_at ? r.replied_at.toISOString() : null,
     replyMessage: r.reply_message ?? null,
