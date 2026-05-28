@@ -21,23 +21,73 @@ import {
   History,
   Link2,
   Copy,
+  MessageSquare,
+  ChevronDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { getStoredToken } from "@/lib/auth-api";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 async function apiFetch(path: string, init?: RequestInit) {
+  const token = getStoredToken();
   const res = await fetch(`${BASE}/api${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(init?.headers ?? {}),
+    },
   });
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  if (res.status === 204) return null;
   return res.json();
 }
+
+// ─── Template WA ──────────────────────────────────────────────────────────────
+
+const WA_TEMPLATES = [
+  {
+    id: "konfirmasi_penerimaan",
+    label: "✅ Konfirmasi Penerimaan Pesanan",
+    build: (task: { taskNumber?: string | null; title: string; customerName?: string | null }) =>
+      `Halo${task.customerName ? ` *${task.customerName}*` : ""},\n\nKami telah menerima permintaan Anda.\n\n📋 No. Task: *${task.taskNumber ?? "-"}*\n📝 ${task.title}\n\nTim kami sedang memprosesnya. Kami akan segera menghubungi Anda kembali.\n\n_AI Task Center_`,
+  },
+  {
+    id: "minta_dokumen",
+    label: "📄 Permintaan Dokumen",
+    build: (task: { taskNumber?: string | null; customerName?: string | null }) =>
+      `Halo${task.customerName ? ` *${task.customerName}*` : ""},\n\nUntuk melanjutkan proses task *${task.taskNumber ?? "-"}*, kami memerlukan kelengkapan dokumen berikut:\n\n• [ Sebutkan dokumen yang dibutuhkan ]\n\nMohon kirimkan dokumen tersebut sesegera mungkin.\n\nTerima kasih 🙏\n_AI Task Center_`,
+  },
+  {
+    id: "update_progress",
+    label: "⚙️ Update Progress",
+    build: (task: { taskNumber?: string | null; status: string; customerName?: string | null }) =>
+      `Halo${task.customerName ? ` *${task.customerName}*` : ""},\n\nBerikut update terbaru untuk task Anda:\n\n📋 No: *${task.taskNumber ?? "-"}*\n🔄 Status: *${task.status}*\n\nJika ada pertanyaan, jangan ragu untuk menghubungi kami.\n\nTerima kasih 🙏\n_AI Task Center_`,
+  },
+  {
+    id: "selesai",
+    label: "🎉 Task Selesai",
+    build: (task: { taskNumber?: string | null; title: string; customerName?: string | null }) =>
+      `Halo${task.customerName ? ` *${task.customerName}*` : ""},\n\nKami senang memberitahu bahwa task Anda telah *selesai* ✅\n\n📋 No: *${task.taskNumber ?? "-"}*\n📝 ${task.title}\n\nTerima kasih telah mempercayakan kepada kami. Sampai jumpa di kesempatan berikutnya! 🙏\n_AI Task Center_`,
+  },
+  {
+    id: "custom",
+    label: "✏️ Pesan Kustom",
+    build: () => "",
+  },
+] as const;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -175,6 +225,11 @@ export default function AiTaskDetail() {
   const [showLinkGen, setShowLinkGen] = useState(false);
   const [generatedLinks, setGeneratedLinks] = useState<{ mini?: string; customer?: string }>({});
 
+  // ── Kirim WA dialog ────────────────────────────────────────────────────────
+  const [waOpen, setWaOpen]               = useState(false);
+  const [waTemplateId, setWaTemplateId]   = useState<string>("konfirmasi_penerimaan");
+  const [waMessage, setWaMessage]         = useState("");
+
   // ── Task query ─────────────────────────────────────────────────────────────
 
   const { data: task, isLoading: taskLoading } = useQuery<AiTask>({
@@ -265,6 +320,47 @@ export default function AiTaskDetail() {
   function copyToClipboard(text: string) {
     navigator.clipboard.writeText(text);
     toast({ title: "Link disalin!" });
+  }
+
+  // ── Kirim WA mutation ─────────────────────────────────────────────────────
+
+  const sendWaMutation = useMutation({
+    mutationFn: ({ message, templateName }: { message: string; templateName: string }) =>
+      apiFetch(`/ai-tasks/${id}/send-wa`, {
+        method: "POST",
+        body: JSON.stringify({ message, templateName }),
+      }),
+    onSuccess: () => {
+      toast({ title: "✅ Pesan WhatsApp berhasil dikirim" });
+      setWaOpen(false);
+      setWaMessage("");
+      setWaTemplateId("konfirmasi_penerimaan");
+    },
+    onError: (err) => {
+      toast({
+        title: "❌ Gagal mengirim WA",
+        description: err instanceof Error ? err.message : "Terjadi kesalahan",
+        variant: "destructive",
+      });
+    },
+  });
+
+  function openWaDialog() {
+    if (!task) return;
+    const tpl = WA_TEMPLATES.find((t) => t.id === waTemplateId) ?? WA_TEMPLATES[0];
+    setWaMessage(tpl.build(task as Parameters<typeof tpl.build>[0]));
+    setWaOpen(true);
+  }
+
+  function handleTemplateChange(newId: string) {
+    setWaTemplateId(newId);
+    if (!task) return;
+    const tpl = WA_TEMPLATES.find((t) => t.id === newId);
+    if (tpl && newId !== "custom") {
+      setWaMessage(tpl.build(task as Parameters<typeof tpl.build>[0]));
+    } else if (newId === "custom") {
+      setWaMessage("");
+    }
   }
 
   // ── Delete attachment ──────────────────────────────────────────────────────
@@ -533,6 +629,29 @@ export default function AiTaskDetail() {
             </div>
           )}
 
+          {/* Kirim WA */}
+          {task.customerPhone ? (
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4 space-y-2">
+              <p className="text-xs font-semibold text-green-700 uppercase tracking-wide flex items-center gap-1.5">
+                <MessageSquare className="h-3.5 w-3.5" /> WhatsApp
+              </p>
+              <p className="text-xs text-green-700 font-mono">{task.customerPhone}</p>
+              <Button
+                size="sm"
+                className="w-full bg-green-600 hover:bg-green-700 text-white gap-2"
+                onClick={openWaDialog}
+              >
+                <MessageSquare className="h-3.5 w-3.5" />
+                Kirim Pesan WA
+              </Button>
+            </div>
+          ) : (
+            <div className="bg-gray-50 border border-dashed border-gray-200 rounded-lg p-4 text-center">
+              <MessageSquare className="h-6 w-6 text-gray-300 mx-auto mb-1" />
+              <p className="text-xs text-gray-400">Belum ada nomor WA customer</p>
+            </div>
+          )}
+
           {/* Audit Panel */}
           <TaskAuditPanel taskId={Number(id)} />
 
@@ -705,6 +824,86 @@ export default function AiTaskDetail() {
           </div>
         )}
       </div>
+
+      {/* ── Dialog Kirim WA ─────────────────────────────────────────────────────── */}
+      <Dialog open={waOpen} onOpenChange={(open) => { setWaOpen(open); }}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-green-700">
+              <MessageSquare className="h-5 w-5" />
+              Kirim Pesan WhatsApp
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 py-1">
+            {/* Info penerima */}
+            <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-3 py-2 text-sm">
+              <MessageSquare className="h-4 w-4 text-green-600 shrink-0" />
+              <div>
+                <span className="text-green-800 font-medium">{task?.customerName ?? "Customer"}</span>
+                <span className="text-green-600 ml-2 font-mono text-xs">{task?.customerPhone}</span>
+              </div>
+            </div>
+
+            {/* Pilih template */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-gray-600">Template Pesan</label>
+              <Select value={waTemplateId} onValueChange={handleTemplateChange}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {WA_TEMPLATES.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>{t.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Editor pesan */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-gray-600">Isi Pesan</label>
+              <Textarea
+                value={waMessage}
+                onChange={(e) => setWaMessage(e.target.value)}
+                placeholder="Ketik pesan WhatsApp di sini…"
+                className="min-h-[180px] text-sm font-mono resize-none leading-relaxed"
+              />
+              <p className="text-xs text-gray-400 text-right">{waMessage.length} karakter</p>
+            </div>
+
+            {/* Preview */}
+            {waMessage.trim() && (
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium text-gray-600">Preview</p>
+                <div className="bg-[#DCF8C6] rounded-2xl rounded-tl-sm px-3.5 py-2.5 text-sm text-gray-800 whitespace-pre-wrap max-h-[140px] overflow-y-auto shadow-sm border border-green-200">
+                  {waMessage}
+                </div>
+              </div>
+            )}
+
+            {/* Warning jika FONNTE belum dikonfigurasi */}
+            <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-700">
+              ⚠️ Pesan dikirim via <strong>Fonnte</strong>. Pastikan <code>FONNTE_TOKEN</code> sudah disetel di secrets Replit.
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setWaOpen(false)}>
+              Batal
+            </Button>
+            <Button
+              className="bg-green-600 hover:bg-green-700 text-white gap-2"
+              disabled={!waMessage.trim() || sendWaMutation.isPending}
+              onClick={() => sendWaMutation.mutate({ message: waMessage, templateName: waTemplateId })}
+            >
+              {sendWaMutation.isPending
+                ? <><Loader2 className="h-4 w-4 animate-spin" /> Mengirim…</>
+                : <><Send className="h-4 w-4" /> Kirim WA</>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* ── Task Timeline ─────────────────────────────────────────────────────── */}
       <div className="border border-gray-200 rounded-xl overflow-hidden">
