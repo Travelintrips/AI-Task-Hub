@@ -11,6 +11,10 @@ export interface TeamMember {
   name: string;
   role: string;
   /** @nullable */
+  division?: string | null;
+  /** @nullable */
+  isVendor?: string | null;
+  /** @nullable */
   phone?: string | null;
   /** @nullable */
   email?: string | null;

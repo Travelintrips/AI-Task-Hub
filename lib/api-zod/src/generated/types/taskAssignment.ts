@@ -7,5 +7,10 @@
  */
 
 export interface TaskAssignment {
-  assigneeId: number;
+  assigneeId?: number;
+  assignedRole?: string;
+  assignedDivision?: string;
+  assignedVendor?: string;
+  customerName?: string;
+  miniTaskUrl?: string;
 }

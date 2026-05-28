@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, desc } from "drizzle-orm";
-import { db, tasksTable, teamMembersTable, activityTable } from "@workspace/db";
+import { db, tasksTable, teamMembersTable, activityTable, taskAssignmentsTable } from "@workspace/db";
 import {
   ListTasksQueryParams,
   CreateTaskBody,
@@ -11,6 +11,7 @@ import {
   AssignTaskParams,
   AssignTaskBody,
 } from "@workspace/api-zod";
+import { sendWhatsAppNotification } from "../lib/whatsapp-sender";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();

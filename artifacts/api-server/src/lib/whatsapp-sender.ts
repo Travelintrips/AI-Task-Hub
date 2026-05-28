@@ -87,15 +87,17 @@ export function renderTemplate(templateName: TemplateName, vars: TemplateVars): 
     }
 
     case "task_assignment": {
-      const assigneeName = (vars.assigneeName as string | undefined) ?? "Tim";
+      const customerName = (vars.customerName as string | undefined) ?? "-";
       const title = (vars.title as string | undefined) ?? "Tugas";
-      const taskNumber = vars.taskNumber ? ` No. ${vars.taskNumber}` : "";
-      const dueDate = vars.dueDate ? `\n📅 Tenggat: ${vars.dueDate}` : "";
+      const priority = (vars.priority as string | undefined) ?? "-";
+      const miniTaskUrl = (vars.miniTaskUrl as string | undefined) ?? "";
+      const linkLine = miniTaskUrl ? `\nLink:\n${miniTaskUrl}` : "";
       return (
-        `Halo ${assigneeName},\n\n` +
-        `Anda mendapatkan penugasan baru${taskNumber}:\n` +
-        `📋 *${title}*${dueDate}\n\n` +
-        `Mohon segera ditindaklanjuti. Terima kasih 🙏`
+        `*TASK BARU*\n\n` +
+        `Customer:\n${customerName}\n\n` +
+        `Pekerjaan:\n${title}\n\n` +
+        `Priority:\n${priority.toUpperCase()}` +
+        `${linkLine}`
       );
     }
 

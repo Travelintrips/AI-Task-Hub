@@ -17,6 +17,7 @@ export const TaskStatus = {
   in_progress: 'in_progress',
   completed: 'completed',
   cancelled: 'cancelled',
+  assigned: 'assigned',
 } as const;
 
 export type TaskPriority = typeof TaskPriority[keyof typeof TaskPriority];
@@ -40,6 +41,14 @@ export interface Task {
   assigneeId?: number | null;
   /** @nullable */
   assigneeName?: string | null;
+  /** @nullable */
+  assignedRole?: string | null;
+  /** @nullable */
+  assignedDivision?: string | null;
+  /** @nullable */
+  assignedVendor?: string | null;
+  /** @nullable */
+  customerName?: string | null;
   /** @nullable */
   sourceMessageId?: number | null;
   /** @nullable */
@@ -112,13 +121,22 @@ export interface TaskUpdate {
 }
 
 export interface TaskAssignment {
-  assigneeId: number;
+  assigneeId?: number;
+  assignedRole?: string;
+  assignedDivision?: string;
+  assignedVendor?: string;
+  customerName?: string;
+  miniTaskUrl?: string;
 }
 
 export interface TeamMember {
   id: number;
   name: string;
   role: string;
+  /** @nullable */
+  division?: string | null;
+  /** @nullable */
+  isVendor?: string | null;
   /** @nullable */
   phone?: string | null;
   /** @nullable */
@@ -132,6 +150,8 @@ export interface TeamMemberInput {
   /** @minLength 1 */
   name: string;
   role: string;
+  division?: string;
+  isVendor?: string;
   phone?: string;
   email?: string;
   avatarUrl?: string;
@@ -140,6 +160,8 @@ export interface TeamMemberInput {
 export interface TeamMemberUpdate {
   name?: string;
   role?: string;
+  division?: string;
+  isVendor?: string;
   phone?: string;
   email?: string;
   avatarUrl?: string;

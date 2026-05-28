@@ -20,6 +20,14 @@ export interface Task {
   /** @nullable */
   assigneeName?: string | null;
   /** @nullable */
+  assignedRole?: string | null;
+  /** @nullable */
+  assignedDivision?: string | null;
+  /** @nullable */
+  assignedVendor?: string | null;
+  /** @nullable */
+  customerName?: string | null;
+  /** @nullable */
   sourceMessageId?: number | null;
   /** @nullable */
   dueDate?: string | null;

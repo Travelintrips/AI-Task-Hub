@@ -5,8 +5,10 @@ import { z } from "zod/v4";
 export const taskAssignmentsTable = pgTable("task_assignments", {
   id: serial("id").primaryKey(),
   taskId: integer("task_id").notNull(),
-  assignedTo: text("assigned_to").notNull(),
+  assignedTo: text("assigned_to"),
   assignedRole: text("assigned_role"),
+  assignedDivision: text("assigned_division"),
+  assignedVendor: text("assigned_vendor"),
   assignedBy: text("assigned_by"),
   status: text("status").notNull().default("active"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

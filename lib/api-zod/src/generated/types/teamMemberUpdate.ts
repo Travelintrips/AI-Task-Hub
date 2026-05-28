@@ -9,6 +9,8 @@
 export interface TeamMemberUpdate {
   name?: string;
   role?: string;
+  division?: string;
+  isVendor?: string;
   phone?: string;
   email?: string;
   avatarUrl?: string;

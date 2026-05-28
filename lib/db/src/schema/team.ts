@@ -6,6 +6,8 @@ export const teamMembersTable = pgTable("team_members", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   role: text("role").notNull(),
+  division: text("division"),
+  isVendor: text("is_vendor").default("false"),
   phone: text("phone"),
   email: text("email"),
   avatarUrl: text("avatar_url"),

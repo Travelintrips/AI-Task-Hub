@@ -540,13 +540,21 @@ components:
           type: ["string", "null"]
         status:
           type: string
-          enum: [pending, in_progress, completed, cancelled]
+          enum: [pending, in_progress, completed, cancelled, assigned]
         priority:
           type: string
           enum: [low, medium, high, urgent]
         assigneeId:
           type: ["integer", "null"]
         assigneeName:
+          type: ["string", "null"]
+        assignedRole:
+          type: ["string", "null"]
+        assignedDivision:
+          type: ["string", "null"]
+        assignedVendor:
+          type: ["string", "null"]
+        customerName:
           type: ["string", "null"]
         sourceMessageId:
           type: ["integer", "null"]
@@ -610,10 +618,19 @@ components:
 
     TaskAssignment:
       type: object
-      required: [assigneeId]
       properties:
         assigneeId:
           type: integer
+        assignedRole:
+          type: string
+        assignedDivision:
+          type: string
+        assignedVendor:
+          type: string
+        customerName:
+          type: string
+        miniTaskUrl:
+          type: string
 
     # ── Team Member ───────────────────────────────────────────────────────────
     TeamMember:
@@ -626,6 +643,10 @@ components:
           type: string
         role:
           type: string
+        division:
+          type: ["string", "null"]
+        isVendor:
+          type: ["string", "null"]
         phone:
           type: ["string", "null"]
         email:
@@ -644,6 +665,10 @@ components:
           minLength: 1
         role:
           type: string
+        division:
+          type: string
+        isVendor:
+          type: string
         phone:
           type: string
         email:
@@ -657,6 +682,10 @@ components:
         name:
           type: string
         role:
+          type: string
+        division:
+          type: string
+        isVendor:
           type: string
         phone:
           type: string
