@@ -478,18 +478,6 @@ export function TaskAuditPanel({ taskId }: { taskId: number }) {
                   )}
                 </Button>
               </div>
-              {/* ── Re-run button ─────────────────────────────────────────── */}
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => runAuditMutation.mutate()}
-                disabled={runAuditMutation.isPending}
-                className="w-full"
-              >
-                {runAuditMutation.isPending
-                  ? <><Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> Running audit…</>
-                  : <><RefreshCw className="h-3.5 w-3.5 mr-1.5" /> Re-run Audit</>}
-              </Button>
             </>
           )}
         </div>
