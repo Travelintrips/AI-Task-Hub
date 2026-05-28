@@ -10,7 +10,7 @@ import {
   getListTasksQueryKey,
   useGenerateTaskAiSummary,
 } from "@workspace/api-client-react";
-import { TaskUpdateStatus, TaskUpdatePriority } from "@workspace/api-zod/src/generated/types";
+import { TaskUpdateStatus, TaskUpdatePriority } from "@workspace/api-zod";
 import { format } from "date-fns";
 
 import { Button } from "@/components/ui/button";
@@ -196,7 +196,7 @@ export default function TaskDetail() {
           {isLoading ? (
             <Skeleton className="h-8 w-64" />
           ) : (
-            <h1 className="text-2xl font-bold tracking-tight">{task.title}</h1>
+            <h1 className="text-2xl font-bold tracking-tight">{task?.title}</h1>
           )}
         </div>
         <div className="flex items-center gap-2">

@@ -28,7 +28,7 @@ export async function transcribeAudio(
     return null;
   }
   try {
-    const file = new File([audioBuffer as unknown as BlobPart], filename, { type: mimeType });
+    const file = new File([new Uint8Array(audioBuffer)], filename, { type: mimeType });
     const response = await openai.audio.transcriptions.create({
       file,
       model: "whisper-1",

@@ -162,7 +162,7 @@ export default function Documents() {
                   </TableCell>
                   <TableCell>
                     {doc.auditScore !== null ? (
-                      <span className={`font-mono font-medium ${doc.auditScore < 70 ? 'text-destructive' : 'text-primary'}`}>
+                      <span className={`font-mono font-medium ${(doc.auditScore ?? 0) < 70 ? 'text-destructive' : 'text-primary'}`}>
                         {doc.auditScore}%
                       </span>
                     ) : (

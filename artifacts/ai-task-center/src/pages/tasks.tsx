@@ -9,7 +9,7 @@ import {
   useListTeamMembers,
   getListTeamMembersQueryKey
 } from "@workspace/api-client-react";
-import { Task, TaskInputPriority, TaskInputStatus } from "@workspace/api-zod/src/generated/types";
+import { Task, TaskInputPriority, TaskInputStatus } from "@workspace/api-zod";
 import { format } from "date-fns";
 import { Link } from "wouter";
 
