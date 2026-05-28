@@ -10,6 +10,7 @@ import {
 } from "@workspace/db";
 import { requireAuth, getCompanyId } from "../middleware/auth";
 import { logger } from "../lib/logger";
+import { notifyTaskCreated, notifyStatusChanged, notifyTaskAssigned } from "../lib/notifications";
 
 const router: IRouter = Router();
 
