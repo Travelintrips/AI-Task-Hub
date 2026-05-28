@@ -22,6 +22,10 @@ args = "API Server"
 [[workflows.workflow.tasks]]
 task = "workflow.run"
 args = "Frontend"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Frontend"
 [[workflows.workflow]]
 name = "API Server"
 author = "agent"
@@ -40,6 +44,13 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "PORT=5000 pnpm --filter @workspace/ai-task-center run dev"
+[[workflows.workflow]]
+name = "Frontend"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "PORT=5000 BASE_PATH=/ai-task-center pnpm --filter @workspace/ai-task-center run dev"
 waitForPort = 5000
 
 [workflows.workflow.metadata]
