@@ -1,12 +1,20 @@
 import OpenAI from "openai";
 import { logger } from "./logger";
 
-const apiKey = process.env.OPENAI_API_KEY;
+const apiKey =
+  process.env.OPENAI_API_KEY ||
+  process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
+
+const baseURL = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
+
 if (!apiKey) {
   logger.warn("OPENAI_API_KEY not set — AI features will be unavailable");
 }
 
-export const openai = new OpenAI({ apiKey: apiKey ?? "missing" });
+export const openai = new OpenAI({
+  apiKey: apiKey ?? "missing",
+  ...(baseURL ? { baseURL } : {}),
+});
 
 /**
  * Transcribe an audio buffer using OpenAI Whisper.
