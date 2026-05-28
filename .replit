@@ -57,14 +57,6 @@ path = "scripts/post-merge.sh"
 timeoutMs = 20000
 
 [[ports]]
-localPort = 5000
-externalPort = 80
-
-[[ports]]
-localPort = 5173
-externalPort = 5173
-
-[[ports]]
 localPort = 8080
 externalPort = 80
 
@@ -88,3 +80,20 @@ SUPABASE_URL = "https://nzdweipzckfszczzqtuw.supabase.co"
 WHATSAPP_PHONE_NUMBER_ID = "081382702074,087882639826"
 WHATSAPP_TOKEN = "3hYIZghAc5N1!sUe3dMb"
 WHATSAPP_WEBHOOK_VERIFY_TOKEN = "https://cstlogistic.co.id/api/whatsapp/webhook"
+CASHIER_TOKEN_SECRET = "e957d3b3302b7608ee160d60981f6ae7b26c3d3dcccac49ee5c95e7c2621cb03"
+AI_INTEGRATIONS_OPENAI_BASE_URL = "http://localhost:1106/modelfarm/openai"
+AI_INTEGRATIONS_OPENAI_API_KEY = "_DUMMY_API_KEY_"
+VITE_SUPABASE_URL = "https://nzdweipzckfszczzqtuw.supabase.co"
+SUPABASE_URL_DEV = "https://xssrfshdrtdfupgqwfdw.supabase.co"
+SUPABASE_STORAGE_BUCKET = "https://nzdweipzckfszczzqtuw.storage.supabase.co/storage/v1/s3"
+PRIVATE_OBJECT_DIR = "/replit-objstore-e357cc66-19c3-4d73-9ca9-3069d78355d1/.private"
+DEFAULT_OBJECT_STORAGE_BUCKET_ID = "replit-objstore-e357cc66-19c3-4d73-9ca9-3069d78355d1"
+PUBLIC_OBJECT_SEARCH_PATHS = "/replit-objstore-e357cc66-19c3-4d73-9ca9-3069d78355d1/public"
+FONNTE_TOKEN = "3hYIZghAc5N1!sUe3dMb"
+GOOGLE_CLIENT_ID = "751551151000-fqrgt8si0pgnchqkn3pfo6nmqienv38f.apps.googleusercontent.com"
+GOOGLE_CLIENT_SECRET = "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"
+SESSION_SECRET = "KeKVISw0uGENCHcVhCj4egXrCRtFJ1YbBB7N5XCGLfgbpV2Yde7qzVSiL49CNmXCVQjDK0DE6F2fP/MMlIlfbw=="
+SUPABASE_DATABASE_URL_DEV = "postgresql://postgres.nzdweipzckfszczzqtuw:%24%23Admin12345%40%24@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres"
+SUPABASE_SERVICE_ROLE_KEY_DEV = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhzc3Jmc2hkcnRkZnVwZ3F3ZmR3Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3ODg5NjcyOCwiZXhwIjoyMDk0NDcyNzI4fQ.VFPcBxsVJkYwNo3ojy3uOHglqUA9zILhjw4_0JAhZYI"
+VITE_SUPABASE_ANON_KEY = "VITE_SUPABASE_ANON_KEY"
+VITE_SUPABASE_ANON_KEY_DEV = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhzc3Jmc2hkcnRkZnVwZ3F3ZmR3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg4OTY3MjgsImV4cCI6MjA5NDQ3MjcyOH0.czKzR9GjEL6UK8AhPAX6OYyF74fz1YtImYQSXiiG69U"
