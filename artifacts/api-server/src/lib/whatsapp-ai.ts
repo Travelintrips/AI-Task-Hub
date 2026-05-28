@@ -1,9 +1,7 @@
-import OpenAI from "openai";
+import { openai } from "./openai";
 import { logger } from "./logger";
 
-const apiKey = process.env.OPENAI_API_KEY;
-
-export const openai = new OpenAI({ apiKey: apiKey ?? "missing" });
+const apiKey = process.env.OPENAI_API_KEY || process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -20,6 +18,9 @@ export type IntentCategory =
   | "General Inquiry";
 
 export type Priority = "High" | "Medium" | "Low";
+
+export type ConfidenceScore = "high" | "medium" | "low";
+export type CustomerSentiment = "positive" | "neutral" | "negative" | "urgent";
 
 export interface WhatsAppIntentResult {
   intent: string;
@@ -42,6 +43,8 @@ export interface WhatsAppIntentResult {
   needs_admin_review: boolean;
   suggested_reply: string;
   suggested_team: string;
+  confidence_score: ConfidenceScore;
+  customer_sentiment: CustomerSentiment;
 }
 
 export interface CustomerContext {
@@ -109,10 +112,12 @@ function fallbackResult(messageText: string, context?: CustomerContext): WhatsAp
     missing_data: ["Unable to parse message — manual review required"],
     needs_quotation: false,
     needs_document_audit: false,
-    needs_admin_review: false,
+    needs_admin_review: true,
     suggested_reply:
       "Terima kasih telah menghubungi kami. Tim kami akan segera membantu Anda. Mohon tunggu sebentar.",
     suggested_team: "Customer Service",
+    confidence_score: "low",
+    customer_sentiment: "neutral",
   };
 }
 
@@ -222,6 +227,17 @@ ${importDetected ? importSection : ""}
 7. required_documents: documents the customer needs to provide for this transaction type.
 8. missing_data: for import = use the exact field keys listed above. For other categories = human-readable description of missing info.
 
+## Confidence score rules
+- "high"   → message is clear, intent is unambiguous (e.g. clearly states import of specific goods)
+- "medium" → message is fairly clear but has some ambiguity or missing context
+- "low"    → message is very short, unclear, greeting only, or cannot be classified confidently
+
+## Customer sentiment rules
+- "urgent"   → contains: segera, urgent, today, hari ini, besok, cepat, darurat, deadline
+- "negative" → complaint, kecewa, marah, tidak puas, masalah, salah, lambat, terlambat
+- "positive" → terima kasih, bagus, puas, senang, mantap, oke, good
+- "neutral"  → standard inquiry with no strong emotional tone
+
 ## JSON schema (return exactly these keys)
 {
   "intent": string,
@@ -243,7 +259,9 @@ ${importDetected ? importSection : ""}
   "needs_document_audit": boolean,
   "needs_admin_review": boolean,
   "suggested_reply": string,
-  "suggested_team": string
+  "suggested_team": string,
+  "confidence_score": "high" | "medium" | "low",
+  "customer_sentiment": "positive" | "neutral" | "negative" | "urgent"
 }`;
 
   const userContent = `Message: ${messageText}${contextBlock}`;
@@ -379,20 +397,33 @@ ${importDetected ? importSection : ""}
       missing_data: Array.isArray(parsed.missing_data)
         ? (parsed.missing_data as string[])
         : [],
-      needs_quotation:     Boolean(parsed.needs_quotation),
+      needs_quotation:      Boolean(parsed.needs_quotation),
       needs_document_audit: Boolean(parsed.needs_document_audit),
-      needs_admin_review:  Boolean(parsed.needs_admin_review),
+      needs_admin_review:   Boolean(parsed.needs_admin_review),
       suggested_reply:
         (parsed.suggested_reply as string | undefined) ??
         "Terima kasih, tim kami akan segera menghubungi Anda.",
-      suggested_team: (parsed.suggested_team as string | undefined) ?? "Customer Service",
+      suggested_team:    (parsed.suggested_team as string | undefined) ?? "Customer Service",
+      confidence_score:  (["high", "medium", "low"].includes(parsed.confidence_score as string)
+        ? parsed.confidence_score as ConfidenceScore
+        : "medium"),
+      customer_sentiment: (["positive", "neutral", "negative", "urgent"].includes(parsed.customer_sentiment as string)
+        ? parsed.customer_sentiment as CustomerSentiment
+        : "neutral"),
     };
+
+    // If confidence is low, always flag for admin review
+    if (result.confidence_score === "low") {
+      result.needs_admin_review = true;
+    }
 
     logger.info(
       {
         intent:             result.intent,
         category:           result.category,
         priority:           result.priority,
+        confidence_score:   result.confidence_score,
+        customer_sentiment: result.customer_sentiment,
         needs_quotation:    result.needs_quotation,
         needs_admin_review: result.needs_admin_review,
         import_detected:    importDetected,

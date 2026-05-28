@@ -13,9 +13,18 @@ import auditsRouter from "./audits";
 import publicRouter from "./public";
 import customersRouter from "./customers";
 import notificationsRouter from "./notifications";
+import authRouter from "./auth";
+import { extractUser } from "../middleware/auth";
 
 const router: IRouter = Router();
 
+// Apply soft auth extraction to all routes (non-blocking)
+router.use(extractUser);
+
+// Auth routes (public)
+router.use(authRouter);
+
+// Application routes
 router.use(healthRouter);
 router.use(tasksRouter);
 router.use(teamRouter);
