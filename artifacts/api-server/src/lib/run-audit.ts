@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { db, taskAttachmentsTable, documentAuditsTable, activityTable } from "@workspace/db";
 import { runImportAuditChecks, runCrossDocumentValidation, generateAuditNarrative, buildAuditResult } from "./audit";
+import { logTimeline } from "./timeline";
 import { logger } from "./logger";
 
 export async function runAuditForTask(taskId: number): Promise<typeof documentAuditsTable.$inferSelect> {
@@ -37,6 +38,17 @@ export async function runAuditForTask(taskId: number): Promise<typeof documentAu
     type: "task_updated",
     description: `Document audit run for task ${taskId} — status: ${audit.auditStatus}`,
     entityId: taskId,
+  });
+
+  await logTimeline({
+    taskId,
+    eventType: "audit_completed",
+    title: `Audit dokumen selesai — ${audit.auditStatus}`,
+    actorType: "ai",
+    metadata: {
+      auditStatus: audit.auditStatus,
+      missingCount: Array.isArray(audit.missingFields) ? (audit.missingFields as string[]).length : 0,
+    },
   });
 
   logger.info({ taskId, auditId: audit.id, auditStatus: audit.auditStatus }, "Audit complete");
