@@ -223,6 +223,15 @@ router.patch("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): 
     const id = Number(req.params.id);
     if (Number.isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
 
+    // Ambil data lama sebelum update (untuk deteksi perubahan status & assignment)
+    const [before] = await db
+      .select()
+      .from(aiTasksTable)
+      .where(eq(aiTasksTable.id, id))
+      .limit(1);
+
+    if (!before) { res.status(404).json({ error: "AI task not found" }); return; }
+
     const body = req.body as Record<string, unknown>;
     const updates: Partial<typeof aiTasksTable.$inferInsert> = {};
 
@@ -253,11 +262,41 @@ router.patch("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): 
 
     if (!updated) { res.status(404).json({ error: "AI task not found" }); return; }
 
+    const activityLines: string[] = [];
+    const oldStatus = toDisplay(before.status);
+    const newStatus = toDisplay(updated.status);
+    if (oldStatus !== newStatus) activityLines.push(`status: ${oldStatus} → ${newStatus}`);
+    if ((before.assignedTo ?? "") !== (updated.assignedTo ?? "")) activityLines.push(`petugas: ${updated.assignedTo ?? "-"}`);
+
     await db.insert(activityTable).values({
       type: "task_updated",
-      description: `Task ${updated.taskNumber ?? id} diperbarui`,
+      description: `Task ${updated.taskNumber ?? id} diperbarui` + (activityLines.length ? ` (${activityLines.join(", ")})` : ""),
       entityId: id,
     });
+
+    const ctx = {
+      taskId:        updated.id,
+      taskNumber:    updated.taskNumber ?? `SO/2026/${String(updated.id).padStart(5, "0")}`,
+      title:         updated.title,
+      customerName:  updated.customerName,
+      customerPhone: updated.customerPhone,
+      assignedTo:    updated.assignedTo,
+      status:        newStatus,
+      priority:      updated.priority ?? "medium",
+      companyId:     updated.companyId,
+    };
+
+    // Kirim notifikasi status berubah
+    if (oldStatus !== newStatus) {
+      notifyStatusChanged(ctx, oldStatus).catch((err) => logger.error({ err }, "notifyStatusChanged failed"));
+    }
+
+    // Kirim notifikasi assignment baru
+    const assignedToChanged = (before.assignedTo ?? "") !== (updated.assignedTo ?? "") && updated.assignedTo;
+    if (assignedToChanged) {
+      notifyTaskAssigned(ctx, body.staffPhone ? String(body.staffPhone) : null)
+        .catch((err) => logger.error({ err }, "notifyTaskAssigned failed"));
+    }
 
     res.json(mapAiTask(updated));
   } catch (err) {
