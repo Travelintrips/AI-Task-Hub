@@ -20,7 +20,6 @@ import {
   Building2,
   History,
   Link2,
-  History,
   Copy,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
