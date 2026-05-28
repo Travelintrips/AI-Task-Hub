@@ -1,8 +1,9 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { eq, desc, and, count } from "drizzle-orm";
-import { db, adminNotificationsTable } from "@workspace/db";
+import { eq, desc, and, count, ilike, or } from "drizzle-orm";
+import { db, adminNotificationsTable, whatsappNotificationsTable } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { registerSseClient } from "../lib/sse";
+import { requireAuth, getCompanyId } from "../middleware/auth";
 
 const router: IRouter = Router();
 
@@ -105,6 +106,73 @@ router.post("/notifications/read-all", async (req, res): Promise<void> => {
     res.json({ count: 0 });
   } catch (err) {
     logger.error({ err }, "Failed to mark all notifications as read");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── GET /api/wa-notifications ────────────────────────────────────────────────
+
+router.get("/wa-notifications", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const companyId = getCompanyId(req);
+    const { status, search, limit: rawLimit, offset: rawOffset } = req.query as Record<string, string | undefined>;
+
+    const pageLimit  = Math.min(parseInt(rawLimit  ?? "50", 10), 200);
+    const pageOffset = Math.max(parseInt(rawOffset ?? "0",  10), 0);
+
+    let rows = await db
+      .select()
+      .from(whatsappNotificationsTable)
+      .where(eq(whatsappNotificationsTable.companyId, companyId))
+      .orderBy(desc(whatsappNotificationsTable.createdAt))
+      .limit(500);
+
+    if (status) {
+      rows = rows.filter((r) => r.status === status);
+    }
+    if (search) {
+      const q = search.toLowerCase();
+      rows = rows.filter(
+        (r) =>
+          r.recipientPhone.includes(q) ||
+          (r.messageText ?? "").toLowerCase().includes(q) ||
+          (r.templateName ?? "").toLowerCase().includes(q),
+      );
+    }
+
+    const total   = rows.length;
+    const paged   = rows.slice(pageOffset, pageOffset + pageLimit);
+
+    res.json({ total, items: paged });
+  } catch (err) {
+    logger.error({ err }, "GET /wa-notifications failed");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── GET /api/wa-notifications/stats ─────────────────────────────────────────
+
+router.get("/wa-notifications/stats", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const companyId = getCompanyId(req);
+
+    const [total, sent, failed] = await Promise.all([
+      db.select({ c: count() }).from(whatsappNotificationsTable)
+        .where(eq(whatsappNotificationsTable.companyId, companyId)),
+      db.select({ c: count() }).from(whatsappNotificationsTable)
+        .where(and(eq(whatsappNotificationsTable.companyId, companyId), eq(whatsappNotificationsTable.status, "sent"))),
+      db.select({ c: count() }).from(whatsappNotificationsTable)
+        .where(and(eq(whatsappNotificationsTable.companyId, companyId), eq(whatsappNotificationsTable.status, "failed"))),
+    ]);
+
+    res.json({
+      total:   Number(total[0]?.c  ?? 0),
+      sent:    Number(sent[0]?.c   ?? 0),
+      failed:  Number(failed[0]?.c ?? 0),
+      pending: Number(total[0]?.c  ?? 0) - Number(sent[0]?.c ?? 0) - Number(failed[0]?.c ?? 0),
+    });
+  } catch (err) {
+    logger.error({ err }, "GET /wa-notifications/stats failed");
     res.status(500).json({ error: "Internal server error" });
   }
 });
