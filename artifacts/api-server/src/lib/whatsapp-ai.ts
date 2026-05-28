@@ -1,7 +1,8 @@
 import { openai } from "./openai";
+import { config } from "../config";
 import { logger } from "./logger";
 
-const apiKey = process.env.OPENAI_API_KEY || process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
+const apiKey = config.openai.apiKey;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

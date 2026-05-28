@@ -53,14 +53,20 @@ An operations platform that receives WhatsApp messages, uses AI (OpenAI) to dete
 
 ## Required environment secrets
 
-- `DATABASE_URL` — Replit managed Postgres (auto-set)
-- `OPENAI_API_KEY` — OpenAI API key for intent detection and document auditing
-- `SUPABASE_URL` — Supabase project URL
+Only true secrets need to be set as Replit secrets. Non-sensitive URLs/paths
+(Supabase project URL, object-storage bucket id, AI proxy URL) are hardcoded
+in `artifacts/api-server/src/config.ts` with env-var override, so they survive
+repl restarts without re-configuration.
+
+- `DATABASE_URL` / `SUPABASE_DATABASE_URL` — Postgres connection string
+- `OPENAI_API_KEY` — only needed if NOT using the Replit AI Integrations proxy
 - `SUPABASE_ANON_KEY` — Supabase anonymous/public key
 - `SUPABASE_SERVICE_ROLE_KEY` — Supabase service role key (for storage operations)
-- `WHATSAPP_TOKEN` — WhatsApp Business API access token
-- `WHATSAPP_PHONE_NUMBER_ID` — WhatsApp phone number ID
-- `WHATSAPP_WEBHOOK_VERIFY_TOKEN` — Token to verify WhatsApp webhook requests
+- `SESSION_SECRET` — Express session secret
+- `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` — Google OAuth credentials
+- `WHATSAPP_TOKEN` / `WHATSAPP_PHONE_NUMBER_ID` / `WHATSAPP_WEBHOOK_VERIFY_TOKEN` — WhatsApp Business API
+- `FONNTE_TOKEN` — Fonnte WhatsApp gateway token
+- `CASHIER_TOKEN_SECRET` — Cashier JWT signing secret
 
 ## WhatsApp Webhook Setup
 
