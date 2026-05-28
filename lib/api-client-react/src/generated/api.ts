@@ -35,6 +35,7 @@ import type {
   SendMessageInput,
   SendMessageResult,
   Task,
+  TaskAiSummary,
   TaskAssignment,
   TaskInput,
   TaskUpdate,
@@ -513,6 +514,76 @@ export const useDeleteTask = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getDeleteTaskMutationOptions(options));
+    }
+
+export const getGenerateTaskAiSummaryUrl = (id: number,) => {
+
+
+
+
+  return `/api/tasks/${id}/ai-summary`
+}
+
+/**
+ * @summary Generate AI operational summary for a task
+ */
+export const generateTaskAiSummary = async (id: number, options?: RequestInit): Promise<TaskAiSummary> => {
+
+  return customFetch<TaskAiSummary>(getGenerateTaskAiSummaryUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getGenerateTaskAiSummaryMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof generateTaskAiSummary>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof generateTaskAiSummary>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['generateTaskAiSummary'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof generateTaskAiSummary>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  generateTaskAiSummary(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type GenerateTaskAiSummaryMutationResult = NonNullable<Awaited<ReturnType<typeof generateTaskAiSummary>>>
+
+    export type GenerateTaskAiSummaryMutationError = ErrorType<void>
+
+    /**
+ * @summary Generate AI operational summary for a task
+ */
+export const useGenerateTaskAiSummary = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof generateTaskAiSummary>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof generateTaskAiSummary>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getGenerateTaskAiSummaryMutationOptions(options));
     }
 
 export const getAssignTaskUrl = (id: number,) => {

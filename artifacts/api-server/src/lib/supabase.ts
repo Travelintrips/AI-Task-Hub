@@ -2,7 +2,9 @@ import { createClient } from "@supabase/supabase-js";
 import ws from "ws";
 import { logger } from "./logger";
 
-const supabaseUrl = process.env.SUPABASE_URL;
+import { config } from "../config";
+
+const supabaseUrl = config.supabase.url;
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!supabaseUrl || !supabaseServiceKey) {

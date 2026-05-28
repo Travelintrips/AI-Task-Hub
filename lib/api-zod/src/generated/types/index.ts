@@ -24,6 +24,7 @@ export * from './messageProcessResult';
 export * from './sendMessageInput';
 export * from './sendMessageResult';
 export * from './task';
+export * from './taskAiSummary';
 export * from './taskAssignment';
 export * from './taskInput';
 export * from './taskInputPriority';

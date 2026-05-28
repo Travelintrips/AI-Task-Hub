@@ -481,10 +481,12 @@ async function createNewTask({
       division:    result.division,
       priority:    result.priority.toLowerCase(),
       status,
-      assignedRole: result.suggested_team,
+      assignedRole:       result.suggested_team,
       aiSummary,
-      aiIntent:    result.intent,
-      missingData: encodeMissingData(result.missing_data),
+      aiIntent:           result.intent,
+      missingData:        encodeMissingData(result.missing_data),
+      aiConfidenceScore:  result.confidence_score ?? null,
+      customerSentiment:  result.customer_sentiment ?? null,
     })
     .returning();
 

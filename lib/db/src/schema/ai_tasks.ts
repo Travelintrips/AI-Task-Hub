@@ -49,6 +49,8 @@ export const aiTasksTable = pgTable("ai_tasks", {
   missingData: text("missing_data"),
   requiredAction: text("required_action"),
   adminNotes: text("admin_notes"),
+  aiConfidenceScore: text("ai_confidence_score"),
+  customerSentiment: text("customer_sentiment"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (t) => [

@@ -120,6 +120,15 @@ export interface TaskUpdate {
   tags?: string[];
 }
 
+export interface TaskAiSummary {
+  /** Short operational narrative about the task */
+  summary: string;
+  /** List of missing data or documents */
+  missingData: string[];
+  /** Recommended next action */
+  recommendation: string;
+}
+
 export interface TaskAssignment {
   assigneeId?: number;
   assignedRole?: string;
