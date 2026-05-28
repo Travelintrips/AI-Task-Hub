@@ -490,6 +490,51 @@ router.post("/ai-tasks/:id/send-wa", requireAuth, async (req: Request, res: Resp
   }
 });
 
+// ─── POST /ai-tasks/reply-wa ─────────────────────────────────────────────────
+// Kirim balasan WA langsung ke nomor customer (bukan dari task tertentu)
+
+router.post("/ai-tasks/reply-wa", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { to, message } = req.body as { to?: string; message?: string };
+
+    if (!to || !to.trim()) {
+      res.status(400).json({ error: "Field 'to' (nomor WA) wajib diisi" });
+      return;
+    }
+    if (!message || !message.trim()) {
+      res.status(400).json({ error: "Field 'message' wajib diisi" });
+      return;
+    }
+
+    const { sendFonnte } = await import("../lib/fonnte");
+    const { db: _db, whatsappNotificationsTable } = await import("@workspace/db");
+
+    const result = await sendFonnte(to.trim(), message.trim());
+
+    await _db.insert(whatsappNotificationsTable).values({
+      taskId:            null,
+      companyId:         "default",
+      recipientPhone:    to.trim(),
+      recipientType:     "customer",
+      templateName:      "reply_manual",
+      messageText:       message.trim(),
+      status:            result.success ? "sent" : "failed",
+      externalMessageId: result.messageId,
+      errorMessage:      result.error,
+      sentAt:            result.success ? new Date() : null,
+    });
+
+    if (result.success) {
+      res.json({ success: true, messageId: result.messageId });
+    } else {
+      res.status(502).json({ success: false, error: result.error ?? "Gagal mengirim WA" });
+    }
+  } catch (err) {
+    logger.error({ err }, "POST /ai-tasks/reply-wa failed");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 // ─── GET /ai-tasks/:id/audit ──────────────────────────────────────────────────
 
 router.get("/ai-tasks/:id/audit", requireAuth, (_req: Request, res: Response): void => {

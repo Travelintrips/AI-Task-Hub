@@ -274,7 +274,7 @@ router.post("/whatsapp/webhook", async (req, res): Promise<void> => {
   }
 });
 
-async function processIncomingMessage({
+export async function processIncomingMessage({
   msg,
   senderName,
   companyId,

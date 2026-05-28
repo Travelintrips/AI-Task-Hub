@@ -14,6 +14,7 @@ import publicRouter from "./public";
 import customersRouter from "./customers";
 import notificationsRouter from "./notifications";
 import authRouter from "./auth";
+import fonnteWebhookRouter from "./fonnte-webhook";
 import { extractUser } from "../middleware/auth";
 
 const router: IRouter = Router();
@@ -39,5 +40,6 @@ router.use(auditsRouter);
 router.use(publicRouter);
 router.use(customersRouter);
 router.use(notificationsRouter);
+router.use(fonnteWebhookRouter);
 
 export default router;
