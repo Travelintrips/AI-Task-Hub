@@ -25,6 +25,8 @@ import {
   BellRing,
   FileSpreadsheet,
   Webhook,
+  BarChart2,
+  Settings2,
 } from "lucide-react";
 import { NotificationsBell } from "@/components/notifications-bell";
 import { useAuth } from "@/contexts/auth-context";
@@ -42,11 +44,15 @@ export function AppLayout({ children }: { children: ReactNode }) {
     { name: "Messages",     href: "/messages",  icon: MessageSquare },
     { name: "Documents",    href: "/documents", icon: FileText },
     { name: "Team",         href: "/team",      icon: Users },
+    { name: "Analitik",    href: "/analytics",         icon: BarChart2 },
     { name: "Notif WA",    href: "/wa-notifications", icon: BellRing },
     { name: "Export",      href: "/export",            icon: FileSpreadsheet },
     { name: "Webhook",     href: "/webhook-setup",     icon: Webhook },
     ...(user?.role === "super_admin" || user?.role === "company_admin"
-      ? [{ name: "Users", href: "/users", icon: ShieldCheck }]
+      ? [
+          { name: "Users",      href: "/users",    icon: ShieldCheck },
+          { name: "Pengaturan", href: "/settings", icon: Settings2 },
+        ]
       : []),
   ];
 
