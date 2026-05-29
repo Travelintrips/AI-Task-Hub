@@ -9,7 +9,7 @@ import {
 } from "@workspace/db";
 import { requireAuth, getCompanyId } from "../middleware/auth";
 import { logger } from "../lib/logger";
-import { notifyStatusChanged, notifyTaskAssigned } from "../lib/notifications";
+import { notifyStatusChanged, notifyTaskAssigned, notifyTaskCompleted } from "../lib/notifications";
 import { emitSseEvent } from "../lib/sse";
 
 const router: IRouter = Router();
@@ -76,6 +76,75 @@ router.get("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): Pr
   } catch (err) {
     logger.error({ err }, "GET /ai-tasks/:id failed");
     res.status(500).json({ error: "Failed to load AI task" });
+  }
+});
+
+// ─── POST /ai-tasks (buat task baru secara manual) ─────────────────────────────
+
+router.post("/ai-tasks", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const companyId = getCompanyId(req) ?? req.user!.companyId;
+
+    const {
+      title, customerName, customerPhone, description,
+      category, division, priority, status, assignedTo,
+      assignedRole, assignedDivision, driverName, driverPhone,
+      plateNumber, quotationAmount, quotationNotes, dueDate,
+      adminNotes,
+    } = req.body as Record<string, string | undefined>;
+
+    if (!title?.trim()) {
+      res.status(400).json({ error: "title wajib diisi" });
+      return;
+    }
+
+    // Buat nomor task unik
+    const now   = new Date();
+    const yymm  = `${String(now.getFullYear()).slice(-2)}${String(now.getMonth() + 1).padStart(2, "0")}`;
+    const rand  = Math.floor(Math.random() * 9000) + 1000;
+    const taskNumber = `WA-${yymm}-${rand}`;
+
+    const [created] = await db
+      .insert(aiTasksTable)
+      .values({
+        companyId,
+        taskNumber,
+        source:          "manual",
+        title:           title.trim(),
+        customerName:    customerName ?? null,
+        customerPhone:   customerPhone ?? null,
+        description:     description ?? null,
+        category:        category ?? null,
+        division:        division ?? null,
+        priority:        priority ?? "medium",
+        status:          (status as string) ?? "new_inquiry",
+        assignedTo:      assignedTo ?? null,
+        assignedRole:    assignedRole ?? null,
+        assignedDivision: assignedDivision ?? null,
+        driverName:      driverName ?? null,
+        driverPhone:     driverPhone ?? null,
+        plateNumber:     plateNumber ?? null,
+        quotationAmount: quotationAmount ?? null,
+        quotationNotes:  quotationNotes ?? null,
+        dueDate:         dueDate ? new Date(dueDate) : null,
+        adminNotes:      adminNotes ?? null,
+      })
+      .returning();
+
+    // Catat di activity log
+    await db.insert(activityTable).values({
+      type:        "task_created",
+      description: `Task baru dibuat manual: ${title}`,
+      entityId:    created.id,
+    }).catch(() => {});
+
+    emitSseEvent("new_task", { taskId: created.id, taskNumber, companyId }, companyId);
+
+    logger.info({ taskId: created.id, taskNumber, companyId }, "Task dibuat manual");
+    res.status(201).json(created);
+  } catch (err) {
+    logger.error({ err }, "POST /ai-tasks failed");
+    res.status(500).json({ error: "Failed to create AI task" });
   }
 });
 
@@ -163,9 +232,25 @@ router.patch("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): 
       companyId,
     };
 
+    const isNowCompleted =
+      status &&
+      status !== current.status &&
+      (status === "completed" || status === "Completed");
+
     if (status && status !== current.status) {
-      notifyStatusChanged(ctx, current.status)
-        .catch((err) => logger.error({ err }, "Notifikasi status change gagal"));
+      if (isNowCompleted) {
+        // Kirim notifikasi khusus "selesai" dengan ringkasan ke customer
+        notifyTaskCompleted({
+          ...ctx,
+          adminNotes:      updated.adminNotes,
+          quotationAmount: updated.quotationAmount,
+          driverName:      updated.driverName,
+          plateNumber:     updated.plateNumber,
+        }).catch((err) => logger.error({ err }, "Notifikasi completed gagal"));
+      } else {
+        notifyStatusChanged(ctx, current.status)
+          .catch((err) => logger.error({ err }, "Notifikasi status change gagal"));
+      }
     }
 
     if (assignedTo && assignedTo !== current.assignedTo) {

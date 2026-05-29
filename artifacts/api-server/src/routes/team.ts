@@ -1,68 +1,160 @@
 import { Router, type IRouter } from "express";
-import { supabaseQuery } from "../lib/supabase-db";
+import { db, teamMembersTable } from "@workspace/db";
+import { asc, eq } from "drizzle-orm";
+import { requireAuth, requireRole, getCompanyId } from "../middleware/auth";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
-interface UserRow {
-  rn: number;
-  id: string;
-  name: string | null;
-  first_name: string | null;
-  last_name: string | null;
-  email: string | null;
-  phone: string | null;
-  role: string | null;
-  division: string | null;
-  department: string | null;
-  is_active: boolean | null;
-  created_at: Date | null;
-}
+// ─── GET /team ─────────────────────────────────────────────────────────────────
 
-function mapMember(r: UserRow) {
-  const created = r.created_at ?? new Date();
-  const fullName =
-    r.name ??
-    [r.first_name, r.last_name].filter(Boolean).join(" ").trim() ??
-    r.email ??
-    "(no name)";
-  return {
-    id: r.rn,
-    name: fullName || "(no name)",
-    role: r.role ?? "staff",
-    email: r.email ?? null,
-    phone: r.phone ?? null,
-    division: r.division ?? r.department ?? null,
-    isActive: r.is_active ?? true,
-    createdAt: created.toISOString(),
-  };
-}
-
-router.get("/team", async (_req, res): Promise<void> => {
+router.get("/team", requireAuth, async (_req, res): Promise<void> => {
   try {
-    const rows = await supabaseQuery<UserRow>(
-      `SELECT ROW_NUMBER() OVER (ORDER BY name NULLS LAST, email) AS rn,
-              id, name, first_name, last_name, email, phone,
-              role::text AS role, division, department, is_active, created_at
-       FROM users
-       WHERE is_active IS NOT FALSE
-       ORDER BY name NULLS LAST, email`,
+    const rows = await db
+      .select()
+      .from(teamMembersTable)
+      .orderBy(asc(teamMembersTable.name));
+
+    res.json(
+      rows.map((r, idx) => ({
+        id:        r.id,
+        name:      r.name,
+        role:      r.role,
+        email:     r.email ?? null,
+        phone:     r.phone ?? null,
+        division:  r.division ?? null,
+        isVendor:  r.isVendor === "true",
+        avatarUrl: r.avatarUrl ?? null,
+        createdAt: r.createdAt.toISOString(),
+      })),
     );
-    res.json(rows.map(mapMember));
   } catch (err) {
     logger.error({ err }, "GET /team failed");
     res.status(500).json({ error: "Failed to load team" });
   }
 });
 
-router.post("/team", (_req, res): void => {
-  res.status(501).json({ error: "Read-only mode: team sourced from Supabase users" });
+// ─── POST /team ────────────────────────────────────────────────────────────────
+
+router.post("/team", requireAuth, requireRole("company_admin"), async (req, res): Promise<void> => {
+  try {
+    const { name, role, email, phone, division, isVendor, avatarUrl } = req.body as {
+      name: string;
+      role: string;
+      email?: string;
+      phone?: string;
+      division?: string;
+      isVendor?: boolean;
+      avatarUrl?: string;
+    };
+
+    if (!name || !role) {
+      res.status(400).json({ error: "name and role are required" });
+      return;
+    }
+
+    const [created] = await db
+      .insert(teamMembersTable)
+      .values({
+        name,
+        role,
+        email:     email ?? null,
+        phone:     phone ?? null,
+        division:  division ?? null,
+        isVendor:  isVendor ? "true" : "false",
+        avatarUrl: avatarUrl ?? null,
+      })
+      .returning();
+
+    res.status(201).json({
+      id:        created.id,
+      name:      created.name,
+      role:      created.role,
+      email:     created.email ?? null,
+      phone:     created.phone ?? null,
+      division:  created.division ?? null,
+      isVendor:  created.isVendor === "true",
+      avatarUrl: created.avatarUrl ?? null,
+      createdAt: created.createdAt.toISOString(),
+    });
+  } catch (err) {
+    logger.error({ err }, "POST /team failed");
+    res.status(500).json({ error: "Failed to create team member" });
+  }
 });
-router.patch("/team/:id", (_req, res): void => {
-  res.status(501).json({ error: "Read-only mode" });
+
+// ─── PATCH /team/:id ───────────────────────────────────────────────────────────
+
+router.patch("/team/:id", requireAuth, requireRole("company_admin"), async (req, res): Promise<void> => {
+  try {
+    const id = Number(req.params.id);
+    if (Number.isNaN(id)) {
+      res.status(400).json({ error: "Invalid id" });
+      return;
+    }
+
+    const { name, role, email, phone, division, isVendor, avatarUrl } = req.body as {
+      name?: string;
+      role?: string;
+      email?: string;
+      phone?: string;
+      division?: string;
+      isVendor?: boolean;
+      avatarUrl?: string;
+    };
+
+    const updateData: Partial<typeof teamMembersTable.$inferInsert> = {};
+    if (name      !== undefined) updateData.name      = name;
+    if (role      !== undefined) updateData.role      = role;
+    if (email     !== undefined) updateData.email     = email;
+    if (phone     !== undefined) updateData.phone     = phone;
+    if (division  !== undefined) updateData.division  = division;
+    if (isVendor  !== undefined) updateData.isVendor  = isVendor ? "true" : "false";
+    if (avatarUrl !== undefined) updateData.avatarUrl = avatarUrl;
+
+    const [updated] = await db
+      .update(teamMembersTable)
+      .set(updateData)
+      .where(eq(teamMembersTable.id, id))
+      .returning();
+
+    if (!updated) {
+      res.status(404).json({ error: "Team member not found" });
+      return;
+    }
+
+    res.json({
+      id:        updated.id,
+      name:      updated.name,
+      role:      updated.role,
+      email:     updated.email ?? null,
+      phone:     updated.phone ?? null,
+      division:  updated.division ?? null,
+      isVendor:  updated.isVendor === "true",
+      avatarUrl: updated.avatarUrl ?? null,
+      createdAt: updated.createdAt.toISOString(),
+    });
+  } catch (err) {
+    logger.error({ err }, "PATCH /team/:id failed");
+    res.status(500).json({ error: "Failed to update team member" });
+  }
 });
-router.delete("/team/:id", (_req, res): void => {
-  res.status(501).json({ error: "Read-only mode" });
+
+// ─── DELETE /team/:id ──────────────────────────────────────────────────────────
+
+router.delete("/team/:id", requireAuth, requireRole("company_admin"), async (req, res): Promise<void> => {
+  try {
+    const id = Number(req.params.id);
+    if (Number.isNaN(id)) {
+      res.status(400).json({ error: "Invalid id" });
+      return;
+    }
+    await db.delete(teamMembersTable).where(eq(teamMembersTable.id, id));
+    res.json({ ok: true });
+  } catch (err) {
+    logger.error({ err }, "DELETE /team/:id failed");
+    res.status(500).json({ error: "Failed to delete team member" });
+  }
 });
 
 export default router;

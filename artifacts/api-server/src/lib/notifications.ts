@@ -198,6 +198,83 @@ export async function notifyTaskCreated(ctx: TaskNotifContext): Promise<void> {
   await Promise.allSettled(sends);
 }
 
+// ─── Template selesai (completed) ─────────────────────────────────────────────
+
+function templateTaskCompleted(ctx: TaskNotifContext & { adminNotes?: string | null; quotationAmount?: string | null; driverName?: string | null; plateNumber?: string | null }): string {
+  const lines = [
+    `✅ *Pekerjaan Selesai!*`,
+    ``,
+    `📋 No: *${ctx.taskNumber}*`,
+    `📝 ${ctx.title}`,
+  ];
+  if (ctx.customerName) lines.push(`👤 Customer: ${ctx.customerName}`);
+  if (ctx.assignedTo) lines.push(`👷 Dikerjakan oleh: ${ctx.assignedTo}`);
+  if (ctx.adminNotes) lines.push(``, `📎 Catatan: ${ctx.adminNotes}`);
+  if (ctx.quotationAmount) lines.push(`💰 Biaya: Rp ${Number(ctx.quotationAmount).toLocaleString("id-ID")}`);
+  if (ctx.driverName)     lines.push(`🚗 Driver: ${ctx.driverName}`);
+  if (ctx.plateNumber)    lines.push(`🔢 Plat: ${ctx.plateNumber}`);
+  lines.push(``, `Terima kasih telah mempercayakan pekerjaan kepada kami. 🙏`);
+  lines.push(`_AI Task Center_`);
+  return lines.join("\n");
+}
+
+function templateStaffTaskCompleted(ctx: TaskNotifContext): string {
+  return [
+    `🏁 *[STAFF] Task Selesai*`,
+    ``,
+    `📋 No: *${ctx.taskNumber}*`,
+    `📝 ${ctx.title}`,
+    ...(ctx.customerName ? [`👤 Customer: ${ctx.customerName}`] : []),
+    ...(ctx.assignedTo   ? [`👷 Petugas: ${ctx.assignedTo}`]   : []),
+    ``,
+    `_AI Task Center_`,
+  ].join("\n");
+}
+
+// ─── Notifikasi task selesai (ke customer + staff) ────────────────────────────
+
+export async function notifyTaskCompleted(
+  ctx: TaskNotifContext & {
+    adminNotes?: string | null;
+    quotationAmount?: string | null;
+    driverName?: string | null;
+    plateNumber?: string | null;
+  },
+): Promise<void> {
+  const customerMsg = templateTaskCompleted(ctx);
+  const staffMsg    = templateStaffTaskCompleted(ctx);
+
+  const sends: Promise<void>[] = [];
+
+  if (ctx.customerPhone) {
+    sends.push(
+      sendAndLog({
+        phone:         ctx.customerPhone,
+        message:       customerMsg,
+        taskId:        ctx.taskId,
+        companyId:     ctx.companyId,
+        recipientType: "customer",
+        templateName:  "task_completed_customer",
+      }),
+    );
+  }
+
+  for (const phone of getStaffPhones()) {
+    sends.push(
+      sendAndLog({
+        phone,
+        message:       staffMsg,
+        taskId:        ctx.taskId,
+        companyId:     ctx.companyId,
+        recipientType: "staff",
+        templateName:  "task_completed_staff",
+      }),
+    );
+  }
+
+  await Promise.allSettled(sends);
+}
+
 // ─── Notifikasi status berubah (ke customer + staff) ──────────────────────────
 
 export async function notifyStatusChanged(ctx: TaskNotifContext, oldStatus: string): Promise<void> {
