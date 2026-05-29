@@ -18,6 +18,25 @@ const router: IRouter = Router();
 
 router.get("/dashboard/stats", requireAuth, async (_req: Request, res: Response): Promise<void> => {
   try {
+    const [totalTasks] = await db
+      .select({ count: count() })
+      .from(tasksTable);
+
+    const [openTasks] = await db
+      .select({ count: count() })
+      .from(tasksTable)
+      .where(eq(tasksTable.status, "open"));
+
+    const [completedTasks] = await db
+      .select({ count: count() })
+      .from(tasksTable)
+      .where(eq(tasksTable.status, "completed"));
+
+    const [urgentTasks] = await db
+      .select({ count: count() })
+      .from(tasksTable)
+      .where(eq(tasksTable.priority, "urgent"));
+
     const [totalAiTasks] = await db
       .select({ count: count() })
       .from(aiTasksTable);
@@ -50,10 +69,10 @@ router.get("/dashboard/stats", requireAuth, async (_req: Request, res: Response)
       .from(teamMembersTable);
 
     res.json({
-      totalTasks:       totalAiTasks.count,
-      openTasks:        activeAiTasks.count,
-      completedTasks:   totalAiTasks.count - activeAiTasks.count,
-      urgentTasks:      0,
+      totalTasks:       totalTasks.count,
+      openTasks:        openTasks.count,
+      completedTasks:   completedTasks.count,
+      urgentTasks:      urgentTasks.count,
       totalMessages:    totalMessages.count,
       pendingMessages:  pendingMessages.count,
       totalDocuments:   totalDocuments.count,
