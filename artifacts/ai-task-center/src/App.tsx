@@ -21,6 +21,7 @@ import Setup from "@/pages/setup";
 import MiniTaskForm from "@/pages/mini-task-form";
 import CustomerDataForm from "@/pages/customer-data-form";
 import WaNotifications from "@/pages/wa-notifications";
+import ExportPage from "@/pages/export";
 
 const queryClient = new QueryClient();
 
@@ -56,6 +57,7 @@ function AppRouter() {
         <Route path="/users" component={Users} />
         <Route path="/profile" component={Profile} />
         <Route path="/wa-notifications" component={WaNotifications} />
+        <Route path="/export" component={ExportPage} />
         <Route component={NotFound} />
       </Switch>
     </AppLayout>
