@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { getStoredToken } from "@/lib/auth-api";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import { Link } from "wouter";
@@ -96,7 +97,15 @@ function normalizeStatus(status: string): TaskStatus {
 // ─── API helpers ──────────────────────────────────────────────────────────────
 
 async function apiFetch<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, init);
+  const token = getStoredToken();
+  const res = await fetch(url, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(init?.headers as Record<string, string> | undefined ?? {}),
+    },
+  });
   if (!res.ok) {
     const msg = await res.text().catch(() => res.statusText);
     throw new Error(`${res.status}: ${msg}`);
