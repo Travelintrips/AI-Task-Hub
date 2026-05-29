@@ -348,7 +348,8 @@ export default function AiTaskDetail() {
   function openWaDialog() {
     if (!task) return;
     const tpl = WA_TEMPLATES.find((t) => t.id === waTemplateId) ?? WA_TEMPLATES[0];
-    setWaMessage(tpl.build(task as Parameters<typeof tpl.build>[0]));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    setWaMessage(tpl.build(task as any));
     setWaOpen(true);
   }
 
@@ -357,7 +358,8 @@ export default function AiTaskDetail() {
     if (!task) return;
     const tpl = WA_TEMPLATES.find((t) => t.id === newId);
     if (tpl && newId !== "custom") {
-      setWaMessage(tpl.build(task as Parameters<typeof tpl.build>[0]));
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      setWaMessage(tpl.build(task as any));
     } else if (newId === "custom") {
       setWaMessage("");
     }
