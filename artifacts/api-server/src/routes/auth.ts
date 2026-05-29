@@ -165,24 +165,43 @@ router.get(
   requireAuth,
   requireRole("company_admin", "super_admin"),
   async (_req: Request, res: Response): Promise<void> => {
-    const rows = await db
-      .select()
-      .from(usersTable)
-      .orderBy(usersTable.name);
-
+    const { supabaseQuery } = await import("../lib/supabase-db");
+    const rows = await supabaseQuery<{
+      rn: string;
+      id: string;
+      name: string | null;
+      first_name: string | null;
+      last_name: string | null;
+      email: string | null;
+      role: string | null;
+      division: string | null;
+      department: string | null;
+      phone: string | null;
+      company_id: number | null;
+      is_active: boolean | null;
+      last_login_at: Date | null;
+      created_at: Date | null;
+      updated_at: Date | null;
+    }>(
+      `SELECT ROW_NUMBER() OVER (ORDER BY name NULLS LAST, email)::text AS rn,
+              id, name, first_name, last_name, email, role::text AS role,
+              division, department, phone, company_id, is_active,
+              last_login_at, created_at, updated_at
+       FROM users ORDER BY name NULLS LAST, email`,
+    );
     res.json(
-      rows.map((r, i) => ({
-        id: i + 1,
-        companyId: r.companyId,
-        name: r.name,
-        email: r.email,
-        role: r.role,
-        division: r.division ?? null,
+      rows.map((r) => ({
+        id: Number(r.rn),
+        companyId: r.company_id ? String(r.company_id) : "",
+        name: r.name ?? [r.first_name, r.last_name].filter(Boolean).join(" ").trim() ?? r.email ?? "(no name)",
+        email: r.email ?? "",
+        role: r.role ?? "staff",
+        division: r.division ?? r.department ?? null,
         phone: r.phone ?? null,
-        isActive: r.isActive,
-        lastLoginAt: r.lastLoginAt?.toISOString() ?? null,
-        createdAt: r.createdAt.toISOString(),
-        updatedAt: r.updatedAt.toISOString(),
+        isActive: r.is_active ?? true,
+        lastLoginAt: r.last_login_at ? r.last_login_at.toISOString() : null,
+        createdAt: (r.created_at ?? new Date()).toISOString(),
+        updatedAt: (r.updated_at ?? r.created_at ?? new Date()).toISOString(),
       })),
     );
   },

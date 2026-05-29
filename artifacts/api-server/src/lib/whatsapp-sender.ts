@@ -1,20 +1,12 @@
 import { eq } from "drizzle-orm";
 import { db, whatsappNotificationsTable } from "@workspace/db";
+import { sendFonnte } from "./fonnte";
 import { logger } from "./logger";
 
-// ─── Gateway config (read from env, never hardcoded) ─────────────────────────
-
-function getGatewayConfig() {
-  return {
-    apiUrl: process.env.WHATSAPP_API_URL,
-    apiToken: process.env.WHATSAPP_API_TOKEN,
-    senderId: process.env.WHATSAPP_SENDER_ID,
-  };
-}
+// ─── Gateway config — uses Fonnte (FONNTE_TOKEN) ──────────────────────────────
 
 function isConfigured(): boolean {
-  const { apiUrl, apiToken, senderId } = getGatewayConfig();
-  return !!(apiUrl && apiToken && senderId);
+  return !!process.env.FONNTE_TOKEN;
 }
 
 // ─── Template names ────────────────────────────────────────────────────────────
@@ -147,7 +139,7 @@ export function renderTemplate(templateName: TemplateName, vars: TemplateVars): 
   }
 }
 
-// ─── Gateway HTTP call ─────────────────────────────────────────────────────────
+// ─── Gateway via Fonnte ────────────────────────────────────────────────────────
 
 interface GatewayResult {
   success: boolean;
@@ -156,40 +148,12 @@ interface GatewayResult {
 }
 
 async function sendViaGateway(to: string, message: string): Promise<GatewayResult> {
-  const { apiUrl, apiToken, senderId } = getGatewayConfig();
-
-  if (!apiUrl || !apiToken || !senderId) {
-    return { success: false, error: "Gateway not configured" };
-  }
-
-  try {
-    const res = await fetch(apiUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiToken}`,
-      },
-      body: JSON.stringify({ phone: to, message, sender: senderId }),
-    });
-
-    if (!res.ok) {
-      const errBody = await res.text().catch(() => "");
-      logger.error({ status: res.status, errBody, to }, "WhatsApp gateway returned error");
-      return { success: false, error: `Gateway error ${res.status}: ${errBody.slice(0, 200)}` };
-    }
-
-    const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-    const externalMessageId =
-      (json.message_id as string | undefined) ??
-      (json.id as string | undefined) ??
-      (json.uid as string | undefined);
-
-    return { success: true, externalMessageId };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : "Unknown error";
-    logger.error({ err, to }, "WhatsApp gateway request failed");
-    return { success: false, error: msg };
-  }
+  const result = await sendFonnte(to, message);
+  return {
+    success: result.success,
+    externalMessageId: result.messageId,
+    error: result.error,
+  };
 }
 
 // ─── Public API ────────────────────────────────────────────────────────────────
@@ -245,7 +209,7 @@ export async function sendWhatsAppNotification(
       success: false,
       notificationId: notification.id,
       messageText,
-      error: "Gateway not configured (set WHATSAPP_API_URL, WHATSAPP_API_TOKEN, WHATSAPP_SENDER_ID)",
+      error: "Gateway not configured (set FONNTE_TOKEN)",
       configMissing: true,
     };
   }

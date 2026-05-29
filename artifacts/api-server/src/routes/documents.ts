@@ -1,37 +1,66 @@
-import { Router, type IRouter, type Request, type Response } from "express";
-import { eq, desc } from "drizzle-orm";
-import { db, documentsTable } from "@workspace/db";
-import { requireAuth } from "../middleware/auth";
+import { Router, type IRouter } from "express";
+import { supabaseQuery } from "../lib/supabase-db";
 import { logger } from "../lib/logger";
-import { auditDocument } from "../lib/openai";
 
 const router: IRouter = Router();
 
-function mapDoc(r: typeof documentsTable.$inferSelect) {
+interface DocRow {
+  id: number;
+  doc_number: string | null;
+  status: string | null;
+  total_amount: string | null;
+  grand_total: string | null;
+  party_name: string | null;
+  notes: string | null;
+  created_at: Date | null;
+  updated_at: Date | null;
+  doc_kind: "sales" | "purchase";
+}
+
+const OFFSET_PURCHASE = 1_000_000;
+
+function mapDoc(r: DocRow) {
+  const created = r.created_at ?? new Date();
+  const updated = r.updated_at ?? created;
+  const idOut = r.doc_kind === "purchase" ? r.id + OFFSET_PURCHASE : r.id;
+  const filename =
+    (r.doc_number ?? `${r.doc_kind === "purchase" ? "PO" : "SO"}-${r.id}`) +
+    (r.doc_kind === "purchase" ? " (Purchase)" : " (Sales)");
+
+  const summaryParts: string[] = [];
+  if (r.party_name) summaryParts.push(r.doc_kind === "purchase" ? `Supplier: ${r.party_name}` : `Customer: ${r.party_name}`);
+  if (r.grand_total) summaryParts.push(`Total: Rp ${Number(r.grand_total).toLocaleString("id-ID")}`);
+  if (r.notes) summaryParts.push(r.notes);
+
   return {
-    id:           r.id,
-    filename:     r.filename,
-    fileUrl:      r.fileUrl,
-    status:       r.status,
-    auditScore:   r.auditScore,
-    auditSummary: r.auditSummary,
-    auditIssues:  r.auditIssues,
-    taskId:       r.taskId,
-    createdAt:    r.createdAt.toISOString(),
-    updatedAt:    r.updatedAt.toISOString(),
+    id: idOut,
+    filename,
+    fileUrl: null as string | null,
+    status: "pending",
+    auditScore: null as number | null,
+    auditSummary: summaryParts.join("\n") || null,
+    auditIssues: [] as string[],
+    taskId: null as number | null,
+    createdAt: created.toISOString(),
+    updatedAt: updated.toISOString(),
   };
 }
 
-// ─── GET /documents ───────────────────────────────────────────────────────────
-
-router.get("/documents", requireAuth, async (_req: Request, res: Response): Promise<void> => {
+router.get("/documents", async (_req, res): Promise<void> => {
   try {
-    const rows = await db
-      .select()
-      .from(documentsTable)
-      .orderBy(desc(documentsTable.createdAt))
-      .limit(300);
-
+    const rows = await supabaseQuery<DocRow>(
+      `SELECT id, doc_number, status::text AS status,
+              total_amount, grand_total, customer_name AS party_name,
+              notes, created_at, updated_at, 'sales' AS doc_kind
+       FROM sales_documents
+       UNION ALL
+       SELECT id, doc_number, status::text AS status,
+              total_amount, grand_total, supplier_name AS party_name,
+              notes, created_at, updated_at, 'purchase' AS doc_kind
+       FROM purchase_documents
+       ORDER BY created_at DESC NULLS LAST
+       LIMIT 300`,
+    );
     res.json(rows.map(mapDoc));
   } catch (err) {
     logger.error({ err }, "GET /documents failed");
@@ -39,134 +68,47 @@ router.get("/documents", requireAuth, async (_req: Request, res: Response): Prom
   }
 });
 
-// ─── GET /documents/:id ───────────────────────────────────────────────────────
-
-router.get("/documents/:id", requireAuth, async (req: Request, res: Response): Promise<void> => {
+router.get("/documents/:id", async (req, res): Promise<void> => {
   try {
     const id = Number(req.params.id);
-    if (Number.isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
-
-    const [row] = await db
-      .select()
-      .from(documentsTable)
-      .where(eq(documentsTable.id, id))
-      .limit(1);
-
-    if (!row) { res.status(404).json({ error: "Document not found" }); return; }
-
-    res.json(mapDoc(row));
+    if (Number.isNaN(id)) {
+      res.status(400).json({ error: "Invalid id" });
+      return;
+    }
+    const isPurchase = id >= OFFSET_PURCHASE;
+    const realId = isPurchase ? id - OFFSET_PURCHASE : id;
+    const sql = isPurchase
+      ? `SELECT id, doc_number, status::text AS status, total_amount, grand_total,
+                supplier_name AS party_name, notes, created_at, updated_at,
+                'purchase'::text AS doc_kind
+         FROM purchase_documents WHERE id = $1 LIMIT 1`
+      : `SELECT id, doc_number, status::text AS status, total_amount, grand_total,
+                customer_name AS party_name, notes, created_at, updated_at,
+                'sales'::text AS doc_kind
+         FROM sales_documents WHERE id = $1 LIMIT 1`;
+    const rows = await supabaseQuery<DocRow>(sql, [realId]);
+    if (!rows[0]) {
+      res.status(404).json({ error: "Document not found" });
+      return;
+    }
+    res.json(mapDoc(rows[0]));
   } catch (err) {
     logger.error({ err }, "GET /documents/:id failed");
     res.status(500).json({ error: "Failed to load document" });
   }
 });
 
-// ─── POST /documents/upload-url ───────────────────────────────────────────────
-
-router.post("/documents/upload-url", requireAuth, async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { filename, mimeType } = req.body as { filename?: string; mimeType?: string };
-    if (!filename) { res.status(400).json({ error: "filename is required" }); return; }
-
-    const { getUploadUrl } = await import("../lib/supabase");
-    const { uploadUrl, publicUrl, path } = await getUploadUrl(filename, mimeType ?? "application/octet-stream");
-
-    const [doc] = await db.insert(documentsTable).values({
-      filename,
-      fileUrl: publicUrl,
-      storagePath: path,
-      mimeType: mimeType ?? null,
-      status: "pending",
-      uploadedBy: req.user?.name ?? "Admin",
-    }).returning();
-
-    res.json({ uploadUrl, publicUrl, documentId: doc.id });
-  } catch (err) {
-    logger.error({ err }, "POST /documents/upload-url failed");
-    res.status(500).json({ error: "Failed to get upload URL" });
-  }
+router.post("/documents/upload-url", (_req, res): void => {
+  res.status(501).json({ error: "Document upload not available in read-only mode" });
 });
-
-// ─── POST /documents ──────────────────────────────────────────────────────────
-
-router.post("/documents", requireAuth, async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { filename, fileUrl, taskId, mimeType } = req.body as {
-      filename?: string; fileUrl?: string; taskId?: number; mimeType?: string;
-    };
-    if (!filename) { res.status(400).json({ error: "filename is required" }); return; }
-
-    const [doc] = await db.insert(documentsTable).values({
-      filename,
-      fileUrl: fileUrl ?? null,
-      taskId: taskId ?? null,
-      mimeType: mimeType ?? null,
-      status: "pending",
-      uploadedBy: req.user?.name ?? "Admin",
-    }).returning();
-
-    res.status(201).json(mapDoc(doc));
-  } catch (err) {
-    logger.error({ err }, "POST /documents failed");
-    res.status(500).json({ error: "Failed to create document" });
-  }
+router.post("/documents", (_req, res): void => {
+  res.status(501).json({ error: "Read-only mode" });
 });
-
-// ─── DELETE /documents/:id ────────────────────────────────────────────────────
-
-router.delete("/documents/:id", requireAuth, async (req: Request, res: Response): Promise<void> => {
-  try {
-    const id = Number(req.params.id);
-    if (Number.isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
-
-    const [deleted] = await db
-      .delete(documentsTable)
-      .where(eq(documentsTable.id, id))
-      .returning();
-
-    if (!deleted) { res.status(404).json({ error: "Document not found" }); return; }
-
-    res.sendStatus(204);
-  } catch (err) {
-    logger.error({ err }, "DELETE /documents/:id failed");
-    res.status(500).json({ error: "Failed to delete document" });
-  }
+router.delete("/documents/:id", (_req, res): void => {
+  res.status(501).json({ error: "Read-only mode" });
 });
-
-// ─── POST /documents/:id/audit ────────────────────────────────────────────────
-
-router.post("/documents/:id/audit", requireAuth, async (req: Request, res: Response): Promise<void> => {
-  try {
-    const id = Number(req.params.id);
-    if (Number.isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
-
-    const [doc] = await db
-      .select()
-      .from(documentsTable)
-      .where(eq(documentsTable.id, id))
-      .limit(1);
-
-    if (!doc) { res.status(404).json({ error: "Document not found" }); return; }
-
-    const result = await auditDocument(doc.filename, doc.fileUrl);
-
-    const [updated] = await db
-      .update(documentsTable)
-      .set({
-        status: "audited",
-        auditScore: result.score,
-        auditSummary: result.summary,
-        auditIssues: result.issues,
-        updatedAt: new Date(),
-      })
-      .where(eq(documentsTable.id, id))
-      .returning();
-
-    res.json(mapDoc(updated));
-  } catch (err) {
-    logger.error({ err }, "POST /documents/:id/audit failed");
-    res.status(500).json({ error: "Failed to audit document" });
-  }
+router.post("/documents/:id/audit", (_req, res): void => {
+  res.status(501).json({ error: "AI audit not available in read-only mode" });
 });
 
 export default router;
