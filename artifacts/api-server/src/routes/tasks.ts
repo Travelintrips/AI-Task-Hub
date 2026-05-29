@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { eq, desc, and, ilike, or } from "drizzle-orm";
 import { db, tasksTable, teamMembersTable, activityTable, usersTable } from "@workspace/db";
-import { requireAuth, getCompanyId } from "../middleware/auth";
+import { requireAuth, getCompanyId, getCompanyIdForWrite } from "../middleware/auth";
 import { logger } from "../lib/logger";
 import { notifyStatusChanged, notifyTaskAssigned } from "../lib/notifications";
 
@@ -174,7 +174,7 @@ router.patch("/tasks/:id", requireAuth, async (req: Request, res: Response): Pro
     }
 
     // ── WhatsApp notifications (fire-and-forget) ──────────────────────────────
-    const companyId = "cstlogistic";
+    const companyId = getCompanyId(req) ?? "default";
     const taskNumber = `TASK-${String(id).padStart(4, "0")}`;
 
     if (status && status !== current.status) {
@@ -279,7 +279,7 @@ router.patch("/tasks/:id/assign", requireAuth, async (req: Request, res: Respons
         assignedTo:   member?.name ?? null,
         status:       "open",
         priority:     task.priority,
-        companyId:    "cstlogistic",
+        companyId:    getCompanyId(req) ?? "default",
       },
       member?.phone ?? null,
     ).catch((err) => logger.error({ err }, "Notifikasi assign gagal"));

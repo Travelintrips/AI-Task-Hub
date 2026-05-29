@@ -5,3 +5,5 @@
 - [Supabase PROD vs DEV keys](supabase-prod-dev-keys.md) — DB+anon = prod (nzdweipz...), but SERVICE_ROLE_KEY = dev project → Storage signature fails; need prod service_role key.
 - [Auth & User Management](auth-user-management.md) — JWT via bcryptjs+jsonwebtoken; Frontend workflow BASE_PATH=/ai-task-center port 5000; auth-api.ts uses direct fetch (not generated hooks).
 - [API server config module](api-server-config.md) — non-sensitive values live in config.ts, not env vars; only true secrets stay in Replit secrets.
+- [Drizzle db.execute destructuring](drizzle-execute-rows.md) — db.execute() returns QueryResult (not array); use .rows[0] not destructuring const [row] =.
+- [SUPABASE_SERVICE_ROLE_KEY in .replit](supabase-key-in-replit.md) — key was in [userenv.shared] section committed to GitHub; must rotate key in Supabase dashboard.

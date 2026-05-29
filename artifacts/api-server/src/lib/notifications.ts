@@ -37,7 +37,7 @@ function templateTaskCreated(ctx: TaskNotifContext): string {
   lines.push(`🚦 Status: ${ctx.status}`);
   lines.push(`⚡ Prioritas: ${priorityLabel(ctx.priority)}`);
   lines.push(``);
-  lines.push(`_AI Task Center — cstlogistic.co.id_`);
+  lines.push(`_AI Task Center_`);
   return lines.join("\n");
 }
 
@@ -52,7 +52,7 @@ function templateStatusChanged(ctx: TaskNotifContext, oldStatus: string): string
   ];
   if (ctx.assignedTo) lines.push(`👷 Petugas: ${ctx.assignedTo}`);
   lines.push(``);
-  lines.push(`_AI Task Center — cstlogistic.co.id_`);
+  lines.push(`_AI Task Center_`);
   return lines.join("\n");
 }
 
@@ -65,7 +65,7 @@ function templateAssigned(ctx: TaskNotifContext): string {
     `👷 Petugas: *${ctx.assignedTo}*`,
     `🚦 Status: ${ctx.status}`,
     ``,
-    `_AI Task Center — cstlogistic.co.id_`,
+    `_AI Task Center_`,
   ].join("\n");
 }
 
@@ -81,7 +81,7 @@ function templateStaffNewTask(ctx: TaskNotifContext): string {
   lines.push(`⚡ Prioritas: ${priorityLabel(ctx.priority)}`);
   lines.push(`🚦 Status: ${ctx.status}`);
   lines.push(``);
-  lines.push(`Buka app: https://cstlogistic.co.id`);
+  lines.push(`_AI Task Center_`);
   return lines.join("\n");
 }
 

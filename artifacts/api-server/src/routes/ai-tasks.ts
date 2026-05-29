@@ -111,7 +111,7 @@ router.patch("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): 
     if (driverName     !== undefined) updates.driverName     = driverName     as string | null;
     if (driverPhone    !== undefined) updates.driverPhone    = driverPhone    as string | null;
     if (plateNumber    !== undefined) updates.plateNumber    = plateNumber    as string | null;
-    if (quotationAmount !== undefined) updates.quotationAmount = quotationAmount as number | null;
+    if (quotationAmount !== undefined) updates.quotationAmount = quotationAmount != null ? String(quotationAmount) : null;
     if (quotationNotes  !== undefined) updates.quotationNotes  = quotationNotes  as string | null;
 
     const [updated] = await db

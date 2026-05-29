@@ -180,7 +180,7 @@ router.get("/dashboard/analytics", requireAuth, async (req: Request, res: Respon
     `);
 
     // 8. Ringkasan cepat — bulan ini vs bulan lalu
-    const [thisMonth] = await db.execute(sql`
+    const thisMonthResult = await db.execute(sql`
       SELECT
         COUNT(*) AS new_tasks,
         COUNT(*) FILTER (WHERE status = 'completed') AS completed
@@ -188,8 +188,9 @@ router.get("/dashboard/analytics", requireAuth, async (req: Request, res: Respon
       ${companyFilter}
         AND created_at >= DATE_TRUNC('month', NOW())
     `);
+    const thisMonth = thisMonthResult.rows[0];
 
-    const [lastMonth] = await db.execute(sql`
+    const lastMonthResult = await db.execute(sql`
       SELECT
         COUNT(*) AS new_tasks,
         COUNT(*) FILTER (WHERE status = 'completed') AS completed
@@ -198,6 +199,7 @@ router.get("/dashboard/analytics", requireAuth, async (req: Request, res: Respon
         AND created_at >= DATE_TRUNC('month', NOW() - INTERVAL '1 month')
         AND created_at < DATE_TRUNC('month', NOW())
     `);
+    const lastMonth = lastMonthResult.rows[0];
 
     res.json({
       monthlyTrend:    monthlyTrend.rows,
