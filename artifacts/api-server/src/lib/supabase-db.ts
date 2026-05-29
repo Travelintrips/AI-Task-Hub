@@ -5,27 +5,28 @@ const connectionString =
   process.env.SUPABASE_DATABASE_URL ?? process.env.SUPABASE_DATABASE_URL_DEV;
 
 if (!connectionString) {
-  logger.info(
-    "SUPABASE_DATABASE_URL is not set — Supabase-backed fallback routes disabled",
+  logger.warn(
+    "SUPABASE_DATABASE_URL is not set — Supabase-backed routes will fail",
   );
 }
 
-export const supabasePool = connectionString
-  ? new pg.Pool({
-      connectionString,
-      max: 5,
-      idleTimeoutMillis: 30000,
-      ssl: { rejectUnauthorized: false },
-    })
-  : null;
+export const supabasePool = new pg.Pool({
+  connectionString,
+  max: 5,
+  idleTimeoutMillis: 30000,
+  ssl: { rejectUnauthorized: false },
+});
 
+supabasePool.on("error", (err) => {
+  logger.error({ err }, "Supabase pool error");
+});
 if (supabasePool) {
   supabasePool.on("error", (err) => {
     logger.error({ err }, "Supabase pool error");
   });
 }
 
-export async function supabaseQuery<T = Record<string, unknown>>(
+export async function supabaseQuery<T extends Record<string, unknown> = Record<string, unknown>>(
   text: string,
   params?: unknown[],
 ): Promise<T[]> {
@@ -35,4 +36,6 @@ export async function supabaseQuery<T = Record<string, unknown>>(
   }
   const res = await supabasePool.query(text, params as never);
   return res.rows as T[];
+  const res = await supabasePool.query<T>(text, params as never);
+  return res.rows;
 }
