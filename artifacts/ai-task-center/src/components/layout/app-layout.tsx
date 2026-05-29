@@ -24,6 +24,7 @@ import {
   UserCircle,
   BellRing,
   FileSpreadsheet,
+  BarChart2,
 } from "lucide-react";
 import { NotificationsBell } from "@/components/notifications-bell";
 import { useAuth } from "@/contexts/auth-context";
@@ -41,6 +42,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
     { name: "Messages",     href: "/messages",  icon: MessageSquare },
     { name: "Documents",    href: "/documents", icon: FileText },
     { name: "Team",         href: "/team",      icon: Users },
+    { name: "Analitik",    href: "/analytics",         icon: BarChart2 },
     { name: "Notif WA",    href: "/wa-notifications", icon: BellRing },
     { name: "Export",      href: "/export",            icon: FileSpreadsheet },
     ...(user?.role === "super_admin" || user?.role === "company_admin"

@@ -22,6 +22,7 @@ import MiniTaskForm from "@/pages/mini-task-form";
 import CustomerDataForm from "@/pages/customer-data-form";
 import WaNotifications from "@/pages/wa-notifications";
 import ExportPage from "@/pages/export";
+import Analytics from "@/pages/analytics";
 
 const queryClient = new QueryClient();
 
@@ -56,6 +57,7 @@ function AppRouter() {
         <Route path="/team" component={Team} />
         <Route path="/users" component={Users} />
         <Route path="/profile" component={Profile} />
+        <Route path="/analytics" component={Analytics} />
         <Route path="/wa-notifications" component={WaNotifications} />
         <Route path="/export" component={ExportPage} />
         <Route component={NotFound} />
