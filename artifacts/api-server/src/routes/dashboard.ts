@@ -1,5 +1,17 @@
 import { Router, type IRouter } from "express";
 import { supabaseQuery } from "../lib/supabase-db";
+import { Router, type IRouter, type Request, type Response } from "express";
+import { count, eq, ne, desc } from "drizzle-orm";
+import {
+  db,
+  tasksTable,
+  aiTasksTable,
+  whatsappMessagesTable,
+  documentsTable,
+  teamMembersTable,
+  activityTable,
+} from "@workspace/db";
+import { requireAuth } from "../middleware/auth";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();

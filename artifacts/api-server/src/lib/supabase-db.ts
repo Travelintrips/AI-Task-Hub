@@ -20,6 +20,11 @@ export const supabasePool = new pg.Pool({
 supabasePool.on("error", (err) => {
   logger.error({ err }, "Supabase pool error");
 });
+if (supabasePool) {
+  supabasePool.on("error", (err) => {
+    logger.error({ err }, "Supabase pool error");
+  });
+}
 
 export async function supabaseQuery<T extends Record<string, unknown> = Record<string, unknown>>(
   text: string,
