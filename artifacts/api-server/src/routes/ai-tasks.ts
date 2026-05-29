@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { eq, ne, desc, and, ilike, or } from "drizzle-orm";
+import { eq, ne, desc, and, ilike, or, isNull, SQL } from "drizzle-orm";
 import {
   db,
   aiTasksTable,
@@ -17,7 +17,8 @@ const router: IRouter = Router();
 
 router.get("/ai-tasks", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
-    const companyId = getCompanyId(req) ?? "cstlogistic";
+    // super_admin without ?companyId sees their own company; with ?companyId= sees that company
+    const companyId = getCompanyId(req) ?? req.user!.companyId;
     const { status, priority, search } = req.query as Record<string, string | undefined>;
 
     let rows = await db
@@ -54,7 +55,7 @@ router.get("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): Pr
     const id = Number(req.params.id);
     if (Number.isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
 
-    const companyId = getCompanyId(req) ?? "cstlogistic";
+    const companyId = getCompanyId(req) ?? req.user!.companyId;
 
     const [task] = await db
       .select()
@@ -84,7 +85,7 @@ router.patch("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): 
     const id = Number(req.params.id);
     if (Number.isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
 
-    const companyId = getCompanyId(req) ?? "cstlogistic";
+    const companyId = getCompanyId(req) ?? req.user!.companyId;
 
     const [current] = await db
       .select()
