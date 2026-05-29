@@ -2,6 +2,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { count, eq, ne, desc } from "drizzle-orm";
 import {
   db,
+  tasksTable,
   aiTasksTable,
   whatsappMessagesTable,
   documentsTable,

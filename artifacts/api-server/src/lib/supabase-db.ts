@@ -24,9 +24,6 @@ if (supabasePool) {
     logger.error({ err }, "Supabase pool error");
   });
 }
-supabasePool.on("error", (err: unknown) => {
-  logger.error({ err }, "Supabase pool error");
-});
 
 export async function supabaseQuery<T = Record<string, unknown>>(
   text: string,
@@ -38,6 +35,4 @@ export async function supabaseQuery<T = Record<string, unknown>>(
   }
   const res = await supabasePool.query<T>(text, params as never);
   return res.rows;
-  const res = await supabasePool.query(text, params as never);
-  return res.rows as T[];
 }
