@@ -10,6 +10,7 @@ import {
 import { requireAuth, getCompanyId } from "../middleware/auth";
 import { logger } from "../lib/logger";
 import { notifyStatusChanged, notifyTaskAssigned } from "../lib/notifications";
+import { emitSseEvent } from "../lib/sse";
 
 const router: IRouter = Router();
 
@@ -134,6 +135,20 @@ router.patch("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): 
         entityId:    id,
       }).catch(() => {});
     }
+
+    // ── SSE realtime push ─────────────────────────────────────────────────────
+    emitSseEvent(
+      "task_updated",
+      {
+        taskId:    id,
+        taskNumber: current.taskNumber ?? `WA-${id}`,
+        title:     updated.title,
+        status:    updated.status,
+        priority:  updated.priority,
+        assignedTo: updated.assignedTo,
+      },
+      companyId,
+    );
 
     // ── WhatsApp notifications (fire-and-forget) ──────────────────────────────
     const ctx = {

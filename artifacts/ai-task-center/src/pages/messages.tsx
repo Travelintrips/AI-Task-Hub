@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useServerEvents } from "@/hooks/use-server-events";
 import { formatDistanceToNow, format } from "date-fns";
 import { id as localeId } from "date-fns/locale";
 import { Link } from "wouter";
@@ -129,17 +130,20 @@ export default function Messages() {
   const [replyOpen, setReplyOpen] = useState(false);
   const [replyMsg, setReplyMsg] = useState("");
 
-  // Auto-refresh every 30s
-  useEffect(() => {
-    const id = setInterval(() => {
+  // ── Realtime SSE — inbox update otomatis saat pesan WA masuk ────────────────
+  useServerEvents({
+    new_message: () => {
       void queryClient.invalidateQueries({ queryKey: ["wa-messages"] });
-    }, 30_000);
-    return () => clearInterval(id);
-  }, [queryClient]);
+    },
+    new_task: () => {
+      void queryClient.invalidateQueries({ queryKey: ["wa-messages"] });
+    },
+  });
 
   const { data: messages = [], isLoading, isFetching } = useQuery<WaMessage[]>({
     queryKey: ["wa-messages"],
     queryFn: () => apiFetch("/messages"),
+    refetchInterval: 60_000,
     staleTime: 15_000,
   });
 

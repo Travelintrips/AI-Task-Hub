@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { getStoredToken } from "@/lib/auth-api";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useServerEvents } from "@/hooks/use-server-events";
 import { formatDistanceToNow } from "date-fns";
 import { Link } from "wouter";
 import {
@@ -303,8 +304,18 @@ export default function AiTaskBoard() {
   const { data: allTasks = [], isLoading, isFetching, refetch } = useQuery<AiTask[]>({
     queryKey,
     queryFn: () => fetchAiTasks({ category: categoryFilter, priority: priorityFilter }),
-    refetchInterval: 30_000,
+    refetchInterval: 60_000,
     staleTime: 15_000,
+  });
+
+  // ── Realtime SSE — refresh board saat ada task baru atau diupdate ────────────
+  useServerEvents({
+    new_task: () => {
+      void queryClient.invalidateQueries({ queryKey: ["ai-tasks"] });
+    },
+    task_updated: () => {
+      void queryClient.invalidateQueries({ queryKey: ["ai-tasks"] });
+    },
   });
 
   // Client-side filter: search + status

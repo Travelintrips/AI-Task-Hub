@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useServerEvents } from "@/hooks/use-server-events";
 import { formatDistanceToNow } from "date-fns";
 import { Link } from "wouter";
 import { getStoredToken } from "@/lib/auth-api";
@@ -245,8 +246,21 @@ export default function Dashboard() {
   const { data: tasks = [], isLoading, isFetching, refetch } = useQuery<AiTask[]>({
     queryKey,
     queryFn: () => fetchAiTasks(queryParams),
-    refetchInterval: 30_000,
+    refetchInterval: 60_000,
     staleTime: 15_000,
+  });
+
+  // ── Realtime SSE — refresh dashboard saat ada perubahan ─────────────────────
+  useServerEvents({
+    new_task: () => {
+      void queryClient.invalidateQueries({ queryKey: ["ai-tasks-dashboard"] });
+    },
+    task_updated: () => {
+      void queryClient.invalidateQueries({ queryKey: ["ai-tasks-dashboard"] });
+    },
+    new_message: () => {
+      void queryClient.invalidateQueries({ queryKey: ["ai-tasks-dashboard"] });
+    },
   });
 
   const updateMutation = useMutation({

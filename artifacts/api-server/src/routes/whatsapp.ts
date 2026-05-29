@@ -15,6 +15,7 @@ import type { TemplateName } from "../lib/whatsapp-sender";
 import { logger } from "../lib/logger";
 import { getOrCreateCustomerContext, updateCustomerContextAfterTask } from "../lib/customer-context";
 import { createAdminNotification } from "../lib/admin-notifications";
+import { emitSseEvent } from "../lib/sse";
 
 const router: IRouter = Router();
 
@@ -321,6 +322,13 @@ export async function processIncomingMessage({
       .returning();
 
     logger.info({ msgId: savedMsg.id, from, type: messageType }, "WhatsApp message saved");
+
+    // Emit SSE so messages page updates instantly
+    emitSseEvent(
+      "new_message",
+      { msgId: savedMsg.id, from, senderName: senderName ?? null, type: messageType },
+      companyId,
+    );
 
     // 2. Save attachment reference if present
     if (attachment?.url && savedMsg.id) {
