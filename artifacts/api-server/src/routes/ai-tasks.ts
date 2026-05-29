@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { eq, ne, desc, and, ilike, or, isNull, SQL } from "drizzle-orm";
+import { eq, ne, desc, and, ilike, or, isNull, gte, lte, SQL } from "drizzle-orm";
 import {
   db,
   aiTasksTable,
@@ -18,27 +18,49 @@ const router: IRouter = Router();
 
 router.get("/ai-tasks", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
-    // super_admin without ?companyId sees their own company; with ?companyId= sees that company
     const companyId = getCompanyId(req) ?? req.user!.companyId;
-    const { status, priority, search } = req.query as Record<string, string | undefined>;
+    const {
+      status, priority, category, division, search,
+      dateFrom, dateTo,
+    } = req.query as Record<string, string | undefined>;
+
+    // Build DB-level WHERE conditions
+    const conditions: SQL[] = [eq(aiTasksTable.companyId, companyId)];
+
+    if (status)   conditions.push(eq(aiTasksTable.status, status));
+    if (priority) conditions.push(eq(aiTasksTable.priority, priority));
+    if (category) conditions.push(eq(aiTasksTable.category, category));
+    if (division) conditions.push(eq(aiTasksTable.division, division));
+    if (dateFrom) {
+      const from = new Date(dateFrom);
+      if (!isNaN(from.getTime())) conditions.push(gte(aiTasksTable.createdAt, from));
+    }
+    if (dateTo) {
+      const to = new Date(dateTo);
+      if (!isNaN(to.getTime())) {
+        to.setHours(23, 59, 59, 999); // sampai akhir hari
+        conditions.push(lte(aiTasksTable.createdAt, to));
+      }
+    }
 
     let rows = await db
       .select()
       .from(aiTasksTable)
-      .where(eq(aiTasksTable.companyId, companyId))
+      .where(and(...conditions))
       .orderBy(desc(aiTasksTable.updatedAt))
-      .limit(300);
+      .limit(500);
 
-    if (status)   rows = rows.filter((t) => t.status   === status);
-    if (priority) rows = rows.filter((t) => t.priority === priority);
+    // Full-text search (client-side pada subset yang sudah difilter DB)
     if (search) {
       const q = search.toLowerCase();
       rows = rows.filter(
         (t) =>
           t.title.toLowerCase().includes(q) ||
           (t.customerName ?? "").toLowerCase().includes(q) ||
+          (t.customerPhone ?? "").toLowerCase().includes(q) ||
           (t.taskNumber ?? "").toLowerCase().includes(q) ||
-          (t.aiSummary ?? "").toLowerCase().includes(q),
+          (t.aiSummary ?? "").toLowerCase().includes(q) ||
+          (t.description ?? "").toLowerCase().includes(q),
       );
     }
 
