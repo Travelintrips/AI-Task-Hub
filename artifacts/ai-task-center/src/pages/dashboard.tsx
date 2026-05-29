@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import { Link } from "wouter";
+import { getStoredToken } from "@/lib/auth-api";
 import {
   Search, RefreshCw, MessageSquare, AlertCircle, Clock,
   ChevronDown, Filter, X, Brain, ShieldCheck, Phone,
@@ -107,16 +108,23 @@ async function fetchAiTasks(params: Record<string, string>): Promise<AiTask[]> {
   for (const [k, v] of Object.entries(params)) {
     if (v && v !== "all") qs.set(k, v);
   }
-  const res = await fetch(`/api/ai-tasks${qs.toString() ? `?${qs}` : ""}`);
+  const token = getStoredToken();
+  const res = await fetch(`/api/ai-tasks${qs.toString() ? `?${qs}` : ""}`, {
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+  });
   if (!res.ok) throw new Error(`${res.status}`);
   return res.json();
 }
 
 async function patchAiTask(id: number, updates: Partial<Pick<AiTask, "status" | "priority" | "assignedTo">>): Promise<AiTask> {
+  const token = getStoredToken();
   const res = await fetch(`/api/ai-tasks/${id}`, {
     method: "PATCH",
     body: JSON.stringify(updates),
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
   });
   if (!res.ok) throw new Error(`${res.status}`);
   return res.json();

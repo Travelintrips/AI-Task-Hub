@@ -256,9 +256,7 @@ export default function AiTaskDetail() {
     queryFn: async () => {
       if (!task?.customerPhone) return null;
       try {
-        const res = await fetch(`${BASE}/api/customers/${encodeURIComponent(task.customerPhone)}`);
-        if (res.status === 404) return null;
-        return res.json();
+        return await apiFetch(`/customers/${encodeURIComponent(task.customerPhone)}`);
       } catch { return null; }
     },
     enabled: !!task?.customerPhone,
@@ -369,7 +367,7 @@ export default function AiTaskDetail() {
 
   const deleteAttachmentMutation = useMutation({
     mutationFn: (attachmentId: number) =>
-      fetch(`${BASE}/api/ai-tasks/${id}/attachments/${attachmentId}`, { method: "DELETE" }),
+      apiFetch(`/ai-tasks/${id}/attachments/${attachmentId}`, { method: "DELETE" }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ai-task-attachments", id] }),
     onError: () => toast({ title: "Failed to delete attachment", variant: "destructive" }),
   });

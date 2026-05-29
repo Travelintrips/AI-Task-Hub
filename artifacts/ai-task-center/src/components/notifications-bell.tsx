@@ -13,8 +13,14 @@ import {
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { useServerEvents } from "@/hooks/use-server-events";
+import { getStoredToken } from "@/lib/auth-api";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+function authHeaders(): Record<string, string> {
+  const token = getStoredToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
 interface AdminNotification {
   id: number;
@@ -82,7 +88,7 @@ export function NotificationsBell() {
   const { data: countData } = useQuery<{ count: number }>({
     queryKey: ["notifications-count"],
     queryFn: async () => {
-      const res = await fetch(`${BASE}/api/notifications/unread-count`);
+      const res = await fetch(`${BASE}/api/notifications/unread-count`, { headers: authHeaders() });
       return res.json();
     },
     refetchInterval: 60_000, // safety fallback every 60s (was 15s)
@@ -91,7 +97,7 @@ export function NotificationsBell() {
   const { data: notifications = [] } = useQuery<AdminNotification[]>({
     queryKey: ["notifications-list"],
     queryFn: async () => {
-      const res = await fetch(`${BASE}/api/notifications?limit=20`);
+      const res = await fetch(`${BASE}/api/notifications?limit=20`, { headers: authHeaders() });
       return res.json();
     },
     enabled: open,
@@ -100,7 +106,7 @@ export function NotificationsBell() {
 
   const markRead = useMutation({
     mutationFn: async (id: number) => {
-      await fetch(`${BASE}/api/notifications/${id}/read`, { method: "PATCH" });
+      await fetch(`${BASE}/api/notifications/${id}/read`, { method: "PATCH", headers: authHeaders() });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["notifications-count"] });
@@ -110,7 +116,7 @@ export function NotificationsBell() {
 
   const markAllRead = useMutation({
     mutationFn: async () => {
-      await fetch(`${BASE}/api/notifications/read-all`, { method: "POST" });
+      await fetch(`${BASE}/api/notifications/read-all`, { method: "POST", headers: authHeaders() });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["notifications-count"] });

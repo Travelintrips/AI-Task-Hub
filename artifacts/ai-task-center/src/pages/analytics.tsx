@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/auth-context";
+import { getStoredToken } from "@/lib/auth-api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -111,7 +112,7 @@ function trendText(curr: number, prev: number): string {
 // ─── Fetch ────────────────────────────────────────────────────────────────────
 
 async function fetchAnalytics(): Promise<AnalyticsData> {
-  const token = localStorage.getItem("auth_token");
+  const token = getStoredToken();
   const res = await fetch("/api/dashboard/analytics", {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
