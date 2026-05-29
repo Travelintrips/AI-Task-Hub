@@ -1,102 +1,37 @@
-import { Router, type IRouter } from "express";
-import { supabaseQuery } from "../lib/supabase-db";
+import { Router, type IRouter, type Request, type Response } from "express";
+import { eq, ne, desc, and, ilike, or } from "drizzle-orm";
+import {
+  db,
+  aiTasksTable,
+  taskCommentsTable,
+  activityTable,
+  teamMembersTable,
+} from "@workspace/db";
+import { requireAuth, getCompanyId } from "../middleware/auth";
 import { logger } from "../lib/logger";
+import { notifyStatusChanged, notifyTaskAssigned } from "../lib/notifications";
 
 const router: IRouter = Router();
 
-interface AiRow {
-  id: number;
-  doc_number: string | null;
-  kind: string | null;
-  status: string | null;
-  invoice_status: string | null;
-  delivery_status: string | null;
-  payment_status: string | null;
-  customer_name: string | null;
-  ai_source_wa_phone: string | null;
-  origin: string | null;
-  destination: string | null;
-  grand_total: string | null;
-  notes: string | null;
-  expected_date: Date | null;
-  eta: Date | null;
-  created_at: Date | null;
-  updated_at: Date | null;
-}
+// ─── GET /ai-tasks ─────────────────────────────────────────────────────────────
 
-function statusOf(r: AiRow): string {
-  if (r.payment_status === "paid") return "completed";
-  if (r.delivery_status === "shipped" || r.delivery_status === "in_progress") return "in_progress";
-  if (r.status === "draft" || r.status === "pending") return "pending";
-  if (r.status === "cancelled") return "cancelled";
-  return "pending";
-}
-
-function mapAi(r: AiRow) {
-  const created = r.created_at ?? new Date();
-  const updated = r.updated_at ?? created;
-  const titleParts: string[] = [];
-  if (r.origin && r.destination) titleParts.push(`${r.origin} → ${r.destination}`);
-  if (r.customer_name) titleParts.push(r.customer_name);
-  const title = titleParts.join(" · ") || r.doc_number || `AI Task #${r.id}`;
-
-  const summary = [
-    r.customer_name && `Pelanggan: ${r.customer_name}`,
-    r.origin && r.destination && `Rute: ${r.origin} → ${r.destination}`,
-    r.grand_total && `Nilai: Rp ${Number(r.grand_total).toLocaleString("id-ID")}`,
-    r.notes,
-  ].filter(Boolean).join(" · ");
-
-  return {
-    id: r.id,
-    taskNumber: r.doc_number ?? `AI-${r.id}`,
-    title,
-    description: r.notes ?? null,
-    customerName: r.customer_name ?? null,
-    customerPhone: r.ai_source_wa_phone ?? null,
-    status: statusOf(r),
-    priority: r.payment_status === "overdue" ? "high" : "medium",
-    category: r.kind ?? "sales_order",
-    division: null as string | null,
-    assignedTo: null as string | null,
-    assignedRole: null as string | null,
-    assignedDivision: null as string | null,
-    assignedVendor: null as string | null,
-    aiSummary: summary || null,
-    requiredAction: null as string | null,
-    adminNotes: null as string | null,
-    driverName: null as string | null,
-    driverPhone: null as string | null,
-    plateNumber: null as string | null,
-    quotationAmount: r.grand_total ? Number(r.grand_total) : null,
-    quotationNotes: null as string | null,
-    companyId: null as string | null,
-    dueDate: (r.eta ?? r.expected_date)?.toISOString() ?? null,
-    createdAt: created.toISOString(),
-    updatedAt: updated.toISOString(),
-    auditStatus: null as string | null,
-    latestMessage: null as string | null,
-  };
-}
-
-router.get("/ai-tasks", async (req, res): Promise<void> => {
+router.get("/ai-tasks", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
+    const companyId = getCompanyId(req) ?? "cstlogistic";
     const { status, priority, search } = req.query as Record<string, string | undefined>;
-    const rows = await supabaseQuery<AiRow>(
-      `SELECT id, doc_number, kind, status::text AS status, invoice_status::text AS invoice_status,
-              delivery_status::text AS delivery_status, payment_status::text AS payment_status,
-              customer_name, ai_source_wa_phone, origin, destination, grand_total, notes,
-              expected_date, eta, created_at, updated_at
-       FROM sales_documents
-       ORDER BY created_at DESC NULLS LAST
-       LIMIT 300`,
-    );
-    let mapped = rows.map(mapAi);
-    if (status) mapped = mapped.filter((t) => t.status === status);
-    if (priority) mapped = mapped.filter((t) => t.priority === priority);
+
+    let rows = await db
+      .select()
+      .from(aiTasksTable)
+      .where(eq(aiTasksTable.companyId, companyId))
+      .orderBy(desc(aiTasksTable.updatedAt))
+      .limit(300);
+
+    if (status)   rows = rows.filter((t) => t.status   === status);
+    if (priority) rows = rows.filter((t) => t.priority === priority);
     if (search) {
       const q = search.toLowerCase();
-      mapped = mapped.filter(
+      rows = rows.filter(
         (t) =>
           t.title.toLowerCase().includes(q) ||
           (t.customerName ?? "").toLowerCase().includes(q) ||
@@ -104,65 +39,174 @@ router.get("/ai-tasks", async (req, res): Promise<void> => {
           (t.aiSummary ?? "").toLowerCase().includes(q),
       );
     }
-    res.json(mapped);
+
+    res.json(rows);
   } catch (err) {
     logger.error({ err }, "GET /ai-tasks failed");
     res.status(500).json({ error: "Failed to load AI tasks" });
   }
 });
 
-router.get("/ai-tasks/:id", async (req, res): Promise<void> => {
+// ─── GET /ai-tasks/:id ─────────────────────────────────────────────────────────
+
+router.get("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const id = Number(req.params.id);
-    if (Number.isNaN(id)) {
-      res.status(400).json({ error: "Invalid id" });
-      return;
-    }
-    const rows = await supabaseQuery<AiRow>(
-      `SELECT id, doc_number, kind, status::text AS status, invoice_status::text AS invoice_status,
-              delivery_status::text AS delivery_status, payment_status::text AS payment_status,
-              customer_name, ai_source_wa_phone, origin, destination, grand_total, notes,
-              expected_date, eta, created_at, updated_at
-       FROM sales_documents WHERE id = $1 LIMIT 1`,
-      [id],
-    );
-    if (!rows[0]) {
-      res.status(404).json({ error: "AI task not found" });
-      return;
-    }
-    res.json({ ...mapAi(rows[0]), comments: [] });
+    if (Number.isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+    const companyId = getCompanyId(req) ?? "cstlogistic";
+
+    const [task] = await db
+      .select()
+      .from(aiTasksTable)
+      .where(and(eq(aiTasksTable.id, id), eq(aiTasksTable.companyId, companyId)))
+      .limit(1);
+
+    if (!task) { res.status(404).json({ error: "AI task not found" }); return; }
+
+    const comments = await db
+      .select()
+      .from(taskCommentsTable)
+      .where(eq(taskCommentsTable.taskId, id))
+      .orderBy(taskCommentsTable.createdAt);
+
+    res.json({ ...task, comments });
   } catch (err) {
     logger.error({ err }, "GET /ai-tasks/:id failed");
     res.status(500).json({ error: "Failed to load AI task" });
   }
 });
 
-router.patch("/ai-tasks/:id", (_req, res): void => {
-  res.status(501).json({ error: "Read-only mode" });
+// ─── PATCH /ai-tasks/:id ────────────────────────────────────────────────────────
+
+router.patch("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const id = Number(req.params.id);
+    if (Number.isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+    const companyId = getCompanyId(req) ?? "cstlogistic";
+
+    const [current] = await db
+      .select()
+      .from(aiTasksTable)
+      .where(and(eq(aiTasksTable.id, id), eq(aiTasksTable.companyId, companyId)))
+      .limit(1);
+
+    if (!current) { res.status(404).json({ error: "AI task not found" }); return; }
+
+    const {
+      status, priority, assignedTo, assignedRole, assignedDivision,
+      adminNotes, requiredAction, driverName, driverPhone, plateNumber,
+      quotationAmount, quotationNotes,
+    } = req.body as Record<string, string | number | null | undefined>;
+
+    const updates: Partial<typeof aiTasksTable.$inferInsert> = {};
+    if (status         !== undefined) updates.status         = status         as string;
+    if (priority       !== undefined) updates.priority       = priority       as string;
+    if (assignedTo     !== undefined) updates.assignedTo     = assignedTo     as string | null;
+    if (assignedRole   !== undefined) updates.assignedRole   = assignedRole   as string | null;
+    if (adminNotes     !== undefined) updates.adminNotes     = adminNotes     as string | null;
+    if (requiredAction !== undefined) updates.requiredAction = requiredAction as string | null;
+    if (driverName     !== undefined) updates.driverName     = driverName     as string | null;
+    if (driverPhone    !== undefined) updates.driverPhone    = driverPhone    as string | null;
+    if (plateNumber    !== undefined) updates.plateNumber    = plateNumber    as string | null;
+    if (quotationAmount !== undefined) updates.quotationAmount = quotationAmount as number | null;
+    if (quotationNotes  !== undefined) updates.quotationNotes  = quotationNotes  as string | null;
+
+    const [updated] = await db
+      .update(aiTasksTable)
+      .set(updates)
+      .where(and(eq(aiTasksTable.id, id), eq(aiTasksTable.companyId, companyId)))
+      .returning();
+
+    // ── Activity log ─────────────────────────────────────────────────────────
+    const changes: string[] = [];
+    if (status && status !== current.status)
+      changes.push(`status: ${current.status} → ${status}`);
+    if (assignedTo && assignedTo !== current.assignedTo)
+      changes.push(`petugas: ${assignedTo}`);
+
+    if (changes.length > 0) {
+      await db.insert(activityTable).values({
+        type:        "task_updated",
+        description: `AI Task ${current.taskNumber ?? id} diperbarui — ${changes.join(", ")}`,
+        entityId:    id,
+      }).catch(() => {});
+    }
+
+    // ── WhatsApp notifications (fire-and-forget) ──────────────────────────────
+    const ctx = {
+      taskId:       id,
+      taskNumber:   current.taskNumber ?? `WA-${id}`,
+      title:        updated.title,
+      customerName: updated.customerName,
+      customerPhone: updated.customerPhone,
+      assignedTo:   updated.assignedTo,
+      status:       updated.status,
+      priority:     updated.priority,
+      companyId,
+    };
+
+    if (status && status !== current.status) {
+      notifyStatusChanged(ctx, current.status)
+        .catch((err) => logger.error({ err }, "Notifikasi status change gagal"));
+    }
+
+    if (assignedTo && assignedTo !== current.assignedTo) {
+      const [member] = await db
+        .select()
+        .from(teamMembersTable)
+        .where(eq(teamMembersTable.name, assignedTo as string))
+        .limit(1);
+
+      notifyTaskAssigned(ctx, member?.phone ?? null)
+        .catch((err) => logger.error({ err }, "Notifikasi assign gagal"));
+    }
+
+    res.json(updated);
+  } catch (err) {
+    logger.error({ err }, "PATCH /ai-tasks/:id failed");
+    res.status(500).json({ error: "Failed to update AI task" });
+  }
 });
-router.post("/ai-tasks/:id/comments", (_req, res): void => {
-  res.status(501).json({ error: "Read-only mode" });
+
+// ─── POST /ai-tasks/:id/comments ───────────────────────────────────────────────
+
+router.post("/ai-tasks/:id/comments", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const taskId = Number(req.params.id);
+    if (Number.isNaN(taskId)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+    const { comment, senderName } = req.body as { comment: string; senderName?: string };
+    if (!comment?.trim()) { res.status(400).json({ error: "comment diperlukan" }); return; }
+
+    const [row] = await db.insert(taskCommentsTable).values({
+      taskId,
+      senderType: "staff",
+      senderName: senderName ?? "Staff",
+      comment: comment.trim(),
+    }).returning();
+
+    res.status(201).json(row);
+  } catch (err) {
+    logger.error({ err }, "POST /ai-tasks/:id/comments failed");
+    res.status(500).json({ error: "Failed to add comment" });
+  }
 });
-router.get("/ai-tasks/:id/attachments", (_req, res): void => {
-  res.json([]);
-});
-router.post("/ai-tasks/:id/attachments", (_req, res): void => {
-  res.status(501).json({ error: "Read-only mode" });
-});
-router.get("/ai-tasks/:id/audit", (_req, res): void => {
-  res.status(404).json({ error: "No audit" });
-});
-router.post("/ai-tasks/:id/audit", (_req, res): void => {
-  res.status(501).json({ error: "Read-only mode" });
-});
-router.get("/ai-tasks/:id/timeline", (_req, res): void => {
-  res.json([]);
-});
-router.post("/ai-tasks/:id/generate-token", (_req, res): void => {
-  res.status(501).json({ error: "Read-only mode" });
-});
-router.delete("/ai-tasks/:id/attachments/:attachmentId", (_req, res): void => {
-  res.status(501).json({ error: "Read-only mode" });
-});
+
+// ─── Stub endpoints ────────────────────────────────────────────────────────────
+
+router.get("/ai-tasks/:id/attachments",  requireAuth, (_req, res) => res.json([]));
+router.post("/ai-tasks/:id/attachments", requireAuth, (_req, res) =>
+  res.status(501).json({ error: "Upload belum tersedia" }));
+router.delete("/ai-tasks/:id/attachments/:attachmentId", requireAuth, (_req, res) =>
+  res.status(501).json({ error: "Hapus belum tersedia" }));
+router.get("/ai-tasks/:id/audit",  requireAuth, (_req, res) =>
+  res.status(404).json({ error: "Tidak ada audit" }));
+router.post("/ai-tasks/:id/audit", requireAuth, (_req, res) =>
+  res.status(501).json({ error: "Audit belum tersedia" }));
+router.get("/ai-tasks/:id/timeline",  requireAuth, (_req, res) => res.json([]));
+router.post("/ai-tasks/:id/generate-token", requireAuth, (_req, res) =>
+  res.status(501).json({ error: "Token belum tersedia" }));
 
 export default router;

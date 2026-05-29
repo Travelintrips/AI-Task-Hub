@@ -11,6 +11,7 @@ import {
 import { type WhatsAppIntentResult, IMPORT_REQUIRED_FIELDS } from "./whatsapp-ai";
 import { logger } from "./logger";
 import { emitSseEvent } from "./sse";
+import { notifyTaskCreated } from "./notifications";
 
 // ─── Status vocabulary ────────────────────────────────────────────────────────
 
@@ -558,6 +559,18 @@ async function createNewTask({
     { taskId: task.id, taskNumber, title, status, category: result.category, action },
     "New AI task created",
   );
+
+  // ── WhatsApp notification (fire-and-forget) ──────────────────────────────────
+  notifyTaskCreated({
+    taskId:       task.id,
+    taskNumber,
+    title,
+    customerName:  customerName,
+    customerPhone: customerPhone,
+    status,
+    priority:     result.priority.toLowerCase(),
+    companyId,
+  }).catch((err) => logger.error({ err }, "notifyTaskCreated gagal"));
 
   return {
     action,

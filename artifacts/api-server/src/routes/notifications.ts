@@ -3,7 +3,8 @@ import { eq, desc, and, count, ilike, or } from "drizzle-orm";
 import { db, adminNotificationsTable, whatsappNotificationsTable } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { registerSseClient } from "../lib/sse";
-import { requireAuth, getCompanyId } from "../middleware/auth";
+import { requireAuth, getCompanyId, getCompanyIdForWrite } from "../middleware/auth";
+import { sendManualNotification } from "../lib/notifications";
 
 const router: IRouter = Router();
 
@@ -177,6 +178,39 @@ router.get("/wa-notifications/stats", requireAuth, async (req: Request, res: Res
     });
   } catch (err) {
     logger.error({ err }, "GET /wa-notifications/stats failed");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// ─── POST /api/wa-notifications/send — kirim manual dari admin ────────────────
+
+router.post("/wa-notifications/send", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const companyId = getCompanyIdForWrite(req);
+    const { phone, message, taskId } = req.body as {
+      phone:    string;
+      message:  string;
+      taskId?:  number | null;
+    };
+
+    if (!phone?.trim())   { res.status(400).json({ error: "phone diperlukan" });   return; }
+    if (!message?.trim()) { res.status(400).json({ error: "message diperlukan" }); return; }
+
+    const result = await sendManualNotification({
+      phone:    phone.trim(),
+      message:  message.trim(),
+      taskId:   taskId ?? null,
+      companyId,
+    });
+
+    if (!result.success) {
+      res.status(502).json({ error: result.error ?? "Gagal mengirim ke Fonnte" });
+      return;
+    }
+
+    res.json({ success: true });
+  } catch (err) {
+    logger.error({ err }, "POST /wa-notifications/send failed");
     res.status(500).json({ error: "Internal server error" });
   }
 });

@@ -2,7 +2,7 @@ import { db, whatsappNotificationsTable } from "@workspace/db";
 import { sendFonnte } from "./fonnte";
 import { logger } from "./logger";
 
-interface TaskNotifContext {
+export interface TaskNotifContext {
   taskId: number;
   taskNumber: string;
   title: string;
@@ -14,7 +14,17 @@ interface TaskNotifContext {
   companyId: string;
 }
 
-// ─── Template pesan ───────────────────────────────────────────────────────────
+// ─── Staff phones dari env ─────────────────────────────────────────────────────
+
+function getStaffPhones(): string[] {
+  const raw = process.env.WHATSAPP_PHONE_NUMBER_ID ?? "";
+  return raw
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
+}
+
+// ─── Template pesan ────────────────────────────────────────────────────────────
 
 function templateTaskCreated(ctx: TaskNotifContext): string {
   const lines = [
@@ -27,7 +37,7 @@ function templateTaskCreated(ctx: TaskNotifContext): string {
   lines.push(`🚦 Status: ${ctx.status}`);
   lines.push(`⚡ Prioritas: ${priorityLabel(ctx.priority)}`);
   lines.push(``);
-  lines.push(`_AI Task Center_`);
+  lines.push(`_AI Task Center — cstlogistic.co.id_`);
   return lines.join("\n");
 }
 
@@ -42,7 +52,7 @@ function templateStatusChanged(ctx: TaskNotifContext, oldStatus: string): string
   ];
   if (ctx.assignedTo) lines.push(`👷 Petugas: ${ctx.assignedTo}`);
   lines.push(``);
-  lines.push(`_AI Task Center_`);
+  lines.push(`_AI Task Center — cstlogistic.co.id_`);
   return lines.join("\n");
 }
 
@@ -55,26 +65,74 @@ function templateAssigned(ctx: TaskNotifContext): string {
     `👷 Petugas: *${ctx.assignedTo}*`,
     `🚦 Status: ${ctx.status}`,
     ``,
+    `_AI Task Center — cstlogistic.co.id_`,
+  ].join("\n");
+}
+
+function templateStaffNewTask(ctx: TaskNotifContext): string {
+  const lines = [
+    `🆕 *[STAFF] Task Baru Masuk*`,
+    ``,
+    `📋 No: *${ctx.taskNumber}*`,
+    `📝 ${ctx.title}`,
+  ];
+  if (ctx.customerName) lines.push(`👤 Customer: ${ctx.customerName}`);
+  if (ctx.customerPhone) lines.push(`📱 HP: ${ctx.customerPhone}`);
+  lines.push(`⚡ Prioritas: ${priorityLabel(ctx.priority)}`);
+  lines.push(`🚦 Status: ${ctx.status}`);
+  lines.push(``);
+  lines.push(`Buka app: https://cstlogistic.co.id`);
+  return lines.join("\n");
+}
+
+function templateStaffStatusChanged(ctx: TaskNotifContext, oldStatus: string): string {
+  return [
+    `🔔 *[STAFF] Status Task Berubah*`,
+    ``,
+    `📋 No: *${ctx.taskNumber}*`,
+    `📝 ${ctx.title}`,
+    ``,
+    `${statusEmoji(oldStatus)} ${oldStatus}  →  ${statusEmoji(ctx.status)} *${ctx.status}*`,
+    ``,
     `_AI Task Center_`,
   ].join("\n");
 }
 
-// ─── Helper ────────────────────────────────────────────────────────────────────
+// ─── Helpers ───────────────────────────────────────────────────────────────────
 
-function priorityLabel(p: string): string {
-  const map: Record<string, string> = { urgent: "🔴 Urgent", high: "🟠 Tinggi", medium: "🟡 Sedang", low: "🟢 Rendah" };
+export function priorityLabel(p: string): string {
+  const map: Record<string, string> = {
+    urgent: "🔴 Urgent",
+    high:   "🟠 Tinggi",
+    medium: "🟡 Sedang",
+    low:    "🟢 Rendah",
+  };
   return map[p] ?? p;
 }
 
-function statusEmoji(s: string): string {
+export function statusEmoji(s: string): string {
   const map: Record<string, string> = {
-    "New Inquiry": "🆕", "Waiting Documents": "📄", "Ready for Review": "🔍",
-    "Assigned": "📌", "In Progress": "⚙️", "Waiting Customer": "⏳", "Completed": "✅",
+    "new_inquiry":        "🆕",
+    "New Inquiry":        "🆕",
+    "waiting_documents":  "📄",
+    "Waiting Documents":  "📄",
+    "ready_for_review":   "🔍",
+    "Ready for Review":   "🔍",
+    "assigned":           "📌",
+    "Assigned":           "📌",
+    "in_progress":        "⚙️",
+    "In Progress":        "⚙️",
+    "waiting_customer":   "⏳",
+    "Waiting Customer":   "⏳",
+    "completed":          "✅",
+    "Completed":          "✅",
+    "pending":            "🕐",
+    "cancelled":          "❌",
   };
   return map[s] ?? "📋";
 }
 
-// ─── Fungsi utama kirim notifikasi ────────────────────────────────────────────
+// ─── Core send + log ───────────────────────────────────────────────────────────
 
 async function sendAndLog(opts: {
   phone: string;
@@ -86,84 +144,164 @@ async function sendAndLog(opts: {
 }): Promise<void> {
   const result = await sendFonnte(opts.phone, opts.message);
 
-  await db.insert(whatsappNotificationsTable).values({
-    taskId: opts.taskId,
-    companyId: opts.companyId,
-    recipientPhone: opts.phone,
-    recipientType: opts.recipientType,
-    templateName: opts.templateName,
-    messageText: opts.message,
-    status: result.success ? "sent" : "failed",
-    externalMessageId: result.messageId,
-    errorMessage: result.error,
-    sentAt: result.success ? new Date() : null,
-  }).catch((err) => logger.error({ err }, "Gagal menyimpan log notifikasi WA"));
+  await db
+    .insert(whatsappNotificationsTable)
+    .values({
+      taskId:            opts.taskId,
+      companyId:         opts.companyId,
+      recipientPhone:    opts.phone,
+      recipientType:     opts.recipientType,
+      templateName:      opts.templateName,
+      messageText:       opts.message,
+      status:            result.success ? "sent" : "failed",
+      externalMessageId: result.messageId,
+      errorMessage:      result.error,
+      sentAt:            result.success ? new Date() : null,
+    })
+    .catch((err) => logger.error({ err }, "Gagal menyimpan log notifikasi WA"));
 }
 
-// ─── Notifikasi task dibuat ───────────────────────────────────────────────────
+// ─── Notifikasi task dibuat (ke customer + staff) ──────────────────────────────
 
 export async function notifyTaskCreated(ctx: TaskNotifContext): Promise<void> {
-  const message = templateTaskCreated(ctx);
+  const customerMsg = templateTaskCreated(ctx);
+  const staffMsg    = templateStaffNewTask(ctx);
+
+  const sends: Promise<void>[] = [];
 
   if (ctx.customerPhone) {
-    await sendAndLog({
-      phone: ctx.customerPhone,
-      message,
-      taskId: ctx.taskId,
-      companyId: ctx.companyId,
-      recipientType: "customer",
-      templateName: "task_created_customer",
-    });
-  } else {
-    logger.info({ taskId: ctx.taskId }, "Tidak ada nomor customer — notifikasi task_created dilewati");
+    sends.push(
+      sendAndLog({
+        phone:        ctx.customerPhone,
+        message:      customerMsg,
+        taskId:       ctx.taskId,
+        companyId:    ctx.companyId,
+        recipientType: "customer",
+        templateName: "task_created_customer",
+      }),
+    );
   }
+
+  for (const phone of getStaffPhones()) {
+    sends.push(
+      sendAndLog({
+        phone,
+        message:      staffMsg,
+        taskId:       ctx.taskId,
+        companyId:    ctx.companyId,
+        recipientType: "staff",
+        templateName: "task_created_staff",
+      }),
+    );
+  }
+
+  await Promise.allSettled(sends);
 }
 
-// ─── Notifikasi status berubah ────────────────────────────────────────────────
+// ─── Notifikasi status berubah (ke customer + staff) ──────────────────────────
 
 export async function notifyStatusChanged(ctx: TaskNotifContext, oldStatus: string): Promise<void> {
   if (oldStatus === ctx.status) return;
 
-  const message = templateStatusChanged(ctx, oldStatus);
+  const customerMsg = templateStatusChanged(ctx, oldStatus);
+  const staffMsg    = templateStaffStatusChanged(ctx, oldStatus);
+
+  const sends: Promise<void>[] = [];
 
   if (ctx.customerPhone) {
-    await sendAndLog({
-      phone: ctx.customerPhone,
-      message,
-      taskId: ctx.taskId,
-      companyId: ctx.companyId,
-      recipientType: "customer",
-      templateName: "status_changed_customer",
-    });
+    sends.push(
+      sendAndLog({
+        phone:        ctx.customerPhone,
+        message:      customerMsg,
+        taskId:       ctx.taskId,
+        companyId:    ctx.companyId,
+        recipientType: "customer",
+        templateName: "status_changed_customer",
+      }),
+    );
   }
+
+  for (const phone of getStaffPhones()) {
+    sends.push(
+      sendAndLog({
+        phone,
+        message:      staffMsg,
+        taskId:       ctx.taskId,
+        companyId:    ctx.companyId,
+        recipientType: "staff",
+        templateName: "status_changed_staff",
+      }),
+    );
+  }
+
+  await Promise.allSettled(sends);
 }
 
-// ─── Notifikasi task di-assign ────────────────────────────────────────────────
+// ─── Notifikasi task di-assign (ke staff + customer) ──────────────────────────
 
-export async function notifyTaskAssigned(ctx: TaskNotifContext, staffPhone: string | null): Promise<void> {
+export async function notifyTaskAssigned(
+  ctx: TaskNotifContext,
+  staffPhone: string | null,
+): Promise<void> {
   if (!ctx.assignedTo) return;
 
   const message = templateAssigned(ctx);
+  const sends: Promise<void>[] = [];
 
   if (staffPhone) {
-    await sendAndLog({
-      phone: staffPhone,
-      message,
-      taskId: ctx.taskId,
-      companyId: ctx.companyId,
-      recipientType: "staff",
-      templateName: "task_assigned_staff",
-    });
+    sends.push(
+      sendAndLog({
+        phone:        staffPhone,
+        message,
+        taskId:       ctx.taskId,
+        companyId:    ctx.companyId,
+        recipientType: "staff",
+        templateName: "task_assigned_staff",
+      }),
+    );
   }
 
   if (ctx.customerPhone) {
-    await sendAndLog({
-      phone: ctx.customerPhone,
-      message,
-      taskId: ctx.taskId,
-      companyId: ctx.companyId,
-      recipientType: "customer",
-      templateName: "task_assigned_customer",
-    });
+    sends.push(
+      sendAndLog({
+        phone:        ctx.customerPhone,
+        message,
+        taskId:       ctx.taskId,
+        companyId:    ctx.companyId,
+        recipientType: "customer",
+        templateName: "task_assigned_customer",
+      }),
+    );
   }
+
+  await Promise.allSettled(sends);
+}
+
+// ─── Kirim manual (dari admin UI) ─────────────────────────────────────────────
+
+export async function sendManualNotification(opts: {
+  phone: string;
+  message: string;
+  taskId?: number | null;
+  companyId: string;
+}): Promise<{ success: boolean; error?: string }> {
+  const result = await sendFonnte(opts.phone, opts.message);
+
+  await db
+    .insert(whatsappNotificationsTable)
+    .values({
+      taskId:            opts.taskId ?? null,
+      companyId:         opts.companyId,
+      recipientPhone:    opts.phone,
+      recipientType:     "staff",
+      templateName:      "manual",
+      messageText:       opts.message,
+      status:            result.success ? "sent" : "failed",
+      externalMessageId: result.messageId,
+      errorMessage:      result.error,
+      sentAt:            result.success ? new Date() : null,
+    })
+    .catch((err) => logger.error({ err }, "Gagal menyimpan log notifikasi manual"));
+
+  return { success: result.success, error: result.error };
 }
