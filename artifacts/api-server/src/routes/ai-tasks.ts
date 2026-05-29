@@ -8,7 +8,7 @@ import {
   activityTable,
   type AiTaskStatus,
 } from "@workspace/db";
-import { requireAuth, getCompanyId } from "../middleware/auth";
+import { requireAuth, getCompanyId, getCompanyIdForWrite } from "../middleware/auth";
 import { logger } from "../lib/logger";
 import { notifyTaskCreated, notifyStatusChanged, notifyTaskAssigned } from "../lib/notifications";
 
@@ -98,7 +98,7 @@ router.get("/ai-tasks", requireAuth, async (req: Request, res: Response): Promis
     const rows = await db
       .select()
       .from(aiTasksTable)
-      .where(eq(aiTasksTable.companyId, companyId))
+      .where(companyId !== null ? eq(aiTasksTable.companyId, companyId) : undefined)
       .orderBy(desc(aiTasksTable.createdAt))
       .limit(300);
 
@@ -162,7 +162,7 @@ router.get("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): Pr
 
 router.post("/ai-tasks", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
-    const companyId = getCompanyId(req);
+    const companyId = getCompanyIdForWrite(req);
     const body = req.body as Record<string, unknown>;
 
     if (!body.title) { res.status(400).json({ error: "title is required" }); return; }

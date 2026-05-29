@@ -123,7 +123,7 @@ router.get("/wa-notifications", requireAuth, async (req: Request, res: Response)
     let rows = await db
       .select()
       .from(whatsappNotificationsTable)
-      .where(eq(whatsappNotificationsTable.companyId, companyId))
+      .where(companyId !== null ? eq(whatsappNotificationsTable.companyId, companyId) : undefined)
       .orderBy(desc(whatsappNotificationsTable.createdAt))
       .limit(500);
 
@@ -158,11 +158,15 @@ router.get("/wa-notifications/stats", requireAuth, async (req: Request, res: Res
 
     const [total, sent, failed] = await Promise.all([
       db.select({ c: count() }).from(whatsappNotificationsTable)
-        .where(eq(whatsappNotificationsTable.companyId, companyId)),
+        .where(companyId !== null ? eq(whatsappNotificationsTable.companyId, companyId) : undefined),
       db.select({ c: count() }).from(whatsappNotificationsTable)
-        .where(and(eq(whatsappNotificationsTable.companyId, companyId), eq(whatsappNotificationsTable.status, "sent"))),
+        .where(companyId !== null
+          ? and(eq(whatsappNotificationsTable.companyId, companyId), eq(whatsappNotificationsTable.status, "sent"))
+          : eq(whatsappNotificationsTable.status, "sent")),
       db.select({ c: count() }).from(whatsappNotificationsTable)
-        .where(and(eq(whatsappNotificationsTable.companyId, companyId), eq(whatsappNotificationsTable.status, "failed"))),
+        .where(companyId !== null
+          ? and(eq(whatsappNotificationsTable.companyId, companyId), eq(whatsappNotificationsTable.status, "failed"))
+          : eq(whatsappNotificationsTable.status, "failed")),
     ]);
 
     res.json({

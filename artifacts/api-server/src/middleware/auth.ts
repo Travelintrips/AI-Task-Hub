@@ -92,10 +92,22 @@ export function requireRole(...roles: UserRole[]) {
 
 /**
  * Returns the companyId to use for DB queries, enforcing multi-company isolation.
- * super_admin can pass ?companyId=xxx to query any company.
+ * super_admin can pass ?companyId=xxx to query a specific company.
+ * Without ?companyId, super_admin gets null (= no company filter, sees ALL data).
  * All other roles are always scoped to their own company.
  */
-export function getCompanyId(req: Request): string {
+export function getCompanyId(req: Request): string | null {
+  if (req.user?.role === "super_admin") {
+    return (req.query.companyId as string | undefined) ?? null;
+  }
+  return req.user?.companyId ?? "default";
+}
+
+/**
+ * Returns the companyId for write operations (INSERT/UPDATE).
+ * super_admin without explicit ?companyId defaults to "default".
+ */
+export function getCompanyIdForWrite(req: Request): string {
   if (req.user?.role === "super_admin") {
     return (req.query.companyId as string | undefined) ??
            req.user.companyId ??
