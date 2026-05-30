@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp, integer, index } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, integer, index, real } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -44,6 +44,12 @@ export const aiTasksTable = pgTable("ai_tasks", {
   quotationAmount: text("quotation_amount"),
   quotationNotes: text("quotation_notes"),
   dueDate: timestamp("due_date", { withTimezone: true }),
+  slaHours: integer("sla_hours"),
+  overdueAt: timestamp("overdue_at", { withTimezone: true }),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+  slaStatus: text("sla_status").notNull().default("on_track"),
+  lastCustomerReplyAt: timestamp("last_customer_reply_at", { withTimezone: true }),
+  followUpCount: integer("follow_up_count").notNull().default(0),
   aiSummary: text("ai_summary"),
   aiIntent: text("ai_intent"),
   missingData: text("missing_data"),
