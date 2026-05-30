@@ -1,15 +1,3 @@
-- [Object Storage upload flow](object-storage-upload-flow.md) — upload goes client → request-url → GCS presigned PUT → POST attachments endpoint; no server-side streaming needed.
-- [AI Task Center setup quirks](ai-task-center-setup.md) — Node 20 Supabase WebSocket fix + TanStack Query deduplication required on import.
-- [GitHub sync reverts Supabase routes](github-sync-reverts.md) — upstream GitHub merges overwrite local Supabase route rewrites; restore from last good commits, warn user.
-- [Routes fully migrated to Drizzle](routes-drizzle-migration.md) — messages/documents/team routes now use Drizzle (Replit Postgres), not supabaseQuery; all require requireAuth.
-- [Two databases (Helium vs Supabase)](two-databases.md) — all routes now use Drizzle/Replit Postgres; Supabase used only for file storage. GET /auth/users migrated from supabaseQuery to Drizzle.
-- [Supabase sync script](supabase-sync.md) — scripts/src/sync-from-supabase.ts syncs 566 rows (users/customers/messages/notifications/activity) via REST API; run with pnpm --filter @workspace/scripts run sync-from-supabase.
-- [API Server port conflict](api-server-conflict.md) — artifacts/api-server: API Server and API Server both try port 8080; artifacts one wins. App works; API Server main workflow stays failed. Restart artifacts one after code changes.
-- [Admin reset password endpoint](admin-reset-password.md) — POST /api/auth/users/:id/reset-password returns tempPassword if no newPassword given; requires company_admin/super_admin role.
-- [Supabase PROD vs DEV keys](supabase-prod-dev-keys.md) — DB+anon = prod (nzdweipz...), but SERVICE_ROLE_KEY = dev project → Storage signature fails; need prod service_role key.
-- [Auth & User Management](auth-user-management.md) — JWT via bcryptjs+jsonwebtoken; Frontend workflow BASE_PATH=/ai-task-center port 5000; auth-api.ts uses direct fetch (not generated hooks).
-- [API server config module](api-server-config.md) — non-sensitive values live in config.ts, not env vars; only true secrets stay in Replit secrets.
-- [Drizzle db.execute destructuring](drizzle-execute-rows.md) — db.execute() returns QueryResult (not array); use .rows[0] not destructuring const [row] =.
-- [SUPABASE_SERVICE_ROLE_KEY in .replit](supabase-key-in-replit.md) — key was in [userenv.shared] section committed to GitHub; must rotate key in Supabase dashboard.
-- [11 Fitur Roadmap](roadmap-features.md) — SLA/Checklist/Quotation/Reports/AuditLog/Shipment/CRM/Portal/Scheduler semua implemented; taskCommentsTable pakai senderName+comment+senderType bukan author+content+type.
-- [Smart AI Dispatcher](dispatcher-design.md) — Rule Engine (workload 0-40 + skill 0-30 + urgency 0-20 + availability 0-10) + GPT explanation; dispatcherLogsTable tracks setiap keputusan + override.
+# Memory Index
+
+- [Empty pages / 0 data](empty-pages-debugging.md) — all pages empty usually = Drizzle schema drift (run db push) + repopulate via sync-from-supabase, not ad-hoc.
