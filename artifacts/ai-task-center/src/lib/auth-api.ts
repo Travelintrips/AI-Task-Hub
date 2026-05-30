@@ -114,3 +114,13 @@ export async function apiChangePassword(currentPassword: string, newPassword: st
     body: JSON.stringify({ currentPassword, newPassword }),
   });
 }
+
+export async function apiResetUserPassword(
+  id: number,
+  newPassword?: string,
+): Promise<{ message: string; tempPassword?: string }> {
+  return authFetch(`/api/auth/users/${id}/reset-password`, {
+    method: "POST",
+    body: JSON.stringify({ newPassword }),
+  });
+}

@@ -1,6 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { eq, and } from "drizzle-orm";
+import { eq, asc } from "drizzle-orm";
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 import { db, usersTable, type UserRole, USER_ROLES } from "@workspace/db";
 import { signToken, requireAuth, requireRole, type AuthUser } from "../middleware/auth";
 import { logger } from "../lib/logger";
@@ -165,45 +166,54 @@ router.get(
   requireAuth,
   requireRole("company_admin", "super_admin"),
   async (_req: Request, res: Response): Promise<void> => {
-    const { supabaseQuery } = await import("../lib/supabase-db");
-    const rows = await supabaseQuery<{
-      rn: string;
-      id: string;
-      name: string | null;
-      first_name: string | null;
-      last_name: string | null;
-      email: string | null;
-      role: string | null;
-      division: string | null;
-      department: string | null;
-      phone: string | null;
-      company_id: number | null;
-      is_active: boolean | null;
-      last_login_at: Date | null;
-      created_at: Date | null;
-      updated_at: Date | null;
-    }>(
-      `SELECT ROW_NUMBER() OVER (ORDER BY name NULLS LAST, email)::text AS rn,
-              id, name, first_name, last_name, email, role::text AS role,
-              division, department, phone, company_id, is_active,
-              last_login_at, created_at, updated_at
-       FROM users ORDER BY name NULLS LAST, email`,
-    );
-    res.json(
-      rows.map((r) => ({
-        id: Number(r.rn),
-        companyId: r.company_id ? String(r.company_id) : "",
-        name: r.name ?? [r.first_name, r.last_name].filter(Boolean).join(" ").trim() ?? r.email ?? "(no name)",
-        email: r.email ?? "",
-        role: r.role ?? "staff",
-        division: r.division ?? r.department ?? null,
-        phone: r.phone ?? null,
-        isActive: r.is_active ?? true,
-        lastLoginAt: r.last_login_at ? r.last_login_at.toISOString() : null,
-        createdAt: (r.created_at ?? new Date()).toISOString(),
-        updatedAt: (r.updated_at ?? r.created_at ?? new Date()).toISOString(),
-      })),
-    );
+    const rows = await db
+      .select()
+      .from(usersTable)
+      .orderBy(asc(usersTable.name));
+    res.json(rows.map(safeUser));
+  },
+);
+
+// ─── POST /auth/users/:id/reset-password ──────────────────────────────────────
+
+router.post(
+  "/auth/users/:id/reset-password",
+  requireAuth,
+  requireRole("company_admin", "super_admin"),
+  async (req: Request, res: Response): Promise<void> => {
+    const id = Number(req.params.id);
+    if (isNaN(id)) { res.status(400).json({ error: "Invalid user ID" }); return; }
+
+    const { newPassword } = req.body as { newPassword?: string };
+
+    const [target] = await db.select().from(usersTable).where(eq(usersTable.id, id)).limit(1);
+    if (!target) { res.status(404).json({ error: "User not found" }); return; }
+
+    // Non-super_admin can only reset passwords within their company
+    if (req.user!.role !== "super_admin" && target.companyId !== req.user!.companyId) {
+      res.status(403).json({ error: "Cannot reset password for users from another company" });
+      return;
+    }
+
+    // If no password provided, auto-generate a memorable temp password
+    const tempPassword = newPassword && newPassword.length >= 8
+      ? newPassword
+      : crypto.randomBytes(3).toString("hex").toUpperCase() + "-" + crypto.randomBytes(3).toString("hex");
+
+    if (tempPassword.length < 8) {
+      res.status(400).json({ error: "Password baru minimal 8 karakter" });
+      return;
+    }
+
+    const passwordHash = await bcrypt.hash(tempPassword, 12);
+    await db.update(usersTable).set({ passwordHash, updatedAt: new Date() }).where(eq(usersTable.id, id));
+
+    logger.info({ resetBy: req.user!.id, targetUserId: id }, "Password reset by admin");
+
+    res.json({
+      message: "Password berhasil direset",
+      tempPassword: newPassword ? undefined : tempPassword,
+    });
   },
 );
 

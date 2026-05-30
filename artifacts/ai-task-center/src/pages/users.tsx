@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   apiListUsers, apiCreateUser, apiUpdateUser, apiDeleteUser,
-  type AuthUser,
+  apiResetUserPassword, type AuthUser,
 } from "@/lib/auth-api";
 import { useAuth } from "@/contexts/auth-context";
 import { Button } from "@/components/ui/button";
@@ -94,6 +94,9 @@ export default function Users() {
   const [createOpen, setCreateOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<AuthUser | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<AuthUser | null>(null);
+  const [resetTarget, setResetTarget] = useState<AuthUser | null>(null);
+  const [resetNewPwd, setResetNewPwd] = useState("");
+  const [resetResult, setResetResult] = useState<string | null>(null);
 
   const { data: users, isLoading } = useQuery({
     queryKey: ["auth-users"],
@@ -139,6 +142,21 @@ export default function Users() {
       setDeleteTarget(null);
     },
     onError: (e: Error) => toast({ title: "Gagal menghapus", description: e.message, variant: "destructive" }),
+  });
+
+  const resetMutation = useMutation({
+    mutationFn: ({ id, newPassword }: { id: number; newPassword?: string }) =>
+      apiResetUserPassword(id, newPassword || undefined),
+    onSuccess: (data) => {
+      if (data.tempPassword) {
+        setResetResult(data.tempPassword);
+      } else {
+        toast({ title: "Password berhasil direset" });
+        setResetTarget(null);
+        setResetNewPwd("");
+      }
+    },
+    onError: (e: Error) => toast({ title: "Gagal reset password", description: e.message, variant: "destructive" }),
   });
 
   const createForm = useForm<CreateForm>({
@@ -350,6 +368,14 @@ export default function Users() {
                       <>
                         <Button
                           variant="ghost" size="icon"
+                          className="h-7 w-7 text-purple-600 hover:bg-purple-50"
+                          title="Reset Password"
+                          onClick={() => { setResetTarget(u); setResetNewPwd(""); setResetResult(null); }}
+                        >
+                          <KeyRound className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost" size="icon"
                           className={`h-7 w-7 ${u.isActive ? "text-orange-500 hover:bg-orange-50" : "text-green-600 hover:bg-green-50"}`}
                           title={u.isActive ? "Nonaktifkan" : "Aktifkan"}
                           onClick={() => toggleMutation.mutate({ id: u.id, isActive: !u.isActive })}
@@ -481,6 +507,85 @@ export default function Users() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Reset Password Dialog */}
+      <Dialog
+        open={!!resetTarget}
+        onOpenChange={(o) => {
+          if (!o) { setResetTarget(null); setResetNewPwd(""); setResetResult(null); }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <KeyRound className="h-4 w-4 text-purple-600" />
+              Reset Password — {resetTarget?.name}
+            </DialogTitle>
+          </DialogHeader>
+
+          {resetResult ? (
+            /* Tampilkan password sementara hasil auto-generate */
+            <div className="space-y-4">
+              <div className="rounded-lg bg-green-50 border border-green-200 p-4 space-y-2">
+                <p className="text-sm font-medium text-green-800">✅ Password berhasil direset!</p>
+                <p className="text-xs text-green-700">Catat password sementara di bawah dan berikan kepada pengguna. Password ini hanya ditampilkan sekali.</p>
+                <div className="mt-2 rounded border bg-white px-3 py-2 font-mono text-base font-bold tracking-wider select-all text-center">
+                  {resetResult}
+                </div>
+                <p className="text-xs text-muted-foreground text-center">Pengguna dapat mengubah password dari halaman Profil setelah login.</p>
+              </div>
+              <Button
+                className="w-full"
+                onClick={() => { setResetTarget(null); setResetNewPwd(""); setResetResult(null); }}
+              >
+                Tutup
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                Reset password untuk <strong>{resetTarget?.email}</strong>. Kosongkan kolom di bawah untuk membuat password sementara otomatis.
+              </p>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Password Baru (opsional)</label>
+                <Input
+                  type="text"
+                  placeholder="Biarkan kosong untuk auto-generate"
+                  value={resetNewPwd}
+                  onChange={(e) => setResetNewPwd(e.target.value)}
+                  autoComplete="off"
+                />
+                {resetNewPwd && resetNewPwd.length < 8 && (
+                  <p className="text-xs text-destructive">Minimal 8 karakter</p>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => { setResetTarget(null); setResetNewPwd(""); }}
+                >
+                  Batal
+                </Button>
+                <Button
+                  className="flex-1 bg-purple-600 hover:bg-purple-700"
+                  disabled={resetMutation.isPending || (!!resetNewPwd && resetNewPwd.length < 8)}
+                  onClick={() => resetTarget && resetMutation.mutate({
+                    id: resetTarget.id,
+                    newPassword: resetNewPwd || undefined,
+                  })}
+                >
+                  {resetMutation.isPending
+                    ? "Memproses..."
+                    : resetNewPwd
+                      ? "Set Password Ini"
+                      : "Generate Password Otomatis"}
+                </Button>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
