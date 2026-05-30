@@ -4,6 +4,7 @@ import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import { startFollowUpScheduler } from "./lib/follow-up-scheduler";
+import { startOrderSyncScheduler } from "./lib/order-sync-scheduler";
 import { refreshSlaStatuses } from "./lib/sla";
 
 const app: Express = express();
@@ -51,6 +52,9 @@ app.use("/api", router);
 
 // Start background services
 startFollowUpScheduler();
+
+// Auto-import transaksi/pesanan dari Supabase logistic_orders → ai_tasks (real-time)
+startOrderSyncScheduler();
 
 // Refresh SLA statuses every 15 minutes
 setInterval(() => { refreshSlaStatuses().catch(() => {}); }, 15 * 60 * 1000);
