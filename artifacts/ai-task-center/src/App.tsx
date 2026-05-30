@@ -31,6 +31,7 @@ import ReportsPage from "@/pages/reports";
 import QuotationsPage from "@/pages/quotations";
 import PortalPage from "@/pages/portal";
 import AuditLogPage from "@/pages/audit-log";
+import AiDispatcherPage from "@/pages/ai-dispatcher";
 
 const queryClient = new QueryClient();
 
@@ -76,6 +77,7 @@ function AppRouter() {
         <Route path="/quotations" component={QuotationsPage} />
         <Route path="/portal" component={PortalPage} />
         <Route path="/audit-log" component={AuditLogPage} />
+        <Route path="/dispatcher" component={AiDispatcherPage} />
         <Route component={NotFound} />
       </Switch>
     </AppLayout>

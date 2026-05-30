@@ -21,3 +21,4 @@ export * from "./quotations";
 export * from "./audit_logs";
 export * from "./shipment_trackings";
 export * from "./follow_up_logs";
+export * from "./dispatcher_logs";

@@ -32,6 +32,7 @@ import {
   DollarSign,
   Globe,
   TrendingUp,
+  Brain,
 } from "lucide-react";
 import { NotificationsBell } from "@/components/notifications-bell";
 import { useAuth } from "@/contexts/auth-context";
@@ -49,7 +50,8 @@ export function AppLayout({ children }: { children: ReactNode }) {
     { name: "Messages",     href: "/messages",  icon: MessageSquare },
     { name: "Documents",    href: "/documents", icon: FileText },
     { name: "Team",         href: "/team",      icon: Users },
-    { name: "CRM",         href: "/crm",               icon: Building2 },
+    { name: "AI Dispatcher", href: "/dispatcher",        icon: Brain },
+    { name: "CRM",          href: "/crm",               icon: Building2 },
     { name: "Quotation",   href: "/quotations",        icon: DollarSign },
     { name: "Laporan",     href: "/reports",           icon: TrendingUp },
     { name: "Notifikasi",  href: "/notifications",     icon: Bell },

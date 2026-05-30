@@ -24,6 +24,7 @@ import auditLogRouter from "./audit-log";
 import shipmentRouter from "./shipment";
 import customersCrmRouter from "./customers-crm";
 import portalRouter from "./portal";
+import dispatcherRouter from "./dispatcher";
 import { extractUser } from "../middleware/auth";
 
 const router: IRouter = Router();
@@ -59,5 +60,6 @@ router.use(auditLogRouter);
 router.use(shipmentRouter);
 router.use(customersCrmRouter);
 router.use(portalRouter);
+router.use(dispatcherRouter);
 
 export default router;
