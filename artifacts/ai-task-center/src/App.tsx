@@ -25,6 +25,12 @@ import ExportPage from "@/pages/export";
 import WebhookSetup from "@/pages/webhook-setup";
 import Analytics from "@/pages/analytics";
 import SettingsPage from "@/pages/settings";
+import NotificationsPage from "@/pages/notifications";
+import CustomersCrm from "@/pages/customers-crm";
+import ReportsPage from "@/pages/reports";
+import QuotationsPage from "@/pages/quotations";
+import PortalPage from "@/pages/portal";
+import AuditLogPage from "@/pages/audit-log";
 
 const queryClient = new QueryClient();
 
@@ -64,6 +70,12 @@ function AppRouter() {
         <Route path="/wa-notifications" component={WaNotifications} />
         <Route path="/export" component={ExportPage} />
         <Route path="/webhook-setup" component={WebhookSetup} />
+        <Route path="/notifications" component={NotificationsPage} />
+        <Route path="/crm" component={CustomersCrm} />
+        <Route path="/reports" component={ReportsPage} />
+        <Route path="/quotations" component={QuotationsPage} />
+        <Route path="/portal" component={PortalPage} />
+        <Route path="/audit-log" component={AuditLogPage} />
         <Route component={NotFound} />
       </Switch>
     </AppLayout>

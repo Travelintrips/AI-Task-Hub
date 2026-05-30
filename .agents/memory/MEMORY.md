@@ -8,3 +8,4 @@
 - [API server config module](api-server-config.md) — non-sensitive values live in config.ts, not env vars; only true secrets stay in Replit secrets.
 - [Drizzle db.execute destructuring](drizzle-execute-rows.md) — db.execute() returns QueryResult (not array); use .rows[0] not destructuring const [row] =.
 - [SUPABASE_SERVICE_ROLE_KEY in .replit](supabase-key-in-replit.md) — key was in [userenv.shared] section committed to GitHub; must rotate key in Supabase dashboard.
+- [11 Fitur Roadmap](roadmap-features.md) — SLA/Checklist/Quotation/Reports/AuditLog/Shipment/CRM/Portal/Scheduler semua implemented; taskCommentsTable pakai senderName+comment+senderType bukan author+content+type.

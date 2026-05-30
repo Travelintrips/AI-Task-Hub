@@ -2,6 +2,9 @@ import { useState, useRef } from "react";
 import { useParams, Link } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { TaskAuditPanel } from "@/components/task-audit-panel";
+import { SlaBadge } from "@/components/sla-badge";
+import { OperationalChecklist } from "@/components/operational-checklist";
+import { ShipmentTrackingPanel } from "@/components/shipment-tracking";
 import { formatDistanceToNow, format } from "date-fns";
 import {
   ArrowLeft,
@@ -108,6 +111,11 @@ interface AiTask {
   updatedAt: string;
   dueDate: string | null;
   comments: Comment[];
+  // SLA fields
+  slaStatus: string | null;
+  slaHours: number | null;
+  overdueAt: string | null;
+  completedAt: string | null;
 }
 
 interface Comment {
@@ -454,6 +462,14 @@ export default function AiTaskDetail() {
             </Badge>
             {task.category && (
               <Badge variant="outline" className="text-xs">{task.category}</Badge>
+            )}
+            {task.slaStatus && (
+              <SlaBadge
+                slaStatus={task.slaStatus}
+                overdueAt={task.overdueAt}
+                completedAt={task.completedAt}
+                slaHours={task.slaHours}
+              />
             )}
           </div>
           <h1 className="text-xl font-semibold text-gray-900 leading-tight">{task.title}</h1>
@@ -904,6 +920,12 @@ export default function AiTaskDetail() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ── Checklist & Shipment ──────────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <OperationalChecklist taskId={task.id} taskType="ai_task" category={task.category} />
+        <ShipmentTrackingPanel taskId={task.id} />
+      </div>
 
       {/* ── Task Timeline ─────────────────────────────────────────────────────── */}
       <div className="border border-gray-200 rounded-xl overflow-hidden">

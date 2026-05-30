@@ -11,6 +11,7 @@ import { requireAuth, getCompanyId } from "../middleware/auth";
 import { logger } from "../lib/logger";
 import { notifyStatusChanged, notifyTaskAssigned, notifyTaskCompleted } from "../lib/notifications";
 import { emitSseEvent } from "../lib/sse";
+import { getSlaHours, calcOverdueAt, calcSlaStatus } from "../lib/sla";
 
 const router: IRouter = Router();
 
@@ -150,6 +151,9 @@ router.post("/ai-tasks", requireAuth, async (req: Request, res: Response): Promi
         quotationNotes:  quotationNotes ?? null,
         dueDate:         dueDate ? new Date(dueDate) : null,
         adminNotes:      adminNotes ?? null,
+        slaHours:        getSlaHours(category),
+        overdueAt:       calcOverdueAt(new Date(), getSlaHours(category)),
+        slaStatus:       "on_track",
       })
       .returning();
 

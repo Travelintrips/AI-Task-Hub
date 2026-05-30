@@ -17,6 +17,13 @@ import authRouter from "./auth";
 import fonnteWebhookRouter from "./fonnte-webhook";
 import exportRouter from "./export";
 import settingsRouter from "./settings";
+import checklistsRouter from "./checklists";
+import quotationsRouter from "./quotations";
+import reportsRouter from "./reports";
+import auditLogRouter from "./audit-log";
+import shipmentRouter from "./shipment";
+import customersCrmRouter from "./customers-crm";
+import portalRouter from "./portal";
 import { extractUser } from "../middleware/auth";
 
 const router: IRouter = Router();
@@ -45,5 +52,12 @@ router.use(notificationsRouter);
 router.use(fonnteWebhookRouter);
 router.use(exportRouter);
 router.use(settingsRouter);
+router.use(checklistsRouter);
+router.use(quotationsRouter);
+router.use(reportsRouter);
+router.use(auditLogRouter);
+router.use(shipmentRouter);
+router.use(customersCrmRouter);
+router.use(portalRouter);
 
 export default router;
