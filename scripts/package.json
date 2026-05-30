@@ -6,6 +6,7 @@
   "scripts": {
     "hello": "tsx ./src/hello.ts",
     "seed": "tsx ./src/seed.ts",
+    "sync-from-supabase": "tsx ./src/sync-from-supabase.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
