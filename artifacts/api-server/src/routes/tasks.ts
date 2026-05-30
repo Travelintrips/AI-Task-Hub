@@ -4,6 +4,7 @@ import { db, tasksTable, teamMembersTable, activityTable, usersTable } from "@wo
 import { requireAuth, getCompanyId, getCompanyIdForWrite } from "../middleware/auth";
 import { logger } from "../lib/logger";
 import { notifyStatusChanged, notifyTaskAssigned } from "../lib/notifications";
+import { emitSseEvent } from "../lib/sse";
 
 const router: IRouter = Router();
 
@@ -117,6 +118,7 @@ router.post("/tasks", requireAuth, async (req: Request, res: Response): Promise<
       entityId:    task.id,
     }).catch(() => {});
 
+    emitSseEvent("task_created", { taskId: task.id }, "default");
     res.status(201).json(task);
   } catch (err) {
     logger.error({ err }, "POST /tasks failed");
@@ -216,6 +218,7 @@ router.patch("/tasks/:id", requireAuth, async (req: Request, res: Response): Pro
       ).catch((err) => logger.error({ err }, "Notifikasi assign gagal"));
     }
 
+    emitSseEvent("task_updated", { taskId: id }, "default");
     res.json(updated);
   } catch (err) {
     logger.error({ err }, "PATCH /tasks/:id failed");
@@ -239,6 +242,7 @@ router.delete("/tasks/:id", requireAuth, async (req: Request, res: Response): Pr
       entityId:    id,
     }).catch(() => {});
 
+    emitSseEvent("task_deleted", { taskId: id }, "default");
     res.json({ success: true });
   } catch (err) {
     logger.error({ err }, "DELETE /tasks/:id failed");
@@ -284,6 +288,7 @@ router.patch("/tasks/:id/assign", requireAuth, async (req: Request, res: Respons
       member?.phone ?? null,
     ).catch((err) => logger.error({ err }, "Notifikasi assign gagal"));
 
+    emitSseEvent("task_updated", { taskId: id }, "default");
     res.json({ ...updated, assigneeName: member?.name ?? null });
   } catch (err) {
     logger.error({ err }, "PATCH /tasks/:id/assign failed");

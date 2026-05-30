@@ -3,6 +3,7 @@ import { db, whatsappMessagesTable } from "@workspace/db";
 import { desc, eq, and } from "drizzle-orm";
 import { requireAuth, getCompanyId } from "../middleware/auth";
 import { logger } from "../lib/logger";
+import { emitSseEvent } from "../lib/sse";
 
 const router: IRouter = Router();
 
@@ -63,10 +64,13 @@ router.post("/messages/:id/process", requireAuth, async (req, res): Promise<void
       res.status(400).json({ error: "Invalid id" });
       return;
     }
-    await db
+    const [row] = await db
       .update(whatsappMessagesTable)
       .set({ processed: true })
-      .where(eq(whatsappMessagesTable.id, id));
+      .where(eq(whatsappMessagesTable.id, id))
+      .returning();
+    const companyId = row?.companyId ?? "default";
+    emitSseEvent("message_updated", { messageId: id }, companyId);
     res.json({ ok: true });
   } catch (err) {
     logger.error({ err }, "POST /messages/:id/process failed");

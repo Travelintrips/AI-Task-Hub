@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useServerEvents } from "@/hooks/use-server-events";
 import { 
   useListDocuments, getListDocumentsQueryKey,
   useUploadDocument,
@@ -21,6 +22,13 @@ import { Link } from "wouter";
 export default function Documents() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  useServerEvents({
+    document_created: () => { void queryClient.invalidateQueries({ queryKey: getListDocumentsQueryKey() }); },
+    document_updated: () => { void queryClient.invalidateQueries({ queryKey: getListDocumentsQueryKey() }); },
+    document_deleted: () => { void queryClient.invalidateQueries({ queryKey: getListDocumentsQueryKey() }); },
+  });
+
   const [isUploadOpen, setIsUploadOpen] = useState(false);
   const [filename, setFilename] = useState("");
 

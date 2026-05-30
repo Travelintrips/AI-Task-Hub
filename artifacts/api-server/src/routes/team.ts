@@ -3,6 +3,7 @@ import { db, teamMembersTable } from "@workspace/db";
 import { asc, eq } from "drizzle-orm";
 import { requireAuth, requireRole, getCompanyId } from "../middleware/auth";
 import { logger } from "../lib/logger";
+import { emitSseEvent } from "../lib/sse";
 
 const router: IRouter = Router();
 
@@ -66,6 +67,7 @@ router.post("/team", requireAuth, requireRole("company_admin"), async (req, res)
       })
       .returning();
 
+    emitSseEvent("team_updated", { action: "created", memberId: created.id }, "default");
     res.status(201).json({
       id:        created.id,
       name:      created.name,
@@ -123,6 +125,7 @@ router.patch("/team/:id", requireAuth, requireRole("company_admin"), async (req,
       return;
     }
 
+    emitSseEvent("team_updated", { action: "updated", memberId: updated.id }, "default");
     res.json({
       id:        updated.id,
       name:      updated.name,
@@ -150,6 +153,7 @@ router.delete("/team/:id", requireAuth, requireRole("company_admin"), async (req
       return;
     }
     await db.delete(teamMembersTable).where(eq(teamMembersTable.id, id));
+    emitSseEvent("team_updated", { action: "deleted", memberId: id }, "default");
     res.json({ ok: true });
   } catch (err) {
     logger.error({ err }, "DELETE /team/:id failed");

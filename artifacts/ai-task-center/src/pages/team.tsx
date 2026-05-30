@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useServerEvents } from "@/hooks/use-server-events";
 import { 
   useListTeamMembers, getListTeamMembersQueryKey,
   useCreateTeamMember,
@@ -30,6 +31,11 @@ const memberSchema = z.object({
 export default function Team() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  useServerEvents({
+    team_updated: () => { void queryClient.invalidateQueries({ queryKey: getListTeamMembersQueryKey() }); },
+  });
+
   const [isCreateOpen, setIsCreateOpen] = useState(false);
 
   const { data: members, isLoading } = useListTeamMembers({ 

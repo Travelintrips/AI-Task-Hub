@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useServerEvents } from "@/hooks/use-server-events";
 import { 
   useListTasks, getListTasksQueryKey, 
   useCreateTask, 
@@ -39,6 +40,12 @@ export default function Tasks() {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  useServerEvents({
+    task_created: () => { void queryClient.invalidateQueries({ queryKey: getListTasksQueryKey() }); },
+    task_updated: () => { void queryClient.invalidateQueries({ queryKey: getListTasksQueryKey() }); },
+    task_deleted: () => { void queryClient.invalidateQueries({ queryKey: getListTasksQueryKey() }); },
+  });
 
   const { data: tasks, isLoading } = useListTasks(
     { status: statusFilter || undefined },
