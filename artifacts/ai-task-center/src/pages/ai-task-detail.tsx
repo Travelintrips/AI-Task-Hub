@@ -285,6 +285,13 @@ export default function AiTaskDetail() {
     onError: () => toast({ title: "Failed to add note", variant: "destructive" }),
   });
 
+  // ── Team members query ─────────────────────────────────────────────────────
+
+  const { data: teamMembers = [] } = useQuery<{ id: number; name: string; role: string | null }[]>({
+    queryKey: ["team-members"],
+    queryFn: () => apiFetch("/team-members"),
+  });
+
   // ── Update status ──────────────────────────────────────────────────────────
 
   const statusMutation = useMutation({
@@ -295,6 +302,22 @@ export default function AiTaskDetail() {
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["ai-task", id] }),
     onError: () => toast({ title: "Failed to update status", variant: "destructive" }),
+  });
+
+  // ── Update assignee ────────────────────────────────────────────────────────
+
+  const assigneeMutation = useMutation({
+    mutationFn: (assignedTo: string | null) =>
+      apiFetch(`/ai-tasks/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ assignedTo: assignedTo ?? "" }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["ai-task", id] });
+      queryClient.invalidateQueries({ queryKey: ["ai-tasks"] });
+      toast({ title: "Assignee berhasil diubah" });
+    },
+    onError: () => toast({ title: "Gagal mengubah assignee", variant: "destructive" }),
   });
 
   // ── Timeline query ─────────────────────────────────────────────────────────
@@ -679,12 +702,26 @@ export default function AiTaskDetail() {
                 {task.status}
               </Badge>
             </div>
-            {task.assignedTo && (
-              <div className="flex justify-between">
-                <span className="text-gray-500">Assigned to</span>
-                <span className="text-gray-800 font-medium">{task.assignedTo}</span>
-              </div>
-            )}
+            <div className="flex justify-between items-center">
+              <span className="text-gray-500">Assignee</span>
+              <Select
+                value={task.assignedTo ?? "__none__"}
+                onValueChange={(v) => assigneeMutation.mutate(v === "__none__" ? null : v)}
+                disabled={assigneeMutation.isPending}
+              >
+                <SelectTrigger className="w-36 h-7 text-xs">
+                  <SelectValue placeholder="Belum ditugaskan" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">
+                    <span className="text-gray-400 italic">Belum ditugaskan</span>
+                  </SelectItem>
+                  {teamMembers.map((m) => (
+                    <SelectItem key={m.id} value={m.name}>{m.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             {task.dueDate && (
               <div className="flex justify-between">
                 <span className="text-gray-500">Due date</span>
