@@ -4,6 +4,7 @@ import { useServerEvents } from "@/hooks/use-server-events";
 import {
   useListTeamMembers, getListTeamMembersQueryKey,
   useCreateTeamMember,
+  useUpdateTeamMember,
   useDeleteTeamMember
 } from "@workspace/api-client-react";
 
@@ -15,12 +16,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { Phone, Mail, Trash2, UserPlus, Building2 } from "lucide-react";
+import { Phone, Mail, Trash2, UserPlus, Building2, Pencil } from "lucide-react";
 
 // ─── Daftar Divisi (sesuai CATEGORY_DIVISION_MAP di dispatcher) ───────────────
 const DIVISIONS = [
@@ -66,8 +66,116 @@ const memberSchema = z.object({
   email:    z.string().email("Email tidak valid").optional().or(z.literal("")),
 });
 
+type MemberFormValues = z.infer<typeof memberSchema>;
+
 function getDivisionStyle(division: string | null): string {
   return DIVISIONS.find(d => d.value === division)?.color ?? "bg-gray-100 text-gray-700";
+}
+
+// ─── Shared form fields ────────────────────────────────────────────────────────
+function MemberFormFields({ form }: { form: ReturnType<typeof useForm<MemberFormValues>> }) {
+  return (
+    <>
+      <FormField
+        control={form.control}
+        name="name"
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel>Nama</FormLabel>
+            <FormControl>
+              <Input placeholder="contoh: Budi Santoso" {...field} />
+            </FormControl>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+
+      <FormField
+        control={form.control}
+        name="division"
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel>Divisi</FormLabel>
+            <Select onValueChange={field.onChange} value={field.value}>
+              <FormControl>
+                <SelectTrigger>
+                  <SelectValue placeholder="Pilih divisi..." />
+                </SelectTrigger>
+              </FormControl>
+              <SelectContent>
+                {DIVISIONS.map(d => (
+                  <SelectItem key={d.value} value={d.value}>
+                    <span className="flex items-center gap-2">
+                      <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
+                      {d.label}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Divisi menentukan jenis task yang diterima dari AI Dispatcher
+            </p>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+
+      <FormField
+        control={form.control}
+        name="role"
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel>Jabatan</FormLabel>
+            <Select onValueChange={field.onChange} value={field.value}>
+              <FormControl>
+                <SelectTrigger>
+                  <SelectValue placeholder="Pilih jabatan..." />
+                </SelectTrigger>
+              </FormControl>
+              <SelectContent>
+                {ROLES.map(r => (
+                  <SelectItem key={r} value={r}>{r}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+
+      <FormField
+        control={form.control}
+        name="email"
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel>Email</FormLabel>
+            <FormControl>
+              <Input placeholder="budi@perusahaan.com" type="email" {...field} />
+            </FormControl>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+
+      <FormField
+        control={form.control}
+        name="phone"
+        render={({ field }) => (
+          <FormItem>
+            <FormLabel>No. HP (WhatsApp)</FormLabel>
+            <FormControl>
+              <Input placeholder="08123456789" {...field} />
+            </FormControl>
+            <p className="text-xs text-muted-foreground">
+              Digunakan untuk notifikasi WA saat task baru di-assign
+            </p>
+            <FormMessage />
+          </FormItem>
+        )}
+      />
+    </>
+  );
 }
 
 export default function Team() {
@@ -79,20 +187,29 @@ export default function Team() {
   });
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [editingMemberId, setEditingMemberId] = useState<number | null>(null);
 
   const { data: members, isLoading } = useListTeamMembers({
     query: { queryKey: getListTeamMembersQueryKey() }
   });
 
   const createMember = useCreateTeamMember();
+  const updateMember = useUpdateTeamMember();
   const deleteMember = useDeleteTeamMember();
 
-  const form = useForm<z.infer<typeof memberSchema>>({
+  // ─── Create form ────────────────────────────────────────────────────────────
+  const createForm = useForm<MemberFormValues>({
     resolver: zodResolver(memberSchema),
     defaultValues: { name: "", role: "", division: "", phone: "", email: "" },
   });
 
-  const onSubmit = (values: z.infer<typeof memberSchema>) => {
+  // ─── Edit form ──────────────────────────────────────────────────────────────
+  const editForm = useForm<MemberFormValues>({
+    resolver: zodResolver(memberSchema),
+    defaultValues: { name: "", role: "", division: "", phone: "", email: "" },
+  });
+
+  const onCreateSubmit = (values: MemberFormValues) => {
     createMember.mutate(
       { data: values as any },
       {
@@ -100,11 +217,38 @@ export default function Team() {
           toast({ title: "Anggota tim berhasil ditambahkan" });
           queryClient.invalidateQueries({ queryKey: getListTeamMembersQueryKey() });
           setIsCreateOpen(false);
-          form.reset();
+          createForm.reset();
         },
         onError: () => toast({ title: "Gagal menambahkan anggota tim", variant: "destructive" }),
       }
     );
+  };
+
+  const onEditSubmit = (values: MemberFormValues) => {
+    if (editingMemberId === null) return;
+    updateMember.mutate(
+      { id: editingMemberId, data: values as any },
+      {
+        onSuccess: () => {
+          toast({ title: "Data anggota tim berhasil diperbarui" });
+          queryClient.invalidateQueries({ queryKey: getListTeamMembersQueryKey() });
+          setEditingMemberId(null);
+          editForm.reset();
+        },
+        onError: () => toast({ title: "Gagal memperbarui data anggota tim", variant: "destructive" }),
+      }
+    );
+  };
+
+  const handleEditOpen = (member: NonNullable<typeof members>[number]) => {
+    editForm.reset({
+      name:     member.name,
+      role:     member.role ?? "",
+      division: member.division ?? "",
+      phone:    member.phone ?? "",
+      email:    member.email ?? "",
+    });
+    setEditingMemberId(member.id);
   };
 
   const handleDelete = (id: number) => {
@@ -133,6 +277,7 @@ export default function Team() {
           </p>
         </div>
 
+        {/* ─── Dialog Tambah Anggota ─── */}
         <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
           <DialogTrigger asChild>
             <Button data-testid="button-add-member" className="gap-2">
@@ -140,119 +285,13 @@ export default function Team() {
               Tambah Anggota
             </Button>
           </DialogTrigger>
-
           <DialogContent className="sm:max-w-md">
             <DialogHeader>
               <DialogTitle>Tambah Anggota Tim</DialogTitle>
             </DialogHeader>
-
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-
-                {/* Nama */}
-                <FormField
-                  control={form.control}
-                  name="name"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Nama</FormLabel>
-                      <FormControl>
-                        <Input placeholder="contoh: Budi Santoso" {...field} data-testid="input-member-name" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                {/* Divisi */}
-                <FormField
-                  control={form.control}
-                  name="division"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Divisi</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger data-testid="select-member-division">
-                            <SelectValue placeholder="Pilih divisi..." />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {DIVISIONS.map(d => (
-                            <SelectItem key={d.value} value={d.value}>
-                              <span className="flex items-center gap-2">
-                                <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
-                                {d.label}
-                              </span>
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <p className="text-xs text-muted-foreground">
-                        Divisi menentukan jenis task yang diterima dari AI Dispatcher
-                      </p>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                {/* Jabatan */}
-                <FormField
-                  control={form.control}
-                  name="role"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Jabatan</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
-                        <FormControl>
-                          <SelectTrigger data-testid="select-member-role">
-                            <SelectValue placeholder="Pilih jabatan..." />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {ROLES.map(r => (
-                            <SelectItem key={r} value={r}>{r}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                {/* Email */}
-                <FormField
-                  control={form.control}
-                  name="email"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Email</FormLabel>
-                      <FormControl>
-                        <Input placeholder="budi@perusahaan.com" type="email" {...field} data-testid="input-member-email" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                {/* No HP */}
-                <FormField
-                  control={form.control}
-                  name="phone"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>No. HP (WhatsApp)</FormLabel>
-                      <FormControl>
-                        <Input placeholder="08123456789" {...field} data-testid="input-member-phone" />
-                      </FormControl>
-                      <p className="text-xs text-muted-foreground">
-                        Digunakan untuk notifikasi WA saat task baru di-assign
-                      </p>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
+            <Form {...createForm}>
+              <form onSubmit={createForm.handleSubmit(onCreateSubmit)} className="space-y-4">
+                <MemberFormFields form={createForm} />
                 <Button type="submit" className="w-full" disabled={createMember.isPending}>
                   {createMember.isPending ? "Menyimpan..." : "Tambah Anggota"}
                 </Button>
@@ -261,6 +300,28 @@ export default function Team() {
           </DialogContent>
         </Dialog>
       </div>
+
+      {/* ─── Dialog Edit Anggota ─── */}
+      <Dialog open={editingMemberId !== null} onOpenChange={(open) => { if (!open) setEditingMemberId(null); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Anggota Tim</DialogTitle>
+          </DialogHeader>
+          <Form {...editForm}>
+            <form onSubmit={editForm.handleSubmit(onEditSubmit)} className="space-y-4">
+              <MemberFormFields form={editForm} />
+              <div className="flex gap-2">
+                <Button type="button" variant="outline" className="flex-1" onClick={() => setEditingMemberId(null)}>
+                  Batal
+                </Button>
+                <Button type="submit" className="flex-1" disabled={updateMember.isPending}>
+                  {updateMember.isPending ? "Menyimpan..." : "Simpan Perubahan"}
+                </Button>
+              </div>
+            </form>
+          </Form>
+        </DialogContent>
+      </Dialog>
 
       {/* Grid Kartu Anggota */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -299,14 +360,28 @@ export default function Team() {
                       <p className="text-sm text-muted-foreground mt-0.5">{member.role}</p>
                     </div>
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 text-destructive hover:bg-destructive/10 shrink-0"
-                    onClick={() => handleDelete(member.id)}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
+
+                  {/* Tombol Edit & Hapus */}
+                  <div className="flex items-center gap-1 shrink-0">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-muted-foreground hover:text-foreground hover:bg-muted"
+                      onClick={() => handleEditOpen(member)}
+                      title="Edit anggota"
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-destructive hover:bg-destructive/10"
+                      onClick={() => handleDelete(member.id)}
+                      title="Hapus anggota"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
                 </div>
 
                 {/* Badge Divisi */}
