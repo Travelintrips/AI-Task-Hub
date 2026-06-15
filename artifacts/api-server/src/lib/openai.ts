@@ -11,7 +11,7 @@ if (!apiKey || apiKey === "_DUMMY_API_KEY_") {
 
 export const openai = new OpenAI({
   apiKey,
-  baseURL,
+  ...(baseURL ? { baseURL } : {}),
 });
 
 /**

@@ -85,8 +85,6 @@ channel = "stable-25_05"
 [userenv.shared]
 WHATSAPP_PHONE_NUMBER_ID = "081382702074,087882639826"
 WHATSAPP_WEBHOOK_VERIFY_TOKEN = "f1add4cb13fcac68b030e521cd006e3e1faf5a3cd589fd0cdcc2793f1200d5f9"
-AI_INTEGRATIONS_OPENAI_BASE_URL = "http://localhost:1106/modelfarm/openai"
-AI_INTEGRATIONS_OPENAI_API_KEY = "_DUMMY_API_KEY_"
 BASE_PATH = "/"
 SUPABASE_URL = "https://nzdweipzckfszczzqtuw.supabase.co"
 SUPABASE_URL_DEV = "https://xssrfshdrtdfupgqwfdw.supabase.co"

@@ -11,13 +11,8 @@ export const config = {
       `https://${SUPABASE_PROJECT_REF}.storage.supabase.co/storage/v1/s3`,
   },
   openai: {
-    baseUrl:
-      process.env.AI_INTEGRATIONS_OPENAI_BASE_URL ||
-      "http://localhost:1106/modelfarm/openai",
-    apiKey:
-      process.env.OPENAI_API_KEY ||
-      process.env.AI_INTEGRATIONS_OPENAI_API_KEY ||
-      "_DUMMY_API_KEY_",
+    baseUrl: undefined,
+    apiKey: process.env.OPENAI_API_KEY || "_NOT_CONFIGURED_",
   },
   objectStorage: {
     bucketId: process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID || OBJECT_STORAGE_BUCKET_ID,
