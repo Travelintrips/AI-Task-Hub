@@ -1,9 +1,10 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { eq, and, isNull, ne, desc } from "drizzle-orm";
-import { db, aiTasksTable, activityTable, dispatcherLogsTable } from "@workspace/db";
+import { db, aiTasksTable, activityTable, dispatcherLogsTable, teamMembersTable } from "@workspace/db";
 import { requireAuth, getCompanyId } from "../middleware/auth";
 import { logger } from "../lib/logger";
 import { suggestAssignment, getTeamWorkload } from "../lib/dispatcher";
+import { notifyTaskAssigned } from "../lib/notifications";
 
 const router: IRouter = Router();
 
@@ -124,6 +125,34 @@ router.post("/dispatcher/assign", requireAuth, async (req: Request, res: Respons
       description: `${wasOverridden ? "⚡ Override" : "🤖 AI Dispatcher"}: Task "${task.title}" ditugaskan ke ${memberName}`,
       entityId: taskId,
     }).catch(() => {});
+
+    // ── Notifikasi WhatsApp ke staff yang di-assign ────────────────────────────
+    const [member] = await db
+      .select()
+      .from(teamMembersTable)
+      .where(eq(teamMembersTable.name, memberName))
+      .limit(1);
+
+    if (!member) {
+      logger.warn({ memberName }, "Dispatcher: notifikasi WA dilewati — anggota tim tidak ditemukan di team_members");
+    } else if (!member.phone) {
+      logger.warn({ memberName, memberId: member.id }, "Dispatcher: notifikasi WA dilewati — anggota tim tidak memiliki nomor HP");
+    }
+
+    notifyTaskAssigned(
+      {
+        taskId,
+        taskNumber: task.taskNumber ?? `WA-${taskId}`,
+        title:       updated.title,
+        customerName: updated.customerName,
+        customerPhone: updated.customerPhone,
+        assignedTo:  memberName,
+        status:      updated.status,
+        priority:    updated.priority,
+        companyId,
+      },
+      member?.phone ?? null,
+    ).catch((err) => logger.error({ err }, "Dispatcher: notifikasi assign gagal"));
 
     res.json({ task: updated, assignedTo: memberName, wasOverridden });
   } catch (err) {

@@ -13,6 +13,9 @@ WA notification to assigned staff only fires if `team_members.phone` is NOT NULL
 2. Log will show: `"Notifikasi WA dilewati — anggota tim tidak memiliki nomor HP"`
 3. Fix: add phone number via Team page → Edit member.
 
+## Dispatcher assign path missing notification (fixed)
+`POST /dispatcher/assign` (Smart AI Dispatcher) updated ai_tasks but **never called notifyTaskAssigned**. Notification only existed in `PATCH /ai-tasks/:id`. Fixed by adding the full notification block (member phone lookup + notifyTaskAssigned call) to dispatcher.ts.
+
 ## Frontend API Endpoint Bug (fixed)
 `ai-task-detail.tsx` was querying `/api/team-members` (404) instead of `/api/team`. This caused the assignee dropdown to be empty (no team members loaded). Fixed to use `/api/team`.
 
