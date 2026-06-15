@@ -20,7 +20,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { Phone, Mail, Trash2, UserPlus, Building2, Pencil } from "lucide-react";
+import { Phone, Mail, Trash2, UserPlus, Building2, Pencil, PhoneOff } from "lucide-react";
 
 // ─── Daftar Divisi (sesuai CATEGORY_DIVISION_MAP di dispatcher) ───────────────
 const DIVISIONS = [
@@ -384,15 +384,21 @@ export default function Team() {
                   </div>
                 </div>
 
-                {/* Badge Divisi */}
-                {member.division && (
-                  <div className="mt-3">
+                {/* Badge Divisi + warning No HP */}
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {member.division && (
                     <span className={`inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full ${getDivisionStyle(member.division)}`}>
                       <Building2 className="h-3 w-3" />
                       {DIVISIONS.find(d => d.value === member.division)?.label ?? member.division}
                     </span>
-                  </div>
-                )}
+                  )}
+                  {!member.phone && (
+                    <span className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-amber-100 text-amber-700">
+                      <PhoneOff className="h-3 w-3" />
+                      No HP — WA nonaktif
+                    </span>
+                  )}
+                </div>
 
                 {/* Kontak */}
                 <div className="mt-4 space-y-1.5 text-sm">

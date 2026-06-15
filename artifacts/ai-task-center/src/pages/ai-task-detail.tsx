@@ -26,6 +26,7 @@ import {
   Copy,
   MessageSquare,
   ChevronDown,
+  PhoneOff,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -287,9 +288,9 @@ export default function AiTaskDetail() {
 
   // ── Team members query ─────────────────────────────────────────────────────
 
-  const { data: teamMembers = [] } = useQuery<{ id: number; name: string; role: string | null }[]>({
+  const { data: teamMembers = [] } = useQuery<{ id: number; name: string; role: string | null; phone: string | null }[]>({
     queryKey: ["team-members"],
-    queryFn: () => apiFetch("/team-members"),
+    queryFn: () => apiFetch("/team"),
   });
 
   // ── Update status ──────────────────────────────────────────────────────────
@@ -312,10 +313,19 @@ export default function AiTaskDetail() {
         method: "PATCH",
         body: JSON.stringify({ assignedTo: assignedTo ?? "" }),
       }),
-    onSuccess: () => {
+    onSuccess: (_data, assignedTo) => {
       queryClient.invalidateQueries({ queryKey: ["ai-task", id] });
       queryClient.invalidateQueries({ queryKey: ["ai-tasks"] });
-      toast({ title: "Assignee berhasil diubah" });
+      const member = teamMembers.find((m) => m.name === assignedTo);
+      if (assignedTo && member && !member.phone) {
+        toast({
+          title: "Assignee diubah — WA tidak dikirim",
+          description: `${assignedTo} belum memiliki nomor HP. Tambahkan di halaman Tim agar notifikasi WA bisa dikirim.`,
+          variant: "destructive",
+        });
+      } else {
+        toast({ title: "Assignee berhasil diubah", description: assignedTo ? `Notifikasi WA dikirim ke ${assignedTo}` : undefined });
+      }
     },
     onError: () => toast({ title: "Gagal mengubah assignee", variant: "destructive" }),
   });
@@ -702,25 +712,40 @@ export default function AiTaskDetail() {
                 {task.status}
               </Badge>
             </div>
-            <div className="flex justify-between items-center">
-              <span className="text-gray-500">Assignee</span>
-              <Select
-                value={task.assignedTo ?? "__none__"}
-                onValueChange={(v) => assigneeMutation.mutate(v === "__none__" ? null : v)}
-                disabled={assigneeMutation.isPending}
-              >
-                <SelectTrigger className="w-36 h-7 text-xs">
-                  <SelectValue placeholder="Belum ditugaskan" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">
-                    <span className="text-gray-400 italic">Belum ditugaskan</span>
-                  </SelectItem>
-                  {teamMembers.map((m) => (
-                    <SelectItem key={m.id} value={m.name}>{m.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="flex justify-between items-start gap-2">
+              <span className="text-gray-500 pt-1">Assignee</span>
+              <div className="flex flex-col items-end gap-1">
+                <Select
+                  value={task.assignedTo ?? "__none__"}
+                  onValueChange={(v) => assigneeMutation.mutate(v === "__none__" ? null : v)}
+                  disabled={assigneeMutation.isPending}
+                >
+                  <SelectTrigger className="w-36 h-7 text-xs">
+                    <SelectValue placeholder="Belum ditugaskan" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">
+                      <span className="text-gray-400 italic">Belum ditugaskan</span>
+                    </SelectItem>
+                    {teamMembers.map((m) => (
+                      <SelectItem key={m.id} value={m.name}>
+                        <span className="flex items-center gap-1.5">
+                          {m.name}
+                          {!m.phone && (
+                            <PhoneOff className="h-3 w-3 text-amber-500" title="Tidak ada nomor HP" />
+                          )}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {task.assignedTo && !teamMembers.find((m) => m.name === task.assignedTo)?.phone && teamMembers.length > 0 && (
+                  <span className="flex items-center gap-1 text-[10px] text-amber-600 font-medium">
+                    <PhoneOff className="h-3 w-3" />
+                    WA tidak akan dikirim — no HP kosong
+                  </span>
+                )}
+              </div>
             </div>
             {task.dueDate && (
               <div className="flex justify-between">

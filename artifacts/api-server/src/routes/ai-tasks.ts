@@ -286,6 +286,12 @@ router.patch("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): 
         .where(eq(teamMembersTable.name, assignedTo as string))
         .limit(1);
 
+      if (!member) {
+        logger.warn({ assignedTo }, "Notifikasi WA dilewati — anggota tim tidak ditemukan di tabel team_members");
+      } else if (!member.phone) {
+        logger.warn({ assignedTo, memberId: member.id }, "Notifikasi WA dilewati — anggota tim tidak memiliki nomor HP");
+      }
+
       notifyTaskAssigned(ctx, member?.phone ?? null)
         .catch((err) => logger.error({ err }, "Notifikasi assign gagal"));
     }
