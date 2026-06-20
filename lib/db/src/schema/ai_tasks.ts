@@ -26,30 +26,40 @@ export const aiTasksTable = pgTable("ai_tasks", {
   companyId: text("company_id").notNull().default("default"),
   taskNumber: text("task_number"),
   source: text("source").notNull().default("manual"),
+  // Customer refs (assigned_to_id added, keep assigned_to for backward compat)
+  customerId: integer("customer_id"),
   customerName: text("customer_name"),
   customerPhone: text("customer_phone"),
+  // Task info
   title: text("title").notNull(),
   description: text("description"),
   category: text("category"),
   division: text("division"),
   priority: text("priority").notNull().default("medium"),
   status: text("status").notNull().default("new_inquiry"),
+  // Assignment (keep assigned_to text + add assigned_to_id int for FK)
   assignedTo: text("assigned_to"),
+  assignedToId: integer("assigned_to_id"),
   assignedRole: text("assigned_role"),
   assignedDivision: text("assigned_division"),
   assignedVendor: text("assigned_vendor"),
+  // Driver / logistics
   driverName: text("driver_name"),
   driverPhone: text("driver_phone"),
   plateNumber: text("plate_number"),
+  // Financial
   quotationAmount: text("quotation_amount"),
   quotationNotes: text("quotation_notes"),
+  // SLA / scheduling
   dueDate: timestamp("due_date", { withTimezone: true }),
   slaHours: integer("sla_hours"),
   overdueAt: timestamp("overdue_at", { withTimezone: true }),
   completedAt: timestamp("completed_at", { withTimezone: true }),
   slaStatus: text("sla_status").notNull().default("on_track"),
+  // Follow-up
   lastCustomerReplyAt: timestamp("last_customer_reply_at", { withTimezone: true }),
   followUpCount: integer("follow_up_count").notNull().default(0),
+  // AI fields
   aiSummary: text("ai_summary"),
   aiIntent: text("ai_intent"),
   missingData: text("missing_data"),
@@ -62,6 +72,8 @@ export const aiTasksTable = pgTable("ai_tasks", {
 }, (t) => [
   index("ai_tasks_company_status_idx").on(t.companyId, t.status),
   index("ai_tasks_customer_phone_idx").on(t.customerPhone),
+  index("ai_tasks_customer_id_idx").on(t.customerId),
+  index("ai_tasks_assigned_to_id_idx").on(t.assignedToId),
   index("ai_tasks_status_idx").on(t.status),
   index("ai_tasks_category_idx").on(t.category),
   index("ai_tasks_division_idx").on(t.division),

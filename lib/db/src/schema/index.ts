@@ -22,3 +22,9 @@ export * from "./audit_logs";
 export * from "./shipment_trackings";
 export * from "./follow_up_logs";
 export * from "./dispatcher_logs";
+// ── Sprint 1B new tables ────────────────────────────────────────────────────
+export * from "./intent_master";
+export * from "./keyword_rules";
+export * from "./service_catalog";
+export * from "./data_templates";
+export * from "./document_templates";
