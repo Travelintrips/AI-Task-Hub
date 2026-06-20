@@ -12,6 +12,7 @@ import { logger } from "../lib/logger";
 import { notifyStatusChanged, notifyTaskAssigned, notifyTaskCompleted } from "../lib/notifications";
 import { emitSseEvent } from "../lib/sse";
 import { getSlaHours, calcOverdueAt, calcSlaStatus } from "../lib/sla";
+import { pushStatusToSupabase } from "../lib/order-sync-scheduler";
 
 const router: IRouter = Router();
 
@@ -229,6 +230,12 @@ router.patch("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): 
         description: `AI Task ${current.taskNumber ?? id} diperbarui — ${changes.join(", ")}`,
         entityId:    id,
       }).catch(() => {});
+    }
+
+    // ── Sinkron balik ke Supabase logistic_orders (fire-and-forget) ──────────
+    if (status && status !== current.status && current.taskNumber) {
+      pushStatusToSupabase(current.taskNumber, current.status, status as string)
+        .catch((err) => logger.error({ err }, "pushStatusToSupabase gagal"));
     }
 
     // ── SSE realtime push ─────────────────────────────────────────────────────

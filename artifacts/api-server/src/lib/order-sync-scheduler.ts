@@ -62,6 +62,105 @@ function mapStatus(orderStatus: string | null): string {
   }
 }
 
+// ─── Pemetaan balik: status ai_task → status logistic_orders ─────────────────────
+function mapReplitStatusToOrder(replitStatus: string): string | null {
+  switch (replitStatus) {
+    case "new_inquiry":
+      return "Order Received";
+    case "waiting_documents":
+    case "documents_received":
+    case "audit_in_progress":
+    case "missing_data":
+    case "ready_for_review":
+    case "quotation_ready":
+      return "Admin Review";
+    case "assigned":
+      return "Vendor Confirmed";
+    case "in_progress":
+    case "waiting_customer":
+    case "waiting_vendor":
+    case "approved_by_customer":
+      return "In Progress";
+    case "completed":
+      return "Completed";
+    case "cancelled":
+      return "Cancelled";
+    default:
+      return null; // status tidak dikenali — jangan push
+  }
+}
+
+// ─── Push perubahan status dari Replit → Supabase logistic_orders ─────────────────
+// Dipanggil dari route PATCH /ai-tasks/:id setelah status berhasil diubah.
+// task_number harus sama dengan order_number di logistic_orders (dedup key).
+// Juga mencatat ke ai_task_sync_log di Supabase.
+export async function pushStatusToSupabase(
+  taskNumber: string,
+  oldStatus: string,
+  newStatus: string,
+): Promise<void> {
+  if (!SUPA_BASE || !SUPA_KEY) return;
+
+  const orderStatus = mapReplitStatusToOrder(newStatus);
+  if (!orderStatus) {
+    logger.warn({ taskNumber, newStatus }, "pushStatusToSupabase: status tidak dipetakan, dilewati");
+    return;
+  }
+
+  // Hindari infinite loop: jangan push kalau status order sudah sama
+  // (bisa terjadi saat Supabase → Replit sync baru saja berjalan)
+  try {
+    const checkUrl = `${SUPA_BASE}/logistic_orders?order_number=eq.${encodeURIComponent(taskNumber)}&select=status&limit=1`;
+    const checkRes = await fetch(checkUrl, { headers: supaHeaders });
+    if (checkRes.ok) {
+      const rows = await checkRes.json() as Array<{ status: string | null }>;
+      if (rows.length > 0 && rows[0].status === orderStatus) {
+        logger.debug({ taskNumber, orderStatus }, "pushStatusToSupabase: status sudah sinkron, dilewati");
+        return;
+      }
+    }
+  } catch {
+    // lanjut meski cek gagal
+  }
+
+  // PATCH ke logistic_orders
+  const patchUrl = `${SUPA_BASE}/logistic_orders?order_number=eq.${encodeURIComponent(taskNumber)}`;
+  const patchRes = await fetch(patchUrl, {
+    method: "PATCH",
+    headers: { ...supaHeaders, Prefer: "return=minimal" },
+    body: JSON.stringify({ status: orderStatus, updated_at: new Date().toISOString() }),
+  });
+
+  if (!patchRes.ok) {
+    const body = await patchRes.text();
+    logger.error(
+      { taskNumber, orderStatus, status: patchRes.status, body: body.slice(0, 200) },
+      "pushStatusToSupabase: PATCH logistic_orders gagal",
+    );
+    return;
+  }
+
+  // Catat ke ai_task_sync_log
+  try {
+    const logUrl = `${SUPA_BASE}/ai_task_sync_log`;
+    await fetch(logUrl, {
+      method: "POST",
+      headers: { ...supaHeaders, Prefer: "return=minimal" },
+      body: JSON.stringify({
+        order_number: taskNumber,
+        old_status: mapReplitStatusToOrder(oldStatus) ?? oldStatus,
+        new_status: orderStatus,
+        source: "replit",
+        notes: `Replit status: ${oldStatus} → ${newStatus}`,
+      }),
+    });
+  } catch (err) {
+    logger.warn({ err }, "pushStatusToSupabase: gagal catat ke ai_task_sync_log");
+  }
+
+  logger.info({ taskNumber, orderStatus, oldStatus, newStatus }, "Status task dipush ke Supabase logistic_orders");
+}
+
 function pickAmount(o: LogisticOrder): string | null {
   const v = o.grand_total ?? o.final_price ?? o.final_selling_price;
   if (v === null || v === undefined) return null;
