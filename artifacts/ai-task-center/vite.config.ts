@@ -55,6 +55,7 @@ export default defineConfig({
   },
   optimizeDeps: {
     include: ["react", "react-dom", "react/jsx-runtime"],
+    exclude: ["zod"],
   },
   root: path.resolve(import.meta.dirname),
   build: {
