@@ -1,4 +1,4 @@
-import { db, aiTasksTable, followUpLogsTable, taskCommentsTable, activityTable } from "@workspace/db";
+import { db, aiTasksTable, followUpLogsTable, taskCommentsTable, auditLogsTable } from "@workspace/db";
 import { eq, and, lt, lte, or, isNull, gte } from "drizzle-orm";
 import { sendFonnte } from "./fonnte";
 import { logger } from "./logger";
@@ -75,9 +75,10 @@ async function runFollowUps(): Promise<void> {
       senderType: "system",
     });
 
-    await db.insert(activityTable).values({
-      type: "follow_up_sent",
-      description: `Follow-up #${round} dikirim untuk task ${task.taskNumber ?? task.id}`,
+    await db.insert(auditLogsTable).values({
+      action: "follow_up_sent",
+      module: "follow_up",
+      before: `Follow-up #${round} dikirim untuk task ${task.taskNumber ?? task.id}`,
       entityId: task.id,
     });
 

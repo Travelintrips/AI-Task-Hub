@@ -4,7 +4,7 @@ import {
   aiTasksTable,
   taskCommentsTable,
   whatsappMessagesTable,
-  activityTable,
+  auditLogsTable,
   adminNotificationsTable,
   type AiTask,
 } from "@workspace/db";
@@ -406,9 +406,10 @@ export async function createTaskFromWhatsAppMessage(
         .set({ processed: true, aiProcessed: true, detectedIntent: result.intent, taskId: existingTask.id })
         .where(eq(whatsappMessagesTable.id, savedMsgId));
 
-      await db.insert(activityTable).values({
-        type: "message_received",
-        description: resolvedKeys.length > 0
+      await db.insert(auditLogsTable).values({
+        action: "message_received",
+        module: "messages",
+        before: resolvedKeys.length > 0
           ? `Customer provided data: ${resolvedKeys.join(", ")} — task ${existingTask.taskNumber ?? existingTask.id} updated`
           : `Follow-up message from ${customerName ?? from} on task ${existingTask.taskNumber ?? existingTask.id}`,
         entityId: existingTask.id,
@@ -518,9 +519,10 @@ async function createNewTask({
     .set({ processed: true, aiProcessed: true, detectedIntent: result.intent, taskId: task.id })
     .where(eq(whatsappMessagesTable.id, savedMsgId));
 
-  await db.insert(activityTable).values({
-    type: "task_created",
-    description: `Task ${taskNumber} created (${action}) — ${result.category} / ${result.priority} (${status}) — ${title}`,
+  await db.insert(auditLogsTable).values({
+    action: "task_created",
+    module: "tasks",
+    before: `Task ${taskNumber} created (${action}) — ${result.category} / ${result.priority} (${status}) — ${title}`,
     entityId: task.id,
   });
 

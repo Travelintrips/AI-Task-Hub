@@ -5,7 +5,7 @@ import {
   whatsappMessagesTable,
   aiTasksTable,
   taskAttachmentsTable,
-  activityTable,
+  auditLogsTable,
 } from "@workspace/db";
 import { detectWhatsAppIntent } from "../lib/whatsapp-ai";
 import { createTaskFromWhatsAppMessage } from "../lib/task-service";
@@ -348,9 +348,10 @@ export async function processIncomingMessage({
 
     // 3. Log activity
     try {
-      await db.insert(activityTable).values({
-        type: "message_received",
-        description: `WhatsApp message received from ${senderName ?? from} (${messageType})`,
+      await db.insert(auditLogsTable).values({
+        action: "message_received",
+        module: "messages",
+        before: `WhatsApp message received from ${senderName ?? from} (${messageType})`,
         entityId: savedMsg.id,
       });
     } catch (actErr) {
@@ -366,7 +367,7 @@ export async function processIncomingMessage({
       title: "Pesan WhatsApp Baru",
       body: `Pesan dari ${senderName ?? from}: "${bodyText.slice(0, 100)}${bodyText.length > 100 ? "…" : ""}"`,
       customerPhone: from,
-      customerName: senderName ?? customerCtx?.name ?? null,
+      customerName: senderName ?? customerCtx?.picName ?? null,
       companyId,
     });
 
@@ -381,8 +382,8 @@ export async function processIncomingMessage({
         companyId,
         attachmentUrl: attachment?.url ?? null,
         mediaId: attachment?.mediaId ?? null,
-        customerCtxName: customerCtx?.name ?? senderName ?? null,
-        previousIntents: customerCtx?.previousIntents ?? null,
+        customerCtxName: customerCtx?.picName ?? senderName ?? null,
+        previousIntents: null,
       }).catch((err) => {
         logger.error({ err, msgId: savedMsg.id }, "AI detection background task failed");
       });

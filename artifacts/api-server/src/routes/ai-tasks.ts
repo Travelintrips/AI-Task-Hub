@@ -4,7 +4,7 @@ import {
   db,
   aiTasksTable,
   taskCommentsTable,
-  activityTable,
+  auditLogsTable,
   teamMembersTable,
 } from "@workspace/db";
 import { requireAuth, getCompanyId } from "../middleware/auth";
@@ -159,10 +159,11 @@ router.post("/ai-tasks", requireAuth, async (req: Request, res: Response): Promi
       .returning();
 
     // Catat di activity log
-    await db.insert(activityTable).values({
-      type:        "task_created",
-      description: `Task baru dibuat manual: ${title}`,
-      entityId:    created.id,
+    await db.insert(auditLogsTable).values({
+      action:   "task_created",
+      module:   "tasks",
+      before:   `Task baru dibuat manual: ${title}`,
+      entityId: created.id,
     }).catch(() => {});
 
     emitSseEvent("new_task", { taskId: created.id, taskNumber, companyId }, companyId);
@@ -225,10 +226,11 @@ router.patch("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): 
       changes.push(`petugas: ${assignedTo}`);
 
     if (changes.length > 0) {
-      await db.insert(activityTable).values({
-        type:        "task_updated",
-        description: `AI Task ${current.taskNumber ?? id} diperbarui — ${changes.join(", ")}`,
-        entityId:    id,
+      await db.insert(auditLogsTable).values({
+        action:   "task_updated",
+        module:   "tasks",
+        before:   `AI Task ${current.taskNumber ?? id} diperbarui — ${changes.join(", ")}`,
+        entityId: id,
       }).catch(() => {});
     }
 

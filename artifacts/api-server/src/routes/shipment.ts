@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { eq, and, desc } from "drizzle-orm";
-import { db, shipmentTrackingsTable, shipmentEventsTable, taskCommentsTable, activityTable } from "@workspace/db";
+import { db, shipmentTrackingsTable, shipmentEventsTable, taskCommentsTable, auditLogsTable } from "@workspace/db";
 import { requireAuth, getCompanyId } from "../middleware/auth";
 import { logger } from "../lib/logger";
 
@@ -47,7 +47,7 @@ router.post("/shipments", requireAuth, async (req: Request, res: Response): Prom
       lastUpdatedAt: new Date(),
     }).returning();
 
-    await db.insert(activityTable).values({ type: "shipment_added", description: `Tracking ${trackingNumber ?? ""} ditambahkan ke task #${taskId}`, entityId: Number(taskId) });
+    await db.insert(auditLogsTable).values({ action: "shipment_added", module: "shipments", before: `Tracking ${trackingNumber ?? ""} ditambahkan ke task #${taskId}`, entityId: Number(taskId) });
 
     res.status(201).json(tracking);
   } catch (err) {

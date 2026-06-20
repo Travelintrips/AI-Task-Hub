@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { eq, and, isNull, ne, desc } from "drizzle-orm";
-import { db, aiTasksTable, activityTable, dispatcherLogsTable, teamMembersTable } from "@workspace/db";
+import { db, aiTasksTable, auditLogsTable, dispatcherLogsTable, teamMembersTable } from "@workspace/db";
 import { requireAuth, getCompanyId } from "../middleware/auth";
 import { logger } from "../lib/logger";
 import { suggestAssignment, getTeamWorkload } from "../lib/dispatcher";
@@ -120,9 +120,10 @@ router.post("/dispatcher/assign", requireAuth, async (req: Request, res: Respons
       dispatchedBy: req.user?.name ?? "system",
     }).catch((err) => logger.warn({ err }, "Failed to insert dispatcher log"));
 
-    await db.insert(activityTable).values({
-      type: "task_assigned",
-      description: `${wasOverridden ? "⚡ Override" : "🤖 AI Dispatcher"}: Task "${task.title}" ditugaskan ke ${memberName}`,
+    await db.insert(auditLogsTable).values({
+      action: "task_assigned",
+      module: "tasks",
+      before: `${wasOverridden ? "⚡ Override" : "🤖 AI Dispatcher"}: Task "${task.title}" ditugaskan ke ${memberName}`,
       entityId: taskId,
     }).catch(() => {});
 

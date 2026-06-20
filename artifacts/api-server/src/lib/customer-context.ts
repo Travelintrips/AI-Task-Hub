@@ -1,9 +1,10 @@
 import { eq, and, sql } from "drizzle-orm";
-import { db, customerContextsTable } from "@workspace/db";
+import { db, customersTable } from "@workspace/db";
 import { logger } from "./logger";
 
 /**
- * Look up (or create) the customer context for a given phone number.
+ * Look up (or create) the customer record for a given phone number.
+ * Uses customersTable (whatsapp field) as the primary lookup key.
  * Never throws.
  */
 export async function getOrCreateCustomerContext({
@@ -18,31 +19,30 @@ export async function getOrCreateCustomerContext({
   try {
     const [existing] = await db
       .select()
-      .from(customerContextsTable)
-      .where(and(eq(customerContextsTable.phone, phone), eq(customerContextsTable.companyId, companyId)))
+      .from(customersTable)
+      .where(and(eq(customersTable.whatsapp, phone), eq(customersTable.companyId, companyId)))
       .limit(1);
 
     if (existing) {
-      // Update name if we learned it, and refresh lastSeenAt
-      const updates: Partial<typeof customerContextsTable.$inferInsert> = {
-        lastSeenAt: new Date(),
-      };
-      if (name && !existing.name) updates.name = name;
-      await db
-        .update(customerContextsTable)
-        .set(updates)
-        .where(eq(customerContextsTable.id, existing.id));
+      const updates: Record<string, unknown> = {};
+      if (name && !existing.picName) updates.picName = name;
+      if (Object.keys(updates).length > 0) {
+        await db
+          .update(customersTable)
+          .set(updates)
+          .where(eq(customersTable.id, existing.id));
+      }
       return existing;
     }
 
     const [created] = await db
-      .insert(customerContextsTable)
+      .insert(customersTable)
       .values({
-        phone,
         companyId,
-        name: name ?? null,
+        companyName: name ?? phone,
+        picName: name ?? null,
+        whatsapp: phone,
         totalTasks: 0,
-        lastSeenAt: new Date(),
       })
       .returning();
     return created;
@@ -53,7 +53,7 @@ export async function getOrCreateCustomerContext({
 }
 
 /**
- * After a task is created or updated for this customer, update their context.
+ * After a task is created or updated for this customer, update their record.
  */
 export async function updateCustomerContextAfterTask({
   phone,
@@ -71,40 +71,30 @@ export async function updateCustomerContextAfterTask({
   try {
     const [existing] = await db
       .select()
-      .from(customerContextsTable)
-      .where(and(eq(customerContextsTable.phone, phone), eq(customerContextsTable.companyId, companyId)))
+      .from(customersTable)
+      .where(and(eq(customersTable.whatsapp, phone), eq(customersTable.companyId, companyId)))
       .limit(1);
 
     if (!existing) {
-      await db.insert(customerContextsTable).values({
-        phone,
+      await db.insert(customersTable).values({
         companyId,
-        name: name ?? null,
+        companyName: name ?? phone,
+        picName: name ?? null,
+        whatsapp: phone,
         totalTasks: 1,
-        lastActiveTaskId: taskId,
-        lastSeenAt: new Date(),
-        previousIntents: intent ? JSON.stringify([intent]) : null,
+        lastTaskAt: new Date(),
       });
       return;
     }
 
-    // Merge intents
-    let intents: string[] = [];
-    try { intents = JSON.parse(existing.previousIntents ?? "[]"); } catch { intents = []; }
-    if (intent && !intents.includes(intent)) {
-      intents = [intent, ...intents].slice(0, 10);
-    }
-
     await db
-      .update(customerContextsTable)
+      .update(customersTable)
       .set({
-        totalTasks: sql`${customerContextsTable.totalTasks} + 1`,
-        lastActiveTaskId: taskId,
-        lastSeenAt: new Date(),
-        previousIntents: JSON.stringify(intents),
-        ...(name && !existing.name ? { name } : {}),
+        totalTasks: sql`${customersTable.totalTasks} + 1`,
+        lastTaskAt: new Date(),
+        ...(name && !existing.picName ? { picName: name } : {}),
       })
-      .where(eq(customerContextsTable.id, existing.id));
+      .where(eq(customersTable.id, existing.id));
   } catch (err) {
     logger.error({ err, phone, taskId }, "Failed to update customer context after task");
   }

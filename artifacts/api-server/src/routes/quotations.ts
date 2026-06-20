@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { eq, and, desc } from "drizzle-orm";
-import { db, quotationsTable, aiTasksTable, activityTable, adminNotificationsTable } from "@workspace/db";
+import { db, quotationsTable, aiTasksTable, auditLogsTable, adminNotificationsTable } from "@workspace/db";
 import { requireAuth, getCompanyId } from "../middleware/auth";
 import { logger } from "../lib/logger";
 
@@ -83,7 +83,7 @@ router.post("/quotations", requireAuth, async (req: Request, res: Response): Pro
       createdBy: req.user?.name ?? null,
     }).returning();
 
-    await db.insert(activityTable).values({ type: "quotation_created", description: `Quotation ${created.quotationNumber} dibuat`, entityId: created.id });
+    await db.insert(auditLogsTable).values({ action: "quotation_created", module: "quotations", before: `Quotation ${created.quotationNumber} dibuat`, entityId: created.id });
     res.status(201).json(created);
   } catch (err) {
     logger.error({ err }, "POST /quotations failed");

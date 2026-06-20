@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { eq, and, desc, ilike, or } from "drizzle-orm";
-import { db, customersTable, aiTasksTable, activityTable } from "@workspace/db";
+import { db, customersTable, aiTasksTable, auditLogsTable } from "@workspace/db";
 import { requireAuth, getCompanyId } from "../middleware/auth";
 import { logger } from "../lib/logger";
 
@@ -63,7 +63,7 @@ router.post("/crm/customers", requireAuth, async (req: Request, res: Response): 
       notes: notes ? String(notes) : null,
     }).returning();
 
-    await db.insert(activityTable).values({ type: "customer_created", description: `Customer baru: ${created.companyName}`, entityId: created.id });
+    await db.insert(auditLogsTable).values({ action: "customer_created", module: "customers", before: `Customer baru: ${created.companyName}`, entityId: created.id });
     res.status(201).json(created);
   } catch (err) {
     logger.error({ err }, "POST /crm/customers failed");

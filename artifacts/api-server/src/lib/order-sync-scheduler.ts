@@ -1,4 +1,4 @@
-import { db, aiTasksTable, activityTable, adminNotificationsTable, taskCommentsTable } from "@workspace/db";
+import { db, aiTasksTable, auditLogsTable, adminNotificationsTable, taskCommentsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { emitSseEvent } from "./sse";
 import { logger } from "./logger";
@@ -278,9 +278,10 @@ async function createTaskFromOrder(o: LogisticOrder): Promise<number> {
       })
       .returning();
 
-    await tx.insert(activityTable).values({
-      type: "task_created",
-      description: `Order ${taskNumber} masuk otomatis — ${category} (${status}) — ${title}`,
+    await tx.insert(auditLogsTable).values({
+      action: "task_created",
+      module: "tasks",
+      before: `Order ${taskNumber} masuk otomatis — ${category} (${status}) — ${title}`,
       entityId: task.id,
     });
 
@@ -316,9 +317,10 @@ async function updateTaskStatus(
 ): Promise<void> {
   await db.transaction(async (tx) => {
     await tx.update(aiTasksTable).set({ status: newStatus }).where(eq(aiTasksTable.id, taskId));
-    await tx.insert(activityTable).values({
-      type: "task_updated",
-      description: `Status order ${taskNumber} diperbarui menjadi "${newStatus}" (sinkron otomatis)`,
+    await tx.insert(auditLogsTable).values({
+      action: "task_updated",
+      module: "tasks",
+      before: `Status order ${taskNumber} diperbarui menjadi "${newStatus}" (sinkron otomatis)`,
       entityId: taskId,
     });
   });

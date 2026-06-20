@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { eq, desc, and, ilike, or } from "drizzle-orm";
-import { db, tasksTable, teamMembersTable, activityTable, usersTable } from "@workspace/db";
-import { requireAuth, getCompanyId, getCompanyIdForWrite } from "../middleware/auth";
+import { eq, desc, and } from "drizzle-orm";
+import { db, aiTasksTable, teamMembersTable, auditLogsTable } from "@workspace/db";
+import { requireAuth, getCompanyId } from "../middleware/auth";
 import { logger } from "../lib/logger";
 import { notifyStatusChanged, notifyTaskAssigned } from "../lib/notifications";
 import { emitSseEvent } from "../lib/sse";
@@ -12,12 +12,14 @@ const router: IRouter = Router();
 
 router.get("/tasks", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
+    const companyId = getCompanyId(req) ?? "default";
     const { status, priority, search } = req.query as Record<string, string | undefined>;
 
     let rows = await db
       .select()
-      .from(tasksTable)
-      .orderBy(desc(tasksTable.createdAt))
+      .from(aiTasksTable)
+      .where(eq(aiTasksTable.companyId, companyId))
+      .orderBy(desc(aiTasksTable.createdAt))
       .limit(300);
 
     if (status)   rows = rows.filter((t) => t.status   === status);
@@ -32,17 +34,10 @@ router.get("/tasks", requireAuth, async (req: Request, res: Response): Promise<v
       );
     }
 
-    const assigneeIds = [...new Set(rows.map((r) => r.assigneeId).filter(Boolean))] as number[];
-    let assigneeMap: Record<number, string> = {};
-    if (assigneeIds.length > 0) {
-      const members = await db.select().from(teamMembersTable);
-      assigneeMap = Object.fromEntries(members.map((m) => [m.id, m.name]));
-    }
-
     res.json(
       rows.map((r) => ({
         ...r,
-        assigneeName: r.assigneeId ? (assigneeMap[r.assigneeId] ?? null) : null,
+        assigneeName: r.assignedTo ?? null,
       })),
     );
   } catch (err) {
@@ -58,20 +53,15 @@ router.get("/tasks/:id", requireAuth, async (req: Request, res: Response): Promi
     const id = Number(req.params.id);
     if (Number.isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
 
-    const [task] = await db.select().from(tasksTable).where(eq(tasksTable.id, id)).limit(1);
+    const companyId = getCompanyId(req) ?? "default";
+    const [task] = await db
+      .select()
+      .from(aiTasksTable)
+      .where(and(eq(aiTasksTable.id, id), eq(aiTasksTable.companyId, companyId)))
+      .limit(1);
     if (!task) { res.status(404).json({ error: "Task not found" }); return; }
 
-    let assigneeName: string | null = null;
-    if (task.assigneeId) {
-      const [member] = await db
-        .select()
-        .from(teamMembersTable)
-        .where(eq(teamMembersTable.id, task.assigneeId))
-        .limit(1);
-      assigneeName = member?.name ?? null;
-    }
-
-    res.json({ ...task, assigneeName });
+    res.json({ ...task, assigneeName: task.assignedTo ?? null });
   } catch (err) {
     logger.error({ err }, "GET /tasks/:id failed");
     res.status(500).json({ error: "Failed to load task" });
@@ -82,7 +72,8 @@ router.get("/tasks/:id", requireAuth, async (req: Request, res: Response): Promi
 
 router.post("/tasks", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
-    const { title, description, status, priority, assigneeId, customerName, dueDate, tags } = req.body as {
+    const companyId = getCompanyId(req) ?? "default";
+    const { title, description, status, priority, assigneeId, customerName, dueDate } = req.body as {
       title: string;
       description?: string;
       status?: string;
@@ -90,7 +81,6 @@ router.post("/tasks", requireAuth, async (req: Request, res: Response): Promise<
       assigneeId?: number;
       customerName?: string;
       dueDate?: string;
-      tags?: string[];
     };
 
     if (!title?.trim()) {
@@ -98,27 +88,45 @@ router.post("/tasks", requireAuth, async (req: Request, res: Response): Promise<
       return;
     }
 
+    let assignedTo: string | null = null;
+    if (assigneeId) {
+      const [member] = await db
+        .select()
+        .from(teamMembersTable)
+        .where(eq(teamMembersTable.id, assigneeId))
+        .limit(1);
+      assignedTo = member?.name ?? null;
+    }
+
+    const now   = new Date();
+    const yymm  = `${String(now.getFullYear()).slice(-2)}${String(now.getMonth() + 1).padStart(2, "0")}`;
+    const rand  = Math.floor(Math.random() * 9000) + 1000;
+    const taskNumber = `TASK-${yymm}-${rand}`;
+
     const [task] = await db
-      .insert(tasksTable)
+      .insert(aiTasksTable)
       .values({
+        companyId,
+        taskNumber,
+        source: "manual",
         title:        title.trim(),
         description:  description ?? null,
-        status:       (status as typeof tasksTable.$inferInsert["status"]) ?? "pending",
-        priority:     (priority as typeof tasksTable.$inferInsert["priority"]) ?? "medium",
-        assigneeId:   assigneeId ?? null,
+        status:       status ?? "new_inquiry",
+        priority:     priority ?? "medium",
+        assignedTo,
         customerName: customerName ?? null,
-        dueDate:      dueDate ?? null,
-        tags:         tags ?? [],
+        dueDate:      dueDate ? new Date(dueDate) : null,
       })
       .returning();
 
-    await db.insert(activityTable).values({
-      type:        "task_created",
-      description: `Task #${task.id} dibuat: ${task.title}`,
-      entityId:    task.id,
+    await db.insert(auditLogsTable).values({
+      action:   "task_created",
+      module:   "tasks",
+      before:   `Task #${task.id} dibuat: ${task.title}`,
+      entityId: task.id,
     }).catch(() => {});
 
-    emitSseEvent("task_created", { taskId: task.id }, "default");
+    emitSseEvent("task_created", { taskId: task.id }, companyId);
     res.status(201).json(task);
   } catch (err) {
     logger.error({ err }, "POST /tasks failed");
@@ -133,51 +141,68 @@ router.patch("/tasks/:id", requireAuth, async (req: Request, res: Response): Pro
     const id = Number(req.params.id);
     if (Number.isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
 
-    const [current] = await db.select().from(tasksTable).where(eq(tasksTable.id, id)).limit(1);
+    const companyId = getCompanyId(req) ?? "default";
+    const [current] = await db
+      .select()
+      .from(aiTasksTable)
+      .where(and(eq(aiTasksTable.id, id), eq(aiTasksTable.companyId, companyId)))
+      .limit(1);
     if (!current) { res.status(404).json({ error: "Task not found" }); return; }
 
-    const { status, priority, assigneeId, title, description, dueDate, tags } = req.body as {
+    const { status, priority, assigneeId, title, description, dueDate } = req.body as {
       status?:      string;
       priority?:    string;
       assigneeId?:  number | null;
       title?:       string;
       description?: string;
       dueDate?:     string | null;
-      tags?:        string[];
     };
 
-    const updates: Partial<typeof tasksTable.$inferInsert> = {};
-    if (status      !== undefined) updates.status      = status as typeof tasksTable.$inferInsert["status"];
-    if (priority    !== undefined) updates.priority    = priority as typeof tasksTable.$inferInsert["priority"];
-    if (assigneeId  !== undefined) updates.assigneeId  = assigneeId;
+    const updates: Record<string, unknown> = {};
+    if (status      !== undefined) updates.status      = status;
+    if (priority    !== undefined) updates.priority    = priority;
     if (title       !== undefined) updates.title       = title;
     if (description !== undefined) updates.description = description;
-    if (dueDate     !== undefined) updates.dueDate     = dueDate;
-    if (tags        !== undefined) updates.tags        = tags;
+    if (dueDate     !== undefined) updates.dueDate     = dueDate ? new Date(dueDate) : null;
+
+    let member: { id: number; name: string; phone: string | null } | undefined;
+    if (assigneeId !== undefined) {
+      if (assigneeId === null) {
+        updates.assignedTo = null;
+      } else {
+        const [m] = await db
+          .select()
+          .from(teamMembersTable)
+          .where(eq(teamMembersTable.id, assigneeId))
+          .limit(1);
+        member = m;
+        updates.assignedTo = m?.name ?? null;
+      }
+    }
 
     const [updated] = await db
-      .update(tasksTable)
+      .update(aiTasksTable)
       .set(updates)
-      .where(eq(tasksTable.id, id))
+      .where(and(eq(aiTasksTable.id, id), eq(aiTasksTable.companyId, companyId)))
       .returning();
 
     // ── Activity log ─────────────────────────────────────────────────────────
     const changes: string[] = [];
     if (status   && status   !== current.status)   changes.push(`status: ${current.status} → ${status}`);
     if (priority && priority !== current.priority) changes.push(`prioritas: ${current.priority} → ${priority}`);
-    if (assigneeId !== undefined && assigneeId !== current.assigneeId) changes.push("assignee diubah");
+    if (assigneeId !== undefined && assigneeId !== null) changes.push("assignee diubah");
 
     if (changes.length > 0) {
-      await db.insert(activityTable).values({
-        type:        "task_updated",
-        description: `Task #${id} diperbarui — ${changes.join(", ")}`,
-        entityId:    id,
+      await db.insert(auditLogsTable).values({
+        action:   "task_updated",
+        module:   "tasks",
+        before:   `Task #${id} diperbarui — ${changes.join(", ")}`,
+        entityId: id,
       }).catch(() => {});
     }
 
     // ── WhatsApp notifications (fire-and-forget) ──────────────────────────────
-    const companyId = getCompanyId(req) ?? "default";
-    const taskNumber = `TASK-${String(id).padStart(4, "0")}`;
+    const taskNumber = current.taskNumber ?? `TASK-${String(id).padStart(4, "0")}`;
 
     if (status && status !== current.status) {
       notifyStatusChanged(
@@ -186,7 +211,7 @@ router.patch("/tasks/:id", requireAuth, async (req: Request, res: Response): Pro
           taskNumber,
           title:        updated.title,
           customerName: updated.customerName,
-          customerPhone: null,
+          customerPhone: updated.customerPhone ?? null,
           status:       status,
           priority:     updated.priority,
           companyId,
@@ -195,20 +220,14 @@ router.patch("/tasks/:id", requireAuth, async (req: Request, res: Response): Pro
       ).catch((err) => logger.error({ err }, "Notifikasi status change gagal"));
     }
 
-    if (assigneeId && assigneeId !== current.assigneeId) {
-      const [member] = await db
-        .select()
-        .from(teamMembersTable)
-        .where(eq(teamMembersTable.id, assigneeId))
-        .limit(1);
-
+    if (assigneeId && assigneeId !== null) {
       notifyTaskAssigned(
         {
           taskId:       id,
           taskNumber,
           title:        updated.title,
           customerName: updated.customerName,
-          customerPhone: null,
+          customerPhone: updated.customerPhone ?? null,
           assignedTo:   member?.name ?? null,
           status:       updated.status,
           priority:     updated.priority,
@@ -218,7 +237,7 @@ router.patch("/tasks/:id", requireAuth, async (req: Request, res: Response): Pro
       ).catch((err) => logger.error({ err }, "Notifikasi assign gagal"));
     }
 
-    emitSseEvent("task_updated", { taskId: id }, "default");
+    emitSseEvent("task_updated", { taskId: id }, companyId);
     res.json(updated);
   } catch (err) {
     logger.error({ err }, "PATCH /tasks/:id failed");
@@ -233,16 +252,21 @@ router.delete("/tasks/:id", requireAuth, async (req: Request, res: Response): Pr
     const id = Number(req.params.id);
     if (Number.isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
 
-    const [deleted] = await db.delete(tasksTable).where(eq(tasksTable.id, id)).returning();
+    const companyId = getCompanyId(req) ?? "default";
+    const [deleted] = await db
+      .delete(aiTasksTable)
+      .where(and(eq(aiTasksTable.id, id), eq(aiTasksTable.companyId, companyId)))
+      .returning();
     if (!deleted) { res.status(404).json({ error: "Task not found" }); return; }
 
-    await db.insert(activityTable).values({
-      type:        "task_deleted",
-      description: `Task #${id} dihapus`,
-      entityId:    id,
+    await db.insert(auditLogsTable).values({
+      action:   "task_deleted",
+      module:   "tasks",
+      before:   `Task #${id} dihapus`,
+      entityId: id,
     }).catch(() => {});
 
-    emitSseEvent("task_deleted", { taskId: id }, "default");
+    emitSseEvent("task_deleted", { taskId: id }, companyId);
     res.json({ success: true });
   } catch (err) {
     logger.error({ err }, "DELETE /tasks/:id failed");
@@ -258,7 +282,12 @@ router.patch("/tasks/:id/assign", requireAuth, async (req: Request, res: Respons
     const { assigneeId } = req.body as { assigneeId: number };
     if (Number.isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
 
-    const [task] = await db.select().from(tasksTable).where(eq(tasksTable.id, id)).limit(1);
+    const companyId = getCompanyId(req) ?? "default";
+    const [task] = await db
+      .select()
+      .from(aiTasksTable)
+      .where(and(eq(aiTasksTable.id, id), eq(aiTasksTable.companyId, companyId)))
+      .limit(1);
     if (!task) { res.status(404).json({ error: "Task not found" }); return; }
 
     const [member] = await db
@@ -268,27 +297,27 @@ router.patch("/tasks/:id/assign", requireAuth, async (req: Request, res: Respons
       .limit(1);
 
     const [updated] = await db
-      .update(tasksTable)
-      .set({ assigneeId, status: "open" as typeof tasksTable.$inferInsert["status"] })
-      .where(eq(tasksTable.id, id))
+      .update(aiTasksTable)
+      .set({ assignedTo: member?.name ?? null, status: "in_progress" })
+      .where(and(eq(aiTasksTable.id, id), eq(aiTasksTable.companyId, companyId)))
       .returning();
 
     notifyTaskAssigned(
       {
         taskId:       id,
-        taskNumber:   `TASK-${String(id).padStart(4, "0")}`,
+        taskNumber:   task.taskNumber ?? `TASK-${String(id).padStart(4, "0")}`,
         title:        task.title,
         customerName: task.customerName,
-        customerPhone: null,
+        customerPhone: task.customerPhone ?? null,
         assignedTo:   member?.name ?? null,
-        status:       "open",
+        status:       "in_progress",
         priority:     task.priority,
-        companyId:    getCompanyId(req) ?? "default",
+        companyId,
       },
       member?.phone ?? null,
     ).catch((err) => logger.error({ err }, "Notifikasi assign gagal"));
 
-    emitSseEvent("task_updated", { taskId: id }, "default");
+    emitSseEvent("task_updated", { taskId: id }, companyId);
     res.json({ ...updated, assigneeName: member?.name ?? null });
   } catch (err) {
     logger.error({ err }, "PATCH /tasks/:id/assign failed");

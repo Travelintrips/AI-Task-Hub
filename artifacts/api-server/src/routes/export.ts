@@ -14,7 +14,7 @@ import {
   aiTasksTable,
   whatsappMessagesTable,
   whatsappNotificationsTable,
-  activityTable,
+  auditLogsTable,
 } from "@workspace/db";
 import { requireAuth, getCompanyId } from "../middleware/auth";
 import { logger } from "../lib/logger";
@@ -182,16 +182,16 @@ async function buildActivitySheet(companyId: string | null) {
   void companyId;
   const rows = await db
     .select()
-    .from(activityTable)
-    .orderBy(desc(activityTable.createdAt))
+    .from(auditLogsTable)
+    .orderBy(desc(auditLogsTable.createdAt))
     .limit(2000);
 
   const data = [
-    ["No", "Tipe", "Deskripsi", "Entity ID", "Waktu"],
+    ["No", "Aksi", "Detail", "Entity ID", "Waktu"],
     ...rows.map((r, i) => [
       i + 1,
-      r.type,
-      r.description ?? "",
+      r.action,
+      r.before ?? "",
       r.entityId ?? "",
       formatDate(r.createdAt),
     ]),
