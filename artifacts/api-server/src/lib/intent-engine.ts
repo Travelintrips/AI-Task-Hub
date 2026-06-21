@@ -166,6 +166,10 @@ export function invalidateCustomerMemoryCache(companyId: string, customerId: num
   memoryCache.delete(`${companyId}:${customerId}`);
 }
 
+// ─── Vendor Memory (Sprint 5B) — re-exported from vendor-memory.ts ────────────
+// These are thin re-exports so other modules can import from one place.
+export { loadVendorMemory, invalidateVendorMemoryCache } from "./vendor-memory";
+
 // ─── Cache loaders ────────────────────────────────────────────────────────────
 
 async function loadIntents(companyId: string): Promise<IntentMaster[]> {

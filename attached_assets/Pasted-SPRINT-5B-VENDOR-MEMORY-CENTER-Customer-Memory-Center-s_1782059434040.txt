@@ -1,0 +1,388 @@
+SPRINT 5B — VENDOR MEMORY CENTER
+
+Customer Memory Center sudah selesai dan tervalidasi.
+
+Sekarang bangun Vendor Memory Center dengan prinsip yang sama:
+
+* additive only
+* tidak mengubah workflow existing
+* tidak mengubah source of truth
+* semua memory harus berasal dari data operasional yang sudah ada
+
+====================================================
+OBJECTIVE
+=========
+
+AI harus dapat menjawab:
+
+* vendor mana paling cocok untuk pekerjaan tertentu
+* vendor mana paling murah
+* vendor mana paling cepat
+* vendor mana paling responsif
+* vendor mana paling sering menang RFQ
+* vendor mana paling cocok untuk route tertentu
+* vendor mana yang berisiko tinggi
+* vendor mana yang dokumennya sudah kadaluarsa
+
+Vendor Memory harus digunakan oleh:
+
+* RFQ
+* Vendor Comparison
+* Quotation Engine
+* AI Task Detail
+* Dispatcher
+* Future Purchasing Intelligence
+
+====================================================
+PHASE 1 — SCHEMA & DATABASE
+===========================
+
+Create new tables:
+
+1. vendor_performance_snapshots
+2. vendor_price_history
+3. vendor_capabilities
+4. vendor_document_registry
+5. vendor_risk_assessments
+6. vendor_memory_snapshots
+7. vendor_memory_events
+
+Extend existing vendor_profiles:
+
+Add:
+
+preferred_contact_method
+preferred_language
+
+service_categories text[]
+coverage_regions text[]
+
+risk_score integer
+risk_tier text
+
+memory_updated_at timestamp
+
+====================================================
+PHASE 2 — PERFORMANCE MEMORY
+============================
+
+Create Vendor Performance Engine.
+
+Aggregate from:
+
+* vendor_fulfillments
+* vendor_job_orders
+* vendor_performance
+* vendor_quotations
+* vendor_invoices
+
+Calculate:
+
+jobs_total
+jobs_completed
+jobs_cancelled
+
+on_time_rate
+response_rate
+
+avg_response_hours
+avg_completion_days
+
+quotation_win_rate
+
+customer_rating_avg
+
+performance_score
+
+Store daily snapshot.
+
+====================================================
+PHASE 3 — PRICING MEMORY
+========================
+
+Create Vendor Pricing Memory.
+
+Source:
+
+* vendor_quotations
+* logistic_order_quotes
+* ocean_freight_rate_submissions
+
+Store:
+
+service_type
+origin
+destination
+
+quoted_price
+currency
+
+won
+lost
+
+quotation_id
+
+AI must be able to answer:
+
+* average price
+* lowest price
+* highest price
+* recent trend
+
+====================================================
+PHASE 4 — CAPABILITY MEMORY
+===========================
+
+Create Vendor Capability Engine.
+
+Store:
+
+service_type
+cargo_type
+
+dangerous_goods
+cold_chain
+
+max_weight
+
+origin_country
+destination_country
+
+confidence_score
+
+Capability can come from:
+
+* manual input
+* vendor forms
+* AI inference from completed jobs
+
+====================================================
+PHASE 5 — DOCUMENT & COMPLIANCE
+===============================
+
+Create Vendor Document Registry.
+
+Track:
+
+NIB
+NPWP
+SIUJPT
+ISO
+IATA
+NVOCC
+Insurance
+Business License
+
+Fields:
+
+document_type
+expiry_date
+
+verified
+verified_by
+
+risk_level
+
+AI must flag:
+
+* expired documents
+* expiring within 30 days
+* missing mandatory documents
+
+====================================================
+PHASE 6 — RISK MEMORY
+=====================
+
+Create vendor_risk_assessments.
+
+Risk factors:
+
+late_delivery
+high_claim_rate
+poor_response
+expired_documents
+frequent_cancellations
+customer_complaints
+
+Fields:
+
+risk_score
+risk_tier
+
+factors jsonb
+
+recommendation
+
+Risk assessment must be immutable.
+
+New assessment:
+
+* archive previous active assessment
+* create new active assessment
+
+====================================================
+PHASE 7 — AI CONTEXT SNAPSHOT
+=============================
+
+Create vendor_memory_snapshots.
+
+Store:
+
+performance_score
+risk_tier
+
+frequent_services
+best_routes
+
+avg_price
+
+recent_issues
+
+freshness_score
+
+valid_until
+
+ai_context_block
+
+Create refresh endpoint.
+
+Cache TTL:
+10 minutes
+
+Expired snapshot:
+treated as stale
+
+====================================================
+PHASE 8 — API
+=============
+
+Create endpoints:
+
+GET  /vendors/:id/memory
+GET  /vendors/:id/performance
+GET  /vendors/:id/pricing
+GET  /vendors/:id/capabilities
+GET  /vendors/:id/documents
+GET  /vendors/:id/risk
+GET  /vendors/:id/ai-context
+
+POST /vendors/:id/ai-context/refresh
+
+CRUD:
+
+capabilities
+documents
+risk_assessments
+
+====================================================
+PHASE 9 — FRONTEND
+==================
+
+Create:
+
+/vendors/:id/memory
+
+Tabs:
+
+1. Profile
+2. Performance
+3. Pricing
+4. Capability
+5. Documents
+6. Risk
+7. AI Context
+
+Add button:
+
+"Vendor Memory"
+
+inside Vendor Detail page.
+
+====================================================
+PHASE 10 — AI INTEGRATION
+=========================
+
+Create:
+
+loadVendorMemory()
+
+Intent Engine and future RFQ engine can consume:
+
+VendorMemoryContext
+
+containing:
+
+performance
+pricing
+capabilities
+risk
+documents
+snapshot
+
+AI Context must support:
+
+recommended vendor ranking
+
+====================================================
+PHASE 11 — TASK DETAIL INTEGRATION
+==================================
+
+In Task Detail sidebar:
+
+Add section:
+
+Vendor Suggestions
+
+Show:
+
+Vendor Name
+Performance Score
+Risk Tier
+Response Rate
+Average Price
+Best Routes
+
+Top 3 recommendations.
+
+====================================================
+PHASE 12 — AUDIT & EVENTS
+=========================
+
+Create vendor_memory_events.
+
+Track:
+
+snapshot_generated
+risk_assessed
+document_registered
+capability_updated
+performance_refreshed
+
+All actions logged.
+
+====================================================
+VALIDATION
+==========
+
+Run:
+
+* backend typecheck
+* frontend typecheck
+* API smoke tests
+* snapshot refresh tests
+* risk lifecycle tests
+* document expiry tests
+
+Output:
+
+1. tables created
+2. endpoints created
+3. files changed
+4. typecheck result
+5. test scenarios
+6. readiness score
+
+Do not build Fleet Memory yet.
+Do not build Purchasing Intelligence yet.
+
+Complete Vendor Memory first.

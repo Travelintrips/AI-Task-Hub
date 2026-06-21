@@ -59,6 +59,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
     { name: "AI Training",   href: "/training",          icon: FlaskConical },
     { name: "AI Observability", href: "/ai-observability", icon: Activity },
     { name: "CRM",          href: "/crm",               icon: Building2 },
+    { name: "Vendors",     href: "/vendors",           icon: TrendingUp },
     { name: "Quotation",   href: "/quotations",        icon: DollarSign },
     { name: "Laporan",     href: "/reports",           icon: TrendingUp },
     { name: "Notifikasi",  href: "/notifications",     icon: Bell },

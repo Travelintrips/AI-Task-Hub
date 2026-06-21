@@ -37,6 +37,8 @@ import GovernancePage from "@/pages/governance";
 import TrainingPage from "@/pages/training";
 import AiObservabilityPage from "@/pages/ai-observability";
 import CustomerMemoryPage from "@/pages/customer-memory";
+import VendorsPage from "@/pages/vendors";
+import VendorMemoryPage from "@/pages/vendor-memory";
 
 const queryClient = new QueryClient();
 
@@ -88,6 +90,8 @@ function AppRouter() {
         <Route path="/training" component={TrainingPage} />
         <Route path="/ai-observability" component={AiObservabilityPage} />
         <Route path="/crm/customers/:id/memory" component={CustomerMemoryPage} />
+        <Route path="/vendors" component={VendorsPage} />
+        <Route path="/vendors/:id/memory" component={VendorMemoryPage} />
         <Route component={NotFound} />
       </Switch>
     </AppLayout>

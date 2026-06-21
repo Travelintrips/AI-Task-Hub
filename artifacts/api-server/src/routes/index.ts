@@ -30,6 +30,7 @@ import governanceRouter from "./governance";
 import trainingRouter from "./training";
 import observabilityRouter from "./observability";
 import customerMemoryRouter from "./customer-memory";
+import vendorMemoryRouter from "./vendor-memory";
 import { extractUser } from "../middleware/auth";
 
 const router: IRouter = Router();
@@ -71,5 +72,6 @@ router.use(governanceRouter);
 router.use(trainingRouter);
 router.use(observabilityRouter);
 router.use(customerMemoryRouter);
+router.use(vendorMemoryRouter);
 
 export default router;
