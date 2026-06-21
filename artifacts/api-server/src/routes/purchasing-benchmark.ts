@@ -28,7 +28,7 @@ function cid(req: Request): string { return req.user?.companyId ?? "default"; }
 
 // ── GET /api/purchasing/benchmark ─────────────────────────────────────────────
 
-router.get("/api/purchasing/benchmark", requireAuth, requireRole("supervisor"), async (req: Request, res: Response) => {
+router.get("/purchasing/benchmark", requireAuth, requireRole("supervisor"), async (req: Request, res: Response) => {
   try {
     const { serviceCategory, vendorId, limit = "50" } = req.query as Record<string, string>;
     const companyId = cid(req);
@@ -53,7 +53,7 @@ router.get("/api/purchasing/benchmark", requireAuth, requireRole("supervisor"), 
 
 // ── GET /api/purchasing/benchmark/lookup ──────────────────────────────────────
 
-router.get("/api/purchasing/benchmark/lookup", requireAuth, async (req: Request, res: Response) => {
+router.get("/purchasing/benchmark/lookup", requireAuth, async (req: Request, res: Response) => {
   try {
     const { serviceCategory, vendorId, origin, destination } = req.query as Record<string, string>;
     const companyId = cid(req);
@@ -104,7 +104,7 @@ router.get("/api/purchasing/benchmark/lookup", requireAuth, async (req: Request,
 
 // ── POST /api/purchasing/benchmark/refresh ────────────────────────────────────
 
-router.post("/api/purchasing/benchmark/refresh", requireAuth, requireRole("company_admin"), async (req: Request, res: Response) => {
+router.post("/purchasing/benchmark/refresh", requireAuth, requireRole("company_admin"), async (req: Request, res: Response) => {
   try {
     const companyId = cid(req);
     const result = await refreshPriceBenchmarks(companyId);
@@ -127,7 +127,7 @@ router.post("/api/purchasing/benchmark/refresh", requireAuth, requireRole("compa
 
 // ── GET /api/purchasing/contract-rates ────────────────────────────────────────
 
-router.get("/api/purchasing/contract-rates", requireAuth, requireRole("supervisor"), async (req: Request, res: Response) => {
+router.get("/purchasing/contract-rates", requireAuth, requireRole("supervisor"), async (req: Request, res: Response) => {
   try {
     const { vendorId, serviceCategory, activeOnly = "true" } = req.query as Record<string, string>;
     const companyId = cid(req);
@@ -152,7 +152,7 @@ router.get("/api/purchasing/contract-rates", requireAuth, requireRole("superviso
 
 // ── POST /api/purchasing/contract-rates ───────────────────────────────────────
 
-router.post("/api/purchasing/contract-rates", requireAuth, requireRole("company_admin"), async (req: Request, res: Response) => {
+router.post("/purchasing/contract-rates", requireAuth, requireRole("company_admin"), async (req: Request, res: Response) => {
   try {
     const companyId = cid(req);
     const {
@@ -202,7 +202,7 @@ router.post("/api/purchasing/contract-rates", requireAuth, requireRole("company_
 
 // ── PATCH /api/purchasing/contract-rates/:id ──────────────────────────────────
 
-router.patch("/api/purchasing/contract-rates/:id", requireAuth, requireRole("company_admin"), async (req: Request, res: Response) => {
+router.patch("/purchasing/contract-rates/:id", requireAuth, requireRole("company_admin"), async (req: Request, res: Response) => {
   try {
     const companyId = cid(req);
     const [before] = await db.select().from(vendorContractRatesTable)
@@ -232,7 +232,7 @@ router.patch("/api/purchasing/contract-rates/:id", requireAuth, requireRole("com
 
 // ── DELETE /api/purchasing/contract-rates/:id ─────────────────────────────────
 
-router.delete("/api/purchasing/contract-rates/:id", requireAuth, requireRole("company_admin"), async (req: Request, res: Response) => {
+router.delete("/purchasing/contract-rates/:id", requireAuth, requireRole("company_admin"), async (req: Request, res: Response) => {
   try {
     const companyId = cid(req);
     const [row] = await db.select().from(vendorContractRatesTable)

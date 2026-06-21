@@ -15,7 +15,7 @@ import { scoreMarginImpact } from "../lib/purchasing-engine";
 const router: IRouter = Router();
 function cid(req: Request): string { return req.user?.companyId ?? "default"; }
 
-router.get("/api/purchasing/requests/:id/margin-impact", requireAuth, async (req: Request, res: Response) => {
+router.get("/purchasing/requests/:id/margin-impact", requireAuth, async (req: Request, res: Response) => {
   try {
     const companyId = cid(req);
     const [lpr] = await db

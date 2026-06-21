@@ -23,7 +23,7 @@ function cid(req: Request): string { return req.user?.companyId ?? "default"; }
 
 // ── GET /api/purchasing/budget/summary ────────────────────────────────────────
 
-router.get("/api/purchasing/budget/summary", requireAuth, requireRole("supervisor"), async (req: Request, res: Response) => {
+router.get("/purchasing/budget/summary", requireAuth, requireRole("supervisor"), async (req: Request, res: Response) => {
   try {
     const companyId = cid(req);
     const now = new Date();
@@ -65,7 +65,7 @@ router.get("/api/purchasing/budget/summary", requireAuth, requireRole("superviso
 
 // ── GET /api/purchasing/requests/:id/budget-impact ────────────────────────────
 
-router.get("/api/purchasing/requests/:id/budget-impact", requireAuth, async (req: Request, res: Response) => {
+router.get("/purchasing/requests/:id/budget-impact", requireAuth, async (req: Request, res: Response) => {
   try {
     const companyId = cid(req);
     const [lpr] = await db
@@ -96,7 +96,7 @@ router.get("/api/purchasing/requests/:id/budget-impact", requireAuth, async (req
 
 // ── POST /api/purchasing/budget/refresh ───────────────────────────────────────
 
-router.post("/api/purchasing/budget/refresh", requireAuth, requireRole("company_admin"), async (req: Request, res: Response) => {
+router.post("/purchasing/budget/refresh", requireAuth, requireRole("company_admin"), async (req: Request, res: Response) => {
   try {
     const companyId = cid(req);
     const now = new Date();

@@ -159,7 +159,7 @@ async function runAndPersistEvaluation(
 
 // ── POST /api/purchasing/requests ─────────────────────────────────────────────
 
-router.post("/api/purchasing/requests", requireAuth, async (req: Request, res: Response) => {
+router.post("/purchasing/requests", requireAuth, async (req: Request, res: Response) => {
   try {
     const companyId = cid(req);
     const {
@@ -218,7 +218,7 @@ router.post("/api/purchasing/requests", requireAuth, async (req: Request, res: R
 
 // ── GET /api/purchasing/requests ──────────────────────────────────────────────
 
-router.get("/api/purchasing/requests", requireAuth, async (req: Request, res: Response) => {
+router.get("/purchasing/requests", requireAuth, async (req: Request, res: Response) => {
   try {
     const companyId = cid(req);
     const { status, riskTier, vendorId, limit = "50", offset = "0", search } = req.query as Record<string, string>;
@@ -257,7 +257,7 @@ router.get("/api/purchasing/requests", requireAuth, async (req: Request, res: Re
 
 // ── GET /api/purchasing/requests/:id ─────────────────────────────────────────
 
-router.get("/api/purchasing/requests/:id", requireAuth, async (req: Request, res: Response) => {
+router.get("/purchasing/requests/:id", requireAuth, async (req: Request, res: Response) => {
   try {
     const [row] = await db
       .select()
@@ -276,7 +276,7 @@ router.get("/api/purchasing/requests/:id", requireAuth, async (req: Request, res
 
 // ── GET /api/purchasing/requests/:id/intel ────────────────────────────────────
 
-router.get("/api/purchasing/requests/:id/intel", requireAuth, async (req: Request, res: Response) => {
+router.get("/purchasing/requests/:id/intel", requireAuth, async (req: Request, res: Response) => {
   try {
     const signals = await db
       .select()
@@ -292,7 +292,7 @@ router.get("/api/purchasing/requests/:id/intel", requireAuth, async (req: Reques
 
 // ── POST /api/purchasing/requests/:id/evaluate ────────────────────────────────
 
-router.post("/api/purchasing/requests/:id/evaluate", requireAuth, requireRole("supervisor"), async (req: Request, res: Response) => {
+router.post("/purchasing/requests/:id/evaluate", requireAuth, requireRole("supervisor"), async (req: Request, res: Response) => {
   try {
     const [lpr] = await db
       .select()
@@ -325,7 +325,7 @@ router.post("/api/purchasing/requests/:id/evaluate", requireAuth, requireRole("s
 
 // ── PATCH /api/purchasing/requests/:id/status ─────────────────────────────────
 
-router.patch("/api/purchasing/requests/:id/status", requireAuth, async (req: Request, res: Response) => {
+router.patch("/purchasing/requests/:id/status", requireAuth, async (req: Request, res: Response) => {
   try {
     const companyId = cid(req);
     const { status, notes } = req.body as { status: string; notes?: string };
@@ -381,7 +381,7 @@ router.patch("/api/purchasing/requests/:id/status", requireAuth, async (req: Req
 
 // ── GET /api/purchasing/duplicates ────────────────────────────────────────────
 
-router.get("/api/purchasing/duplicates", requireAuth, requireRole("supervisor"), async (req: Request, res: Response) => {
+router.get("/purchasing/duplicates", requireAuth, requireRole("supervisor"), async (req: Request, res: Response) => {
   try {
     const rows = await db
       .select()
@@ -400,7 +400,7 @@ router.get("/api/purchasing/duplicates", requireAuth, requireRole("supervisor"),
 
 // ── POST /api/purchasing/requests/:id/check-duplicate ─────────────────────────
 
-router.post("/api/purchasing/requests/:id/check-duplicate", requireAuth, async (req: Request, res: Response) => {
+router.post("/purchasing/requests/:id/check-duplicate", requireAuth, async (req: Request, res: Response) => {
   try {
     const [lpr] = await db
       .select()
@@ -435,7 +435,7 @@ router.post("/api/purchasing/requests/:id/check-duplicate", requireAuth, async (
 
 // ── POST /api/purchasing/signals/ingest ───────────────────────────────────────
 
-router.post("/api/purchasing/signals/ingest", requireAuth, requireRole("company_admin"), async (req: Request, res: Response) => {
+router.post("/purchasing/signals/ingest", requireAuth, requireRole("company_admin"), async (req: Request, res: Response) => {
   try {
     const result = await ingestPurchasingSignals(cid(req));
 
@@ -457,7 +457,7 @@ router.post("/api/purchasing/signals/ingest", requireAuth, requireRole("company_
 
 // ── GET /api/purchasing/signals ───────────────────────────────────────────────
 
-router.get("/api/purchasing/signals", requireAuth, requireRole("supervisor"), async (req: Request, res: Response) => {
+router.get("/purchasing/signals", requireAuth, requireRole("supervisor"), async (req: Request, res: Response) => {
   try {
     const { limit = "100" } = req.query as Record<string, string>;
     const rows = await db

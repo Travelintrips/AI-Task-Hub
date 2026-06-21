@@ -29,7 +29,7 @@ function cid(req: Request): string { return req.user?.companyId ?? "default"; }
 
 // ── GET /api/purchasing/requests/:id/approval-advice ─────────────────────────
 
-router.get("/api/purchasing/requests/:id/approval-advice", requireAuth, async (req: Request, res: Response) => {
+router.get("/purchasing/requests/:id/approval-advice", requireAuth, async (req: Request, res: Response) => {
   try {
     const companyId = cid(req);
     const [lpr] = await db
@@ -97,7 +97,7 @@ router.get("/api/purchasing/requests/:id/approval-advice", requireAuth, async (r
 
 // ── POST /api/purchasing/requests/:id/submit-for-approval ─────────────────────
 
-router.post("/api/purchasing/requests/:id/submit-for-approval", requireAuth, async (req: Request, res: Response) => {
+router.post("/purchasing/requests/:id/submit-for-approval", requireAuth, async (req: Request, res: Response) => {
   try {
     const companyId = cid(req);
     const [lpr] = await db
@@ -183,7 +183,7 @@ router.post("/api/purchasing/requests/:id/submit-for-approval", requireAuth, asy
 
 // ── POST /api/purchasing/approval-requests/:approvalId/decide ─────────────────
 
-router.post("/api/purchasing/approval-requests/:approvalId/decide", requireAuth, requireRole("company_admin"), async (req: Request, res: Response) => {
+router.post("/purchasing/approval-requests/:approvalId/decide", requireAuth, requireRole("company_admin"), async (req: Request, res: Response) => {
   try {
     const companyId = cid(req);
     const approvalId = parseInt(req.params.approvalId as string);
@@ -254,7 +254,7 @@ router.post("/api/purchasing/approval-requests/:approvalId/decide", requireAuth,
 
 // ── GET /api/purchasing/approval-requests ─────────────────────────────────────
 
-router.get("/api/purchasing/approval-requests", requireAuth, requireRole("supervisor"), async (req: Request, res: Response) => {
+router.get("/purchasing/approval-requests", requireAuth, requireRole("supervisor"), async (req: Request, res: Response) => {
   try {
     const { status = "pending" } = req.query as Record<string, string>;
 
