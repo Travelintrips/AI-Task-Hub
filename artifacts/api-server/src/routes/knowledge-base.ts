@@ -176,7 +176,7 @@ router.post("/knowledge-base/simulator", requireAuth, async (req: Request, res: 
 
 // ─── POST /api/knowledge-base/cache/reload ────────────────────────────────────
 
-router.post("/knowledge-base/cache/reload", requireAuth, requireRole("supervisor"), async (req: Request, res: Response): Promise<void> => {
+router.post("/knowledge-base/cache/reload", requireAuth, requireRole("company_admin"), async (req: Request, res: Response): Promise<void> => {
   try {
     res.json({ success: true, reloadedAt: new Date().toISOString(), message: "Cache knowledge base berhasil di-reload" });
   } catch (err) {
@@ -215,7 +215,7 @@ router.get("/intent-master", requireAuth, async (req: Request, res: Response): P
   }
 });
 
-router.post("/intent-master", requireAuth, requireRole("supervisor"), async (req: Request, res: Response): Promise<void> => {
+router.post("/intent-master", requireAuth, requireRole("company_admin"), async (req: Request, res: Response): Promise<void> => {
   try {
     const companyId = coIdWrite(req);
     const body = { ...req.body, companyId } as typeof intentMasterTable.$inferInsert;
@@ -227,7 +227,7 @@ router.post("/intent-master", requireAuth, requireRole("supervisor"), async (req
   }
 });
 
-router.patch("/intent-master/:id", requireAuth, requireRole("supervisor"), async (req: Request, res: Response): Promise<void> => {
+router.patch("/intent-master/:id", requireAuth, requireRole("company_admin"), async (req: Request, res: Response): Promise<void> => {
   try {
     const id = Number(req.params.id);
     const [row] = await db.update(intentMasterTable)
@@ -282,7 +282,7 @@ router.get("/keyword-rules", requireAuth, async (req: Request, res: Response): P
   }
 });
 
-router.post("/keyword-rules", requireAuth, requireRole("supervisor"), async (req: Request, res: Response): Promise<void> => {
+router.post("/keyword-rules", requireAuth, requireRole("company_admin"), async (req: Request, res: Response): Promise<void> => {
   try {
     const companyId = coIdWrite(req);
     const body = { ...req.body, companyId } as typeof keywordRulesTable.$inferInsert;
@@ -294,7 +294,7 @@ router.post("/keyword-rules", requireAuth, requireRole("supervisor"), async (req
   }
 });
 
-router.patch("/keyword-rules/:id", requireAuth, requireRole("supervisor"), async (req: Request, res: Response): Promise<void> => {
+router.patch("/keyword-rules/:id", requireAuth, requireRole("company_admin"), async (req: Request, res: Response): Promise<void> => {
   try {
     const id = Number(req.params.id);
     const [row] = await db.update(keywordRulesTable)
@@ -350,7 +350,7 @@ router.get("/service-catalog", requireAuth, async (req: Request, res: Response):
   }
 });
 
-router.post("/service-catalog", requireAuth, requireRole("supervisor"), async (req: Request, res: Response): Promise<void> => {
+router.post("/service-catalog", requireAuth, requireRole("company_admin"), async (req: Request, res: Response): Promise<void> => {
   try {
     const companyId = coIdWrite(req);
     const body = { ...req.body, companyId } as typeof serviceCatalogTable.$inferInsert;
@@ -362,7 +362,7 @@ router.post("/service-catalog", requireAuth, requireRole("supervisor"), async (r
   }
 });
 
-router.patch("/service-catalog/:id", requireAuth, requireRole("supervisor"), async (req: Request, res: Response): Promise<void> => {
+router.patch("/service-catalog/:id", requireAuth, requireRole("company_admin"), async (req: Request, res: Response): Promise<void> => {
   try {
     const id = Number(req.params.id);
     const [row] = await db.update(serviceCatalogTable)
@@ -416,7 +416,7 @@ router.get("/data-templates", requireAuth, async (req: Request, res: Response): 
   }
 });
 
-router.post("/data-templates", requireAuth, requireRole("supervisor"), async (req: Request, res: Response): Promise<void> => {
+router.post("/data-templates", requireAuth, requireRole("company_admin"), async (req: Request, res: Response): Promise<void> => {
   try {
     const companyId = coIdWrite(req);
     const { fields, ...rest } = req.body as { fields?: typeof dataTemplateFieldsTable.$inferInsert[]; [k: string]: unknown };
@@ -431,7 +431,7 @@ router.post("/data-templates", requireAuth, requireRole("supervisor"), async (re
   }
 });
 
-router.patch("/data-templates/:id", requireAuth, requireRole("supervisor"), async (req: Request, res: Response): Promise<void> => {
+router.patch("/data-templates/:id", requireAuth, requireRole("company_admin"), async (req: Request, res: Response): Promise<void> => {
   try {
     const id = Number(req.params.id);
     const { fields, ...rest } = req.body as { fields?: unknown; [k: string]: unknown };
@@ -462,7 +462,7 @@ router.delete("/data-templates/:id", requireAuth, requireRole("company_admin"), 
   }
 });
 
-router.post("/data-templates/:id/fields", requireAuth, requireRole("supervisor"), async (req: Request, res: Response): Promise<void> => {
+router.post("/data-templates/:id/fields", requireAuth, requireRole("company_admin"), async (req: Request, res: Response): Promise<void> => {
   try {
     const templateId = Number(req.params.id);
     const [row] = await db.insert(dataTemplateFieldsTable)
@@ -475,7 +475,7 @@ router.post("/data-templates/:id/fields", requireAuth, requireRole("supervisor")
   }
 });
 
-router.delete("/data-templates/:id/fields/:fieldId", requireAuth, requireRole("supervisor"), async (req: Request, res: Response): Promise<void> => {
+router.delete("/data-templates/:id/fields/:fieldId", requireAuth, requireRole("company_admin"), async (req: Request, res: Response): Promise<void> => {
   try {
     const fieldId = Number(req.params.fieldId);
     await db.delete(dataTemplateFieldsTable).where(eq(dataTemplateFieldsTable.id, fieldId));
@@ -514,7 +514,7 @@ router.get("/document-templates", requireAuth, async (req: Request, res: Respons
   }
 });
 
-router.post("/document-templates", requireAuth, requireRole("supervisor"), async (req: Request, res: Response): Promise<void> => {
+router.post("/document-templates", requireAuth, requireRole("company_admin"), async (req: Request, res: Response): Promise<void> => {
   try {
     const companyId = coIdWrite(req);
     const { fields, ...rest } = req.body as { fields?: typeof documentTemplateFieldsTable.$inferInsert[]; [k: string]: unknown };
@@ -529,7 +529,7 @@ router.post("/document-templates", requireAuth, requireRole("supervisor"), async
   }
 });
 
-router.patch("/document-templates/:id", requireAuth, requireRole("supervisor"), async (req: Request, res: Response): Promise<void> => {
+router.patch("/document-templates/:id", requireAuth, requireRole("company_admin"), async (req: Request, res: Response): Promise<void> => {
   try {
     const id = Number(req.params.id);
     const { fields, ...rest } = req.body as { fields?: unknown; [k: string]: unknown };
@@ -560,7 +560,7 @@ router.delete("/document-templates/:id", requireAuth, requireRole("company_admin
   }
 });
 
-router.post("/document-templates/:id/fields", requireAuth, requireRole("supervisor"), async (req: Request, res: Response): Promise<void> => {
+router.post("/document-templates/:id/fields", requireAuth, requireRole("company_admin"), async (req: Request, res: Response): Promise<void> => {
   try {
     const templateId = Number(req.params.id);
     const [row] = await db.insert(documentTemplateFieldsTable)
@@ -573,7 +573,7 @@ router.post("/document-templates/:id/fields", requireAuth, requireRole("supervis
   }
 });
 
-router.delete("/document-templates/:id/fields/:fieldId", requireAuth, requireRole("supervisor"), async (req: Request, res: Response): Promise<void> => {
+router.delete("/document-templates/:id/fields/:fieldId", requireAuth, requireRole("company_admin"), async (req: Request, res: Response): Promise<void> => {
   try {
     const fieldId = Number(req.params.fieldId);
     await db.delete(documentTemplateFieldsTable).where(eq(documentTemplateFieldsTable.id, fieldId));

@@ -930,7 +930,7 @@ export default function KnowledgeBasePage() {
 
   const role        = user?.role ?? "staff";
   const isSuperAdmin = role === "super_admin";
-  const canEdit      = ["super_admin", "company_admin", "supervisor"].includes(role);
+  const canEdit      = ["super_admin", "company_admin"].includes(role);
 
   const { data: stats, isLoading: statsLoading } = useQuery({ queryKey: ["kb-stats"], queryFn: api.stats, staleTime: 30_000 });
 
