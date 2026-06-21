@@ -37,6 +37,7 @@ import {
   Shield,
   FlaskConical,
   ShoppingCart,
+  Sparkles,
 } from "lucide-react";
 import { NotificationsBell } from "@/components/notifications-bell";
 import { useAuth } from "@/contexts/auth-context";
@@ -62,6 +63,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
     { name: "CRM",          href: "/crm",               icon: Building2 },
     { name: "Vendors",     href: "/vendors",           icon: TrendingUp },
     { name: "Purchasing",  href: "/purchasing-intelligence", icon: ShoppingCart },
+    { name: "Exec Intelligence", href: "/executive-intelligence", icon: Sparkles },
     { name: "Quotation",   href: "/quotations",        icon: DollarSign },
     { name: "Laporan",     href: "/reports",           icon: TrendingUp },
     { name: "Notifikasi",  href: "/notifications",     icon: Bell },

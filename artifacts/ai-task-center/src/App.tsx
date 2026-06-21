@@ -39,6 +39,7 @@ import AiObservabilityPage from "@/pages/ai-observability";
 import CustomerMemoryPage from "@/pages/customer-memory";
 import VendorsPage from "@/pages/vendors";
 import VendorMemoryPage from "@/pages/vendor-memory";
+import ExecutiveIntelligencePage from "@/pages/executive-intelligence";
 import PurchasingIntelligencePage from "@/pages/purchasing-intelligence";
 
 const queryClient = new QueryClient();
@@ -94,6 +95,7 @@ function AppRouter() {
         <Route path="/vendors" component={VendorsPage} />
         <Route path="/vendors/:id/memory" component={VendorMemoryPage} />
         <Route path="/purchasing-intelligence" component={PurchasingIntelligencePage} />
+        <Route path="/executive-intelligence" component={ExecutiveIntelligencePage} />
         <Route component={NotFound} />
       </Switch>
     </AppLayout>

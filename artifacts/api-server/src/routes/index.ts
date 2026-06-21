@@ -37,6 +37,7 @@ import purchasingBenchmarkRouter from "./purchasing-benchmark";
 import purchasingBudgetRouter from "./purchasing-budget";
 import purchasingMarginRouter from "./purchasing-margin";
 import purchasingApprovalRouter from "./purchasing-approval";
+import executiveIntelligenceRouter from "./executive-intelligence";
 import { extractUser } from "../middleware/auth";
 
 const router: IRouter = Router();
@@ -85,5 +86,6 @@ router.use(purchasingBenchmarkRouter);
 router.use(purchasingBudgetRouter);
 router.use(purchasingMarginRouter);
 router.use(purchasingApprovalRouter);
+router.use(executiveIntelligenceRouter);
 
 export default router;
