@@ -21,12 +21,23 @@ export const customersTable = pgTable("customers", {
   totalDocuments: integer("total_documents").notNull().default(0),
   aiSummary: text("ai_summary"),
   lastTaskAt: timestamp("last_task_at", { withTimezone: true }),
+
+  // ── Sprint 5A: Memory fields (non-financial) ───────────────────────────────
+  preferredChannel: text("preferred_channel"),   // whatsapp|email|phone
+  preferredLanguage: text("preferred_language"), // id|en
+  typicalCargoTypes: text("typical_cargo_types").array(), // ['elektronik','kimia']
+  typicalRoutes: text("typical_routes").array(),          // ['Jakarta-Surabaya']
+  riskScore: integer("risk_score"),              // 0-100, mirrored from active risk assessment
+  riskTier: text("risk_tier"),                   // low|medium|high|blocked
+  memoryUpdatedAt: timestamp("memory_updated_at", { withTimezone: true }),
+
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (t) => [
   index("customers_company_idx").on(t.companyId),
   index("customers_whatsapp_idx").on(t.whatsapp),
   index("customers_company_name_idx").on(t.companyName),
+  index("customers_risk_tier_idx").on(t.companyId, t.riskTier),
 ]);
 
 export const insertCustomerSchema = createInsertSchema(customersTable).omit({ id: true, createdAt: true, updatedAt: true });

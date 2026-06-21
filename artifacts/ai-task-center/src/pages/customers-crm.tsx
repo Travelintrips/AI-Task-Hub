@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Building2, Plus, Search, Phone, Mail, FileText, Edit, Trash2, X, ChevronRight, Users2 } from "lucide-react";
+import { Building2, Plus, Search, Phone, Mail, FileText, Edit, Trash2, X, ChevronRight, Users2, Brain, Shield } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -117,6 +117,9 @@ export default function CustomersCrm() {
                 {c.address && <p className="text-xs text-muted-foreground line-clamp-1">{c.address}</p>}
                 <div className="flex gap-2 pt-2">
                   <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={() => openEdit(c)}><Edit className="h-3 w-3 mr-1" /> Edit</Button>
+                  <Link href={`/crm/customers/${c.id}/memory`}>
+                    <Button variant="outline" size="sm" className="h-7 text-xs text-purple-600 border-purple-200 hover:bg-purple-50"><Brain className="h-3 w-3 mr-1" />Memory</Button>
+                  </Link>
                   <Button variant="ghost" size="sm" className="h-7 text-xs text-destructive hover:bg-destructive/10" onClick={() => { if (confirm("Hapus customer ini?")) deleteMut.mutate(c.id); }}><Trash2 className="h-3 w-3" /></Button>
                 </div>
               </CardContent>

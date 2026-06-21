@@ -29,3 +29,5 @@ export * from "./document_templates";
 export * from "./governance";
 // ── Sprint 4B new tables ────────────────────────────────────────────────────
 export * from "./training";
+// ── Sprint 5A new tables ────────────────────────────────────────────────────
+export * from "./customer_memory";

@@ -27,6 +27,7 @@ import {
   auditLogsTable,
   predictionLogsTable,
   promptVersionsTable,
+  customerMemorySnapshotsTable,
   type IntentMaster,
   type KeywordRule,
   type DataTemplate,
@@ -120,6 +121,43 @@ const promptVersionCache = new Map<string, CacheEntry<ActivePromptVersion | null
 
 function isFresh<T>(entry: CacheEntry<T> | undefined): entry is CacheEntry<T> {
   return !!entry && Date.now() < entry.expiresAt;
+}
+
+// ─── Customer Memory Loader ────────────────────────────────────────────────────
+
+const memoryCache = new Map<string, CacheEntry<string | null>>();
+const MEMORY_TTL_MS = 10 * 60 * 1_000; // 10-min TTL
+
+/**
+ * Load the latest non-stale AI context block for a customer.
+ * Returns null if no valid snapshot exists.
+ * Results cached 10 min per companyId+customerId.
+ */
+export async function loadCustomerMemory(companyId: string, customerId: number): Promise<string | null> {
+  const key = `${companyId}:${customerId}`;
+  const cached = memoryCache.get(key);
+  if (isFresh(cached)) return cached.data;
+
+  try {
+    const { desc } = await import("drizzle-orm");
+    const [snapshot] = await db
+      .select({ aiContextBlock: customerMemorySnapshotsTable.aiContextBlock, isStale: customerMemorySnapshotsTable.isStale })
+      .from(customerMemorySnapshotsTable)
+      .where(and(eq(customerMemorySnapshotsTable.companyId, companyId), eq(customerMemorySnapshotsTable.customerId, customerId), eq(customerMemorySnapshotsTable.isStale, false)))
+      .orderBy(desc(customerMemorySnapshotsTable.createdAt))
+      .limit(1);
+
+    const value = snapshot?.aiContextBlock ?? null;
+    memoryCache.set(key, { data: value, expiresAt: Date.now() + MEMORY_TTL_MS });
+    return value;
+  } catch {
+    return null;
+  }
+}
+
+/** Invalidate cached customer memory (call when new snapshot is generated). */
+export function invalidateCustomerMemoryCache(companyId: string, customerId: number): void {
+  memoryCache.delete(`${companyId}:${customerId}`);
 }
 
 // ─── Cache loaders ────────────────────────────────────────────────────────────
@@ -540,6 +578,7 @@ export async function resolveIntent({
   messageId = 0,
   customerName,
   customerPhone,
+  customerId,
   taskId,
   experimentId,
   experimentGroup,
@@ -550,6 +589,7 @@ export async function resolveIntent({
   messageId?: number;
   customerName?: string | null;
   customerPhone?: string | null;
+  customerId?: number | null;
   taskId?: number | null;
   experimentId?: number | null;
   experimentGroup?: string | null;
@@ -587,10 +627,19 @@ export async function resolveIntent({
     const promptVersionId = effectiveVersion?.id ?? null;
     const modelToUse = effectiveVersion?.model ?? "gpt-4o-mini";
 
+    // ── Customer memory injection (Sprint 5A) ──────────────────────────────────
+    let customerMemoryBlock: string | null = null;
+    if (customerId) {
+      customerMemoryBlock = await loadCustomerMemory(companyId, customerId).catch(() => null);
+    }
+
     const userContent = [
       `Message: ${messageText}`,
       customerName  ? `Customer name: ${customerName}`   : null,
       customerPhone ? `Customer phone: ${customerPhone}` : null,
+      customerMemoryBlock
+        ? `\n## Customer Memory (from previous interactions)\n${customerMemoryBlock}`
+        : null,
     ]
       .filter(Boolean)
       .join("\n");

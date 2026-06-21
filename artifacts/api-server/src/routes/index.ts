@@ -29,6 +29,7 @@ import knowledgeBaseRouter from "./knowledge-base";
 import governanceRouter from "./governance";
 import trainingRouter from "./training";
 import observabilityRouter from "./observability";
+import customerMemoryRouter from "./customer-memory";
 import { extractUser } from "../middleware/auth";
 
 const router: IRouter = Router();
@@ -69,5 +70,6 @@ router.use(knowledgeBaseRouter);
 router.use(governanceRouter);
 router.use(trainingRouter);
 router.use(observabilityRouter);
+router.use(customerMemoryRouter);
 
 export default router;

@@ -28,6 +28,9 @@ import {
   ChevronDown,
   PhoneOff,
   FlaskConical,
+  Brain,
+  Shield,
+  ChevronRight,
 } from "lucide-react";
 import { CorrectionDrawer } from "@/components/correction-drawer";
 import { Button } from "@/components/ui/button";
@@ -122,6 +125,7 @@ interface AiTask {
   // AI training fields
   aiIntent: string | null;
   aiConfidenceScore: string | null;
+  customerId: number | null;
 }
 
 interface Comment {
@@ -222,6 +226,69 @@ function FileIcon({ mimeType }: { mimeType: string | null }) {
   if (mimeType.startsWith("image/")) return <Image className="h-5 w-5 text-blue-400" />;
   if (mimeType === "application/pdf") return <FileText className="h-5 w-5 text-red-400" />;
   return <FileText className="h-5 w-5 text-gray-400" />;
+}
+
+// ─── Customer Memory Panel (Sprint 5A) ────────────────────────────────────────
+
+function CustomerMemoryPanel({ customerId, companyId }: { customerId: number; companyId: string }) {
+  const { data: memory } = useQuery<{
+    customer: { companyName: string; riskTier: string | null; riskScore: number | null; memoryUpdatedAt: string | null };
+    activeRisk: { tier: string; riskScore: number } | null;
+    latestSnapshot: { freshnessScore: number; aiContextBlock: string; isStale: boolean; lastNIntents: string[] | null } | null;
+    preferences: { category: string; key: string; value: string }[];
+  } | null>({
+    queryKey: ["customer-memory-panel", customerId],
+    queryFn: () => apiFetch(`/crm/customers/${customerId}/memory`).catch(() => null),
+  });
+
+  if (!memory) return null;
+  const { customer, activeRisk, latestSnapshot } = memory;
+
+  const tierColor: Record<string, string> = { low: "text-green-600", medium: "text-yellow-600", high: "text-orange-600", blocked: "text-red-600" };
+
+  return (
+    <div className="bg-purple-50 border border-purple-200 rounded-lg p-4 space-y-2.5">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold text-purple-700 uppercase tracking-wide flex items-center gap-1.5">
+          <Brain className="h-3.5 w-3.5" /> Memori Customer
+        </p>
+        <Link href={`/crm/customers/${customerId}/memory`}>
+          <Button variant="ghost" size="sm" className="h-6 px-2 text-purple-600 text-xs hover:bg-purple-100">
+            Detail <ChevronRight className="h-3 w-3 ml-0.5" />
+          </Button>
+        </Link>
+      </div>
+
+      {activeRisk && (
+        <div className="flex items-center gap-2">
+          <Shield className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+          <span className={`text-xs font-medium ${tierColor[activeRisk.tier] ?? "text-gray-600"}`}>
+            Risk: {activeRisk.tier.toUpperCase()} ({activeRisk.riskScore}/100)
+          </span>
+        </div>
+      )}
+
+      {latestSnapshot && !latestSnapshot.isStale && (
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-2">
+            <div className="flex-1 bg-purple-200 rounded-full h-1"><div className="bg-purple-500 h-1 rounded-full" style={{ width: `${latestSnapshot.freshnessScore}%` }} /></div>
+            <span className="text-[10px] text-purple-600">{latestSnapshot.freshnessScore}% fresh</span>
+          </div>
+          {latestSnapshot.lastNIntents && latestSnapshot.lastNIntents.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {latestSnapshot.lastNIntents.slice(0, 3).map((intent, i) => (
+                <span key={i} className="bg-purple-100 text-purple-700 text-[10px] px-1.5 py-0.5 rounded-full">{intent}</span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {(!latestSnapshot || latestSnapshot.isStale) && (
+        <p className="text-[11px] text-purple-500 italic">Snapshot AI belum dibuat. Klik Detail untuk membuat.</p>
+      )}
+    </div>
+  );
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -697,6 +764,11 @@ export default function AiTaskDetail() {
                 </div>
               )}
             </div>
+          )}
+
+          {/* Memori Customer (Sprint 5A) */}
+          {task.customerId && (
+            <CustomerMemoryPanel customerId={task.customerId} companyId={task.companyId ?? "default"} />
           )}
 
           {/* Kirim WA */}
