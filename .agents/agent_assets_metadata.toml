@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "-NGg-eKyY8LjFpXuIpNsY"
+uri = "file://docs/sprint-5c-cross-memory-matching-design.md"
+type = "text"
+title = "Sprint 5C — Cross Memory Matching Architecture"
