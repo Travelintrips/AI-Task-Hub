@@ -27,6 +27,7 @@ export const dataTemplateFieldsTable = pgTable("data_template_fields", {
   isRequired: boolean("is_required").notNull().default(true),
   sortOrder: integer("sort_order").notNull().default(0),
   helpText: text("help_text"),
+  sampleValue: text("sample_value"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   index("data_template_fields_template_idx").on(t.templateId),

@@ -13,6 +13,7 @@ export const serviceCatalogTable = pgTable("service_catalog", {
   currency: text("currency").default("IDR"),
   estimatedDays: text("estimated_days"),
   slaHours: text("sla_hours"),
+  suggestedTeam: text("suggested_team"),
   isActive: boolean("is_active").notNull().default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),

@@ -26,6 +26,7 @@ export const documentTemplateFieldsTable = pgTable("document_template_fields", {
   isRequired: boolean("is_required").notNull().default(true),
   description: text("description"),
   sortOrder: integer("sort_order").notNull().default(0),
+  exampleFileDescription: text("example_file_description"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   index("document_template_fields_template_idx").on(t.templateId),
