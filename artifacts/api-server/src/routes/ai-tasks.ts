@@ -9,7 +9,7 @@ import {
 } from "@workspace/db";
 import { requireAuth, getCompanyId } from "../middleware/auth";
 import { logger } from "../lib/logger";
-import { notifyStatusChanged, notifyTaskAssigned, notifyTaskCompleted } from "../lib/notifications";
+import { notifyStatusChanged, notifyTaskAssigned, notifyTaskCompleted, notifyTaskCreated } from "../lib/notifications";
 import { emitSseEvent } from "../lib/sse";
 import { getSlaHours, calcOverdueAt, calcSlaStatus } from "../lib/sla";
 import { pushStatusToSupabase } from "../lib/order-sync-scheduler";
@@ -167,6 +167,17 @@ router.post("/ai-tasks", requireAuth, async (req: Request, res: Response): Promi
     }).catch(() => {});
 
     emitSseEvent("new_task", { taskId: created.id, taskNumber, companyId }, companyId);
+
+    notifyTaskCreated({
+      taskId:       created.id,
+      taskNumber,
+      title:        created.title,
+      customerName: created.customerName,
+      customerPhone: created.customerPhone,
+      status:       created.status ?? "new_inquiry",
+      priority:     created.priority ?? "medium",
+      companyId,
+    }).catch((err) => logger.error({ err }, "notifyTaskCreated gagal"));
 
     logger.info({ taskId: created.id, taskNumber, companyId }, "Task dibuat manual");
     res.status(201).json(created);

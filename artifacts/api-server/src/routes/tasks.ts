@@ -3,7 +3,7 @@ import { eq, desc, and } from "drizzle-orm";
 import { db, aiTasksTable, teamMembersTable, auditLogsTable } from "@workspace/db";
 import { requireAuth, getCompanyId } from "../middleware/auth";
 import { logger } from "../lib/logger";
-import { notifyStatusChanged, notifyTaskAssigned } from "../lib/notifications";
+import { notifyStatusChanged, notifyTaskAssigned, notifyTaskCreated } from "../lib/notifications";
 import { emitSseEvent } from "../lib/sse";
 
 const router: IRouter = Router();
@@ -127,6 +127,18 @@ router.post("/tasks", requireAuth, async (req: Request, res: Response): Promise<
     }).catch(() => {});
 
     emitSseEvent("task_created", { taskId: task.id }, companyId);
+
+    notifyTaskCreated({
+      taskId:       task.id,
+      taskNumber,
+      title:        task.title,
+      customerName: task.customerName,
+      customerPhone: null,
+      status:       task.status ?? "new_inquiry",
+      priority:     task.priority ?? "medium",
+      companyId,
+    }).catch((err) => logger.error({ err }, "notifyTaskCreated gagal"));
+
     res.status(201).json(task);
   } catch (err) {
     logger.error({ err }, "POST /tasks failed");
