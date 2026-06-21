@@ -35,6 +35,7 @@ import {
   Brain,
   BookOpen,
   Shield,
+  FlaskConical,
 } from "lucide-react";
 import { NotificationsBell } from "@/components/notifications-bell";
 import { useAuth } from "@/contexts/auth-context";
@@ -55,6 +56,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
     { name: "AI Dispatcher", href: "/dispatcher",        icon: Brain },
     { name: "Knowledge Base", href: "/knowledge-base",  icon: BookOpen },
     { name: "Governance",    href: "/governance",        icon: Shield },
+    { name: "AI Training",   href: "/training",          icon: FlaskConical },
     { name: "CRM",          href: "/crm",               icon: Building2 },
     { name: "Quotation",   href: "/quotations",        icon: DollarSign },
     { name: "Laporan",     href: "/reports",           icon: TrendingUp },

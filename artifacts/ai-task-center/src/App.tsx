@@ -34,6 +34,7 @@ import AuditLogPage from "@/pages/audit-log";
 import AiDispatcherPage from "@/pages/ai-dispatcher";
 import KnowledgeBasePage from "@/pages/knowledge-base";
 import GovernancePage from "@/pages/governance";
+import TrainingPage from "@/pages/training";
 
 const queryClient = new QueryClient();
 
@@ -82,6 +83,7 @@ function AppRouter() {
         <Route path="/dispatcher" component={AiDispatcherPage} />
         <Route path="/knowledge-base" component={KnowledgeBasePage} />
         <Route path="/governance" component={GovernancePage} />
+        <Route path="/training" component={TrainingPage} />
         <Route component={NotFound} />
       </Switch>
     </AppLayout>

@@ -27,3 +27,5 @@ export * from "./data_templates";
 export * from "./document_templates";
 // ── Sprint 3B new tables ────────────────────────────────────────────────────
 export * from "./governance";
+// ── Sprint 4B new tables ────────────────────────────────────────────────────
+export * from "./training";

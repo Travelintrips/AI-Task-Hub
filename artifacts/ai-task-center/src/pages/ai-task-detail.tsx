@@ -27,7 +27,9 @@ import {
   MessageSquare,
   ChevronDown,
   PhoneOff,
+  FlaskConical,
 } from "lucide-react";
+import { CorrectionDrawer } from "@/components/correction-drawer";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";

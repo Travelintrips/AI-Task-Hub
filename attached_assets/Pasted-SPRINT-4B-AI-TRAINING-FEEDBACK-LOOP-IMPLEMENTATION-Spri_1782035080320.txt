@@ -1,0 +1,97 @@
+SPRINT 4B — AI TRAINING & FEEDBACK LOOP IMPLEMENTATION
+
+Sprint 4A design is approved.
+
+Implement AI Training Layer.
+
+Scope:
+
+A. Database
+Create 13 tables:
+- correction_queue
+- correction_sessions
+- training_dataset
+- dataset_exports
+- accuracy_snapshots
+- prompt_versions
+- prompt_test_results
+- ai_experiments
+- experiment_observations
+- experiment_results
+- prediction_logs
+- performance_daily
+- performance_by_intent
+
+B. Backend
+Create routes:
+/api/training/*
+
+Include:
+- correction queue CRUD
+- submit correction from task
+- dataset list
+- dataset export JSONL internal
+- accuracy snapshots
+- prompt version CRUD
+- prompt testing
+- experiment CRUD
+- prediction logs
+- performance metrics
+
+C. Engine Integration
+Update Intent Engine:
+- read active prompt_versions if available
+- write prediction_logs after every GPT call
+- support experiment prompt_override
+- keep fallback behavior safe
+
+Update Governance Engine:
+- write prediction_logs or performance references for routing/SLA/approval decisions where relevant
+- allow correction_queue to store governance corrections
+
+D. Frontend
+Create route:
+/training
+
+Tabs:
+1. Antrian Koreksi
+2. Dataset
+3. Akurasi
+4. Prompt Versions
+5. Eksperimen
+6. Performa Model
+
+Also add correction entry point from Task Detail:
+- "Koreksi AI"
+- opens drawer
+- fields: corrected intent, routing, priority/SLA, approval requirement, notes
+
+E. RBAC
+- supervisor: submit correction, view own corrections, view metrics
+- company_admin: view all, archive, create/test prompt drafts, create/pause experiments
+- super_admin: promote prompt active, export dataset, conclude experiments, rebuild metrics
+
+F. Guardrails
+- Do not call fine-tuning API yet
+- Export JSONL only as downloadable/internal file
+- Do not store full giant prompts in prediction_logs; store prompt_version_id, prompt_hash, model, latency, confidence, result summary
+- All production fallback behavior must remain unchanged
+
+G. Validation
+Run:
+- backend typecheck
+- frontend typecheck
+- server start
+- route smoke tests
+- task correction flow test
+- intent prediction log test
+
+Output:
+1. files changed
+2. tables created
+3. routes created
+4. engine integration points
+5. UI routes/tabs
+6. RBAC validation
+7. typecheck result
+8. test scenarios

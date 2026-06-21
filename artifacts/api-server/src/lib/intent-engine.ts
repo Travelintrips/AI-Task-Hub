@@ -13,6 +13,7 @@
  * Fallback is always general_inquiry — never throws.
  */
 
+import { createHash } from "crypto";
 import { eq, and } from "drizzle-orm";
 import {
   db,
@@ -24,6 +25,8 @@ import {
   documentTemplateFieldsTable,
   serviceCatalogTable,
   auditLogsTable,
+  predictionLogsTable,
+  promptVersionsTable,
   type IntentMaster,
   type KeywordRule,
   type DataTemplate,
@@ -111,6 +114,9 @@ const keywordCache = new Map<string, CacheEntry<KeywordRule[]>>();
 const dtCache      = new Map<string, CacheEntry<(DataTemplate & { fields: DataTemplateField[] }) | null>>();
 const docCache     = new Map<string, CacheEntry<(DocumentTemplate & { fields: DocumentTemplateField[] }) | null>>();
 const svcCache     = new Map<string, CacheEntry<ServiceCatalog[]>>();
+
+interface ActivePromptVersion { id: number; systemPrompt: string; promptHash: string | null; model: string }
+const promptVersionCache = new Map<string, CacheEntry<ActivePromptVersion | null>>();
 
 function isFresh<T>(entry: CacheEntry<T> | undefined): entry is CacheEntry<T> {
   return !!entry && Date.now() < entry.expiresAt;
@@ -251,6 +257,68 @@ async function loadDocTemplate(
   const result = { ...tpl, fields };
   docCache.set(key, { data: result, expiresAt: Date.now() + CACHE_TTL_MS });
   return result;
+}
+
+// ─── Prompt version loader ────────────────────────────────────────────────────
+
+async function loadActivePromptVersion(companyId: string): Promise<ActivePromptVersion | null> {
+  const cached = promptVersionCache.get(companyId);
+  if (isFresh(cached)) return cached.data;
+
+  try {
+    const [row] = await db
+      .select({ id: promptVersionsTable.id, systemPrompt: promptVersionsTable.systemPrompt, promptHash: promptVersionsTable.promptHash, model: promptVersionsTable.model })
+      .from(promptVersionsTable)
+      .where(and(eq(promptVersionsTable.companyId, companyId), eq(promptVersionsTable.status, "active")))
+      .limit(1);
+
+    const result = row ?? null;
+    promptVersionCache.set(companyId, { data: result, expiresAt: Date.now() + CACHE_TTL_MS });
+    return result;
+  } catch (err) {
+    logger.warn({ err }, "IntentEngine: loadActivePromptVersion failed — using built prompt");
+    promptVersionCache.set(companyId, { data: null, expiresAt: Date.now() + 30_000 });
+    return null;
+  }
+}
+
+// ─── Prediction log writer (fire-and-forget) ──────────────────────────────────
+
+function writePredictionLog(args: {
+  companyId: string;
+  taskId: number;
+  promptVersionId: number | null;
+  promptHash: string;
+  model: string;
+  experimentId?: number | null;
+  experimentGroup?: string | null;
+  resolution: IntentResolution;
+  llmLatencyMs: number;
+  totalLatencyMs: number;
+}): void {
+  const { companyId, taskId, promptVersionId, promptHash, model, experimentId, experimentGroup, resolution, llmLatencyMs, totalLatencyMs } = args;
+  const confNumeric = resolution.confidenceScore === "high" ? "90.00" : resolution.confidenceScore === "low" ? "35.00" : "65.00";
+
+  db.insert(predictionLogsTable).values({
+    companyId,
+    taskId: taskId > 0 ? taskId : null,
+    promptVersionId,
+    promptHash,
+    model,
+    experimentId: experimentId ?? null,
+    experimentGroup: experimentGroup ?? null,
+    predictedIntent: resolution.intentCode,
+    predictedCategory: resolution.category,
+    predictedPriority: resolution.priority,
+    predictedConfidence: resolution.confidenceScore,
+    predictedConfidenceNumeric: confNumeric,
+    predictedRouting: resolution.routingCode,
+    predictedApproval: resolution.needsApproval,
+    isFallback: resolution.fallbackUsed,
+    keywordScore: resolution.keywordScore.toFixed(3),
+    llmLatencyMs,
+    totalLatencyMs,
+  }).catch((err) => logger.warn({ err }, "IntentEngine: writePredictionLog failed (ignored)"));
 }
 
 async function loadServiceCatalog(companyId: string, category: string): Promise<ServiceCatalog[]> {
@@ -472,20 +540,30 @@ export async function resolveIntent({
   messageId = 0,
   customerName,
   customerPhone,
+  taskId,
+  experimentId,
+  experimentGroup,
+  promptOverride,
 }: {
   messageText: string;
   companyId?: string;
   messageId?: number;
   customerName?: string | null;
   customerPhone?: string | null;
+  taskId?: number | null;
+  experimentId?: number | null;
+  experimentGroup?: string | null;
+  promptOverride?: string | null;
 }): Promise<IntentResolution> {
+  const t0 = Date.now();
   const fallback = buildFallback(customerName, customerPhone);
 
   try {
-    // ── 1. Load cache ──────────────────────────────────────────────────────────
-    const [intents, keywords] = await Promise.all([
+    // ── 1. Load cache + active prompt version in parallel ─────────────────────
+    const [intents, keywords, activeVersion] = await Promise.all([
       loadIntents(companyId),
       loadKeywords(companyId),
+      loadActivePromptVersion(companyId),
     ]);
 
     if (intents.length === 0) {
@@ -500,7 +578,15 @@ export async function resolveIntent({
     const topKwScore = hints[0]?.score ?? 0;
 
     // ── 3. AI classification ───────────────────────────────────────────────────
-    const systemPrompt = buildPrompt(intents, hints);
+    // Use prompt override > active DB version > dynamically built prompt (fallback-safe)
+    const effectiveVersion = promptOverride
+      ? { id: null as number | null, systemPrompt: promptOverride, promptHash: createHash("sha256").update(promptOverride).digest("hex"), model: "gpt-4o-mini" }
+      : activeVersion;
+    const systemPrompt = effectiveVersion?.systemPrompt ?? buildPrompt(intents, hints);
+    const promptHash = effectiveVersion?.promptHash ?? createHash("sha256").update(systemPrompt).digest("hex");
+    const promptVersionId = effectiveVersion?.id ?? null;
+    const modelToUse = effectiveVersion?.model ?? "gpt-4o-mini";
+
     const userContent = [
       `Message: ${messageText}`,
       customerName  ? `Customer name: ${customerName}`   : null,
@@ -510,9 +596,11 @@ export async function resolveIntent({
       .join("\n");
 
     let raw: string | null = null;
+    const llmStart = Date.now();
+    let llmLatencyMs = 0;
     try {
       const resp = await openai.chat.completions.create({
-        model: "gpt-4o-mini",
+        model: modelToUse,
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user",   content: userContent },
@@ -521,6 +609,7 @@ export async function resolveIntent({
         temperature: 0.15,
         response_format: { type: "json_object" },
       });
+      llmLatencyMs = Date.now() - llmStart;
       raw = resp.choices[0]?.message?.content?.trim() ?? null;
     } catch (aiErr) {
       logger.error({ aiErr }, "IntentEngine: OpenAI call failed — fallback");
@@ -705,6 +794,21 @@ export async function resolveIntent({
     );
 
     await logDecision(companyId, messageId, messageText.length, resolution);
+
+    // Fire-and-forget: write prediction log for training feedback loop
+    writePredictionLog({
+      companyId,
+      taskId: taskId ?? messageId ?? 0,
+      promptVersionId,
+      promptHash,
+      model: modelToUse,
+      experimentId,
+      experimentGroup,
+      resolution,
+      llmLatencyMs,
+      totalLatencyMs: Date.now() - t0,
+    });
+
     return resolution;
   } catch (err) {
     logger.error({ err }, "IntentEngine.resolveIntent: unhandled error — fallback");
@@ -718,6 +822,7 @@ export async function resolveIntent({
 export function invalidateIntentCache(companyId: string): void {
   intentCache.delete(companyId);
   keywordCache.delete(companyId);
+  promptVersionCache.delete(companyId);
   for (const key of dtCache.keys())  if (key.startsWith(companyId)) dtCache.delete(key);
   for (const key of docCache.keys()) if (key.startsWith(companyId)) docCache.delete(key);
   for (const key of svcCache.keys()) if (key.startsWith(companyId)) svcCache.delete(key);

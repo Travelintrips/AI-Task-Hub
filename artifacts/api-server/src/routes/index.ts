@@ -27,6 +27,7 @@ import portalRouter from "./portal";
 import dispatcherRouter from "./dispatcher";
 import knowledgeBaseRouter from "./knowledge-base";
 import governanceRouter from "./governance";
+import trainingRouter from "./training";
 import { extractUser } from "../middleware/auth";
 
 const router: IRouter = Router();
@@ -65,5 +66,6 @@ router.use(portalRouter);
 router.use(dispatcherRouter);
 router.use(knowledgeBaseRouter);
 router.use(governanceRouter);
+router.use(trainingRouter);
 
 export default router;
