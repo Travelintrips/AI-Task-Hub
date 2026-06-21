@@ -34,6 +34,7 @@ import {
   TrendingUp,
   Brain,
   BookOpen,
+  Shield,
 } from "lucide-react";
 import { NotificationsBell } from "@/components/notifications-bell";
 import { useAuth } from "@/contexts/auth-context";
@@ -53,6 +54,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
     { name: "Team",         href: "/team",      icon: Users },
     { name: "AI Dispatcher", href: "/dispatcher",        icon: Brain },
     { name: "Knowledge Base", href: "/knowledge-base",  icon: BookOpen },
+    { name: "Governance",    href: "/governance",        icon: Shield },
     { name: "CRM",          href: "/crm",               icon: Building2 },
     { name: "Quotation",   href: "/quotations",        icon: DollarSign },
     { name: "Laporan",     href: "/reports",           icon: TrendingUp },

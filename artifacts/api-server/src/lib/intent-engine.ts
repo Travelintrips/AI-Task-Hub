@@ -615,19 +615,26 @@ export async function resolveIntent({
       : requiredDocuments.filter((d) => d.isRequired).map((d) => d.documentName);
 
     // ── 10. Business flags ─────────────────────────────────────────────────────
-    const NEEDS_QUOTATION_INTENTS  = ["quotation_request", "order_shipment", "customs_clearance", "order_product"];
-    const NEEDS_ADMIN_REVIEW_INTENTS = ["customs_clearance", "invoice_request", "complaint"];
-
-    const needsQuotation    = Boolean(parsed.needsQuotation) || NEEDS_QUOTATION_INTENTS.includes(intentCode);
+    // NEEDS_QUOTATION_INTENTS, NEEDS_ADMIN_REVIEW_INTENTS, APPROVAL_INTENTS
+    // were removed — now governed by approval_rules DB table via resolveApproval().
+    const needsQuotation    = Boolean(parsed.needsQuotation);
     const needsDocumentAudit = Boolean(parsed.needsDocumentAudit) || missingDocuments.length > 0;
-    const needsAdminReview  = Boolean(parsed.needsAdminReview) || needsQuotation ||
-      NEEDS_ADMIN_REVIEW_INTENTS.includes(intentCode) || confidenceScore === "low";
+    const needsAdminReview  = Boolean(parsed.needsAdminReview) || confidenceScore === "low";
 
-    // ── 11. Routing / approval ─────────────────────────────────────────────────
-    const APPROVAL_INTENTS = ["complaint", "customs_clearance", "payment_confirmation"];
+    // ── 11. Routing / approval (governance-driven) ─────────────────────────────
     const routingCode   = matchedIntent?.intentCode ?? null;
-    const needsApproval = needsAdminReview && APPROVAL_INTENTS.includes(intentCode);
-    const approvalType  = needsApproval ? "admin_approval" : null;
+
+    // Resolve approval via governance engine (specificity cascade)
+    const { resolveApproval } = await import("./governance-resolver");
+    const approvalResolution = await resolveApproval(
+      companyId,
+      intentCode ?? null,
+      (parsed.category as string | null | undefined) ?? category ?? null,
+      matchedIntent?.suggestedPriority ?? null,
+    ).catch(() => ({ needsApproval: false, approvalType: null, approverRole: null, requiresNote: false, timeoutHours: 24, ruleId: null, specificity: -1 }));
+
+    const needsApproval = needsAdminReview || approvalResolution.needsApproval;
+    const approvalType  = approvalResolution.approvalType ?? (needsApproval ? "admin_approval" : null);
 
     // ── 12. Service catalog ────────────────────────────────────────────────────
     const matchedServices = matchedSvcs.map((s) => ({

@@ -26,6 +26,7 @@ import customersCrmRouter from "./customers-crm";
 import portalRouter from "./portal";
 import dispatcherRouter from "./dispatcher";
 import knowledgeBaseRouter from "./knowledge-base";
+import governanceRouter from "./governance";
 import { extractUser } from "../middleware/auth";
 
 const router: IRouter = Router();
@@ -63,5 +64,6 @@ router.use(customersCrmRouter);
 router.use(portalRouter);
 router.use(dispatcherRouter);
 router.use(knowledgeBaseRouter);
+router.use(governanceRouter);
 
 export default router;

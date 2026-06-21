@@ -25,3 +25,5 @@ export * from "./keyword_rules";
 export * from "./service_catalog";
 export * from "./data_templates";
 export * from "./document_templates";
+// ── Sprint 3B new tables ────────────────────────────────────────────────────
+export * from "./governance";

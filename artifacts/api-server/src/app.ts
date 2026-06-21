@@ -5,6 +5,7 @@ import router from "./routes";
 import { logger } from "./lib/logger";
 import { startFollowUpScheduler } from "./lib/follow-up-scheduler";
 import { startOrderSyncScheduler } from "./lib/order-sync-scheduler";
+import { startEscalationScheduler } from "./lib/escalation-scheduler";
 import { refreshSlaStatuses } from "./lib/sla";
 
 const app: Express = express();
@@ -55,6 +56,9 @@ startFollowUpScheduler();
 
 // Auto-import transaksi/pesanan dari Supabase logistic_orders → ai_tasks (real-time)
 startOrderSyncScheduler();
+
+// Governance: escalation rules + approval timeout scanner
+startEscalationScheduler();
 
 // Refresh SLA statuses every 15 minutes
 setInterval(() => { refreshSlaStatuses().catch(() => {}); }, 15 * 60 * 1000);
