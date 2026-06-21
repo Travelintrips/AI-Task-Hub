@@ -28,6 +28,7 @@ import dispatcherRouter from "./dispatcher";
 import knowledgeBaseRouter from "./knowledge-base";
 import governanceRouter from "./governance";
 import trainingRouter from "./training";
+import observabilityRouter from "./observability";
 import { extractUser } from "../middleware/auth";
 
 const router: IRouter = Router();
@@ -67,5 +68,6 @@ router.use(dispatcherRouter);
 router.use(knowledgeBaseRouter);
 router.use(governanceRouter);
 router.use(trainingRouter);
+router.use(observabilityRouter);
 
 export default router;
