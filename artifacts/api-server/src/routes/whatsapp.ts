@@ -457,9 +457,9 @@ async function runAiDetection({
           phone: from,
           companyId,
           previousIntents: parsedPrevIntents,
-        });
+        }, savedMsgId);
 
-        const taskOutput = await createTaskFromWhatsAppMessage({ savedMsgId, from, senderName, bodyText: transcript, companyId, result });
+        const taskOutput = await createTaskFromWhatsAppMessage({ savedMsgId, from, senderName, bodyText: transcript, companyId, result, resolution: result._resolution });
 
         if (taskOutput) {
           await updateCustomerContextAfterTask({ phone: from, companyId, taskId: taskOutput.taskId, intent: result.intent, name: effectiveName });
@@ -510,13 +510,13 @@ async function runAiDetection({
       return;
     }
 
-    // Run full structured AI analysis
+    // Run full structured AI analysis (Sprint 2A: passes savedMsgId for audit logging)
     const result = await detectWhatsAppIntent(bodyText, {
       name: effectiveName,
       phone: from,
       companyId,
       previousIntents: parsedPrevIntents,
-    });
+    }, savedMsgId);
 
     // Create task or append to existing active task (duplicate guard built-in)
     const taskOutput = await createTaskFromWhatsAppMessage({
@@ -526,6 +526,7 @@ async function runAiDetection({
       bodyText,
       companyId,
       result,
+      resolution: result._resolution,
     });
 
     if (taskOutput) {

@@ -9,6 +9,7 @@ import {
   type AiTask,
 } from "@workspace/db";
 import { type WhatsAppIntentResult, IMPORT_REQUIRED_FIELDS } from "./whatsapp-ai";
+import type { IntentResolution } from "./intent-engine";
 import { logger } from "./logger";
 import { emitSseEvent } from "./sse";
 import { notifyTaskCreated } from "./notifications";
@@ -285,6 +286,8 @@ export interface CreateTaskInput {
   attachmentUrl?: string | null;
   companyId: string;
   result: WhatsAppIntentResult;
+  /** Optional: richer knowledge-base resolution from IntentEngine (Sprint 2A+) */
+  resolution?: IntentResolution;
 }
 
 export interface CreateTaskOutput {
@@ -312,11 +315,14 @@ export interface CreateTaskOutput {
  *       - Update missingData column and aiSummary on the task.
  *       - If all missing data resolved → escalate to "Ready for Review".
  *       - If customer replied while status was "Waiting Customer" → "In Progress".
+ *
+ * Sprint 2A: accepts optional `resolution` from IntentEngine for DB-driven
+ * missing data, SLA, and document requirements.
  */
 export async function createTaskFromWhatsAppMessage(
   input: CreateTaskInput,
 ): Promise<CreateTaskOutput | null> {
-  const { savedMsgId, from, senderName, bodyText, attachmentUrl, companyId, result } = input;
+  const { savedMsgId, from, senderName, bodyText, attachmentUrl, companyId, result, resolution } = input;
 
   const customerName = result.customer_name ?? senderName ?? null;
   const customerPhone = result.customer_phone ?? from;
@@ -339,7 +345,7 @@ export async function createTaskFromWhatsAppMessage(
           },
           "Topic change detected — creating a new task",
         );
-        return createNewTask({ customerName, customerPhone, companyId, bodyText, attachmentUrl, savedMsgId, result, action: "new_topic" });
+        return createNewTask({ customerName, customerPhone, companyId, bodyText, attachmentUrl, savedMsgId, result, resolution, action: "new_topic" });
       }
 
       // ── 2b. Same topic → append and resolve missing data ──────────────────
@@ -438,7 +444,7 @@ export async function createTaskFromWhatsAppMessage(
     }
 
     // ── 3. No active task → create new ────────────────────────────────────────
-    return createNewTask({ customerName, customerPhone, companyId, bodyText, attachmentUrl, savedMsgId, result, action: "created" });
+    return createNewTask({ customerName, customerPhone, companyId, bodyText, attachmentUrl, savedMsgId, result, resolution, action: "created" });
   } catch (err) {
     logger.error({ err, from, companyId }, "createTaskFromWhatsAppMessage failed");
     return null;
@@ -455,6 +461,7 @@ async function createNewTask({
   attachmentUrl,
   savedMsgId,
   result,
+  resolution,
   action,
 }: {
   customerName: string | null;
@@ -464,12 +471,19 @@ async function createNewTask({
   attachmentUrl?: string | null;
   savedMsgId: number;
   result: WhatsAppIntentResult;
+  resolution?: IntentResolution;
   action: "created" | "new_topic";
 }): Promise<CreateTaskOutput> {
   const taskNumber = `WA-${Date.now()}`;
   const title     = generateTaskTitle(result, customerName);
   const status    = determineInitialStatus(result);
   const aiSummary = buildAiSummary(result);
+
+  // Sprint 2A: use KB-driven fields when IntentResolution is available
+  const effectiveMissingData = resolution?.missingDataKeys ?? result.missing_data;
+  const effectiveIntent      = resolution?.intentCode ?? result.intent;
+  const slaHours             = resolution?.slaHours ?? null;
+  const overdueAt            = slaHours ? new Date(Date.now() + slaHours * 3_600_000) : null;
 
   const [task] = await db
     .insert(aiTasksTable)
@@ -487,10 +501,12 @@ async function createNewTask({
       status,
       assignedRole:       result.suggested_team,
       aiSummary,
-      aiIntent:           result.intent,
-      missingData:        encodeMissingData(result.missing_data),
+      aiIntent:           effectiveIntent,
+      missingData:        encodeMissingData(effectiveMissingData),
       aiConfidenceScore:  result.confidence_score ?? null,
       customerSentiment:  result.customer_sentiment ?? null,
+      ...(slaHours !== null && { slaHours }),
+      ...(overdueAt !== null && { overdueAt }),
     })
     .returning();
 
@@ -581,7 +597,7 @@ async function createNewTask({
     status,
     title,
     resolvedFields: [],
-    remainingFields: result.missing_data,
+    remainingFields: effectiveMissingData,
   };
 }
 

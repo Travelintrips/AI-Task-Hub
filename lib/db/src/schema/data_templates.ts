@@ -5,6 +5,7 @@ import { z } from "zod/v4";
 export const dataTemplatesTable = pgTable("data_templates", {
   id: serial("id").primaryKey(),
   companyId: text("company_id").notNull().default("default"),
+  intentCode: text("intent_code"),
   name: text("name").notNull(),
   category: text("category"),
   description: text("description"),
@@ -13,6 +14,8 @@ export const dataTemplatesTable = pgTable("data_templates", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (t) => [
   index("data_templates_company_idx").on(t.companyId),
+  index("data_templates_intent_idx").on(t.intentCode),
+  index("data_templates_category_idx").on(t.category),
 ]);
 
 export const dataTemplateFieldsTable = pgTable("data_template_fields", {
