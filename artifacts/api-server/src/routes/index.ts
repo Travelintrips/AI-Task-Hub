@@ -38,6 +38,10 @@ import purchasingBudgetRouter from "./purchasing-budget";
 import purchasingMarginRouter from "./purchasing-margin";
 import purchasingApprovalRouter from "./purchasing-approval";
 import executiveIntelligenceRouter from "./executive-intelligence";
+import fleetUnitsRouter from "./fleet-units";
+import fleetDriversRouter from "./fleet-drivers";
+import fleetDocumentsRouter from "./fleet-documents";
+import fleetMaintenanceRouter from "./fleet-maintenance";
 import { extractUser } from "../middleware/auth";
 
 const router: IRouter = Router();
@@ -87,5 +91,10 @@ router.use(purchasingBudgetRouter);
 router.use(purchasingMarginRouter);
 router.use(purchasingApprovalRouter);
 router.use(executiveIntelligenceRouter);
+// ── Sprint 7B — Fleet Foundation ──────────────────────────────────────────────
+router.use(fleetUnitsRouter);
+router.use(fleetDriversRouter);
+router.use(fleetDocumentsRouter);
+router.use(fleetMaintenanceRouter);
 
 export default router;

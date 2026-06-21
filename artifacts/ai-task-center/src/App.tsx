@@ -41,6 +41,12 @@ import VendorsPage from "@/pages/vendors";
 import VendorMemoryPage from "@/pages/vendor-memory";
 import ExecutiveIntelligencePage from "@/pages/executive-intelligence";
 import PurchasingIntelligencePage from "@/pages/purchasing-intelligence";
+import FleetUnitsPage from "@/pages/fleet-units";
+import FleetUnitDetailPage from "@/pages/fleet-unit-detail";
+import FleetDriversPage from "@/pages/fleet-drivers";
+import FleetDriverDetailPage from "@/pages/fleet-driver-detail";
+import FleetDocumentsPage from "@/pages/fleet-documents";
+import FleetMaintenancePage from "@/pages/fleet-maintenance";
 
 const queryClient = new QueryClient();
 
@@ -96,6 +102,12 @@ function AppRouter() {
         <Route path="/vendors/:id/memory" component={VendorMemoryPage} />
         <Route path="/purchasing-intelligence" component={PurchasingIntelligencePage} />
         <Route path="/executive-intelligence" component={ExecutiveIntelligencePage} />
+        <Route path="/fleet/units/:id" component={FleetUnitDetailPage} />
+        <Route path="/fleet/units" component={FleetUnitsPage} />
+        <Route path="/fleet/drivers/:id" component={FleetDriverDetailPage} />
+        <Route path="/fleet/drivers" component={FleetDriversPage} />
+        <Route path="/fleet/documents" component={FleetDocumentsPage} />
+        <Route path="/fleet/maintenance" component={FleetMaintenancePage} />
         <Route component={NotFound} />
       </Switch>
     </AppLayout>

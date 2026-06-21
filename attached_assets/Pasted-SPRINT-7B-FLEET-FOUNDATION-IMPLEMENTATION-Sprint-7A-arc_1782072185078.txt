@@ -1,0 +1,202 @@
+SPRINT 7B — FLEET FOUNDATION IMPLEMENTATION
+
+Sprint 7A architecture approved.
+
+Implement Fleet Foundation only.
+
+Do NOT implement:
+
+* Fuel Intelligence
+* Tire Lifecycle
+* Cost Per KM
+* Fleet Risk Score
+* WhatsApp Reporting
+* Fleet Dashboard Analytics
+
+Those belong to Sprint 7C and 7D.
+
+====================================================
+PHASE 1 — DATABASE
+==================
+
+Create tables:
+
+1. fleet_units
+2. fleet_documents
+3. fleet_drivers
+4. fleet_driver_performance
+5. fleet_maintenance_records
+6. fleet_maintenance_schedules
+
+Add revisions:
+
+7. fleet_gps_logs
+8. fleet_driver_incidents
+
+All tables must:
+
+* include company_id
+* include created_at
+* include updated_at
+* support multi-tenancy
+
+====================================================
+PHASE 2 — API
+=============
+
+Create:
+
+/api/fleet/units
+/api/fleet/drivers
+/api/fleet/documents
+/api/fleet/maintenance
+
+Required CRUD:
+
+Fleet Units:
+
+* create
+* update
+* detail
+* list
+* deactivate
+
+Drivers:
+
+* create
+* update
+* detail
+* list
+
+Documents:
+
+* upload
+* update
+* expiring list
+
+Maintenance:
+
+* create
+* approve
+* reject
+* complete
+* list
+* due list
+
+====================================================
+PHASE 3 — MAINTENANCE APPROVAL FLOW
+===================================
+
+Rules:
+
+maintenance record
+↓
+pending
+
+supervisor/company_admin
+↓
+approve or reject
+
+optional:
+generate purchasing request
+
+NO expense created automatically
+
+NO payment created automatically
+
+====================================================
+PHASE 4 — AI TASK INTEGRATION
+=============================
+
+Create ai_tasks automatically:
+
+1. document expiring
+2. document expired
+3. maintenance due
+4. driver license expiring
+
+All tasks:
+
+auto_created = true
+requires_human_review = true
+
+====================================================
+PHASE 5 — FRONTEND
+==================
+
+Create:
+
+/fleet
+
+Pages:
+
+/fleet/units
+/fleet/units/:id
+
+/fleet/drivers
+/fleet/drivers/:id
+
+/fleet/documents
+
+/fleet/maintenance
+
+Required UI:
+
+Fleet Unit Table
+Fleet Detail
+Driver Table
+Driver Detail
+Document Expiry Table
+Maintenance Queue
+
+====================================================
+PHASE 6 — AUDIT LOGGING
+=======================
+
+Log:
+
+fleet.unit.created
+fleet.unit.updated
+
+fleet.driver.created
+fleet.driver.updated
+
+fleet.document.uploaded
+fleet.document.updated
+
+fleet.maintenance.created
+fleet.maintenance.approved
+fleet.maintenance.rejected
+fleet.maintenance.completed
+
+====================================================
+PHASE 7 — VALIDATION
+====================
+
+Test:
+
+1. Create vehicle
+2. Create driver
+3. Assign driver
+4. Upload STNK
+5. Upload KIR
+6. Create maintenance
+7. Approve maintenance
+8. Generate purchasing request
+9. Generate AI task
+10. Multi-company isolation
+
+Output:
+
+* tables created
+* endpoints created
+* frontend pages created
+* audit logs verified
+* AI task integration verified
+* typecheck result
+* readiness score
+
+Do not start Fuel Intelligence yet.
+Do not start Tire Lifecycle yet.
+Do not start Fleet Risk Score yet.
+Do not start Cost Per KM yet.

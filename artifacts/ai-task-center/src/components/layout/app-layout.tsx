@@ -38,6 +38,7 @@ import {
   FlaskConical,
   ShoppingCart,
   Sparkles,
+  Truck,
 } from "lucide-react";
 import { NotificationsBell } from "@/components/notifications-bell";
 import { useAuth } from "@/contexts/auth-context";
@@ -62,6 +63,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
     { name: "AI Observability", href: "/ai-observability", icon: Activity },
     { name: "CRM",          href: "/crm",               icon: Building2 },
     { name: "Vendors",     href: "/vendors",           icon: TrendingUp },
+    { name: "Fleet",       href: "/fleet/units",            icon: Truck },
     { name: "Purchasing",  href: "/purchasing-intelligence", icon: ShoppingCart },
     { name: "Exec Intelligence", href: "/executive-intelligence", icon: Sparkles },
     { name: "Quotation",   href: "/quotations",        icon: DollarSign },
