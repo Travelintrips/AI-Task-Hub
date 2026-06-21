@@ -32,6 +32,11 @@ import observabilityRouter from "./observability";
 import customerMemoryRouter from "./customer-memory";
 import vendorMemoryRouter from "./vendor-memory";
 import intelRouter from "./intel";
+import purchasingRequestsRouter from "./purchasing-requests";
+import purchasingBenchmarkRouter from "./purchasing-benchmark";
+import purchasingBudgetRouter from "./purchasing-budget";
+import purchasingMarginRouter from "./purchasing-margin";
+import purchasingApprovalRouter from "./purchasing-approval";
 import { extractUser } from "../middleware/auth";
 
 const router: IRouter = Router();
@@ -75,5 +80,10 @@ router.use(observabilityRouter);
 router.use(customerMemoryRouter);
 router.use(vendorMemoryRouter);
 router.use(intelRouter);
+router.use(purchasingRequestsRouter);
+router.use(purchasingBenchmarkRouter);
+router.use(purchasingBudgetRouter);
+router.use(purchasingMarginRouter);
+router.use(purchasingApprovalRouter);
 
 export default router;

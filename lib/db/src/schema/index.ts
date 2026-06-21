@@ -35,3 +35,5 @@ export * from "./customer_memory";
 export * from "./vendor_memory";
 // ── Sprint 5E new tables ────────────────────────────────────────────────────
 export * from "./intel";
+// ── Sprint 6B new tables ────────────────────────────────────────────────────
+export * from "./purchasing";

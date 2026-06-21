@@ -36,6 +36,7 @@ import {
   BookOpen,
   Shield,
   FlaskConical,
+  ShoppingCart,
 } from "lucide-react";
 import { NotificationsBell } from "@/components/notifications-bell";
 import { useAuth } from "@/contexts/auth-context";
@@ -60,6 +61,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
     { name: "AI Observability", href: "/ai-observability", icon: Activity },
     { name: "CRM",          href: "/crm",               icon: Building2 },
     { name: "Vendors",     href: "/vendors",           icon: TrendingUp },
+    { name: "Purchasing",  href: "/purchasing-intelligence", icon: ShoppingCart },
     { name: "Quotation",   href: "/quotations",        icon: DollarSign },
     { name: "Laporan",     href: "/reports",           icon: TrendingUp },
     { name: "Notifikasi",  href: "/notifications",     icon: Bell },

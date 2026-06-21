@@ -1,0 +1,308 @@
+SPRINT 6B — CORE PURCHASING INTELLIGENCE IMPLEMENTATION
+
+Sprint 6A audit is approved.
+
+Implement Core Purchasing Intelligence with revised schema.
+
+Do not build Fleet Intelligence.
+Do not auto-approve any purchase.
+AI can recommend, warn, and explain only.
+Human approval remains mandatory.
+
+====================================================
+A. DATABASE
+====================================================
+
+Create new Replit DB tables:
+
+1. logistic_purchase_requests
+2. purchasing_signals
+3. purchasing_price_benchmarks
+4. purchasing_intel_signals
+5. purchasing_budget_tracker
+6. vendor_contract_rates
+
+Reuse existing Supabase tables as read-only sources:
+
+- vendor_invoices
+- vendor_payments
+- approval_requests
+- expense_budgets
+- expenses
+- logistic_vendor_fulfillments
+- purchase_documents
+- logistic_order_quotes
+- ocean_freight_rate_submissions
+
+Important:
+- Do not create duplicate vendor_invoices.
+- Do not create duplicate approval_requests.
+- Do not use operational_expenses because domain is wrong.
+- Use Supabase as operational source of truth.
+- Use Replit DB as intelligence/materialized layer.
+
+====================================================
+B. MODULE 1 — PRICE BENCHMARK ENGINE
+====================================================
+
+Build purchasing_price_benchmarks refresh engine.
+
+Sources:
+- logistic_vendor_fulfillments.price_snapshot
+- expenses with logistic_order_id
+- vendor_invoices
+- logistic_order_quotes
+- ocean_freight_rate_submissions
+- vendor_contract_rates
+
+Compute per:
+- company_id
+- vendor_id
+- service_category
+- origin
+- destination
+- currency
+
+Metrics:
+- p10_price
+- p25_price
+- median_price
+- p75_price
+- p90_price
+- avg_price
+- min_price
+- max_price
+- sample_count
+- price_volatility_pct
+- price_trend
+- contract_rate_available
+- benchmark_confidence
+
+API:
+GET /api/purchasing/benchmark
+POST /api/purchasing/benchmark/refresh
+
+====================================================
+C. MODULE 2 — DUPLICATE PURCHASE DETECTION
+====================================================
+
+Detect duplicate logistic purchase requests.
+
+Compare against:
+- logistic_purchase_requests
+- vendor_invoices
+- vendor_payments
+- expenses
+- purchasing_signals
+
+Similarity factors:
+- same vendor
+- same service category
+- similar amount ±15%
+- same origin/destination
+- same logistic_order_id
+- same month
+- same invoice number if available
+
+Write result to:
+- purchasing_intel_signals
+- logistic_purchase_requests.ai_duplicate_flag
+- logistic_purchase_requests.ai_duplicate_of_id
+
+API:
+POST /api/purchasing/requests/:id/check-duplicate
+GET /api/purchasing/duplicates
+
+====================================================
+D. MODULE 3 — PURCHASE REQUEST INTELLIGENCE
+====================================================
+
+Create request flow:
+
+POST /api/purchasing/requests
+GET /api/purchasing/requests
+GET /api/purchasing/requests/:id
+GET /api/purchasing/requests/:id/intel
+POST /api/purchasing/requests/:id/evaluate
+PATCH /api/purchasing/requests/:id/status
+
+When request is created:
+1. Save request
+2. Run price benchmark
+3. Run duplicate check
+4. Create purchasing_intel_signals
+5. Calculate aiRiskScore and aiRiskTier
+6. Do not approve automatically
+
+Risk scoring:
+- priceDeviationScore 25%
+- duplicateScore 25%
+- vendorRiskScore 20%
+- budgetImpactScore 15%
+- marginImpactScore 15%
+
+Tier:
+0–30 LOW
+31–60 MEDIUM
+61–80 HIGH
+81–100 CRITICAL
+
+====================================================
+E. MODULE 4 — BUDGET TRACKER
+====================================================
+
+Build purchasing_budget_tracker from:
+- expense_budgets
+- expenses
+- pending logistic_purchase_requests
+
+Compute:
+- budget_allocated
+- budget_used
+- budget_pending
+- budget_remaining
+- utilization_pct
+- will_exceed_if_approved
+
+API:
+GET /api/purchasing/budget/summary
+GET /api/purchasing/requests/:id/budget-impact
+
+====================================================
+F. MODULE 5 — MARGIN IMPACT
+====================================================
+
+Use:
+- intel_profit
+- quotations
+- logistic_order_quotes
+- purchasing_signals
+
+Compute:
+- expected_revenue
+- proposed_cost
+- projected_margin_pct
+- benchmark_margin_pct
+- margin_delta_pct
+- below_margin_floor
+
+API:
+GET /api/purchasing/requests/:id/margin-impact
+
+====================================================
+G. MODULE 6 — APPROVAL ADVISOR
+====================================================
+
+Use existing approval_requests.
+
+Do not create a new approval table.
+
+When request risk tier is HIGH or CRITICAL:
+- create approval_requests row
+- module = purchasing_logistics
+- store AI fields in metadata jsonb
+
+API:
+GET /api/purchasing/requests/:id/approval-advice
+POST /api/purchasing/requests/:id/submit-for-approval
+POST /api/purchasing/approval-requests/:approvalId/decide
+
+Approval decision remains human-only.
+
+====================================================
+H. FRONTEND
+====================================================
+
+Create route:
+
+/purchasing-intelligence
+
+Pages / sections:
+
+1. Dashboard
+2. Purchase Requests
+3. Request Detail
+4. Price Benchmark
+5. Duplicate Flags
+6. Budget Monitor
+7. Margin Impact
+8. Approval Advisor
+
+UI requirements:
+- risk badge
+- duplicate warning banner
+- benchmark card
+- budget impact progress bar
+- margin impact gauge
+- approval advisor panel
+- signal timeline
+
+====================================================
+I. RBAC
+====================================================
+
+staff:
+- create own request
+- view own request
+- view AI warnings
+
+supervisor:
+- view all requests
+- review LOW/MEDIUM risk
+- see benchmark details
+
+company_admin:
+- approve HIGH/CRITICAL
+- override AI warnings
+- refresh benchmarks
+- manage vendor contract rates
+
+super_admin:
+- full access
+
+====================================================
+J. AUDIT LOGGING
+====================================================
+
+Every AI signal must be written to purchasing_intel_signals.
+
+Every human decision must be written to audit_logs.
+
+Track:
+- benchmark warning
+- duplicate detected
+- budget exceeded
+- margin below floor
+- approval submitted
+- approval decided
+- vendor contract rate changed
+
+====================================================
+K. VALIDATION
+====================================================
+
+Run:
+- backend typecheck
+- frontend typecheck
+- server start
+- endpoint smoke tests
+
+Test scenarios:
+
+1. Normal request, price within benchmark
+2. Request 40% above median
+3. Duplicate request
+4. Budget will exceed
+5. Margin below floor
+6. HIGH risk requiring approval
+7. Vendor contract rate overrides market benchmark
+8. Empty benchmark data → low confidence fallback
+
+Output:
+1. tables created
+2. source tables reused
+3. endpoints created
+4. frontend routes created
+5. typecheck result
+6. test scenario results
+7. remaining risks
