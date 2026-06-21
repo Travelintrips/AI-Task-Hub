@@ -7,3 +7,4 @@
 - [Sprint 2A IntentEngine](sprint2a-intent-engine.md) — KB-driven intent resolution: intent-engine.ts (5-layer, 5-min TTL cache), whatsapp-ai.ts thin adapter, task-service.ts additive; drizzle-kit push always times out — use executeSql for schema changes instead.
 - [Sprint 5A Customer Memory](sprint5a-customer-memory.md) — Memory Center: 5 tables, customer_aggregates VIEW (no persistent financials), immutable risk, snapshot inject into resolveIntent via customerId param.
 - [Sprint 5B Vendor Memory](sprint5b-vendor-memory.md) — 7 tables (vendor_preferences, risk_assessments, performance_snapshots, capabilities, document_registry, memory_snapshots, memory_events); req.user?.id must be String()-wrapped; sql.raw() takes 1 arg only, use sql`` tagged template for dynamic queries.
+- [Sprint 5E DB split + intel patterns](sprint5e-intel-patterns.md) — heliumdb vs Supabase split, drizzle array serialization bug, pgArr helper, requireRole import source.
