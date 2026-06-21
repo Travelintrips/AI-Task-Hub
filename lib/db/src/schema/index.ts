@@ -1,8 +1,6 @@
-export * from "./tasks";
 export * from "./team";
 export * from "./messages";
 export * from "./documents";
-export * from "./activity";
 export * from "./ai_tasks";
 export * from "./task_attachments";
 export * from "./document_audits";
@@ -11,7 +9,6 @@ export * from "./task_assignments";
 export * from "./whatsapp_notifications";
 export * from "./public_tokens";
 export * from "./task_timeline";
-export * from "./customer_contexts";
 export * from "./admin_notifications";
 export * from "./users";
 export * from "./company_settings";

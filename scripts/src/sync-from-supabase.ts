@@ -334,13 +334,13 @@ async function syncActivityLogs() {
       ?? `${a.actor_name ?? "System"} ${a.action ?? "melakukan aksi"}`;
     try {
       await q(`
-        INSERT INTO activity (type, description, entity_id, created_at)
-        VALUES ($1,$2,$3,$4)
+        INSERT INTO audit_logs (company_id, action, module, entity_id, entity_type, before, created_at)
+        VALUES ('default',$1,'supabase_sync',$2,'sync_event',$3,$4)
         ON CONFLICT DO NOTHING
       `, [
         a.action ?? "event",
-        desc,
         a.order_id ?? null,
+        desc,
         safeDate(a.created_at) ?? new Date().toISOString(),
       ]);
       count++;
