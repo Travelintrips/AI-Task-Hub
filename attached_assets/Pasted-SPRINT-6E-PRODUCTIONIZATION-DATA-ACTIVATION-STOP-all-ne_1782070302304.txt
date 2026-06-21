@@ -1,0 +1,139 @@
+SPRINT 6E — PRODUCTIONIZATION & DATA ACTIVATION
+
+STOP all new feature development.
+
+Do not build Fleet Intelligence.
+
+Goal:
+Make existing intelligence stack operational.
+
+====================================================
+PHASE 1 — DATABASE ROUTING FIX
+==============================
+
+Audit:
+
+lib/db/src/index.ts
+
+Current issue:
+
+DATABASE_URL overrides
+SUPABASE_DATABASE_URL
+
+Required:
+
+Production:
+SUPABASE_DATABASE_URL
+
+Development:
+SUPABASE_DATABASE_URL_DEV
+
+Local fallback only if explicitly enabled.
+
+Output:
+
+* connection strategy
+* active DB
+* verification query
+
+====================================================
+PHASE 2 — SCHEMA VALIDATION
+===========================
+
+Verify existence of:
+
+Customer Memory tables
+Vendor Memory tables
+CMM tables
+Outcome tables
+Intel tables
+Purchasing tables
+
+For each:
+
+* exists?
+* row count
+* migration status
+
+Create missing tables only.
+
+Do not recreate existing tables.
+
+====================================================
+PHASE 3 — DATA ACTIVATION
+=========================
+
+Seed minimum operational dataset:
+
+1 customer
+1 vendor
+1 quotation
+1 AI task
+1 vendor capability
+1 recommendation
+1 outcome
+1 purchasing request
+
+Run end-to-end.
+
+Verify:
+
+Customer Memory
+Vendor Memory
+CMM
+Purchasing
+
+====================================================
+PHASE 4 — INTELLIGENCE REFRESH
+==============================
+
+Run manual refresh.
+
+Verify:
+
+intel_routes
+intel_vendors
+intel_customers
+intel_profit
+intel_quotations
+
+contain rows.
+
+Generate readiness scores.
+
+====================================================
+PHASE 5 — EXECUTIVE VALIDATION
+==============================
+
+Run:
+
+Task
+→ Recommendation
+→ Vendor Selected
+→ Outcome
+→ Purchasing Request
+→ Benchmark
+→ Approval
+
+End-to-end.
+
+Output:
+
+PASS / FAIL
+
+====================================================
+SUCCESS CRITERIA
+================
+
+Customer Memory rows > 0
+Vendor Memory rows > 0
+CMM rows > 0
+Outcome rows > 0
+Intel tables rows > 0
+Purchasing signals rows > 0
+
+Readiness score >= 60
+
+Only after all criteria pass:
+
+recommend GO / NO-GO for Fleet Intelligence.

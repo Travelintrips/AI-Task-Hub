@@ -1,5 +1,5 @@
 /**
- * Sprint 6D — Executive Intelligence Validation
+ * Sprint 6D/6E — Executive Intelligence Validation
  *
  * Single endpoint that aggregates all 5 intelligence modules into
  * one executive dashboard payload with readiness scores, data quality
@@ -19,9 +19,9 @@ const MARGIN_FLOOR = 0.15;
 const VENDOR_READINESS_MIN = 60;
 const DOC_COMPLIANCE_MIN = 0.8;
 const PRICE_DEVIATION_ALERT_PCT = 10;
-const GO_THRESHOLD = 65; // readiness score ≥ 65 → GO
+const GO_THRESHOLD = 65;
 
-// ── Helper ────────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 function pct(num: number, den: number): number {
   if (!den || den === 0) return 0;
   return Math.round((num / den) * 100);
@@ -33,8 +33,19 @@ function avg(arr: (number | null)[]): number {
   return Math.round(valid.reduce((a, b) => a + b, 0) / valid.length);
 }
 
-// ── GET /api/executive/intelligence ──────────────────────────────────────────
+// Helper: run a raw SQL query and return the first row (or undefined)
+async function row0<T extends Record<string, unknown>>(query: ReturnType<typeof sql>): Promise<T | undefined> {
+  const result = await db.execute(query);
+  return result.rows[0] as T | undefined;
+}
 
+// Helper: run a raw SQL query and return all rows
+async function rows<T extends Record<string, unknown>>(query: ReturnType<typeof sql>): Promise<T[]> {
+  const result = await db.execute(query);
+  return result.rows as T[];
+}
+
+// ── GET /api/executive/intelligence ──────────────────────────────────────────
 router.get(
   "/executive/intelligence",
   requireAuth,
@@ -42,33 +53,41 @@ router.get(
     try {
       const companyId = getCompanyId(req) ?? "default";
 
-      // ── A. Customer Intelligence ─────────────────────────────────────────
-      const [custTotal] = await db.execute(sql`
+      // ── A. Customer Intelligence ──────────────────────────────────────────
+      // customers.company_id is INTEGER — avoid filtering by TEXT companyId.
+      // Derive memory coverage from customer_memory_snapshots (TEXT company_id).
+      const custRow = await row0<{
+        total: number;
+        with_memory: number;
+        avg_hours_since_snapshot: number | null;
+      }>(sql`
         SELECT
-          COUNT(*)::int                                         AS total,
-          COUNT(*) FILTER (WHERE memory_updated_at IS NOT NULL)::int AS with_memory,
-          ROUND(
-            AVG(EXTRACT(EPOCH FROM (NOW() - memory_updated_at)) / 3600)
-            FILTER (WHERE memory_updated_at IS NOT NULL)
-          )::int                                                AS avg_hours_since_snapshot
-        FROM customers
-        WHERE company_id = ${companyId}
+          c.total,
+          COALESCE(m.with_memory, 0)              AS with_memory,
+          m.avg_hours_since_snapshot
+        FROM (SELECT COUNT(*)::int AS total FROM customers) c
+        CROSS JOIN (
+          SELECT
+            COUNT(DISTINCT customer_id)::int AS with_memory,
+            ROUND(
+              AVG(EXTRACT(EPOCH FROM (NOW() - created_at)) / 3600)
+              FILTER (WHERE is_stale = false)
+            )::int AS avg_hours_since_snapshot
+          FROM customer_memory_snapshots
+          WHERE company_id = ${companyId}
+        ) m
       `);
 
-      const [custStale] = await db.execute(sql`
+      const custStaleRow = await row0<{
+        total_with_snapshot: number;
+        stale_count: number;
+      }>(sql`
         SELECT
-          COUNT(*)::int                            AS total_with_snapshot,
+          COUNT(*)::int                                AS total_with_snapshot,
           COUNT(*) FILTER (WHERE is_stale = true)::int AS stale_count
         FROM customer_memory_snapshots
         WHERE company_id = ${companyId}
       `);
-
-      const custRow = custTotal.rows[0] as {
-        total: number; with_memory: number; avg_hours_since_snapshot: number | null;
-      } | undefined;
-      const custStaleRow = custStale.rows[0] as {
-        total_with_snapshot: number; stale_count: number;
-      } | undefined;
 
       const customerIntelligence = {
         memoryCoveragePct: pct(custRow?.with_memory ?? 0, custRow?.total ?? 0),
@@ -82,43 +101,49 @@ router.get(
       };
 
       // ── B. Vendor Intelligence ────────────────────────────────────────────
-      const [vendorStats] = await db.execute(sql`
+      const vRow = await row0<{
+        total_vendors: number;
+        ready_vendors: number;
+        compliant_vendors: number;
+        risk_low: number;
+        risk_medium: number;
+        risk_high: number;
+        risk_critical: number;
+      }>(sql`
         SELECT
-          COUNT(DISTINCT vendor_id)::int                                              AS total_vendors,
-          COUNT(DISTINCT vendor_id) FILTER (WHERE readiness_score >= ${VENDOR_READINESS_MIN})::int
-                                                                                      AS ready_vendors,
+          COUNT(DISTINCT vendor_id)::int AS total_vendors,
+          COUNT(DISTINCT vendor_id) FILTER (WHERE readiness_score >= ${VENDOR_READINESS_MIN})::int AS ready_vendors,
           COUNT(DISTINCT vendor_id) FILTER (
             WHERE document_completeness >= ${DOC_COMPLIANCE_MIN}
             AND (critical_docs_missing = false OR critical_docs_missing IS NULL)
-          )::int                                                                       AS compliant_vendors,
-          COUNT(DISTINCT vendor_id) FILTER (WHERE risk_tier = 'low')::int            AS risk_low,
-          COUNT(DISTINCT vendor_id) FILTER (WHERE risk_tier = 'medium')::int         AS risk_medium,
-          COUNT(DISTINCT vendor_id) FILTER (WHERE risk_tier = 'high')::int           AS risk_high,
-          COUNT(DISTINCT vendor_id) FILTER (WHERE risk_tier = 'critical')::int       AS risk_critical
+          )::int AS compliant_vendors,
+          COUNT(DISTINCT vendor_id) FILTER (WHERE risk_tier = 'low')::int      AS risk_low,
+          COUNT(DISTINCT vendor_id) FILTER (WHERE risk_tier = 'medium')::int   AS risk_medium,
+          COUNT(DISTINCT vendor_id) FILTER (WHERE risk_tier = 'high')::int     AS risk_high,
+          COUNT(DISTINCT vendor_id) FILTER (WHERE risk_tier = 'critical')::int AS risk_critical
         FROM intel_vendors
         WHERE company_id = ${companyId}
           AND is_stale = false
       `);
 
-      const vRow = vendorStats.rows[0] as {
-        total_vendors: number; ready_vendors: number; compliant_vendors: number;
-        risk_low: number; risk_medium: number; risk_high: number; risk_critical: number;
-      } | undefined;
-
       const vendorIntelligence = {
         vendorReadinessPct: pct(vRow?.ready_vendors ?? 0, vRow?.total_vendors ?? 0),
         documentCompliancePct: pct(vRow?.compliant_vendors ?? 0, vRow?.total_vendors ?? 0),
         riskDistribution: {
-          low: vRow?.risk_low ?? 0,
-          medium: vRow?.risk_medium ?? 0,
-          high: vRow?.risk_high ?? 0,
+          low:      vRow?.risk_low ?? 0,
+          medium:   vRow?.risk_medium ?? 0,
+          high:     vRow?.risk_high ?? 0,
           critical: vRow?.risk_critical ?? 0,
         },
         totalVendors: vRow?.total_vendors ?? 0,
       };
 
       // ── C. Recommendation Quality ─────────────────────────────────────────
-      const [recStats] = await db.execute(sql`
+      const recRow = await row0<{
+        avg_acceptance_pct: number | null;
+        avg_win_pct: number | null;
+        vendors_with_rec_data: number;
+      }>(sql`
         SELECT
           ROUND(AVG(recommendation_acceptance_rate) * 100)::int AS avg_acceptance_pct,
           ROUND(AVG(recommendation_win_rate) * 100)::int         AS avg_win_pct,
@@ -128,9 +153,13 @@ router.get(
           AND is_stale = false
       `);
 
-      const [overrideStats] = await db.execute(sql`
+      const overRow = await row0<{
+        total_evaluated: number;
+        overridden: number;
+        blocked: number;
+      }>(sql`
         SELECT
-          COUNT(*)::int                                                                         AS total_evaluated,
+          COUNT(*)::int AS total_evaluated,
           COUNT(*) FILTER (WHERE ai_risk_tier IN ('high','critical') AND status = 'approved')::int AS overridden,
           COUNT(*) FILTER (WHERE ai_risk_tier IN ('high','critical') AND status = 'rejected')::int AS blocked
         FROM logistic_purchase_requests
@@ -138,28 +167,19 @@ router.get(
           AND ai_evaluated_at IS NOT NULL
       `);
 
-      const [confAcc] = await db.execute(sql`
+      const confRow = await row0<{
+        total_with_score: number;
+        high_conf_completed: number;
+        high_conf_total: number;
+      }>(sql`
         SELECT
-          COUNT(*)::int                                              AS total_with_score,
-          COUNT(*) FILTER (
-            WHERE ai_confidence_score = 'high' AND status = 'completed'
-          )::int                                                      AS high_conf_completed,
-          COUNT(*) FILTER (WHERE ai_confidence_score = 'high')::int  AS high_conf_total
+          COUNT(*)::int AS total_with_score,
+          COUNT(*) FILTER (WHERE ai_confidence_score = 'high' AND status = 'completed')::int AS high_conf_completed,
+          COUNT(*) FILTER (WHERE ai_confidence_score = 'high')::int AS high_conf_total
         FROM ai_tasks
         WHERE company_id = ${companyId}
           AND ai_confidence_score IS NOT NULL
       `);
-
-      const recRow = recStats.rows[0] as {
-        avg_acceptance_pct: number | null; avg_win_pct: number | null;
-        vendors_with_rec_data: number;
-      } | undefined;
-      const overRow = overrideStats.rows[0] as {
-        total_evaluated: number; overridden: number; blocked: number;
-      } | undefined;
-      const confRow = confAcc.rows[0] as {
-        total_with_score: number; high_conf_completed: number; high_conf_total: number;
-      } | undefined;
 
       const recommendationQuality = {
         acceptancePct: recRow?.avg_acceptance_pct ?? 0,
@@ -176,46 +196,46 @@ router.get(
       };
 
       // ── D. Purchasing Intelligence ────────────────────────────────────────
-      const [purchStats] = await db.execute(sql`
+      const pRow = await row0<{
+        total_requests: number;
+        duplicate_flags: number;
+        benchmark_alerts: number;
+        margin_alerts: number;
+        escalation_count: number;
+        prevented_duplicates: number;
+        prevented_negative_margin: number;
+        estimated_savings_idr: number | null;
+      }>(sql`
         SELECT
-          COUNT(*)::int                                                                AS total_requests,
-          COUNT(*) FILTER (WHERE ai_duplicate_flag = true)::int                       AS duplicate_flags,
+          COUNT(*)::int AS total_requests,
+          COUNT(*) FILTER (WHERE ai_duplicate_flag = true)::int AS duplicate_flags,
           COUNT(*) FILTER (
             WHERE ai_price_deviation_pct IS NOT NULL
               AND ai_price_deviation_pct > ${PRICE_DEVIATION_ALERT_PCT}
-          )::int                                                                       AS benchmark_alerts,
+          )::int AS benchmark_alerts,
           COUNT(*) FILTER (
             WHERE ai_margin_impact_pct IS NOT NULL
               AND ai_margin_impact_pct < ${MARGIN_FLOOR}
-          )::int                                                                       AS margin_alerts,
-          COUNT(*) FILTER (WHERE ai_risk_tier IN ('high','critical'))::int            AS escalation_count,
-          COUNT(*) FILTER (WHERE ai_duplicate_flag = true AND status IN ('rejected','cancelled'))::int
-                                                                                       AS prevented_duplicates,
+          )::int AS margin_alerts,
+          COUNT(*) FILTER (WHERE ai_risk_tier IN ('high','critical'))::int AS escalation_count,
+          COUNT(*) FILTER (WHERE ai_duplicate_flag = true AND status IN ('rejected','cancelled'))::int AS prevented_duplicates,
           COUNT(*) FILTER (
             WHERE ai_margin_impact_pct IS NOT NULL
               AND ai_margin_impact_pct < 0
               AND status IN ('rejected','cancelled')
-          )::int                                                                       AS prevented_negative_margin,
-          ROUND(
-            SUM(
-              CASE
-                WHEN status = 'approved'
-                  AND ai_price_deviation_pct IS NOT NULL
-                  AND ai_price_deviation_pct < 0
-                THEN estimated_amount * (ABS(ai_price_deviation_pct) / 100.0)
-                ELSE 0
-              END
-            )
-          )::bigint                                                                    AS estimated_savings_idr
+          )::int AS prevented_negative_margin,
+          ROUND(SUM(
+            CASE
+              WHEN status = 'approved'
+                AND ai_price_deviation_pct IS NOT NULL
+                AND ai_price_deviation_pct < 0
+              THEN estimated_amount * (ABS(ai_price_deviation_pct) / 100.0)
+              ELSE 0
+            END
+          ))::bigint AS estimated_savings_idr
         FROM logistic_purchase_requests
         WHERE company_id = ${companyId}
       `);
-
-      const pRow = purchStats.rows[0] as {
-        total_requests: number; duplicate_flags: number; benchmark_alerts: number;
-        margin_alerts: number; escalation_count: number; prevented_duplicates: number;
-        prevented_negative_margin: number; estimated_savings_idr: number | null;
-      } | undefined;
 
       const purchasingIntelligence = {
         totalRequests: pRow?.total_requests ?? 0,
@@ -226,15 +246,13 @@ router.get(
       };
 
       // ── E. Executive ROI ──────────────────────────────────────────────────
-      const [vendorOpps] = await db.execute(sql`
+      const vOppRow = await row0<{ optimization_opportunities: number }>(sql`
         SELECT COUNT(DISTINCT vendor_id)::int AS optimization_opportunities
         FROM intel_vendors
         WHERE company_id = ${companyId}
           AND (risk_tier IN ('high','critical') OR readiness_score < 40)
           AND is_stale = false
       `);
-
-      const vOppRow = vendorOpps.rows[0] as { optimization_opportunities: number } | undefined;
 
       const executiveRoi = {
         estimatedSavingsIdr: pRow?.estimated_savings_idr ?? 0,
@@ -244,34 +262,32 @@ router.get(
       };
 
       // ── Readiness Score ───────────────────────────────────────────────────
-      // Pull from intel_readiness_scores table (populated by intel-refresh scheduler)
-      const [readinessRows] = await db.execute(sql`
+      // intel_readiness_scores columns: dataset_name, overall_readiness_score
+      const readinessDatasets = await rows<{
+        dataset_name: string;
+        avg_score: number;
+        row_count: number;
+      }>(sql`
         SELECT
-          dataset,
-          ROUND(AVG(readiness_score))::int AS avg_score,
-          COUNT(*) AS row_count
+          dataset_name,
+          ROUND(AVG(overall_readiness_score))::int AS avg_score,
+          COUNT(*)::int AS row_count
         FROM intel_readiness_scores
         WHERE company_id = ${companyId}
-        GROUP BY dataset
+        GROUP BY dataset_name
       `);
-
-      const readinessDatasets = (readinessRows?.rows ?? []) as Array<{
-        dataset: string; avg_score: number; row_count: number;
-      }>;
 
       const datasetScores: Record<string, number> = {};
       for (const r of readinessDatasets) {
-        datasetScores[r.dataset] = r.avg_score;
+        datasetScores[r.dataset_name] = r.avg_score;
       }
 
-      // Weighted readiness:
-      // customers 25%, vendors 25%, routes 20%, profit 15%, quotations 15%
       const readinessScore = Math.round(
         (datasetScores["customers"] ?? customerIntelligence.memoryCoveragePct) * 0.25 +
-        (datasetScores["vendors"] ?? vendorIntelligence.vendorReadinessPct) * 0.25 +
-        (datasetScores["routes"] ?? 0) * 0.20 +
-        (datasetScores["profit"] ?? 0) * 0.15 +
-        (datasetScores["quotations"] ?? 0) * 0.15,
+        (datasetScores["vendors"]   ?? vendorIntelligence.vendorReadinessPct) * 0.25 +
+        (datasetScores["routes"]    ?? 0) * 0.20 +
+        (datasetScores["profit"]    ?? 0) * 0.15 +
+        (datasetScores["quotations"]?? 0) * 0.15,
       );
 
       // ── Data Quality Score ────────────────────────────────────────────────
@@ -304,10 +320,8 @@ router.get(
       if (purchasingIntelligence.totalRequests === 0)
         goConditions.push("No purchasing intelligence data — process at least one purchase request");
 
-      const generatedAt = new Date().toISOString();
-
       res.json({
-        generatedAt,
+        generatedAt: new Date().toISOString(),
         readinessScore,
         dataQualityScore,
         goNoGo,
