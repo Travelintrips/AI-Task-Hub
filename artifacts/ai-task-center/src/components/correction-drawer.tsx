@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "@/contexts/auth-context";
-import { useToast } from "@/components/ui/use-toast";
+import { useToast } from "@/hooks/use-toast";
 import {
   Sheet,
   SheetContent,

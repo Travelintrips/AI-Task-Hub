@@ -119,6 +119,9 @@ interface AiTask {
   slaHours: number | null;
   overdueAt: string | null;
   completedAt: string | null;
+  // AI training fields
+  aiIntent: string | null;
+  aiConfidenceScore: string | null;
 }
 
 interface Comment {
@@ -240,6 +243,9 @@ export default function AiTaskDetail() {
   const [waOpen, setWaOpen]               = useState(false);
   const [waTemplateId, setWaTemplateId]   = useState<string>("konfirmasi_penerimaan");
   const [waMessage, setWaMessage]         = useState("");
+
+  // ── Koreksi AI drawer ───────────────────────────────────────────────────────
+  const [correctionOpen, setCorrectionOpen] = useState(false);
 
   // ── Task query ─────────────────────────────────────────────────────────────
 
@@ -516,21 +522,34 @@ export default function AiTaskDetail() {
           )}
         </div>
 
-        {/* Status picker */}
-        <Select value={task.status} onValueChange={(v) => statusMutation.mutate(v)}>
-          <SelectTrigger className="w-52 shrink-0">
-            <SelectValue>
-              <span className={`text-xs px-2 py-0.5 rounded-full ${STATUS_COLORS[task.status] ?? "bg-gray-100 text-gray-700"}`}>
-                {AI_TASK_STATUSES[task.status] ?? task.status}
-              </span>
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {Object.entries(AI_TASK_STATUSES).map(([val, label]) => (
-              <SelectItem key={val} value={val}>{label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex items-center gap-2 shrink-0">
+          {/* Koreksi AI button */}
+          <Button
+            variant="outline"
+            size="sm"
+            className="text-orange-600 border-orange-200 hover:bg-orange-50 text-xs"
+            onClick={() => setCorrectionOpen(true)}
+          >
+            <FlaskConical className="h-3.5 w-3.5 mr-1" />
+            Koreksi AI
+          </Button>
+
+          {/* Status picker */}
+          <Select value={task.status} onValueChange={(v) => statusMutation.mutate(v)}>
+            <SelectTrigger className="w-48">
+              <SelectValue>
+                <span className={`text-xs px-2 py-0.5 rounded-full ${STATUS_COLORS[task.status] ?? "bg-gray-100 text-gray-700"}`}>
+                  {AI_TASK_STATUSES[task.status] ?? task.status}
+                </span>
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {Object.entries(AI_TASK_STATUSES).map(([val, label]) => (
+                <SelectItem key={val} value={val}>{label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -990,6 +1009,24 @@ export default function AiTaskDetail() {
         <OperationalChecklist taskId={task.id} taskType="ai_task" category={task.category} />
         <ShipmentTrackingPanel taskId={task.id} />
       </div>
+
+      {/* ── Koreksi AI Drawer ────────────────────────────────────────────────── */}
+      <CorrectionDrawer
+        open={correctionOpen}
+        onOpenChange={setCorrectionOpen}
+        task={{
+          id: task.id,
+          taskNumber: task.taskNumber ?? undefined,
+          aiIntent: task.aiIntent ?? undefined,
+          priority: task.priority,
+          assignedRole: task.assignedTo ?? undefined,
+          slaStatus: task.slaStatus ?? undefined,
+          confidenceScore: task.aiConfidenceScore ?? undefined,
+        }}
+        onSuccess={() => {
+          void queryClient.invalidateQueries({ queryKey: ["ai-task", id] });
+        }}
+      />
 
       {/* ── Task Timeline ─────────────────────────────────────────────────────── */}
       <div className="border border-gray-200 rounded-xl overflow-hidden">

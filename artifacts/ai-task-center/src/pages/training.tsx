@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/contexts/auth-context";
-import { useToast } from "@/components/ui/use-toast";
+import { useToast } from "@/hooks/use-toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -45,7 +45,7 @@ async function apiPost<T>(path: string, body?: unknown): Promise<T> {
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Correction { id: number; taskId: number; fieldCorrected: string; originalValue: string; correctedValue: string; correctedBy: string; status: string; createdAt: string; correctionReason?: string }
-interface DatasetRecord { id: number; sourceTaskId?: number; originalMessage: string; fieldCorrected: string; correctValue: string; correctedBy: string; splitTag: string; createdAt: string }
+interface DatasetRecord { id: number; sourceTaskId?: number; originalMessage: string; fieldCorrected: string; correctValue: string; correctedBy: string; splitTag: string; createdAt: string; predictedIntent?: string; predictedConfidence?: number }
 interface AccuracySummary { totalPredictions: number; totalCorrections: number; intentAccuracy: number | null; routingAccuracy: number | null; approvalAccuracy: number | null; fallbackRate: number | null; correctionRate: number | null; correctionsByField: Record<string, number> }
 interface PromptVersion { id: number; versionLabel: string; systemPrompt: string; status: string; promptHash?: string; model: string; changelog?: string; createdBy: string; createdAt: string; activatedAt?: string }
 interface Experiment { id: number; name: string; description?: string; status: string; controlVersionId: number; challengerVersionId: number; challengerTrafficPct: number; conclusion?: string; createdAt: string }
