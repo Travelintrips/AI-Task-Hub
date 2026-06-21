@@ -1,14 +1,16 @@
 /**
- * Sprint 6B — Approval Advisor
- *
- * Menggunakan Supabase approval_requests (existing).
- * module = 'purchasing_logistics', doc_type = 'logistic_purchase_request'
- * AI fields disimpan dalam metadata jsonb.
+ * Sprint 6C — Approval Advisor (enhanced)
  *
  * GET  /api/purchasing/requests/:id/approval-advice
  * POST /api/purchasing/requests/:id/submit-for-approval
  * POST /api/purchasing/approval-requests/:approvalId/decide
- * GET  /api/purchasing/approval-requests           — list pending approvals
+ * GET  /api/purchasing/approval-requests
+ *
+ * Sprint 6C additions:
+ * - decide: write purchasing_signals (feedback loop)
+ * - decide: WA notification via Fonnte if requester phone available
+ * - decide: support `notes` alias for `note`
+ * - list: return enriched LPR data with more detail
  */
 
 import { Router, type IRouter, type Request, type Response } from "express";
@@ -16,13 +18,15 @@ import { db } from "@workspace/db";
 import {
   logisticPurchaseRequestsTable,
   purchasingIntelSignalsTable,
+  purchasingSignalsTable,
   auditLogsTable,
+  teamMembersTable,
 } from "@workspace/db/schema";
 import { requireAuth, requireRole } from "../middleware/auth";
 import { logger } from "../lib/logger";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, ilike } from "drizzle-orm";
 import { supabaseQuery } from "../lib/supabase-db";
-import { supabasePool } from "../lib/supabase-db";
+import { sendFonnte } from "../lib/fonnte";
 
 const router: IRouter = Router();
 function cid(req: Request): string { return req.user?.companyId ?? "default"; }
@@ -76,6 +80,11 @@ router.get("/purchasing/requests/:id/approval-advice", requireAuth, async (req: 
       approvalStatus: existingApproval ? (existingApproval.status as string) : lpr.status,
       existingApprovalId: lpr.supabaseApprovalRequestId,
       existingApproval,
+      approvedBy: lpr.approvedBy,
+      approvedAt: lpr.approvedAt,
+      rejectedBy: lpr.rejectedBy,
+      rejectedAt: lpr.rejectedAt,
+      rejectedReason: lpr.rejectedReason,
       latestEvaluation: latestComposite ? {
         headline: latestComposite.headline,
         explanation: latestComposite.explanation,
@@ -187,21 +196,27 @@ router.post("/purchasing/approval-requests/:approvalId/decide", requireAuth, req
   try {
     const companyId = cid(req);
     const approvalId = parseInt(req.params.approvalId as string);
-    const { decision, note } = req.body as { decision: "approved" | "rejected"; note?: string };
+    const { decision, note, notes } = req.body as { decision: "approved" | "rejected"; note?: string; notes?: string };
+    const decisionNote = notes ?? note;
 
     if (!["approved", "rejected"].includes(decision)) {
       return res.status(400).json({ error: "decision harus 'approved' atau 'rejected'" });
     }
 
     // Get existing approval from Supabase
-    const [approval] = await supabaseQuery<{ id: number; doc_id: number; status: string }>(
-      `SELECT id, doc_id, status FROM approval_requests WHERE id = $1 AND module = 'purchasing_logistics' LIMIT 1`,
+    const [approval] = await supabaseQuery<{ id: number; doc_id: number; status: string; requested_by: string }>(
+      `SELECT id, doc_id, status, requested_by FROM approval_requests WHERE id = $1 AND module = 'purchasing_logistics' LIMIT 1`,
       [approvalId]
     );
     if (!approval) return res.status(404).json({ error: "Approval request tidak ditemukan" });
     if (approval.status !== "pending") {
       return res.status(400).json({ error: `Approval sudah ${approval.status}` });
     }
+
+    // Fetch LPR for notification context
+    const [lpr] = await db.select().from(logisticPurchaseRequestsTable)
+      .where(eq(logisticPurchaseRequestsTable.id, approval.doc_id))
+      .limit(1);
 
     const approverName = req.user?.name ?? req.user?.email ?? "unknown";
     const now = new Date().toISOString();
@@ -210,12 +225,12 @@ router.post("/purchasing/approval-requests/:approvalId/decide", requireAuth, req
     if (decision === "approved") {
       await supabaseQuery(
         `UPDATE approval_requests SET status = 'approved', approved_by = $1, approved_at = $2, note = $3 WHERE id = $4`,
-        [approverName, now, note ?? null, approvalId]
+        [approverName, now, decisionNote ?? null, approvalId]
       );
     } else {
       await supabaseQuery(
         `UPDATE approval_requests SET status = 'rejected', rejected_by = $1, rejected_at = $2, note = $3 WHERE id = $4`,
-        [approverName, now, note ?? null, approvalId]
+        [approverName, now, decisionNote ?? null, approvalId]
       );
     }
 
@@ -229,12 +244,62 @@ router.post("/purchasing/approval-requests/:approvalId/decide", requireAuth, req
     } else {
       lprUpdateData.rejectedBy = approverName;
       lprUpdateData.rejectedAt = new Date();
-      lprUpdateData.rejectedReason = note ?? undefined;
+      lprUpdateData.rejectedReason = decisionNote ?? undefined;
     }
 
     await db.update(logisticPurchaseRequestsTable)
       .set(lprUpdateData)
       .where(eq(logisticPurchaseRequestsTable.id, approval.doc_id));
+
+    // ── Feedback Loop: write purchasing_signals ──────────────────────────────
+    if (lpr) {
+      try {
+        await db.insert(purchasingSignalsTable).values({
+          companyId,
+          signalType: decision === "approved" ? "approval_granted" : "approval_rejected",
+          vendorId: lpr.vendorId ?? undefined,
+          vendorName: lpr.vendorName ?? undefined,
+          serviceCategory: lpr.serviceCategory ?? undefined,
+          origin: lpr.origin ?? undefined,
+          destination: lpr.destination ?? undefined,
+          quotedAmount: lpr.estimatedAmount ?? undefined,
+          actualAmount: lpr.estimatedAmount ?? 0,
+          currency: lpr.currency ?? "IDR",
+          sourceTable: "logistic_purchase_requests",
+          sourceId: lpr.id,
+          purchaseRequestId: lpr.id,
+          logisticOrderId: lpr.logisticOrderId ?? undefined,
+          recordedAt: new Date(),
+        });
+        logger.info({ requestId: lpr.id, decision }, "Feedback loop: purchasing_signals written");
+      } catch (signalErr) {
+        logger.warn({ signalErr }, "purchasing_signals write failed (non-fatal)");
+      }
+    }
+
+    // ── WA Notification via Fonnte ───────────────────────────────────────────
+    let waNotified = false;
+    const requesterName = approval.requested_by ?? lpr?.requestedBy ?? "";
+    if (requesterName) {
+      try {
+        const members = await db.select({ phone: teamMembersTable.phone, name: teamMembersTable.name })
+          .from(teamMembersTable)
+          .where(ilike(teamMembersTable.name, `%${requesterName.split(" ")[0]}%`))
+          .limit(1);
+        const phone = members[0]?.phone;
+        if (phone) {
+          const amount = lpr?.estimatedAmount?.toLocaleString("id-ID") ?? "0";
+          const msg = decision === "approved"
+            ? `✅ *Purchasing Request Disetujui*\n\nRequest: ${lpr?.requestNumber ?? "-"}\nVendor: ${lpr?.vendorName ?? "-"}\nJumlah: Rp ${amount}\nDisetujui oleh: ${approverName}\n${decisionNote ? `Catatan: ${decisionNote}` : ""}`
+            : `❌ *Purchasing Request Ditolak*\n\nRequest: ${lpr?.requestNumber ?? "-"}\nVendor: ${lpr?.vendorName ?? "-"}\nJumlah: Rp ${amount}\nDitolak oleh: ${approverName}\n${decisionNote ? `Alasan: ${decisionNote}` : "Silakan hubungi approver untuk detail."}`;
+          const waResult = await sendFonnte(phone, msg);
+          waNotified = waResult.success;
+          logger.info({ phone, waNotified }, "WA notification approval decision");
+        }
+      } catch (waErr) {
+        logger.warn({ waErr }, "WA notification failed (non-fatal)");
+      }
+    }
 
     await db.insert(auditLogsTable).values({
       companyId, userId: req.user?.id, userName: req.user?.name,
@@ -242,10 +307,15 @@ router.post("/purchasing/approval-requests/:approvalId/decide", requireAuth, req
       module: "purchasing_intelligence",
       entityId: approval.doc_id,
       entityType: "logistic_purchase_request",
-      after: JSON.stringify({ decision, approvalId, approvedBy: approverName, note }),
+      after: JSON.stringify({ decision, approvalId, approvedBy: approverName, note: decisionNote, waNotified }),
     });
 
-    return res.json({ success: true, decision, message: `Request berhasil ${decision === "approved" ? "disetujui" : "ditolak"}` });
+    return res.json({
+      success: true,
+      decision,
+      waNotified,
+      message: `Request berhasil ${decision === "approved" ? "disetujui" : "ditolak"}${waNotified ? " dan notifikasi WA terkirim" : ""}`,
+    });
   } catch (err) {
     logger.error({ err }, "POST /api/purchasing/approval-requests/:approvalId/decide failed");
     return res.status(500).json({ error: "Gagal proses keputusan approval" });
