@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { eq, and, desc, count, ilike, or } from "drizzle-orm";
+import { eq, and, desc, count, ilike, or, type AnyColumn } from "drizzle-orm";
 import {
   db,
   intentMasterTable,
@@ -25,15 +25,14 @@ function coIdWrite(req: Request): string    { return getCompanyIdForWrite(req); 
 router.get("/knowledge-base/stats", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const companyId = coId(req);
-    const where = (t: { companyId: typeof intentMasterTable.companyId }) =>
-      companyId ? eq(t.companyId, companyId) : undefined;
+    const whereCo = (col: AnyColumn) => companyId ? eq(col, companyId) : undefined;
 
     const [intents, keywords, services, dataTpl, docTpl] = await Promise.all([
-      db.select({ c: count() }).from(intentMasterTable).where(where(intentMasterTable)),
-      db.select({ c: count() }).from(keywordRulesTable).where(where(keywordRulesTable)),
-      db.select({ c: count() }).from(serviceCatalogTable).where(where(serviceCatalogTable)),
-      db.select({ c: count() }).from(dataTemplatesTable).where(where(dataTemplatesTable)),
-      db.select({ c: count() }).from(documentTemplatesTable).where(where(documentTemplatesTable)),
+      db.select({ c: count() }).from(intentMasterTable).where(whereCo(intentMasterTable.companyId)),
+      db.select({ c: count() }).from(keywordRulesTable).where(whereCo(keywordRulesTable.companyId)),
+      db.select({ c: count() }).from(serviceCatalogTable).where(whereCo(serviceCatalogTable.companyId)),
+      db.select({ c: count() }).from(dataTemplatesTable).where(whereCo(dataTemplatesTable.companyId)),
+      db.select({ c: count() }).from(documentTemplatesTable).where(whereCo(documentTemplatesTable.companyId)),
     ]);
 
     res.json({

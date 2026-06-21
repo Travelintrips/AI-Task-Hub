@@ -732,7 +732,7 @@ export default function AiTaskDetail() {
                         <span className="flex items-center gap-1.5">
                           {m.name}
                           {!m.phone && (
-                            <PhoneOff className="h-3 w-3 text-amber-500" title="Tidak ada nomor HP" />
+                            <PhoneOff className="h-3 w-3 text-amber-500" />
                           )}
                         </span>
                       </SelectItem>
