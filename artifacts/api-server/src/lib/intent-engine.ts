@@ -130,7 +130,7 @@ const MEMORY_TTL_MS = 10 * 60 * 1_000; // 10-min TTL
 
 /**
  * Load the latest non-stale AI context block for a customer.
- * Returns null if no valid snapshot exists.
+ * Returns null if no valid snapshot exists or if validUntil has passed.
  * Results cached 10 min per companyId+customerId.
  */
 export async function loadCustomerMemory(companyId: string, customerId: number): Promise<string | null> {
@@ -141,13 +141,19 @@ export async function loadCustomerMemory(companyId: string, customerId: number):
   try {
     const { desc } = await import("drizzle-orm");
     const [snapshot] = await db
-      .select({ aiContextBlock: customerMemorySnapshotsTable.aiContextBlock, isStale: customerMemorySnapshotsTable.isStale })
+      .select({
+        aiContextBlock: customerMemorySnapshotsTable.aiContextBlock,
+        isStale: customerMemorySnapshotsTable.isStale,
+        validUntil: customerMemorySnapshotsTable.validUntil,
+      })
       .from(customerMemorySnapshotsTable)
       .where(and(eq(customerMemorySnapshotsTable.companyId, companyId), eq(customerMemorySnapshotsTable.customerId, customerId), eq(customerMemorySnapshotsTable.isStale, false)))
       .orderBy(desc(customerMemorySnapshotsTable.createdAt))
       .limit(1);
 
-    const value = snapshot?.aiContextBlock ?? null;
+    // Treat expired snapshots (validUntil passed) as if they don't exist
+    const isExpired = snapshot?.validUntil ? new Date(snapshot.validUntil) < new Date() : false;
+    const value = (snapshot && !isExpired) ? snapshot.aiContextBlock : null;
     memoryCache.set(key, { data: value, expiresAt: Date.now() + MEMORY_TTL_MS });
     return value;
   } catch {

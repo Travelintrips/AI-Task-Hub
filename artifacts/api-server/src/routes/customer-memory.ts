@@ -20,6 +20,7 @@ import {
   auditLogsTable,
 } from "@workspace/db/schema";
 import { requireAuth, requireRole, getCompanyId } from "../middleware/auth";
+import { invalidateCustomerMemoryCache } from "../lib/intent-engine";
 import { logger } from "../lib/logger";
 import { sql, eq, and, desc, or, ne, asc, isNotNull } from "drizzle-orm";
 
@@ -679,6 +680,9 @@ Output HANYA teks naratif dalam Bahasa Indonesia — TIDAK ada JSON, TIDAK ada h
       await logMemoryEvent(companyId, id, "snapshot_generated", req.user?.id ? String(req.user.id) : "ai", "ai", "customer_memory_snapshot", snapshot!.id, {
         version: newVersion, tokenCount, sourceTaskCount: recentTasks.length,
       });
+
+      // Flush the 10-min in-memory cache so IntentEngine picks up the new snapshot immediately
+      invalidateCustomerMemoryCache(companyId, id);
 
       res.status(201).json(snapshot);
     } catch (err) {
