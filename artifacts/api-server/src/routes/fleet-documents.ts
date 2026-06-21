@@ -166,7 +166,7 @@ router.post("/fleet/units/:unitId/documents", requireAuth, async (req: Request, 
       status: docStatus,
       reminderDays: (body.reminderDays as number) || 30,
       notes: body.notes as string | undefined,
-      createdBy: req.user?.id,
+      createdBy: null,
     }).returning();
 
     await audit(req, "fleet.document.uploaded", doc.id, null, doc);

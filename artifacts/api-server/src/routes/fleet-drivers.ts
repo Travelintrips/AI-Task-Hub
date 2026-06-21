@@ -147,7 +147,7 @@ router.post("/fleet/drivers", requireAuth, requireRole("supervisor", "company_ad
       emergencyContact: body.emergencyContact as string | undefined,
       emergencyPhone: body.emergencyPhone as string | undefined,
       notes: body.notes as string | undefined,
-      createdBy: req.user?.id,
+      createdBy: null,
     }).returning();
 
     await audit(req, "fleet.driver.created", driver.id, null, driver);

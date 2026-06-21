@@ -134,7 +134,7 @@ router.post("/fleet/units", requireAuth, requireRole("supervisor", "company_admi
       ownershipType: (body.ownershipType as string) || "own",
       baseLocation: body.baseLocation as string | undefined,
       notes: body.notes as string | undefined,
-      createdBy: req.user?.id,
+      createdBy: null,
     }).returning();
 
     await audit(req, "fleet.unit.created", unit.id, null, unit);

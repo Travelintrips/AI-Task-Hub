@@ -147,7 +147,7 @@ router.post("/fleet/maintenance/schedules", requireAuth, requireRole("supervisor
       nextDueDate: body.nextDueDate as string | undefined,
       autoCreateTask: (body.autoCreateTask as boolean) || false,
       notifyRoles: body.notifyRoles as unknown[] | undefined,
-      createdBy: req.user?.id,
+      createdBy: null,
     }).returning();
 
     res.status(201).json(sched);
@@ -264,7 +264,7 @@ router.post("/fleet/maintenance", requireAuth, async (req: Request, res: Respons
       nextServiceDate: body.nextServiceDate as string | undefined,
       notes: body.notes as string | undefined,
       status: "pending",
-      createdBy: req.user?.id,
+      createdBy: null,
     }).returning();
 
     await audit(req, "fleet.maintenance.created", record.id, null, record);
@@ -341,7 +341,7 @@ router.post("/fleet/maintenance/:id/approve", requireAuth, requireRole("supervis
 
     const updates: Record<string, unknown> = {
       status: "in_progress",
-      approvedBy: req.user?.id,
+      approvedBy: req.user?.id ?? null,
       approvedAt: new Date(),
     };
     if (costActual != null) updates.costActual = costActual;
@@ -412,7 +412,7 @@ router.post("/fleet/maintenance/:id/reject", requireAuth, requireRole("superviso
       .update(fleetMaintenanceRecordsTable)
       .set({
         status: "rejected",
-        rejectedBy: req.user?.id,
+        rejectedBy: req.user?.id ?? null,
         rejectedAt: new Date(),
         rejectionReason: reason ?? "Ditolak oleh supervisor",
       })

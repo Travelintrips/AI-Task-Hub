@@ -14,7 +14,7 @@
 
 import {
   pgTable, text, serial, timestamp, integer, real,
-  boolean, date, index, jsonb,
+  boolean, date, index, jsonb, uuid,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
@@ -93,7 +93,7 @@ export const fleetUnitsTable = pgTable("fleet_units", {
   notes: text("notes"),
   isActive: boolean("is_active").notNull().default(true),
 
-  createdBy: integer("created_by"),
+  createdBy: text("created_by"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (t) => [
@@ -125,7 +125,7 @@ export const fleetDocumentsTable = pgTable("fleet_documents", {
   reminderDays: integer("reminder_days").default(30),
 
   notes: text("notes"),
-  createdBy: integer("created_by"),
+  createdBy: text("created_by"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (t) => [
@@ -163,7 +163,7 @@ export const fleetDriversTable = pgTable("fleet_drivers", {
   photoUrl: text("photo_url"),
   notes: text("notes"),
 
-  createdBy: integer("created_by"),
+  createdBy: text("created_by"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (t) => [
@@ -228,9 +228,9 @@ export const fleetMaintenanceRecordsTable = pgTable("fleet_maintenance_records",
   purchaseRequestId: integer("purchase_request_id"),
 
   status: text("status").notNull().default("pending"),
-  approvedBy: integer("approved_by"),
+  approvedBy: text("approved_by"),
   approvedAt: timestamp("approved_at", { withTimezone: true }),
-  rejectedBy: integer("rejected_by"),
+  rejectedBy: text("rejected_by"),
   rejectedAt: timestamp("rejected_at", { withTimezone: true }),
   rejectionReason: text("rejection_reason"),
   completionDate: date("completion_date"),
@@ -241,7 +241,7 @@ export const fleetMaintenanceRecordsTable = pgTable("fleet_maintenance_records",
   invoiceUrl: text("invoice_url"),
   notes: text("notes"),
 
-  createdBy: integer("created_by"),
+  createdBy: text("created_by"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (t) => [
@@ -277,7 +277,7 @@ export const fleetMaintenanceSchedulesTable = pgTable("fleet_maintenance_schedul
   autoCreateTask: boolean("auto_create_task").default(false),
   notifyRoles: jsonb("notify_roles"),
 
-  createdBy: integer("created_by"),
+  createdBy: text("created_by"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (t) => [
@@ -343,7 +343,7 @@ export const fleetDriverIncidentsTable = pgTable("fleet_driver_incidents", {
   attachments: jsonb("attachments"),
   notes: text("notes"),
 
-  createdBy: integer("created_by"),
+  createdBy: text("created_by"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (t) => [
