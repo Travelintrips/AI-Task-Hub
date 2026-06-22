@@ -39,6 +39,8 @@ import {
   Shield,
   Play,
   MessageSquare,
+  ClipboardList,
+  Award,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { useState } from "react";
@@ -589,6 +591,18 @@ export default function ExecutiveCommandPage() {
       body: JSON.stringify({ runName: `Run dari Command Center ${new Date().toLocaleString("id-ID")}` }),
     }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["exec-conv-test-gate"] }),
+  });
+
+  const qualityGateQ = useQuery<{
+    data: {
+      runId: number; successRate: number; passed: number; failed: number;
+      total: number; certified: boolean; goDecision: string; startedAt: string;
+    } | null;
+  }>({
+    queryKey: ["executive-quality-gate"],
+    queryFn: () => apiFetch("/api/quality-gate/latest"),
+    staleTime: 120_000,
+    retry: 1,
   });
 
   const [, navigate] = useLocation();
@@ -1484,6 +1498,73 @@ export default function ExecutiveCommandPage() {
             )}
           </CardContent>
         </Card>
+
+        {/* ── Panel: Quality Gate Widget ───────────────────────────────── */}
+        {(() => {
+          const qg = qualityGateQ.data?.data;
+          return (
+            <section>
+              <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+                Quality Gate
+              </h2>
+              <Card className="border shadow-sm">
+                <CardContent className="pt-4">
+                  <div className="flex items-start gap-4">
+                    <div className={`p-2 rounded-lg shrink-0 ${qg?.certified ? "bg-green-100" : qg ? "bg-red-100" : "bg-muted/40"}`}>
+                      {qg?.certified
+                        ? <Award className="h-5 w-5 text-green-600" />
+                        : qg
+                        ? <ShieldOff className="h-5 w-5 text-red-600" />
+                        : <ClipboardList className="h-5 w-5 text-muted-foreground" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="text-sm font-semibold">Sprint 9D Certification</span>
+                        {qg ? (
+                          <Badge className={`border-0 text-xs ${qg.goDecision === "GO" ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"}`}>
+                            {qg.goDecision === "GO" ? "🟢 GO" : "🔴 NO-GO"}
+                          </Badge>
+                        ) : (
+                          <Badge variant="secondary" className="text-xs">Belum ada run</Badge>
+                        )}
+                      </div>
+                      {qg ? (
+                        <div className="grid grid-cols-5 gap-2 text-center">
+                          {[
+                            { label: "Total",    value: qg.total,    color: "text-foreground" },
+                            { label: "Passed",   value: qg.passed,   color: "text-green-600" },
+                            { label: "Failed",   value: qg.failed,   color: qg.failed > 0 ? "text-red-600" : "text-muted-foreground" },
+                            { label: "Rate",     value: `${(qg.successRate ?? 0).toFixed(0)}%`, color: (qg.successRate ?? 0) >= 95 ? "text-green-600" : "text-red-600" },
+                            { label: "Build",    value: `#${qg.runId}`, color: "text-muted-foreground" },
+                          ].map((item) => (
+                            <div key={item.label}>
+                              <div className={`text-xl font-bold ${item.color}`}>{item.value}</div>
+                              <div className="text-xs text-muted-foreground leading-tight">{item.label}</div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-muted-foreground">
+                          Belum ada quality gate run. Jalankan dari halaman Certification Report.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex gap-2 mt-3">
+                    <Button size="sm" variant="outline" onClick={() => navigate("/quality-gate/report")}>
+                      Lihat Certification Report →
+                    </Button>
+                    {qualityGateQ.isError && (
+                      <span className="text-xs text-muted-foreground self-center">
+                        (data tidak tersedia)
+                      </span>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </section>
+          );
+        })()}
 
       </div>
 

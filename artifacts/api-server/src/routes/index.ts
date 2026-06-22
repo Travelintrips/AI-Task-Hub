@@ -57,6 +57,7 @@ import miniFormConfigRouter from "./mini-form-config";
 import documentValidationRouter from "./document-validation";
 import readinessRouter from "./readiness";
 import conversationTestsRouter from "./conversation-tests";
+import qualityGateRouter from "./quality-gate";
 import { extractUser } from "../middleware/auth";
 
 const router: IRouter = Router();
@@ -133,5 +134,7 @@ router.use(miniFormConfigRouter);
 router.use(readinessRouter);
 // ── Sprint 9D — Conversation Test Suite & AI Quality Gate ─────────────────────
 router.use(conversationTestsRouter);
+// ── Sprint 9D — Quality Gate & Certification ───────────────────────────────────
+router.use(qualityGateRouter);
 
 export default router;

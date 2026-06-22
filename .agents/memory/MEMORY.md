@@ -25,3 +25,4 @@
 - [Sprint 9B Mini Form Router](sprint9b-mini-form-router.md) — routeIntentToFlow() in mini-form-router.ts checks data_templates.intake_mode; IntentResolution cannot be cast to Record<string,unknown> — use unknown first; resolution param kept but intentName/category passed separately.
 - [Sprint 8D Hardening & Backfill](sprint8d-hardening.md) — app.ts mounts router at /api so sub-router paths must NOT include /api prefix; PG arrays must be native JS arrays not JSON.stringify(); scripts/ has own pg in node_modules.
 - [Sprint 8E Service Coverage](sprint8e-coverage.md) — 24 services, 90% coverage; 48 intents, 503 keywords, 32 data templates, 303 fields, 21 doc templates, 83 doc fields; seed script idempotent via DELETE+INSERT.
+- [Sprint 9D Quality Gate](sprint9d-quality-gate.md) — 22/22 CERTIFIED GO; intent codes, valid routes, task array format, RBAC role expectations all documented.
