@@ -4,13 +4,13 @@
  * Each refresh function:
  *   1. Aggregates data from Supabase source tables (via supabaseQuery)
  *   2. Computes readiness scores via intel-readiness.ts (pure functions)
- *   3. Upserts rows to intel_* tables in heliumdb (via drizzle db)
+ *   3. Upserts rows to intel_* tables in Supabase (via drizzle db)
  *   4. Returns { rowsWritten, readinessScoreAvg }
  *
  * Architecture note:
  *   Source tables (ai_tasks, quotations, shipment_trackings, vendor_*, customers, etc.)
  *   live in Supabase → read via supabaseQuery().
- *   Intel materialized tables (intel_*) live in heliumdb (Replit DB) → write via db.execute().
+ *   Intel materialized tables (intel_*) also live in Supabase → write via db.execute().
  *
  * 5C/5D extension points are marked with TODO comments.
  * Uses rolling 90-day period by default.
@@ -924,7 +924,7 @@ export async function refreshIntelQuotations(
 }
 
 // ── Readiness scores summary ──────────────────────────────────────────────────
-// Reads from intel_* tables (heliumdb via drizzle) — no Supabase needed here.
+// Reads from intel_* tables (Supabase via drizzle db) — same DB, no separate connection needed.
 
 export async function refreshReadinessScores(
   companyId: string,
