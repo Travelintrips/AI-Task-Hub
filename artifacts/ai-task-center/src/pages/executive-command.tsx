@@ -195,6 +195,43 @@ interface RiskHeatmapData {
   columns: RiskLevel[];
 }
 
+// Sprint 8D types
+
+interface AiRisk {
+  severity: string;
+  text: string;
+  entityType: string;
+  entityId: string;
+}
+
+interface AiAction {
+  priority: string;
+  text: string;
+  actionUrl: string;
+}
+
+interface AiSummaryData {
+  id: number;
+  company_id: string;
+  summary: string;
+  risks: AiRisk[];
+  actions: AiAction[];
+  context_hash: string | null;
+  generated_by: string;
+  generated_at: string;
+}
+
+interface AiSummaryResponse {
+  cached: boolean;
+  cacheExpiresAt: string | null;
+  data: AiSummaryData | null;
+}
+
+interface AiSummaryHistoryResponse {
+  total: number;
+  history: AiSummaryData[];
+}
+
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 function StaleBadge({ dateStr }: { dateStr: string | null }) {
@@ -363,6 +400,7 @@ export default function ExecutiveCommandPage() {
   const qc = useQueryClient();
   const [rejectTarget, setRejectTarget] = useState<PendingApproval | null>(null);
   const [rejectNotes, setRejectNotes] = useState("");
+  const [showHistory, setShowHistory] = useState(false);
 
   const kpisQ = useQuery<KpiData>({
     queryKey: ["executive-kpis"],
@@ -419,6 +457,34 @@ export default function ExecutiveCommandPage() {
     queryFn: () => apiFetch("/api/executive/risk-heatmap"),
     retry: 1,
     staleTime: 120_000,
+  });
+
+  // Sprint 8D queries
+  const summaryQ = useQuery<AiSummaryResponse>({
+    queryKey: ["executive-ai-summary"],
+    queryFn: () => apiFetch("/api/executive/ai-summary/latest"),
+    retry: 1,
+    staleTime: 5 * 60_000,
+  });
+
+  const historyQ = useQuery<AiSummaryHistoryResponse>({
+    queryKey: ["executive-ai-summary-history"],
+    queryFn: () => apiFetch("/api/executive/ai-summary/history?limit=10"),
+    enabled: showHistory,
+    retry: 1,
+    staleTime: 60_000,
+  });
+
+  const generateMutation = useMutation({
+    mutationFn: (force: boolean) =>
+      apiFetch("/api/executive/ai-summary", {
+        method: "POST",
+        body: JSON.stringify({ force }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["executive-ai-summary"] });
+      qc.invalidateQueries({ queryKey: ["executive-ai-summary-history"] });
+    },
   });
 
   // Approve mutation
@@ -1048,6 +1114,226 @@ export default function ExecutiveCommandPage() {
                     </div>
                   </div>
                 ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* ── Panel 9: AI Executive Summary (full-width) ───────────────────── */}
+        <Card className="border shadow-sm">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Brain className="h-4 w-4 text-purple-500" />
+              Ringkasan Eksekutif AI
+              {summaryQ.data && (
+                <Badge
+                  variant="outline"
+                  className={`ml-2 text-[10px] px-1.5 py-0 ${
+                    summaryQ.data.cached
+                      ? "text-green-700 bg-green-50 border-green-200"
+                      : "text-blue-700 bg-blue-50 border-blue-200"
+                  }`}
+                >
+                  {summaryQ.data.cached ? "Cache" : "Baru"}
+                </Badge>
+              )}
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2 ml-auto"
+                onClick={() => setShowHistory((v) => !v)}
+              >
+                <ListChecks className="h-3.5 w-3.5 mr-1" />
+                <span className="text-xs">{showHistory ? "Sembunyikan" : "Riwayat"}</span>
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 px-3 text-xs"
+                disabled={generateMutation.isPending}
+                onClick={() => generateMutation.mutate(false)}
+              >
+                {generateMutation.isPending ? (
+                  <><RefreshCw className="h-3 w-3 mr-1 animate-spin" /> Membuat...</>
+                ) : (
+                  <><Zap className="h-3 w-3 mr-1" /> Generate Baru</>
+                )}
+              </Button>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {generateMutation.isError && (
+              <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded p-2">
+                Gagal membuat ringkasan. Coba lagi.
+              </div>
+            )}
+
+            {summaryQ.isLoading ? (
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-5/6" />
+                <Skeleton className="h-4 w-4/6" />
+              </div>
+            ) : summaryQ.isError ? (
+              <p className="text-sm text-muted-foreground py-4 text-center">Gagal memuat ringkasan.</p>
+            ) : !summaryQ.data?.data ? (
+              <div className="flex flex-col items-center justify-center py-10 text-muted-foreground">
+                <Brain className="h-8 w-8 mb-2 opacity-50" />
+                <p className="text-sm font-medium">Belum ada ringkasan AI</p>
+                <p className="text-xs mb-4">Klik "Generate Baru" untuk membuat ringkasan pertama</p>
+                <Button
+                  size="sm"
+                  onClick={() => generateMutation.mutate(false)}
+                  disabled={generateMutation.isPending}
+                >
+                  <Zap className="h-3.5 w-3.5 mr-1" />
+                  {generateMutation.isPending ? "Membuat..." : "Generate Ringkasan"}
+                </Button>
+              </div>
+            ) : (() => {
+              const d = summaryQ.data.data!;
+              return (
+                <div className="space-y-4">
+                  {/* Meta info */}
+                  <div className="flex items-center gap-3 flex-wrap text-xs text-muted-foreground">
+                    <span>
+                      Dibuat:{" "}
+                      {new Date(d.generated_at).toLocaleString("id-ID", {
+                        day: "2-digit", month: "short", year: "numeric",
+                        hour: "2-digit", minute: "2-digit",
+                      })}
+                    </span>
+                    <span>Oleh: {d.generated_by}</span>
+                    {summaryQ.data.cacheExpiresAt && (
+                      <span>
+                        Cache s/d:{" "}
+                        {new Date(summaryQ.data.cacheExpiresAt).toLocaleString("id-ID", {
+                          hour: "2-digit", minute: "2-digit",
+                        })}
+                      </span>
+                    )}
+                    {d.context_hash && (
+                      <code className="bg-muted px-1 rounded font-mono text-[10px]">
+                        {d.context_hash}
+                      </code>
+                    )}
+                  </div>
+
+                  {/* Summary paragraph */}
+                  <div className="bg-muted/40 rounded-lg p-4 border">
+                    <p className="text-sm leading-relaxed">{d.summary}</p>
+                  </div>
+
+                  <div className="grid md:grid-cols-2 gap-4">
+                    {/* Risks */}
+                    {d.risks.length > 0 && (
+                      <div>
+                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+                          Risiko Teridentifikasi
+                        </p>
+                        <div className="space-y-1.5">
+                          {d.risks.map((risk, i) => {
+                            const sev = risk.severity?.toUpperCase();
+                            const colorMap: Record<string, string> = {
+                              CRITICAL: "bg-red-50 border-red-200 text-red-800",
+                              HIGH: "bg-orange-50 border-orange-200 text-orange-800",
+                              MEDIUM: "bg-yellow-50 border-yellow-200 text-yellow-800",
+                              LOW: "bg-blue-50 border-blue-200 text-blue-800",
+                            };
+                            const cls = colorMap[sev] ?? "bg-muted/40 border text-foreground";
+                            return (
+                              <div key={i} className={`rounded border px-3 py-2 ${cls}`}>
+                                <div className="flex items-center gap-2 mb-0.5">
+                                  <AlertTriangle className="h-3 w-3 shrink-0" />
+                                  <span className="text-[10px] font-bold">{sev}</span>
+                                  <span className="text-[10px] opacity-70">{risk.entityType}</span>
+                                </div>
+                                <p className="text-xs leading-snug">{risk.text}</p>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Recommended actions */}
+                    {d.actions.length > 0 && (
+                      <div>
+                        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+                          Rekomendasi Tindakan
+                        </p>
+                        <div className="space-y-1.5">
+                          {d.actions.map((action, i) => {
+                            const prio = action.priority?.toUpperCase();
+                            const colorMap: Record<string, string> = {
+                              HIGH: "text-orange-700",
+                              MEDIUM: "text-yellow-700",
+                              LOW: "text-blue-700",
+                            };
+                            const cls = colorMap[prio] ?? "text-foreground";
+                            return (
+                              <div key={i} className="flex items-start gap-2 border rounded px-3 py-2 bg-muted/20">
+                                <CheckCircle2 className={`h-3.5 w-3.5 mt-0.5 shrink-0 ${cls}`} />
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex items-center gap-1.5 mb-0.5">
+                                    <span className={`text-[10px] font-bold ${cls}`}>{prio}</span>
+                                  </div>
+                                  <p className="text-xs leading-snug">{action.text}</p>
+                                </div>
+                                {action.actionUrl && (
+                                  <a href={action.actionUrl} className="text-muted-foreground hover:text-primary shrink-0 mt-0.5">
+                                    <Link2 className="h-3.5 w-3.5" />
+                                  </a>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* History drawer */}
+            {showHistory && (
+              <div className="border-t pt-4">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+                  Riwayat Ringkasan
+                </p>
+                {historyQ.isLoading ? (
+                  <div className="space-y-2">
+                    {Array.from({ length: 3 }).map((_, i) => (
+                      <Skeleton key={i} className="h-14 w-full" />
+                    ))}
+                  </div>
+                ) : historyQ.isError ? (
+                  <p className="text-sm text-muted-foreground text-center py-3">Gagal memuat riwayat.</p>
+                ) : !historyQ.data || historyQ.data.history.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-3">Belum ada riwayat.</p>
+                ) : (
+                  <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+                    {historyQ.data.history.map((h) => (
+                      <div key={h.id} className="border rounded p-3 bg-muted/20 space-y-1">
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
+                          <span className="font-medium text-foreground">#{h.id}</span>
+                          <span>
+                            {new Date(h.generated_at).toLocaleString("id-ID", {
+                              day: "2-digit", month: "short", year: "numeric",
+                              hour: "2-digit", minute: "2-digit",
+                            })}
+                          </span>
+                          <span>oleh {h.generated_by}</span>
+                          <Badge variant="outline" className="text-[10px] py-0 px-1.5">
+                            {h.risks.length} risiko · {h.actions.length} aksi
+                          </Badge>
+                        </div>
+                        <p className="text-xs text-muted-foreground line-clamp-2">{h.summary}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </CardContent>

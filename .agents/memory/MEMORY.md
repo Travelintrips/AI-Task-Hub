@@ -16,3 +16,4 @@
 - [DB split: executeSql vs Supabase](db-split-executeSql.md) — executeSql (code_execution) hits Replit local DB; API server uses SUPABASE_DATABASE_URL; use scripts/migrate-fleet.mjs pattern (Node.js ESM + pg Pool) for DDL against Supabase.
 - [Sprint 8C TypeCheck Cleanup](sprint8c-typecheck-cleanup.md) — TS7030 fix: add return to catch blocks; logisticPurchaseRequests has no category/urgency/currency; StatCard value→ReactNode for JSX.
 - [Sprint 8B Executive Command](sprint8b-executive-command.md) — 5 endpoints + table + frontend; training.ts needed firstParam for req.params.taskId (col 29) in addition to req.params.id (col 25); safeCount/safeRow/safeRows wrappers absorb missing-column errors gracefully.
+- [Sprint 8D AI Executive Summary](sprint8d-ai-summary.md) — auditLogsTable needs module (required), entityId as integer, userId integer, userEmail; executive_summaries in Supabase; INTERVAL '30 minutes' OK in supabaseQuery raw SQL.

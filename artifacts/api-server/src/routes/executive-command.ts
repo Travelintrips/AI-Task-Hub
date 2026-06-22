@@ -13,6 +13,7 @@
 
 import { Router, type IRouter, type Request, type Response } from "express";
 import { sql, eq, and, desc, ilike } from "drizzle-orm";
+import { createHash } from "crypto";
 import { db } from "@workspace/db";
 import {
   auditLogsTable,
@@ -20,10 +21,11 @@ import {
   purchasingSignalsTable,
   teamMembersTable,
 } from "@workspace/db/schema";
-import { requireAuth, requireRole, getCompanyId } from "../middleware/auth";
+import { requireAuth, requireRole, getCompanyId, getCompanyIdForWrite } from "../middleware/auth";
 import { logger } from "../lib/logger";
 import { supabaseQuery } from "../lib/supabase-db";
 import { sendFonnte } from "../lib/fonnte";
+import { openai } from "../lib/openai";
 
 const router: IRouter = Router();
 
@@ -1554,6 +1556,296 @@ router.get(
     } catch (err) {
       logger.error({ err }, "GET /executive/risk-heatmap failed");
       res.status(500).json({ error: "Gagal memuat risk heatmap" });
+    }
+  },
+);
+
+// ── AI Executive Summary helpers ──────────────────────────────────────────────
+
+const SUMMARY_CACHE_MINUTES = 30;
+
+interface ExecSummaryRow {
+  id: number;
+  company_id: string;
+  summary: string;
+  risks: Array<{ severity: string; text: string; entityType: string; entityId: string }>;
+  actions: Array<{ priority: string; text: string; actionUrl: string }>;
+  context_hash: string | null;
+  generated_by: string;
+  generated_at: string;
+}
+
+async function buildExecContext(companyId: string): Promise<Record<string, unknown>> {
+  const [kpiRows, alertRows, riskRows, taskRows, purchRows] = await Promise.all([
+    safeRows<Record<string, unknown>>(sql`
+      SELECT
+        COUNT(*) FILTER (WHERE status NOT IN ('completed','cancelled','closed'))::int AS active_tasks,
+        COUNT(*) FILTER (WHERE priority = 'critical' AND status NOT IN ('completed','cancelled','closed'))::int AS critical_tasks,
+        COUNT(*) FILTER (WHERE status = 'pending')::int AS pending_tasks
+      FROM ai_tasks WHERE company_id = ${companyId}
+    `),
+    safeRows<Record<string, unknown>>(sql`
+      SELECT COUNT(*)::int AS high_risk_customers
+      FROM customers WHERE company_id = ${companyId} AND risk_tier IN ('high','critical')
+    `),
+    safeRows<Record<string, unknown>>(sql`
+      SELECT risk_tier, COUNT(*)::int AS cnt
+      FROM customers WHERE company_id = ${companyId} AND risk_tier IS NOT NULL
+      GROUP BY risk_tier
+    `),
+    safeRows<Record<string, unknown>>(sql`
+      SELECT priority, COUNT(*)::int AS cnt
+      FROM ai_tasks
+      WHERE company_id = ${companyId} AND status NOT IN ('completed','cancelled','closed')
+      GROUP BY priority
+    `),
+    safeRows<Record<string, unknown>>(sql`
+      SELECT
+        COUNT(*)::int AS pending_approvals,
+        COUNT(*) FILTER (WHERE ai_margin_impact_pct < 0)::int AS negative_margin,
+        COUNT(*) FILTER (WHERE ai_duplicate_flag = true)::int AS duplicates,
+        COALESCE(SUM(estimated_amount),0)::bigint AS total_pending_value
+      FROM logistic_purchase_requests
+      WHERE company_id = ${companyId}
+        AND status NOT IN ('rejected','cancelled','completed')
+    `),
+  ]);
+
+  return {
+    companyId,
+    generatedAt: new Date().toISOString(),
+    tasks: kpiRows[0] ?? {},
+    tasksByPriority: taskRows,
+    customers: { highRisk: alertRows[0] ?? {}, byTier: riskRows },
+    purchasing: purchRows[0] ?? {},
+  };
+}
+
+async function generateAiSummary(context: Record<string, unknown>): Promise<{
+  summary: string;
+  risks: Array<{ severity: string; text: string; entityType: string; entityId: string }>;
+  actions: Array<{ priority: string; text: string; actionUrl: string }>;
+}> {
+  const prompt = `Kamu adalah analis eksekutif senior. Berdasarkan data operasional berikut, buat ringkasan eksekutif singkat dalam Bahasa Indonesia.
+
+Data konteks:
+${JSON.stringify(context, null, 2)}
+
+Balas HANYA dengan JSON valid (tanpa markdown) dengan format:
+{
+  "summary": "paragraf ringkasan eksekutif 2-3 kalimat dalam Bahasa Indonesia",
+  "risks": [
+    { "severity": "HIGH", "text": "deskripsi risiko", "entityType": "customers|tasks|purchasing|fleet", "entityId": "" }
+  ],
+  "actions": [
+    { "priority": "HIGH", "text": "rekomendasi tindakan", "actionUrl": "/halaman-terkait" }
+  ]
+}
+
+Severity harus salah satu: CRITICAL, HIGH, MEDIUM, LOW.
+Priority harus salah satu: HIGH, MEDIUM, LOW.
+Maksimal 5 risks dan 5 actions.`;
+
+  try {
+    const resp = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: "Kamu adalah analis eksekutif senior yang memberikan ringkasan singkat dan rekomendasi tindakan berbasis data. Balas hanya dengan JSON valid." },
+        { role: "user", content: prompt },
+      ],
+      max_tokens: 800,
+      temperature: 0.3,
+    });
+    const raw = resp.choices[0]?.message?.content?.trim() ?? "{}";
+    const parsed = JSON.parse(raw);
+    return {
+      summary: typeof parsed.summary === "string" ? parsed.summary : "Ringkasan tidak tersedia.",
+      risks: Array.isArray(parsed.risks) ? parsed.risks.slice(0, 5) : [],
+      actions: Array.isArray(parsed.actions) ? parsed.actions.slice(0, 5) : [],
+    };
+  } catch (err) {
+    logger.error({ err }, "generateAiSummary OpenAI call failed");
+    return {
+      summary: "Ringkasan AI tidak dapat dibuat saat ini. Periksa koneksi OpenAI.",
+      risks: [],
+      actions: [],
+    };
+  }
+}
+
+// ── POST /api/executive/ai-summary ───────────────────────────────────────────
+
+router.post(
+  "/executive/ai-summary",
+  ...RBAC,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const companyId = getCompanyIdForWrite(req);
+      const force = req.body?.force === true && req.user?.role === "super_admin";
+
+      // Check cache (30 minutes)
+      if (!force) {
+        const cached = await supabaseQuery<ExecSummaryRow>(
+          `SELECT id, company_id, summary, risks, actions, context_hash, generated_by, generated_at::text
+           FROM executive_summaries
+           WHERE company_id = $1
+             AND generated_at > NOW() - INTERVAL '${SUMMARY_CACHE_MINUTES} minutes'
+           ORDER BY generated_at DESC
+           LIMIT 1`,
+          [companyId],
+        );
+        if (cached.length > 0) {
+          const hit = cached[0];
+          // Audit: cache returned
+          try {
+            await db.insert(auditLogsTable).values({
+              companyId,
+              action: "executive.ai_summary_cache_returned",
+              module: "executive",
+              entityType: "executive_summary",
+              entityId: hit.id,
+              userId: req.user?.id ?? null,
+              userEmail: req.user?.email ?? null,
+              after: JSON.stringify({ summaryId: hit.id }),
+            });
+          } catch { /* audit optional */ }
+
+          res.json({
+            cached: true,
+            cacheExpiresAt: new Date(
+              new Date(hit.generated_at).getTime() + SUMMARY_CACHE_MINUTES * 60 * 1000,
+            ).toISOString(),
+            data: hit,
+          });
+          return;
+        }
+      }
+
+      // Build context and generate
+      const context = await buildExecContext(companyId);
+      const contextHash = createHash("sha256")
+        .update(JSON.stringify(context))
+        .digest("hex")
+        .slice(0, 16);
+
+      const generated = await generateAiSummary(context);
+      const generatedBy = req.user?.email ?? "system";
+
+      // Save to Supabase
+      const saved = await supabaseQuery<{ id: number }>(
+        `INSERT INTO executive_summaries (company_id, summary, risks, actions, context_hash, generated_by)
+         VALUES ($1, $2, $3::jsonb, $4::jsonb, $5, $6)
+         RETURNING id`,
+        [
+          companyId,
+          generated.summary,
+          JSON.stringify(generated.risks),
+          JSON.stringify(generated.actions),
+          contextHash,
+          generatedBy,
+        ],
+      );
+      const newId = saved[0]?.id ?? 0;
+
+      // Audit log
+      const auditAction = force
+        ? "executive.ai_summary_force_generated"
+        : "executive.ai_summary_generated";
+      try {
+        await db.insert(auditLogsTable).values({
+          companyId,
+          action: auditAction,
+          module: "executive",
+          entityType: "executive_summary",
+          entityId: newId,
+          userId: req.user?.id ?? null,
+          userEmail: req.user?.email ?? null,
+          after: JSON.stringify({ contextHash, force }),
+        });
+      } catch { /* audit optional */ }
+
+      logger.info({ companyId, summaryId: newId, force, auditAction }, "AI executive summary generated");
+
+      res.json({
+        cached: false,
+        cacheExpiresAt: new Date(Date.now() + SUMMARY_CACHE_MINUTES * 60 * 1000).toISOString(),
+        data: {
+          id: newId,
+          company_id: companyId,
+          ...generated,
+          context_hash: contextHash,
+          generated_by: generatedBy,
+          generated_at: new Date().toISOString(),
+        },
+      });
+    } catch (err) {
+      logger.error({ err }, "POST /executive/ai-summary failed");
+      res.status(500).json({ error: "Gagal membuat ringkasan AI" });
+    }
+  },
+);
+
+// ── GET /api/executive/ai-summary/latest ─────────────────────────────────────
+
+router.get(
+  "/executive/ai-summary/latest",
+  ...RBAC,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const companyId = getCompanyId(req) ?? "default";
+      const rows = await supabaseQuery<ExecSummaryRow>(
+        `SELECT id, company_id, summary, risks, actions, context_hash, generated_by, generated_at::text
+         FROM executive_summaries
+         WHERE company_id = $1
+         ORDER BY generated_at DESC
+         LIMIT 1`,
+        [companyId],
+      );
+      if (rows.length === 0) {
+        res.json({ data: null, cached: false, cacheExpiresAt: null });
+        return;
+      }
+      const row = rows[0];
+      const expiresAt = new Date(
+        new Date(row.generated_at).getTime() + SUMMARY_CACHE_MINUTES * 60 * 1000,
+      );
+      const isCached = expiresAt > new Date();
+      res.json({
+        cached: isCached,
+        cacheExpiresAt: expiresAt.toISOString(),
+        data: row,
+      });
+    } catch (err) {
+      logger.error({ err }, "GET /executive/ai-summary/latest failed");
+      res.status(500).json({ error: "Gagal memuat ringkasan terbaru" });
+    }
+  },
+);
+
+// ── GET /api/executive/ai-summary/history ────────────────────────────────────
+
+router.get(
+  "/executive/ai-summary/history",
+  ...RBAC,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const companyId = getCompanyId(req) ?? "default";
+      const limit = Math.min(Number(req.query.limit ?? 20), 50);
+      const rows = await supabaseQuery<ExecSummaryRow>(
+        `SELECT id, company_id, summary, risks, actions, context_hash, generated_by, generated_at::text
+         FROM executive_summaries
+         WHERE company_id = $1
+         ORDER BY generated_at DESC
+         LIMIT $2`,
+        [companyId, limit],
+      );
+      res.json({
+        total: rows.length,
+        history: rows,
+      });
+    } catch (err) {
+      logger.error({ err }, "GET /executive/ai-summary/history failed");
+      res.status(500).json({ error: "Gagal memuat riwayat ringkasan" });
     }
   },
 );

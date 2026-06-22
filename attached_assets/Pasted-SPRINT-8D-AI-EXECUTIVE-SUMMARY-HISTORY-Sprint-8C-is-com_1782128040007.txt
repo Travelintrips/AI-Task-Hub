@@ -1,0 +1,131 @@
+SPRINT 8D — AI EXECUTIVE SUMMARY & HISTORY
+
+Sprint 8C is complete.
+
+Do not create new operational workflows.
+Do not auto-approve anything.
+
+Scope:
+
+1. AI Executive Summary
+2. Summary History
+3. Strategic Recommendations
+
+====================================================
+A. DATABASE
+====================================================
+
+Create table:
+
+executive_summaries
+
+Fields:
+- id
+- company_id
+- summary
+- risks jsonb
+- actions jsonb
+- context_hash
+- generated_by
+- generated_at
+
+Index:
+- company_id
+- generated_at desc
+
+====================================================
+B. API
+====================================================
+
+Create:
+
+POST /api/executive/ai-summary
+GET  /api/executive/ai-summary/latest
+GET  /api/executive/ai-summary/history
+
+Rules:
+- cache valid for 30 minutes
+- if cache valid, return cached summary
+- generate new summary only when forced or cache expired
+- rate limit: max 1 generation per 30 minutes per company unless super_admin force=true
+
+====================================================
+C. AI CONTEXT
+====================================================
+
+Build context from:
+
+- /api/executive/kpis
+- /api/executive/alerts
+- /api/executive/readiness
+- /api/executive/financial-protection
+- /api/executive/action-center
+- /api/executive/risk-heatmap
+
+Prompt output must be JSON:
+
+{
+  "summary": "...",
+  "risks": [
+    { "severity": "HIGH", "text": "...", "entityType": "...", "entityId": "..." }
+  ],
+  "actions": [
+    { "priority": "HIGH", "text": "...", "actionUrl": "..." }
+  ]
+}
+
+Language:
+Bahasa Indonesia.
+
+====================================================
+D. FRONTEND
+====================================================
+
+Add panel to /executive-command:
+
+AI Executive Summary
+
+Show:
+- summary paragraph
+- top risks
+- recommended actions
+- generatedAt
+- generatedBy
+- cache status
+- Generate New button
+- History drawer/table
+
+====================================================
+E. AUDIT
+====================================================
+
+Log:
+
+executive.ai_summary_generated
+executive.ai_summary_cache_returned
+executive.ai_summary_force_generated
+
+====================================================
+F. VALIDATION
+====================================================
+
+Run:
+
+- migration success
+- backend typecheck
+- frontend typecheck
+- server start
+- POST /api/executive/ai-summary
+- GET /api/executive/ai-summary/latest
+- GET /api/executive/ai-summary/history
+- cache behavior test
+- force generate test as super_admin
+- frontend panel render
+
+Output:
+- endpoints created
+- summary sample
+- cache test
+- history test
+- typecheck result
+- final Executive Command Center readiness score
