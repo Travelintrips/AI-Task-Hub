@@ -138,7 +138,7 @@ router.post("/fleet/utilization", requireAuth, async (req: Request, res: Respons
       cargoWeightKg: body.cargoWeightKg as number | undefined,
       status: (body.status as string) || "planned",
       notes: body.notes as string | undefined,
-      createdBy: req.user?.id,
+      createdBy: null,
     }).returning();
 
     // Update unit status to on_route if trip starts
@@ -147,10 +147,10 @@ router.post("/fleet/utilization", requireAuth, async (req: Request, res: Respons
     }
 
     await audit(req, "fleet.utilization.trip_created", trip.id, null, trip);
-    res.status(201).json({ success: true, trip });
+    return res.status(201).json({ success: true, trip });
   } catch (err) {
     logger.error({ err }, "fleet/utilization create error");
-    res.status(500).json({ error: "Gagal membuat trip log" });
+    return res.status(500).json({ error: "Gagal membuat trip log" });
   }
 });
 
@@ -257,23 +257,20 @@ router.patch("/fleet/utilization/:id", requireAuth, async (req: Request, res: Re
     if (newStatus === "completed" && updated.actualKm && updated.actualKm > 600) {
       await db.insert(aiTasksTable).values({
         companyId,
-        taskNumber: `UTIL-OVER-${Date.now()}`,
+        source: "fleet_utilization",
         title: `Potensi over-utilisasi: ${updated.actualKm.toFixed(0)}km dalam 1 trip`,
         description: `Trip ID ${id} mencatat ${updated.actualKm.toFixed(0)}km aktual (melebihi threshold 600km). Perlu review kondisi kendaraan.`,
-        status: "open",
+        category: "fleet_utilization",
         priority: "medium",
-        sourceModule: "fleet_utilization",
-        sourceId: id,
-        autoCreated: true,
-        requiresHumanReview: true,
-        detectedAt: new Date(),
+        status: "new_inquiry",
+        adminNotes: `auto_created=true requires_human_review=true source_id=${id}`,
       }).catch(e => logger.warn({ e }, "over-utilization task create failed"));
     }
 
-    res.json({ success: true, trip: updated });
+    return res.json({ success: true, trip: updated });
   } catch (err) {
     logger.error({ err }, "fleet/utilization update error");
-    res.status(500).json({ error: "Gagal update trip" });
+    return res.status(500).json({ error: "Gagal update trip" });
   }
 });
 

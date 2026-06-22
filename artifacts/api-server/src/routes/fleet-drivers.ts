@@ -151,10 +151,10 @@ router.post("/fleet/drivers", requireAuth, requireRole("supervisor", "company_ad
     }).returning();
 
     await audit(req, "fleet.driver.created", driver.id, null, driver);
-    res.status(201).json(driver);
+    return res.status(201).json(driver);
   } catch (err) {
     logger.error({ err }, "fleet/drivers create error");
-    res.status(500).json({ error: "Gagal membuat data pengemudi" });
+    return res.status(500).json({ error: "Gagal membuat data pengemudi" });
   }
 });
 
@@ -198,7 +198,7 @@ router.get("/fleet/drivers/:id", requireAuth, async (req: Request, res: Response
       .orderBy(desc(fleetDriverIncidentsTable.incidentDate))
       .limit(5);
 
-    res.json({
+    return res.json({
       ...row.driver,
       vehiclePlate: row.vehiclePlate,
       vehicleUnit: row.vehicleUnit,
@@ -207,7 +207,7 @@ router.get("/fleet/drivers/:id", requireAuth, async (req: Request, res: Response
     });
   } catch (err) {
     logger.error({ err }, "fleet/drivers detail error");
-    res.status(500).json({ error: "Gagal mengambil detail pengemudi" });
+    return res.status(500).json({ error: "Gagal mengambil detail pengemudi" });
   }
 });
 
@@ -244,10 +244,10 @@ router.patch("/fleet/drivers/:id", requireAuth, requireRole("supervisor", "compa
       .returning();
 
     await audit(req, "fleet.driver.updated", id, existing, updated);
-    res.json(updated);
+    return res.json(updated);
   } catch (err) {
     logger.error({ err }, "fleet/drivers update error");
-    res.status(500).json({ error: "Gagal update pengemudi" });
+    return res.status(500).json({ error: "Gagal update pengemudi" });
   }
 });
 

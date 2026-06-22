@@ -80,7 +80,7 @@ async function runEscalations(): Promise<void> {
         const [member] = await db
           .select()
           .from(teamMembersTable)
-          .where(eq(teamMembersTable.role, rule.escalateTo as Parameters<typeof eq>[1]))
+          .where(eq(teamMembersTable.role, String(rule.escalateTo)))
           .limit(1);
         notifyPhone = member?.phone ?? null;
       }

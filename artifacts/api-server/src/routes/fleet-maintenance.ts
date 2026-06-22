@@ -150,10 +150,10 @@ router.post("/fleet/maintenance/schedules", requireAuth, requireRole("supervisor
       createdBy: null,
     }).returning();
 
-    res.status(201).json(sched);
+    return res.status(201).json(sched);
   } catch (err) {
     logger.error({ err }, "fleet/maintenance schedules create error");
-    res.status(500).json({ error: "Gagal membuat jadwal service" });
+    return res.status(500).json({ error: "Gagal membuat jadwal service" });
   }
 });
 
@@ -185,10 +185,10 @@ router.patch("/fleet/maintenance/schedules/:id", requireAuth, requireRole("super
       .where(and(eq(fleetMaintenanceSchedulesTable.id, id), eq(fleetMaintenanceSchedulesTable.companyId, companyId)))
       .returning();
 
-    res.json(updated);
+    return res.json(updated);
   } catch (err) {
     logger.error({ err }, "fleet/maintenance schedules update error");
-    res.status(500).json({ error: "Gagal update jadwal" });
+    return res.status(500).json({ error: "Gagal update jadwal" });
   }
 });
 
@@ -281,10 +281,10 @@ router.post("/fleet/maintenance", requireAuth, async (req: Request, res: Respons
       adminNotes: `auto_created=true requires_human_review=true fleet_unit_id=${body.fleetUnitId} maintenance_id=${record.id}`,
     }).catch(e => logger.warn({ e }, "ai_task creation failed"));
 
-    res.status(201).json(record);
+    return res.status(201).json(record);
   } catch (err) {
     logger.error({ err }, "fleet/maintenance create error");
-    res.status(500).json({ error: "Gagal membuat record maintenance" });
+    return res.status(500).json({ error: "Gagal membuat record maintenance" });
   }
 });
 
@@ -308,10 +308,10 @@ router.get("/fleet/maintenance/:id", requireAuth, async (req: Request, res: Resp
 
     if (!row) return res.status(404).json({ error: "Record tidak ditemukan" });
 
-    res.json({ ...row.record, plateNumber: row.plateNumber, unitNumber: row.unitNumber });
+    return res.json({ ...row.record, plateNumber: row.plateNumber, unitNumber: row.unitNumber });
   } catch (err) {
     logger.error({ err }, "fleet/maintenance detail error");
-    res.status(500).json({ error: "Gagal mengambil detail maintenance" });
+    return res.status(500).json({ error: "Gagal mengambil detail maintenance" });
   }
 });
 
@@ -362,11 +362,8 @@ router.post("/fleet/maintenance/:id/approve", requireAuth, requireRole("supervis
         companyId,
         requestNumber: generatePRNumber(),
         requestedBy: req.user?.name ?? "Fleet System",
-        category: "fleet_maintenance",
         description: `[FLEET] ${existing.description} — Kendaraan: ${unit?.plateNumber ?? existing.fleetUnitId}`,
-        estimatedAmount: costActual ?? existing.costEstimate ?? 0,
-        currency: "IDR",
-        urgency: existing.maintenanceType === "emergency" ? "high" : "medium",
+        estimatedAmount: Number(costActual ?? existing.costEstimate ?? 0),
         status: "draft",
         notes: `Auto-generated dari approval maintenance #${id}. Perlu review finance sebelum pembayaran.`,
       }).returning();
@@ -382,10 +379,10 @@ router.post("/fleet/maintenance/:id/approve", requireAuth, requireRole("supervis
       .returning();
 
     await audit(req, "fleet.maintenance.approved", id, existing, updated);
-    res.json({ record: updated, purchaseRequest });
+    return res.json({ record: updated, purchaseRequest });
   } catch (err) {
     logger.error({ err }, "fleet/maintenance approve error");
-    res.status(500).json({ error: "Gagal approve maintenance" });
+    return res.status(500).json({ error: "Gagal approve maintenance" });
   }
 });
 
@@ -412,7 +409,7 @@ router.post("/fleet/maintenance/:id/reject", requireAuth, requireRole("superviso
       .update(fleetMaintenanceRecordsTable)
       .set({
         status: "rejected",
-        rejectedBy: req.user?.id ?? null,
+        rejectedBy: null,
         rejectedAt: new Date(),
         rejectionReason: reason ?? "Ditolak oleh supervisor",
       })
@@ -420,10 +417,10 @@ router.post("/fleet/maintenance/:id/reject", requireAuth, requireRole("superviso
       .returning();
 
     await audit(req, "fleet.maintenance.rejected", id, existing, updated);
-    res.json(updated);
+    return res.json(updated);
   } catch (err) {
     logger.error({ err }, "fleet/maintenance reject error");
-    res.status(500).json({ error: "Gagal menolak maintenance" });
+    return res.status(500).json({ error: "Gagal menolak maintenance" });
   }
 });
 
@@ -464,10 +461,10 @@ router.post("/fleet/maintenance/:id/complete", requireAuth, async (req: Request,
       .returning();
 
     await audit(req, "fleet.maintenance.completed", id, existing, updated);
-    res.json(updated);
+    return res.json(updated);
   } catch (err) {
     logger.error({ err }, "fleet/maintenance complete error");
-    res.status(500).json({ error: "Gagal menyelesaikan maintenance" });
+    return res.status(500).json({ error: "Gagal menyelesaikan maintenance" });
   }
 });
 

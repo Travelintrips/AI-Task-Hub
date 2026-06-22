@@ -193,10 +193,10 @@ router.post("/fleet/units/:unitId/documents", requireAuth, async (req: Request, 
       }).catch(e => logger.warn({ e }, "ai_task creation failed"));
     }
 
-    res.status(201).json({ ...doc, status: docStatus });
+    return res.status(201).json({ ...doc, status: docStatus });
   } catch (err) {
     logger.error({ err }, "fleet/documents upload error");
-    res.status(500).json({ error: "Gagal upload dokumen" });
+    return res.status(500).json({ error: "Gagal upload dokumen" });
   }
 });
 
@@ -232,10 +232,10 @@ router.patch("/fleet/documents/:id", requireAuth, async (req: Request, res: Resp
       .returning();
 
     await audit(req, "fleet.document.updated", id, existing, updated);
-    res.json(updated);
+    return res.json(updated);
   } catch (err) {
     logger.error({ err }, "fleet/documents update error");
-    res.status(500).json({ error: "Gagal update dokumen" });
+    return res.status(500).json({ error: "Gagal update dokumen" });
   }
 });
 

@@ -14,4 +14,5 @@
 - [Sprint 7B Fleet Foundation](sprint7b-fleet-foundation.md) — 8 fleet tables, 4 route files, 6 frontend pages; migrate via scripts/migrate-fleet.mjs (not executeSql — wrong DB); created_by must be null (UUID user.id incompatible with INTEGER column).
 - [Sprint 7C Fleet Intelligence](sprint7c-fleet-intelligence.md) — 5 tables, 3 routes, 3 pages; apiFetch local helper (NOT apiRequest from queryClient); FleetTire interface needs sizeName field.
 - [DB split: executeSql vs Supabase](db-split-executeSql.md) — executeSql (code_execution) hits Replit local DB; API server uses SUPABASE_DATABASE_URL; use scripts/migrate-fleet.mjs pattern (Node.js ESM + pg Pool) for DDL against Supabase.
+- [Sprint 8C TypeCheck Cleanup](sprint8c-typecheck-cleanup.md) — TS7030 fix: add return to catch blocks; logisticPurchaseRequests has no category/urgency/currency; StatCard value→ReactNode for JSX.
 - [Sprint 8B Executive Command](sprint8b-executive-command.md) — 5 endpoints + table + frontend; training.ts needed firstParam for req.params.taskId (col 29) in addition to req.params.id (col 25); safeCount/safeRow/safeRows wrappers absorb missing-column errors gracefully.

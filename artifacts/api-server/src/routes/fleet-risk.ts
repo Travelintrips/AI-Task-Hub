@@ -272,7 +272,7 @@ router.post("/fleet/risk-scores/refresh", requireAuth, async (req: Request, res:
 router.get("/fleet/risk-scores/:unitId", requireAuth, async (req: Request, res: Response) => {
   try {
     const companyId = cid(req);
-    const unitId = parseInt(req.params.unitId);
+    const unitId = parseInt(req.params.unitId as string);
     if (isNaN(unitId)) return res.status(400).json({ error: "unitId tidak valid" });
 
     const rows = await supabaseQuery(`

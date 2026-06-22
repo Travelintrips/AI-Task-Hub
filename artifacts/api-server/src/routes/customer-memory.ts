@@ -315,7 +315,7 @@ router.put("/crm/customers/:id/preferences/:category/:key",
     try {
       const companyId = cid(req);
       const id = Number(req.params.id);
-      const { category, key } = req.params;
+      const { category, key } = req.params as Record<string, string>;
       const { value, valueJson, source = "manual", confidence, notes } = req.body as Record<string, unknown>;
 
       if (Number.isNaN(id) || !value) { res.status(400).json({ error: "id and value are required" }); return; }
@@ -383,7 +383,7 @@ router.delete("/crm/customers/:id/preferences/:category/:key",
     try {
       const companyId = cid(req);
       const id = Number(req.params.id);
-      const { category, key } = req.params;
+      const { category, key } = req.params as Record<string, string>;
       if (Number.isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
 
       await db
@@ -429,8 +429,8 @@ router.get("/crm/customers/:id/risk", requireAuth, async (req: Request, res: Res
     type AssessmentRow = typeof assessments[number];
     const result: AssessmentRow[] = assessments.map((a) => ({
       ...a,
-      factors: canSeeFactors ? a.factors : undefined,
-      recommendations: canSeeFactors ? a.recommendations : undefined,
+      factors: canSeeFactors ? a.factors : null,
+      recommendations: canSeeFactors ? a.recommendations : null,
     }));
 
     res.json({
@@ -472,7 +472,7 @@ router.post("/crm/customers/:id/risk",
       const [newAssessment] = await db.insert(customerRiskAssessmentsTable).values({
         companyId,
         customerId: id,
-        assessedBy: req.user?.email ?? req.user?.id ?? "unknown",
+        assessedBy: req.user?.email ?? String(req.user?.id ?? "unknown"),
         riskScore: Number(riskScore),
         tier: String(tier),
         previousTier: currentActive?.tier ?? customer.riskTier ?? null,
@@ -803,7 +803,7 @@ router.post("/crm/customers/:id/documents",
         notes: notes ? String(notes) : undefined,
         tags: Array.isArray(tags) ? (tags as string[]) : undefined,
         isCurrent: true,
-        uploadedBy: req.user?.email ?? req.user?.id ?? "unknown",
+        uploadedBy: req.user?.email ?? String(req.user?.id ?? "unknown"),
       }).returning();
 
       await logMemoryEvent(companyId, id, "document_registered", req.user?.id ? String(req.user.id) : undefined, "user", "customer_document", doc!.id, {

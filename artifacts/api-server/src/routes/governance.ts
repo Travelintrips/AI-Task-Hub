@@ -48,7 +48,7 @@ router.post("/governance/routing-rules", requireAuth, requireRole("company_admin
 
 router.patch("/governance/routing-rules/:id", requireAuth, requireRole("company_admin"), async (req: Request, res: Response): Promise<void> => {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id = parseInt(req.params.id as string, 10);
     const [row] = await db.update(routingRulesTable).set({ ...req.body, updatedAt: new Date() }).where(eq(routingRulesTable.id, id)).returning();
     if (!row) { res.status(404).json({ error: "Rule tidak ditemukan" }); return; }
     res.json(row);
@@ -60,7 +60,7 @@ router.patch("/governance/routing-rules/:id", requireAuth, requireRole("company_
 
 router.delete("/governance/routing-rules/:id", requireAuth, requireRole("company_admin"), async (req: Request, res: Response): Promise<void> => {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id = parseInt(req.params.id as string, 10);
     await db.delete(routingRulesTable).where(eq(routingRulesTable.id, id));
     res.json({ success: true });
   } catch (err) {
@@ -101,7 +101,7 @@ router.post("/governance/sla-matrix", requireAuth, requireRole("company_admin"),
 
 router.patch("/governance/sla-matrix/:id", requireAuth, requireRole("company_admin"), async (req: Request, res: Response): Promise<void> => {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id = parseInt(req.params.id as string, 10);
     const [row] = await db.update(slaMatrixTable).set({ ...req.body, updatedAt: new Date() }).where(eq(slaMatrixTable.id, id)).returning();
     if (!row) { res.status(404).json({ error: "SLA rule tidak ditemukan" }); return; }
     res.json(row);
@@ -113,7 +113,7 @@ router.patch("/governance/sla-matrix/:id", requireAuth, requireRole("company_adm
 
 router.delete("/governance/sla-matrix/:id", requireAuth, requireRole("company_admin"), async (req: Request, res: Response): Promise<void> => {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id = parseInt(req.params.id as string, 10);
     await db.delete(slaMatrixTable).where(eq(slaMatrixTable.id, id));
     res.json({ success: true });
   } catch (err) {
@@ -154,7 +154,7 @@ router.post("/governance/escalation-rules", requireAuth, requireRole("company_ad
 
 router.patch("/governance/escalation-rules/:id", requireAuth, requireRole("company_admin"), async (req: Request, res: Response): Promise<void> => {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id = parseInt(req.params.id as string, 10);
     const [row] = await db.update(escalationRulesTable).set({ ...req.body, updatedAt: new Date() }).where(eq(escalationRulesTable.id, id)).returning();
     if (!row) { res.status(404).json({ error: "Escalation rule tidak ditemukan" }); return; }
     res.json(row);
@@ -166,7 +166,7 @@ router.patch("/governance/escalation-rules/:id", requireAuth, requireRole("compa
 
 router.delete("/governance/escalation-rules/:id", requireAuth, requireRole("company_admin"), async (req: Request, res: Response): Promise<void> => {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id = parseInt(req.params.id as string, 10);
     await db.delete(escalationRulesTable).where(eq(escalationRulesTable.id, id));
     res.json({ success: true });
   } catch (err) {
@@ -224,7 +224,7 @@ router.post("/governance/approval-rules", requireAuth, requireRole("company_admi
 
 router.patch("/governance/approval-rules/:id", requireAuth, requireRole("company_admin"), async (req: Request, res: Response): Promise<void> => {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id = parseInt(req.params.id as string, 10);
     const [row] = await db.update(approvalRulesTable).set({ ...req.body, updatedAt: new Date() }).where(eq(approvalRulesTable.id, id)).returning();
     if (!row) { res.status(404).json({ error: "Approval rule tidak ditemukan" }); return; }
     res.json(row);
@@ -236,7 +236,7 @@ router.patch("/governance/approval-rules/:id", requireAuth, requireRole("company
 
 router.delete("/governance/approval-rules/:id", requireAuth, requireRole("company_admin"), async (req: Request, res: Response): Promise<void> => {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id = parseInt(req.params.id as string, 10);
     await db.delete(approvalRulesTable).where(eq(approvalRulesTable.id, id));
     res.json({ success: true });
   } catch (err) {
@@ -270,7 +270,7 @@ router.get("/governance/approval-requests", requireAuth, async (req: Request, re
 
 router.post("/governance/approval-requests/:id/decide", requireAuth, requireRole("supervisor"), async (req: Request, res: Response): Promise<void> => {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id = parseInt(req.params.id as string, 10);
     const { decision, notes } = req.body as { decision: "approved" | "rejected"; notes?: string };
 
     if (!["approved", "rejected"].includes(decision)) {

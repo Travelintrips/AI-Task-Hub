@@ -143,7 +143,7 @@ export default function FleetDocuments() {
               ) : docs.map(doc => {
                 const cfg = STATUS_CFG[doc.status] ?? STATUS_CFG.active;
                 const daysLeft = doc.daysLeft;
-                const daysClass = daysLeft === null ? "" : daysLeft < 0 ? "text-red-600 font-bold" : daysLeft <= 7 ? "text-red-500 font-medium" : daysLeft <= 14 ? "text-orange-500" : "text-yellow-600";
+                const daysClass = daysLeft == null ? "" : daysLeft < 0 ? "text-red-600 font-bold" : daysLeft <= 7 ? "text-red-500 font-medium" : daysLeft <= 14 ? "text-orange-500" : "text-yellow-600";
                 return (
                   <TableRow key={doc.id} className={`hover:bg-muted/30 ${doc.status === "expired" ? "bg-red-50/40" : doc.status === "expiring_soon" ? "bg-yellow-50/40" : ""}`}>
                     <TableCell>
@@ -154,7 +154,7 @@ export default function FleetDocuments() {
                     <TableCell className="text-sm font-mono">{doc.docNumber ?? "—"}</TableCell>
                     <TableCell className="text-sm">{doc.expiredDate ?? "—"}</TableCell>
                     <TableCell className={`text-sm ${daysClass}`}>
-                      {daysLeft === null ? "—" : daysLeft < 0 ? `${Math.abs(daysLeft)} hari lalu` : daysLeft === 0 ? "HARI INI" : `${daysLeft} hari`}
+                      {daysLeft == null ? "—" : daysLeft < 0 ? `${Math.abs(daysLeft)} hari lalu` : daysLeft === 0 ? "HARI INI" : `${daysLeft} hari`}
                     </TableCell>
                     <TableCell>
                       <Badge className={`${cfg.cls} border text-xs font-medium`}>{cfg.label}</Badge>

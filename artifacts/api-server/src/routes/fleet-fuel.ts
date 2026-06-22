@@ -62,14 +62,14 @@ router.post("/fleet/fuel/benchmarks", requireAuth, requireRole("supervisor", "co
       minLitersAlert: body.minLitersAlert as number | undefined,
       maxLitersAlert: body.maxLitersAlert as number | undefined,
       notes: body.notes as string | undefined,
-      createdBy: req.user?.id,
+      createdBy: null,
     }).returning();
 
     await audit(req, "fleet.fuel.benchmark_set", bench.id, null, bench);
-    res.status(201).json({ success: true, benchmark: bench });
+    return res.status(201).json({ success: true, benchmark: bench });
   } catch (err) {
     logger.error({ err }, "fleet/fuel/benchmarks create error");
-    res.status(500).json({ error: "Gagal menyimpan benchmark" });
+    return res.status(500).json({ error: "Gagal menyimpan benchmark" });
   }
 });
 
@@ -281,7 +281,7 @@ router.post("/fleet/fuel", requireAuth, async (req: Request, res: Response) => {
       anomalyReason: anomalies.length > 0 ? anomalies.join("; ") : undefined,
       anomalyScore: anomalyScore > 0 ? anomalyScore : undefined,
       notes: body.notes as string | undefined,
-      createdBy: req.user?.id,
+      createdBy: null,
     }).returning();
 
     // Update unit odometer
@@ -296,20 +296,17 @@ router.post("/fleet/fuel", requireAuth, async (req: Request, res: Response) => {
       await audit(req, "fleet.fuel.anomaly_flagged", log.id, null, { anomalies, anomalyScore });
       await db.insert(aiTasksTable).values({
         companyId,
-        taskNumber: `FUEL-ANOM-${Date.now()}`,
+        source: "fleet_fuel",
         title: `Anomali BBM kritis: ${unit[0].plateNumber} (${unit[0].unitNumber})`,
         description: `Pengisian BBM terdeteksi anomali:\n${anomalies.map(a => `• ${a}`).join("\n")}\n\nLiter: ${litersFilled}L, Odometer: ${odometerKm}km, KM/L: ${kmPerLiter?.toFixed(2) ?? "—"}`,
-        status: "open",
+        category: "fleet_fuel",
         priority: "high",
-        sourceModule: "fleet_fuel",
-        sourceId: log.id,
-        autoCreated: true,
-        requiresHumanReview: true,
-        detectedAt: new Date(),
+        status: "new_inquiry",
+        adminNotes: `auto_created=true requires_human_review=true source_id=${log.id} anomaly_score=${anomalyScore}`,
       }).catch(e => logger.warn({ e }, "fuel anomaly task create failed"));
     }
 
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
       fuelLog: log,
       isAnomaly,
@@ -320,7 +317,7 @@ router.post("/fleet/fuel", requireAuth, async (req: Request, res: Response) => {
     });
   } catch (err) {
     logger.error({ err }, "fleet/fuel create error");
-    res.status(500).json({ error: "Gagal menyimpan log BBM" });
+    return res.status(500).json({ error: "Gagal menyimpan log BBM" });
   }
 });
 

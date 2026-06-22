@@ -69,7 +69,7 @@ const COMPLIANCE_STATUS: Record<string, { label: string; color: string }> = {
 };
 
 function StatCard({ label, value, sub, icon: Icon, color }: {
-  label: string; value: string | number; sub?: string; icon?: React.ElementType; color?: string;
+  label: string; value: React.ReactNode; sub?: string; icon?: React.ElementType; color?: string;
 }) {
   return (
     <div className="bg-white border rounded-lg p-4">

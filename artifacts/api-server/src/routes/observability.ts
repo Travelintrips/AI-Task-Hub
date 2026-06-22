@@ -449,7 +449,6 @@ router.get("/observability/experiments", requireAuth, async (req, res) => {
     const results = await db
       .select()
       .from(experimentResultsTable)
-      .where(eq(experimentResultsTable.companyId, cid))
       .orderBy(desc(experimentResultsTable.id));
 
     const resultsMap = results.reduce<Record<number, typeof results>>((acc, r) => {

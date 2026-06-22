@@ -138,10 +138,10 @@ router.post("/fleet/units", requireAuth, requireRole("supervisor", "company_admi
     }).returning();
 
     await audit(req, "fleet.unit.created", unit.id, null, unit);
-    res.status(201).json(unit);
+    return res.status(201).json(unit);
   } catch (err) {
     logger.error({ err }, "fleet/units create error");
-    res.status(500).json({ error: "Gagal membuat data kendaraan" });
+    return res.status(500).json({ error: "Gagal membuat data kendaraan" });
   }
 });
 
@@ -179,7 +179,7 @@ router.get("/fleet/units/:id", requireAuth, async (req: Request, res: Response) 
       .orderBy(desc(fleetMaintenanceRecordsTable.createdAt))
       .limit(10);
 
-    res.json({
+    return res.json({
       ...unit.unit,
       driverName: unit.driverName,
       driverPhone: unit.driverPhone,
@@ -189,7 +189,7 @@ router.get("/fleet/units/:id", requireAuth, async (req: Request, res: Response) 
     });
   } catch (err) {
     logger.error({ err }, "fleet/units detail error");
-    res.status(500).json({ error: "Gagal mengambil detail kendaraan" });
+    return res.status(500).json({ error: "Gagal mengambil detail kendaraan" });
   }
 });
 
@@ -227,10 +227,10 @@ router.patch("/fleet/units/:id", requireAuth, requireRole("supervisor", "company
       .returning();
 
     await audit(req, "fleet.unit.updated", id, existing, updated);
-    res.json(updated);
+    return res.json(updated);
   } catch (err) {
     logger.error({ err }, "fleet/units update error");
-    res.status(500).json({ error: "Gagal update kendaraan" });
+    return res.status(500).json({ error: "Gagal update kendaraan" });
   }
 });
 
@@ -256,10 +256,10 @@ router.post("/fleet/units/:id/deactivate", requireAuth, requireRole("company_adm
       .returning();
 
     await audit(req, "fleet.unit.deactivated", id, existing, updated);
-    res.json({ success: true, unit: updated });
+    return res.json({ success: true, unit: updated });
   } catch (err) {
     logger.error({ err }, "fleet/units deactivate error");
-    res.status(500).json({ error: "Gagal menonaktifkan kendaraan" });
+    return res.status(500).json({ error: "Gagal menonaktifkan kendaraan" });
   }
 });
 
@@ -293,10 +293,10 @@ router.patch("/fleet/units/:id/odometer", requireAuth, async (req: Request, res:
       .returning();
 
     await audit(req, "fleet.unit.odometer_updated", id, { odometerKm: existing.currentOdometerKm }, { odometerKm });
-    res.json(updated);
+    return res.json(updated);
   } catch (err) {
     logger.error({ err }, "fleet/units odometer error");
-    res.status(500).json({ error: "Gagal update odometer" });
+    return res.status(500).json({ error: "Gagal update odometer" });
   }
 });
 

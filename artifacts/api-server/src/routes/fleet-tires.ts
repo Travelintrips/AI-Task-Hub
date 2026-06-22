@@ -120,14 +120,14 @@ router.post("/fleet/tires/rotation", requireAuth, async (req: Request, res: Resp
       performedBy: body.performedBy as string | undefined,
       workshopName: body.workshopName as string | undefined,
       notes: body.notes as string | undefined,
-      createdBy: req.user?.id,
+      createdBy: null,
     }).returning();
 
     await audit(req, "fleet.tire.rotated", rotation.id, null, rotation);
-    res.status(201).json({ success: true, rotation });
+    return res.status(201).json({ success: true, rotation });
   } catch (err) {
     logger.error({ err }, "fleet/tires/rotation create error");
-    res.status(500).json({ error: "Gagal mencatat rotasi ban" });
+    return res.status(500).json({ error: "Gagal mencatat rotasi ban" });
   }
 });
 
@@ -164,16 +164,16 @@ router.post("/fleet/tires", requireAuth, async (req: Request, res: Response) => 
       currentOdometerKm: unit[0].currentOdometerKm ?? undefined,
       status: "good",
       notes: body.notes as string | undefined,
-      createdBy: req.user?.id,
+      createdBy: null,
     }).returning();
 
     await audit(req, "fleet.tire.installed", tire.id, null, tire);
 
     const lc = computeLifecycle(tire, unit[0].currentOdometerKm ?? undefined);
-    res.status(201).json({ success: true, tire: { ...tire, ...lc } });
+    return res.status(201).json({ success: true, tire: { ...tire, ...lc } });
   } catch (err) {
     logger.error({ err }, "fleet/tires create error");
-    res.status(500).json({ error: "Gagal mendaftarkan ban" });
+    return res.status(500).json({ error: "Gagal mendaftarkan ban" });
   }
 });
 
@@ -260,23 +260,20 @@ router.patch("/fleet/tires/:id", requireAuth, async (req: Request, res: Response
     if (lc.isCritical && !isReplaced) {
       await db.insert(aiTasksTable).values({
         companyId,
-        taskNumber: `TIRE-WORN-${Date.now()}`,
+        source: "fleet_tires",
         title: `Ban kritis: ${unit[0]?.plateNumber ?? "—"} posisi ${updated.position}`,
         description: `Ban (${updated.brand ?? "—"} SN:${updated.serialNumber ?? "—"}) sudah aus ${lc.wearPct}% dari expected life. Sisa ${lc.remainingKm.toFixed(0)}km.`,
-        status: "open",
+        category: "fleet_tires",
         priority: "high",
-        sourceModule: "fleet_tires",
-        sourceId: id,
-        autoCreated: true,
-        requiresHumanReview: true,
-        detectedAt: new Date(),
+        status: "new_inquiry",
+        adminNotes: `auto_created=true requires_human_review=true source_id=${id}`,
       }).catch(e => logger.warn({ e }, "tire worn task create failed"));
     }
 
-    res.json({ success: true, tire: { ...updated, ...lc } });
+    return res.json({ success: true, tire: { ...updated, ...lc } });
   } catch (err) {
     logger.error({ err }, "fleet/tires update error");
-    res.status(500).json({ error: "Gagal update ban" });
+    return res.status(500).json({ error: "Gagal update ban" });
   }
 });
 

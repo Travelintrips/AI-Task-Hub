@@ -18,7 +18,7 @@ function cid(req: Request): string { return req.user?.companyId ?? "default"; }
 router.get("/fleet/drivers/:id/memory", requireAuth, async (req: Request, res: Response) => {
   try {
     const companyId = cid(req);
-    const driverId = parseInt(req.params.id);
+    const driverId = parseInt(req.params.id as string);
     if (isNaN(driverId)) return res.status(400).json({ error: "Driver ID tidak valid" });
 
     const rows = await supabaseQuery(`
@@ -43,7 +43,7 @@ router.get("/fleet/drivers/:id/memory", requireAuth, async (req: Request, res: R
 router.post("/fleet/drivers/:id/memory/refresh", requireAuth, async (req: Request, res: Response) => {
   try {
     const companyId = cid(req);
-    const driverId = parseInt(req.params.id);
+    const driverId = parseInt(req.params.id as string);
     if (isNaN(driverId)) return res.status(400).json({ error: "Driver ID tidak valid" });
     const t0 = Date.now();
 
