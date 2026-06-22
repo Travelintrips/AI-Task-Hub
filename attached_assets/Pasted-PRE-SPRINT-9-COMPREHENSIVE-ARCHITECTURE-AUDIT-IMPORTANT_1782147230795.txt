@@ -1,0 +1,439 @@
+PRE-SPRINT 9 COMPREHENSIVE ARCHITECTURE AUDIT
+
+IMPORTANT:
+
+DO NOT IMPLEMENT ANYTHING.
+DO NOT CREATE TABLES.
+DO NOT MODIFY CODE.
+DO NOT RUN MIGRATIONS.
+
+Audit only.
+
+Use:
+- actual runtime behavior
+- actual registered routes
+- actual frontend pages
+- actual database schema
+- actual Supabase data
+- actual scheduler registrations
+
+Do not assume.
+Do not use design documents as truth.
+Verify against code and runtime.
+
+====================================================
+SECTION 1 — IMPLEMENTATION INVENTORY
+====================================================
+
+Create a complete inventory of all implemented modules.
+
+Audit:
+
+AI Core
+- Intent Engine
+- Knowledge Base
+- Governance Engine
+- Training Center
+- AI Observability
+- Executive Summary
+- AI Quality Systems
+
+Memory Systems
+- Customer Memory
+- Vendor Memory
+- Cross Memory Matching
+- Recommendation Outcomes
+- Intelligence Readiness Layer
+
+Purchasing
+- Purchasing Intelligence
+- Benchmarks
+- Budget Tracking
+- Vendor Contracts
+- Approvals
+
+Fleet
+- Fleet Foundation
+- Fuel Intelligence
+- Tire Management
+- Utilization Tracking
+- Risk Engine
+- Cost per KM
+- Route Profitability
+- Driver Memory
+- WhatsApp Reporting
+
+Executive
+- Executive Intelligence
+- Executive Command Center
+- Action Center
+- Executive Timeline
+- Risk Heatmap
+
+Output:
+
+Module
+Backend
+Frontend
+Database
+Scheduler
+Readiness %
+PASS / FAIL
+
+====================================================
+SECTION 2 — API ROUTE INVENTORY
+====================================================
+
+Enumerate every registered API route.
+
+Verify:
+
+- route exists
+- route registered in routes/index.ts
+- route responds
+- RBAC works
+- auth works
+
+Output:
+
+Route
+Module
+HTTP Status
+RBAC
+PASS / FAIL
+
+Flag:
+
+- orphan routes
+- duplicate routes
+- unreachable routes
+- routes never called
+
+====================================================
+SECTION 3 — FRONTEND INVENTORY
+====================================================
+
+Enumerate every frontend page.
+
+Verify:
+
+- page file exists
+- route exists
+- menu exists
+- RBAC works
+- page loads
+
+Output:
+
+Page
+Module
+Load Status
+RBAC
+PASS / FAIL
+
+Flag:
+
+- unreachable pages
+- pages without navigation
+- pages without backend
+- pages with broken queries
+
+====================================================
+SECTION 4 — DATABASE INVENTORY
+====================================================
+
+List all tables in all connected databases.
+
+For each table:
+
+- row count
+- indexes
+- FK
+- read by code?
+- written by code?
+- last updated
+- used in frontend?
+
+Output:
+
+Table
+Rows
+Indexes
+Used
+Orphan
+PASS / FAIL
+
+Flag:
+
+- unused tables
+- duplicate tables
+- legacy tables
+- tables never queried
+- tables never written
+
+====================================================
+SECTION 5 — MEMORY SYSTEM AUDIT
+====================================================
+
+Audit:
+
+Customer Memory
+Vendor Memory
+Cross Memory Matching
+Recommendation Outcomes
+Intelligence Readiness
+
+Verify:
+
+- table exists
+- API exists
+- frontend exists
+- scheduler exists
+- data exists
+- actually used by runtime
+
+Output:
+
+Module
+Backend
+Frontend
+Scheduler
+Data
+Readiness %
+PASS / FAIL
+
+====================================================
+SECTION 6 — PURCHASING AUDIT
+====================================================
+
+Verify:
+
+- purchase requests
+- benchmarks
+- budget tracker
+- vendor contracts
+- approvals
+- purchasing signals
+
+Determine:
+
+- real calculations
+- fallback calculations
+- mock calculations
+- missing calculations
+
+Output:
+
+Feature
+Real / Fallback / Mock
+PASS / FAIL
+
+====================================================
+SECTION 7 — FLEET AUDIT
+====================================================
+
+Verify:
+
+Fleet Foundation
+Fuel
+Tires
+Utilization
+Risk Score
+Cost per KM
+Route Profitability
+Driver Memory
+WhatsApp Reporting
+Schedulers
+
+Determine:
+
+- real calculations
+- fallback values
+- mock values
+- stale data
+
+Output:
+
+Feature
+Data Source
+Real Calculation?
+Readiness %
+PASS / FAIL
+
+====================================================
+SECTION 8 — EXECUTIVE COMMAND CENTER AUDIT
+====================================================
+
+Verify:
+
+- KPI Panel
+- Alerts
+- Readiness
+- Financial Protection
+- Refresh Health
+- Action Center
+- Timeline
+- Risk Heatmap
+- AI Executive Summary
+
+Determine:
+
+- real data
+- fallback data
+- empty states
+- broken links
+
+Output:
+
+Widget
+Status
+Data Source
+PASS / FAIL
+
+====================================================
+SECTION 9 — AI CONVERSATION AUDIT
+====================================================
+
+CRITICAL SECTION
+
+Determine actual WhatsApp flow.
+
+Document current flow:
+
+WA Message
+↓
+Intent Detection
+↓
+?
+↓
+Task Creation
+
+Audit:
+
+- conversation state
+- session memory
+- data template usage
+- document template usage
+- mini form support
+- task creation timing
+- approval timing
+
+Answer explicitly:
+
+Can AI currently:
+
+1. ask follow-up questions?
+2. remember previous answers?
+3. collect missing fields?
+4. send mini forms?
+5. validate uploaded documents?
+6. continue interrupted conversations?
+7. delay task creation until complete?
+8. request missing documents?
+
+Output PASS / FAIL for each.
+
+====================================================
+SECTION 10 — DUPLICATION & CONFLICT AUDIT
+====================================================
+
+Find:
+
+Duplicate systems
+Duplicate routes
+Duplicate tables
+Duplicate schedulers
+
+Schema conflicts:
+
+- TEXT vs INTEGER
+- UUID vs INTEGER
+- company_id type mismatch
+- inconsistent FK types
+
+Routing conflicts:
+
+- multiple routes same purpose
+- unused routes
+- legacy routes
+
+Output:
+
+Conflict
+Severity
+Impact
+Fix Required?
+PASS / FAIL
+
+====================================================
+SECTION 11 — TECHNICAL DEBT AUDIT
+====================================================
+
+List:
+
+- dead code
+- unused tables
+- unused routes
+- unused pages
+- unused schedulers
+- compatibility layers
+- legacy code
+
+Estimate cleanup effort:
+
+LOW
+MEDIUM
+HIGH
+
+====================================================
+SECTION 12 — PRE-SPRINT 9 READINESS
+====================================================
+
+Score:
+
+AI Core
+Customer Memory
+Vendor Memory
+Purchasing
+Fleet
+Executive
+Conversation Layer
+Document Layer
+Testing Layer
+
+Output:
+
+Module
+Readiness %
+GO / NO-GO
+
+For:
+
+Sprint 9A Intake Engine
+Sprint 9B Mini Form Router
+Sprint 9C Document Validation
+Sprint 9D Quality Gate
+
+====================================================
+FINAL EXECUTIVE SUMMARY
+====================================================
+
+Provide:
+
+1. What is fully complete
+2. What is partially complete
+3. What is duplicated
+4. What is risky
+5. What should be fixed before Sprint 9
+6. Recommended execution order
+
+IMPORTANT:
+
+Do not code.
+Do not modify files.
+Do not create migrations.
+
+Audit only.
+
+Use actual runtime verification and actual database state.
+Do not rely on assumptions or design documents.
