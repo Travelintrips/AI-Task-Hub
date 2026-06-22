@@ -54,6 +54,7 @@ import fleetReportsRouter from "./fleet-reports";
 import intakeSessionsRouter from "./intake-sessions";
 import intakeFormRouter from "./intake-form";
 import miniFormConfigRouter from "./mini-form-config";
+import documentValidationRouter from "./document-validation";
 import { extractUser } from "../middleware/auth";
 
 const router: IRouter = Router();
@@ -124,5 +125,7 @@ router.use(fleetReportsRouter);
 router.use(intakeSessionsRouter);
 router.use(intakeFormRouter);
 router.use(miniFormConfigRouter);
+// ── Sprint 9C — Document Intake & Validation ──────────────────────────────────
+router.use(documentValidationRouter);
 
 export default router;

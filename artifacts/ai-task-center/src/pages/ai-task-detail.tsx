@@ -31,7 +31,13 @@ import {
   Brain,
   Shield,
   ChevronRight,
+  FileCheck,
+  XCircle,
+  RefreshCw,
+  Eye,
 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { CorrectionDrawer } from "@/components/correction-drawer";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -226,6 +232,175 @@ function FileIcon({ mimeType }: { mimeType: string | null }) {
   if (mimeType.startsWith("image/")) return <Image className="h-5 w-5 text-blue-400" />;
   if (mimeType === "application/pdf") return <FileText className="h-5 w-5 text-red-400" />;
   return <FileText className="h-5 w-5 text-gray-400" />;
+}
+
+// ─── Document Validation Panel (Sprint 9C) ────────────────────────────────────
+
+const DOC_TYPE_LABELS: Record<string, string> = {
+  commercial_invoice: "Commercial Invoice",
+  packing_list: "Packing List",
+  bl_awb: "B/L - AWB",
+  hs_code: "HS Code",
+  coa: "COA",
+  msds: "MSDS",
+  damage_photo: "Foto Kerusakan",
+  stnk_kir_insurance: "STNK / KIR / Asuransi",
+  fuel_receipt: "Struk BBM",
+  maintenance_invoice: "Invoice Bengkel",
+  cash_advance_receipt: "Kwitansi Kasbon",
+};
+
+interface DocAudit {
+  id: number;
+  documentType: string;
+  fileName: string;
+  fileUrl: string;
+  validationStatus: "valid" | "incomplete" | "invalid" | "needs_review";
+  confidenceScore: string;
+  missingFields: string[];
+  issueSummary: string | null;
+  createdAt: string;
+}
+
+function DocumentValidationPanel({ taskId }: { taskId: number }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [showForm, setShowForm] = useState(false);
+  const [docType, setDocType] = useState("commercial_invoice");
+  const [fileName, setFileName] = useState("");
+  const [fileUrl, setFileUrl] = useState("");
+
+  const { data, isLoading, refetch } = useQuery<{ data: DocAudit[] }>({
+    queryKey: ["task-doc-audits", taskId],
+    queryFn: () =>
+      apiFetch(`/documents/audits?taskId=${taskId}&limit=20`),
+  });
+
+  const validateMutation = useMutation({
+    mutationFn: (payload: { documentType: string; fileName: string; fileUrl: string }) =>
+      apiFetch(`/tasks/${taskId}/documents/validate`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+    onSuccess: () => {
+      toast({ title: "Validasi dokumen selesai" });
+      void queryClient.invalidateQueries({ queryKey: ["task-doc-audits", taskId] });
+      setShowForm(false);
+      setFileName("");
+      setFileUrl("");
+    },
+    onError: (e: Error) =>
+      toast({ title: "Gagal validasi", description: e.message, variant: "destructive" }),
+  });
+
+  const audits = data?.data ?? [];
+  const statusIcon = (s: DocAudit["validationStatus"]) => {
+    if (s === "valid") return <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />;
+    if (s === "incomplete") return <AlertCircle className="h-3.5 w-3.5 text-yellow-600" />;
+    if (s === "invalid") return <XCircle className="h-3.5 w-3.5 text-red-600" />;
+    return <Clock className="h-3.5 w-3.5 text-blue-600" />;
+  };
+  const statusColor = (s: DocAudit["validationStatus"]) =>
+    s === "valid" ? "text-green-700" : s === "incomplete" ? "text-yellow-700" : s === "invalid" ? "text-red-700" : "text-blue-700";
+
+  return (
+    <div className="border rounded-lg p-4">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-semibold flex items-center gap-1.5">
+          <FileCheck className="h-4 w-4 text-primary" />
+          Validasi Dokumen AI
+        </h3>
+        <div className="flex gap-1">
+          <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => refetch()}>
+            <RefreshCw className="h-3 w-3" />
+          </Button>
+          <Button size="sm" className="h-7 text-xs" onClick={() => setShowForm(!showForm)}>
+            <FileCheck className="h-3 w-3 mr-1" />
+            Validasi
+          </Button>
+        </div>
+      </div>
+
+      {showForm && (
+        <div className="mb-3 p-3 bg-muted/40 rounded-md space-y-2">
+          <div>
+            <Label className="text-xs">Tipe Dokumen</Label>
+            <Select value={docType} onValueChange={setDocType}>
+              <SelectTrigger className="h-8 text-xs mt-1">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {Object.entries(DOC_TYPE_LABELS).map(([k, v]) => (
+                  <SelectItem key={k} value={k} className="text-xs">{v}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label className="text-xs">Nama File</Label>
+            <Input
+              className="h-8 text-xs mt-1"
+              placeholder="contoh: invoice_001.pdf"
+              value={fileName}
+              onChange={(e) => setFileName(e.target.value)}
+            />
+          </div>
+          <div>
+            <Label className="text-xs">URL Dokumen</Label>
+            <Input
+              className="h-8 text-xs mt-1"
+              placeholder="https://..."
+              value={fileUrl}
+              onChange={(e) => setFileUrl(e.target.value)}
+            />
+          </div>
+          <div className="flex gap-2 pt-1">
+            <Button
+              size="sm"
+              className="h-7 text-xs flex-1"
+              disabled={validateMutation.isPending || !fileName || !fileUrl}
+              onClick={() => validateMutation.mutate({ documentType: docType, fileName, fileUrl })}
+            >
+              {validateMutation.isPending
+                ? <><RefreshCw className="h-3 w-3 mr-1 animate-spin" />Memvalidasi...</>
+                : <><FileCheck className="h-3 w-3 mr-1" />Jalankan Validasi</>}
+            </Button>
+            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setShowForm(false)}>Batal</Button>
+          </div>
+        </div>
+      )}
+
+      {isLoading ? (
+        <p className="text-xs text-muted-foreground text-center py-3">Memuat...</p>
+      ) : audits.length === 0 ? (
+        <p className="text-xs text-muted-foreground text-center py-3 italic">
+          Belum ada dokumen yang divalidasi untuk task ini
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {audits.map((a) => (
+            <div key={a.id} className="flex items-start gap-2 text-xs p-2 rounded bg-muted/30 border">
+              {statusIcon(a.validationStatus)}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className={`font-medium ${statusColor(a.validationStatus)}`}>{a.fileName}</span>
+                  <span className="text-muted-foreground">{DOC_TYPE_LABELS[a.documentType] ?? a.documentType}</span>
+                  <span className="text-muted-foreground">{Math.round(parseFloat(a.confidenceScore) * 100)}% confidence</span>
+                </div>
+                {a.missingFields.length > 0 && (
+                  <p className="text-red-600 mt-0.5">Missing: {a.missingFields.map(f => f.replace(/_/g, " ")).join(", ")}</p>
+                )}
+                {a.issueSummary && <p className="text-muted-foreground mt-0.5">{a.issueSummary}</p>}
+              </div>
+              <Button variant="ghost" size="sm" className="h-6 px-1.5" onClick={() => window.open(a.fileUrl, "_blank")}>
+                <Eye className="h-3 w-3" />
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ─── Customer Memory Panel (Sprint 5A) ────────────────────────────────────────
@@ -793,6 +968,9 @@ export default function AiTaskDetail() {
               <p className="text-xs text-gray-400">Belum ada nomor WA customer</p>
             </div>
           )}
+
+          {/* Document Validation Panel */}
+          <DocumentValidationPanel taskId={Number(id)} />
 
           {/* Audit Panel */}
           <TaskAuditPanel taskId={Number(id)} />

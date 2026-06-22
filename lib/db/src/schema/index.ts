@@ -41,3 +41,5 @@ export * from "./purchasing";
 export * from "./fleet";
 // ── AI Intake Sessions ──────────────────────────────────────────────────────
 export * from "./intake_sessions";
+// ── Sprint 9C — Document Intake & Validation ────────────────────────────────
+export * from "./document_validation";
