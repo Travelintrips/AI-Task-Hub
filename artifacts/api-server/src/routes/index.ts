@@ -51,6 +51,7 @@ import fleetCostRouter from "./fleet-cost";
 import fleetRouteProfitabilityRouter from "./fleet-route-profitability";
 import fleetDriverMemoryRouter from "./fleet-driver-memory";
 import fleetReportsRouter from "./fleet-reports";
+import intakeSessionsRouter from "./intake-sessions";
 import { extractUser } from "../middleware/auth";
 
 const router: IRouter = Router();
@@ -117,5 +118,7 @@ router.use(fleetCostRouter);
 router.use(fleetRouteProfitabilityRouter);
 router.use(fleetDriverMemoryRouter);
 router.use(fleetReportsRouter);
+// ── AI Intake Sessions ─────────────────────────────────────────────────────────
+router.use(intakeSessionsRouter);
 
 export default router;

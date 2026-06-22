@@ -55,6 +55,7 @@ import FleetDashboardPage from "@/pages/fleet-dashboard";
 import FleetRiskPage from "@/pages/fleet-risk";
 import FleetCostPage from "@/pages/fleet-cost";
 import FleetRouteProfitabilityPage from "@/pages/fleet-route-profitability";
+import IntakeSessionsPage from "@/pages/intake-sessions";
 
 const queryClient = new QueryClient();
 
@@ -115,6 +116,7 @@ function AppRouter() {
         <Route path="/fleet/risk" component={FleetRiskPage} />
         <Route path="/fleet/cost" component={FleetCostPage} />
         <Route path="/fleet/route-profitability" component={FleetRouteProfitabilityPage} />
+        <Route path="/intake-sessions" component={IntakeSessionsPage} />
         <Route path="/fleet/units/:id" component={FleetUnitDetailPage} />
         <Route path="/fleet/units" component={FleetUnitsPage} />
         <Route path="/fleet/drivers/:id" component={FleetDriverDetailPage} />

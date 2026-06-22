@@ -60,6 +60,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
     { name: "Messages",     href: "/messages",  icon: MessageSquare },
     { name: "Documents",    href: "/documents", icon: FileText },
     { name: "Team",         href: "/team",      icon: Users },
+    { name: "AI Intake",     href: "/intake-sessions",   icon: MessageSquare },
     { name: "AI Dispatcher", href: "/dispatcher",        icon: Brain },
     { name: "Knowledge Base", href: "/knowledge-base",  icon: BookOpen },
     { name: "Governance",    href: "/governance",        icon: Shield },
