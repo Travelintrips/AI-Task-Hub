@@ -4,21 +4,37 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Card, CardContent } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { MessageSquare, CheckCircle2, XCircle, AlertCircle, RefreshCw, X } from "lucide-react";
+import {
+  MessageSquare, CheckCircle2, XCircle, AlertCircle, RefreshCw, X,
+  ArrowRightCircle, CheckCheck, Eye,
+} from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { id as localeId } from "date-fns/locale";
+import { getStoredToken } from "@/lib/auth-api";
+
+// ─── API helper ────────────────────────────────────────────────────────────────
 
 async function apiFetch(path: string, init?: RequestInit) {
-  const base = import.meta.env.VITE_API_BASE_URL ?? "";
-  return fetch(`${base}${path}`, {
+  const token = getStoredToken();
+  const res = await fetch(`/api${path}`, {
     ...init,
-    credentials: "include",
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(init?.headers ?? {}),
+    },
   });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error((body as { error?: string }).error ?? res.statusText);
+  }
+  return res.json();
 }
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface IntakeSession {
   id: number;
@@ -28,7 +44,7 @@ interface IntakeSession {
   intentCode: string;
   intentName: string | null;
   category: string | null;
-  status: "collecting" | "ready_for_task" | "submitted" | "cancelled" | "expired";
+  status: "collecting" | "form_sent" | "ready_for_task" | "submitted" | "cancelled" | "expired";
   collectedFields: Record<string, unknown>;
   missingFields: string[];
   requiredDocuments: string[];
@@ -41,16 +57,19 @@ interface IntakeSession {
   updatedAt: string;
 }
 
-const STATUS_CONFIG: Record<IntakeSession["status"], { label: string; color: string; icon: React.ElementType }> = {
-  collecting:     { label: "Sedang Mengumpulkan",  color: "bg-blue-100 text-blue-800",   icon: MessageSquare },
-  ready_for_task: { label: "Siap Buat Task",       color: "bg-green-100 text-green-800", icon: CheckCircle2 },
-  submitted:      { label: "Task Dibuat",           color: "bg-gray-100 text-gray-800",   icon: CheckCircle2 },
-  cancelled:      { label: "Dibatalkan",            color: "bg-red-100 text-red-800",     icon: XCircle },
-  expired:        { label: "Kedaluwarsa",           color: "bg-yellow-100 text-yellow-800", icon: AlertCircle },
+// ─── Status badge ──────────────────────────────────────────────────────────────
+
+const STATUS_CONFIG: Record<string, { label: string; color: string; icon: React.ElementType }> = {
+  collecting:     { label: "Collecting",       color: "bg-blue-100 text-blue-800",    icon: MessageSquare },
+  form_sent:      { label: "Form Dikirim",     color: "bg-purple-100 text-purple-800", icon: MessageSquare },
+  ready_for_task: { label: "Siap Buat Task",   color: "bg-green-100 text-green-800",  icon: CheckCircle2 },
+  submitted:      { label: "Task Dibuat",      color: "bg-gray-100 text-gray-800",    icon: CheckCircle2 },
+  cancelled:      { label: "Dibatalkan",       color: "bg-red-100 text-red-800",      icon: XCircle },
+  expired:        { label: "Kedaluwarsa",      color: "bg-yellow-100 text-yellow-800", icon: AlertCircle },
 };
 
-function StatusBadge({ status }: { status: IntakeSession["status"] }) {
-  const cfg = STATUS_CONFIG[status];
+function StatusBadge({ status }: { status: string }) {
+  const cfg = STATUS_CONFIG[status] ?? { label: status, color: "bg-gray-100 text-gray-700", icon: MessageSquare };
   const Icon = cfg.icon;
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${cfg.color}`}>
@@ -75,6 +94,156 @@ function FieldsGrid({ fields }: { fields: Record<string, unknown> }) {
   );
 }
 
+// ─── Detail Dialog ─────────────────────────────────────────────────────────────
+
+function SessionDetailDialog({
+  session,
+  onClose,
+  onCancel,
+  onMarkReady,
+  onConvert,
+  isLoading,
+}: {
+  session: IntakeSession;
+  onClose: () => void;
+  onCancel: (id: number) => void;
+  onMarkReady: (id: number) => void;
+  onConvert: (id: number) => void;
+  isLoading: boolean;
+}) {
+  const canCancel  = !["submitted","cancelled","expired"].includes(session.status);
+  const canReady   = ["collecting","form_sent"].includes(session.status);
+  const canConvert = !["submitted","cancelled","expired"].includes(session.status);
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <MessageSquare className="w-5 h-5" />
+            Detail Intake Session #{session.id}
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4 text-sm">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <p className="text-muted-foreground text-xs mb-1">Nomor HP</p>
+              <p className="font-mono font-medium">{session.phone}</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground text-xs mb-1">Status</p>
+              <StatusBadge status={session.status} />
+            </div>
+            <div>
+              <p className="text-muted-foreground text-xs mb-1">Intent</p>
+              <p className="font-medium">{session.intentName ?? session.intentCode}</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground text-xs mb-1">Kategori</p>
+              <p>{session.category ?? "-"}</p>
+            </div>
+            {session.taskId && (
+              <div>
+                <p className="text-muted-foreground text-xs mb-1">Task ID</p>
+                <p className="font-mono font-medium text-primary">#{session.taskId}</p>
+              </div>
+            )}
+            <div>
+              <p className="text-muted-foreground text-xs mb-1">Dibuat</p>
+              <p>{new Date(session.createdAt).toLocaleString("id-ID")}</p>
+            </div>
+            <div>
+              <p className="text-muted-foreground text-xs mb-1">Kadaluarsa</p>
+              <p>{session.expiresAt ? new Date(session.expiresAt).toLocaleString("id-ID") : "-"}</p>
+            </div>
+          </div>
+
+          {session.lastMessage && (
+            <div>
+              <p className="text-muted-foreground text-xs mb-1 font-medium">Pesan Terakhir</p>
+              <div className="bg-muted/50 rounded p-3 italic">"{session.lastMessage}"</div>
+            </div>
+          )}
+
+          {session.lastQuestion && (
+            <div>
+              <p className="text-muted-foreground text-xs mb-1 font-medium">Pertanyaan Terakhir AI</p>
+              <div className="bg-blue-50 rounded p-3">{session.lastQuestion}</div>
+            </div>
+          )}
+
+          <div>
+            <p className="text-muted-foreground text-xs mb-2 font-medium">
+              Data Terkumpul ({Object.keys(session.collectedFields ?? {}).length} field)
+            </p>
+            <div className="bg-muted/30 rounded p-3">
+              <FieldsGrid fields={(session.collectedFields as Record<string, unknown>) ?? {}} />
+            </div>
+          </div>
+
+          {(session.missingFields ?? []).length > 0 && (
+            <div>
+              <p className="text-muted-foreground text-xs mb-2 font-medium text-orange-600">
+                Field Kurang ({session.missingFields.length})
+              </p>
+              <div className="flex flex-wrap gap-1">
+                {session.missingFields.map((f) => (
+                  <span key={f} className="bg-orange-100 text-orange-800 text-xs px-2 py-0.5 rounded-full">{f}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {(session.requiredDocuments ?? []).length > 0 && (
+            <div>
+              <p className="text-muted-foreground text-xs mb-2 font-medium">Dokumen Diperlukan</p>
+              <div className="flex flex-wrap gap-1">
+                {session.requiredDocuments.map((d) => (
+                  <span key={d} className="bg-purple-100 text-purple-800 text-xs px-2 py-0.5 rounded-full">{d}</span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter className="flex flex-wrap gap-2 pt-2">
+          {canReady && (
+            <Button
+              variant="outline" size="sm"
+              disabled={isLoading}
+              onClick={() => { onMarkReady(session.id); onClose(); }}
+            >
+              <CheckCheck className="w-3 h-3 mr-1" /> Tandai Siap
+            </Button>
+          )}
+          {canConvert && (
+            <Button
+              size="sm"
+              disabled={isLoading}
+              onClick={() => { onConvert(session.id); onClose(); }}
+            >
+              <ArrowRightCircle className="w-3 h-3 mr-1" /> Buat Task Sekarang
+            </Button>
+          )}
+          {canCancel && (
+            <Button
+              variant="destructive" size="sm"
+              disabled={isLoading}
+              onClick={() => { onCancel(session.id); onClose(); }}
+            >
+              <XCircle className="w-3 h-3 mr-1" /> Batalkan
+            </Button>
+          )}
+          <Button variant="ghost" size="sm" onClick={onClose}>Tutup</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
+
 export default function IntakeSessionsPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -88,35 +257,53 @@ export default function IntakeSessionsPage() {
       const params = new URLSearchParams({ limit: "100" });
       if (statusFilter) params.set("status", statusFilter);
       if (phoneFilter.trim()) params.set("phone", phoneFilter.trim());
-      const res = await apiFetch(`/api/intake-sessions?${params}`);
-      if (!res.ok) throw new Error("Gagal memuat data");
-      return res.json() as Promise<{ data: IntakeSession[]; total: number }>;
+      return apiFetch(`/intake-sessions?${params}`) as Promise<{ data: IntakeSession[]; total: number }>;
     },
     refetchInterval: 15000,
   });
 
-  const cancelMutation = useMutation({
-    mutationFn: async (id: number) => {
-      const res = await apiFetch(`/api/intake-sessions/${id}/cancel`, { method: "PATCH" });
-      if (!res.ok) throw new Error("Gagal membatalkan session");
-      return res.json();
-    },
+  const sessions = data?.data ?? [];
+
+  const mutCancel = useMutation({
+    mutationFn: (id: number) => apiFetch(`/intake-sessions/${id}/cancel`, { method: "PATCH" }),
     onSuccess: () => {
       toast({ title: "Session dibatalkan" });
       queryClient.invalidateQueries({ queryKey: ["intake-sessions"] });
       setSelectedSession(null);
     },
-    onError: (err: Error) => {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
-    },
+    onError: (err: Error) => toast({ title: "Gagal", description: err.message, variant: "destructive" }),
   });
 
-  const sessions = data?.data ?? [];
-  const activeCnt  = sessions.filter((s) => s.status === "collecting").length;
-  const readyCnt   = sessions.filter((s) => s.status === "ready_for_task").length;
+  const mutMarkReady = useMutation({
+    mutationFn: (id: number) => apiFetch(`/intake-sessions/${id}/mark-ready`, { method: "PATCH" }),
+    onSuccess: () => {
+      toast({ title: "Session ditandai siap buat task" });
+      queryClient.invalidateQueries({ queryKey: ["intake-sessions"] });
+      setSelectedSession(null);
+    },
+    onError: (err: Error) => toast({ title: "Gagal", description: err.message, variant: "destructive" }),
+  });
+
+  const mutConvert = useMutation({
+    mutationFn: (id: number) => apiFetch(`/intake-sessions/${id}/convert-to-task`, { method: "POST" }),
+    onSuccess: (res: { taskId?: number; taskNumber?: string }) => {
+      toast({ title: `✅ Task #${res.taskNumber ?? res.taskId} berhasil dibuat!` });
+      queryClient.invalidateQueries({ queryKey: ["intake-sessions"] });
+      setSelectedSession(null);
+    },
+    onError: (err: Error) => toast({ title: "Gagal buat task", description: err.message, variant: "destructive" }),
+  });
+
+  const isMutating = mutCancel.isPending || mutMarkReady.isPending || mutConvert.isPending;
+
+  const activeCnt   = sessions.filter((s) => s.status === "collecting").length;
+  const readyCnt    = sessions.filter((s) => s.status === "ready_for_task").length;
+  const formSentCnt = sessions.filter((s) => s.status === "form_sent").length;
+  const totalCnt    = sessions.length;
 
   return (
     <div className="p-6 space-y-6">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">AI Intake Sessions</h1>
@@ -132,10 +319,10 @@ export default function IntakeSessionsPage() {
       {/* Stats */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {[
-          { label: "Sedang Berjalan", value: activeCnt, color: "text-blue-600" },
-          { label: "Siap Buat Task",  value: readyCnt,  color: "text-green-600" },
-          { label: "Total",           value: sessions.length, color: "text-gray-600" },
-          { label: "Dibatalkan",      value: sessions.filter((s) => s.status === "cancelled").length, color: "text-red-600" },
+          { label: "Sedang Berjalan", value: activeCnt,   color: "text-blue-600" },
+          { label: "Form Dikirim",    value: formSentCnt, color: "text-purple-600" },
+          { label: "Siap Buat Task",  value: readyCnt,    color: "text-green-600" },
+          { label: "Total",           value: totalCnt,    color: "text-gray-600" },
         ].map((s) => (
           <Card key={s.label}>
             <CardContent className="pt-4 pb-4">
@@ -155,6 +342,7 @@ export default function IntakeSessionsPage() {
           <SelectContent>
             <SelectItem value="collecting,ready_for_task">Aktif</SelectItem>
             <SelectItem value="collecting">Sedang Mengumpulkan</SelectItem>
+            <SelectItem value="form_sent">Form Dikirim</SelectItem>
             <SelectItem value="ready_for_task">Siap Buat Task</SelectItem>
             <SelectItem value="submitted">Task Dibuat</SelectItem>
             <SelectItem value="cancelled">Dibatalkan</SelectItem>
@@ -189,8 +377,8 @@ export default function IntakeSessionsPage() {
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Nomor HP</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Intent</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Status</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Field Terkumpul</th>
-                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Field Kurang</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Terkumpul</th>
+                <th className="px-4 py-3 text-left font-medium text-muted-foreground">Kurang</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Terakhir</th>
                 <th className="px-4 py-3 text-left font-medium text-muted-foreground">Aksi</th>
               </tr>
@@ -209,7 +397,7 @@ export default function IntakeSessionsPage() {
                   >
                     <td className="px-4 py-3 font-mono text-xs">{s.phone}</td>
                     <td className="px-4 py-3">
-                      <div className="font-medium">{s.intentCode}</div>
+                      <div className="font-medium">{s.intentName ?? s.intentCode}</div>
                       {s.category && <div className="text-xs text-muted-foreground">{s.category}</div>}
                     </td>
                     <td className="px-4 py-3"><StatusBadge status={s.status} /></td>
@@ -219,25 +407,54 @@ export default function IntakeSessionsPage() {
                     <td className="px-4 py-3">
                       {missingCount > 0
                         ? <span className="font-medium text-orange-600">{missingCount} kurang</span>
-                        : <span className="text-green-600">Lengkap</span>}
+                        : <span className="text-green-600">Lengkap ✓</span>}
                     </td>
                     <td className="px-4 py-3 text-xs text-muted-foreground">
                       {formatDistanceToNow(new Date(s.updatedAt), { addSuffix: true, locale: localeId })}
                     </td>
                     <td className="px-4 py-3">
-                      {(s.status === "collecting" || s.status === "ready_for_task") && (
+                      <div className="flex gap-1">
                         <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-7 text-red-600 hover:text-red-700 hover:bg-red-50"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            cancelMutation.mutate(s.id);
-                          }}
+                          size="sm" variant="ghost" className="h-7 px-2"
+                          onClick={(e) => { e.stopPropagation(); setSelectedSession(s); }}
+                          title="Lihat detail"
                         >
-                          <X className="w-3 h-3 mr-1" /> Batal
+                          <Eye className="w-3 h-3" />
                         </Button>
-                      )}
+                        {!["submitted","cancelled","expired"].includes(s.status) && (
+                          <Button
+                            size="sm" variant="ghost"
+                            className="h-7 px-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                            disabled={isMutating}
+                            onClick={(e) => { e.stopPropagation(); mutConvert.mutate(s.id); }}
+                            title="Buat task sekarang"
+                          >
+                            <ArrowRightCircle className="w-3 h-3" />
+                          </Button>
+                        )}
+                        {["collecting","form_sent"].includes(s.status) && (
+                          <Button
+                            size="sm" variant="ghost"
+                            className="h-7 px-2 text-green-600 hover:text-green-700 hover:bg-green-50"
+                            disabled={isMutating}
+                            onClick={(e) => { e.stopPropagation(); mutMarkReady.mutate(s.id); }}
+                            title="Tandai siap"
+                          >
+                            <CheckCheck className="w-3 h-3" />
+                          </Button>
+                        )}
+                        {!["submitted","cancelled","expired"].includes(s.status) && (
+                          <Button
+                            size="sm" variant="ghost"
+                            className="h-7 px-2 text-red-600 hover:text-red-700 hover:bg-red-50"
+                            disabled={isMutating}
+                            onClick={(e) => { e.stopPropagation(); mutCancel.mutate(s.id); }}
+                            title="Batalkan"
+                          >
+                            <X className="w-3 h-3" />
+                          </Button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );
@@ -249,108 +466,14 @@ export default function IntakeSessionsPage() {
 
       {/* Detail Dialog */}
       {selectedSession && (
-        <Dialog open onOpenChange={() => setSelectedSession(null)}>
-          <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <MessageSquare className="w-5 h-5" />
-                Detail Intake Session #{selectedSession.id}
-              </DialogTitle>
-            </DialogHeader>
-
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div>
-                  <p className="text-muted-foreground text-xs mb-1">Nomor HP</p>
-                  <p className="font-mono font-medium">{selectedSession.phone}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground text-xs mb-1">Status</p>
-                  <StatusBadge status={selectedSession.status} />
-                </div>
-                <div>
-                  <p className="text-muted-foreground text-xs mb-1">Intent</p>
-                  <p className="font-medium">{selectedSession.intentCode}</p>
-                </div>
-                <div>
-                  <p className="text-muted-foreground text-xs mb-1">Kategori</p>
-                  <p>{selectedSession.category ?? "-"}</p>
-                </div>
-                {selectedSession.taskId && (
-                  <div>
-                    <p className="text-muted-foreground text-xs mb-1">Task ID</p>
-                    <p className="font-mono font-medium">{selectedSession.taskId}</p>
-                  </div>
-                )}
-                <div>
-                  <p className="text-muted-foreground text-xs mb-1">Dibuat</p>
-                  <p>{new Date(selectedSession.createdAt).toLocaleString("id-ID")}</p>
-                </div>
-              </div>
-
-              {selectedSession.lastMessage && (
-                <div>
-                  <p className="text-muted-foreground text-xs mb-1 font-medium">Pesan Terakhir</p>
-                  <div className="bg-muted/50 rounded p-3 text-sm italic">"{selectedSession.lastMessage}"</div>
-                </div>
-              )}
-
-              {selectedSession.lastQuestion && (
-                <div>
-                  <p className="text-muted-foreground text-xs mb-1 font-medium">Pertanyaan Terakhir (dikirim ke pelanggan)</p>
-                  <div className="bg-blue-50 rounded p-3 text-sm">{selectedSession.lastQuestion}</div>
-                </div>
-              )}
-
-              <div>
-                <p className="text-muted-foreground text-xs mb-2 font-medium">
-                  Data Terkumpul ({Object.keys(selectedSession.collectedFields ?? {}).length} field)
-                </p>
-                <div className="bg-muted/30 rounded p-3">
-                  <FieldsGrid fields={(selectedSession.collectedFields as Record<string, unknown>) ?? {}} />
-                </div>
-              </div>
-
-              {(selectedSession.missingFields ?? []).length > 0 && (
-                <div>
-                  <p className="text-muted-foreground text-xs mb-2 font-medium">
-                    Field Kurang ({selectedSession.missingFields.length})
-                  </p>
-                  <div className="flex flex-wrap gap-1">
-                    {selectedSession.missingFields.map((f) => (
-                      <span key={f} className="bg-orange-100 text-orange-800 text-xs px-2 py-0.5 rounded-full">{f}</span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {(selectedSession.requiredDocuments ?? []).length > 0 && (
-                <div>
-                  <p className="text-muted-foreground text-xs mb-2 font-medium">Dokumen Diperlukan</p>
-                  <div className="flex flex-wrap gap-1">
-                    {selectedSession.requiredDocuments.map((d) => (
-                      <span key={d} className="bg-purple-100 text-purple-800 text-xs px-2 py-0.5 rounded-full">{d}</span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {(selectedSession.status === "collecting" || selectedSession.status === "ready_for_task") && (
-                <div className="flex justify-end pt-2">
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    onClick={() => cancelMutation.mutate(selectedSession.id)}
-                    disabled={cancelMutation.isPending}
-                  >
-                    <XCircle className="w-4 h-4 mr-2" />
-                    Batalkan Session
-                  </Button>
-                </div>
-              )}
-            </div>
-          </DialogContent>
-        </Dialog>
+        <SessionDetailDialog
+          session={selectedSession}
+          onClose={() => setSelectedSession(null)}
+          onCancel={mutCancel.mutate}
+          onMarkReady={mutMarkReady.mutate}
+          onConvert={mutConvert.mutate}
+          isLoading={isMutating}
+        />
       )}
     </div>
   );
