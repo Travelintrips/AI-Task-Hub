@@ -97,3 +97,5 @@ PUBLIC_OBJECT_SEARCH_PATHS = "/replit-objstore-e357cc66-19c3-4d73-9ca9-3069d7835
 VITE_API_URL = "/api"
 SUPABASE_STORAGE_BUCKET_DEV = "https://xssrfshdrtdfupgqwfdw.storage.supabase.co/storage/v1/s3"
 ALLOW_LOCAL_DB = "true"
+SUPABASE_DATABASE_URL = "postgresql://postgres.nzdweipzckfszczzqtuw:AnTXXOl0t1ArQOEU@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres"
+SUPABASE_DATABASE_URL_DEV = "postgresql://postgres.xssrfshdrtdfupgqwfdw:nvVEWjiHruxen4cE@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres"
