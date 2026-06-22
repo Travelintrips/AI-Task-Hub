@@ -1,0 +1,156 @@
+SPRINT 8C — ACTION CENTER, EXECUTIVE TIMELINE, RISK HEATMAP
+
+Sprint 8B is complete and typecheck baseline is clean.
+
+Do not create new operational workflows.
+Do not auto-approve anything.
+Actions must reuse existing APIs.
+
+Scope:
+
+1. Action Center
+2. Executive Timeline
+3. Cross-Module Risk Heatmap
+
+====================================================
+A. ACTION CENTER
+====================================================
+
+Add to /executive-command.
+
+Features:
+- pending approvals queue
+- high-risk tasks quick links
+- high-risk fleet units quick links
+- high-risk vendors quick links
+- high-risk customers quick links
+- refresh triggers
+
+Approval actions:
+- approve
+- reject
+
+Must reuse existing endpoints:
+- purchasing approval decide endpoint
+- fleet risk refresh endpoint
+- intel refresh endpoint
+
+Reject requires notes.
+Approve should allow optional notes.
+
+Audit:
+- executive.action_triggered
+
+====================================================
+B. EXECUTIVE TIMELINE
+====================================================
+
+Add timeline feed.
+
+Sources:
+- audit_logs
+- ai_tasks
+- fleet_report_logs
+- vendor_recommendation_outcomes
+- purchasing_intel_signals
+- fleet_scheduler_runs
+
+Return unified event shape:
+- id
+- source
+- severity
+- title
+- detail
+- entityType
+- entityId
+- createdAt
+- actionUrl
+
+API:
+GET /api/executive/timeline?limit=50
+
+Sort newest first.
+
+====================================================
+C. RISK HEATMAP
+====================================================
+
+Add cross-module risk heatmap.
+
+Rows:
+- Customer
+- Vendor
+- Purchasing
+- Fleet
+- AI Tasks
+- Finance
+
+Columns:
+- Critical
+- High
+- Medium
+- Low
+
+API:
+GET /api/executive/risk-heatmap
+
+Each cell:
+- count
+- score
+- top entities
+- actionUrl
+
+====================================================
+D. FRONTEND
+====================================================
+
+Update /executive-command with 3 new panels:
+
+1. Action Center
+2. Executive Timeline
+3. Risk Heatmap
+
+Layout:
+- Keep existing 8B panels
+- Add Action Center under Alerts
+- Add Risk Heatmap next to Readiness
+- Add Timeline full-width near bottom
+
+States:
+- loading
+- empty
+- stale
+- error
+
+====================================================
+E. RBAC
+====================================================
+
+Same as Sprint 8B:
+owner, company_admin, super_admin only.
+
+Supervisor/staff/vendor must not access.
+
+====================================================
+F. VALIDATION
+====================================================
+
+Run:
+- backend typecheck
+- frontend typecheck
+- server start
+- GET /api/executive/timeline
+- GET /api/executive/risk-heatmap
+- test approval action
+- test reject action with required notes
+- verify audit log executive.action_triggered
+- verify frontend renders all 8B + 8C panels
+
+Output:
+- endpoints created
+- UI panels added
+- RBAC result
+- action test result
+- typecheck result
+- readiness score
+- GO/NO-GO for Sprint 8D

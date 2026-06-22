@@ -12,10 +12,18 @@
  */
 
 import { Router, type IRouter, type Request, type Response } from "express";
-import { sql } from "drizzle-orm";
+import { sql, eq, and, desc, ilike } from "drizzle-orm";
 import { db } from "@workspace/db";
+import {
+  auditLogsTable,
+  logisticPurchaseRequestsTable,
+  purchasingSignalsTable,
+  teamMembersTable,
+} from "@workspace/db/schema";
 import { requireAuth, requireRole, getCompanyId } from "../middleware/auth";
 import { logger } from "../lib/logger";
+import { supabaseQuery } from "../lib/supabase-db";
+import { sendFonnte } from "../lib/fonnte";
 
 const router: IRouter = Router();
 
@@ -687,6 +695,865 @@ router.get(
     } catch (err) {
       logger.error({ err }, "GET /executive/refresh-health failed");
       res.status(500).json({ error: "Gagal memuat refresh health" });
+    }
+  },
+);
+
+// ── GET /api/executive/action-center ─────────────────────────────────────────
+
+router.get(
+  "/executive/action-center",
+  ...RBAC,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const companyId = getCompanyId(req) ?? "default";
+
+      // Pending approvals from Supabase
+      let pendingApprovals: Array<{
+        approvalId: number;
+        requestNumber: string;
+        requestedBy: string;
+        riskTier: string | null;
+        estimatedAmount: number | null;
+        vendorName: string | null;
+        serviceCategory: string | null;
+        requestId: number | null;
+        submittedAt: string | null;
+      }> = [];
+      try {
+        const arRows = await supabaseQuery<{
+          id: number;
+          doc_id: number;
+          requested_by: string;
+          doc_number: string;
+          requested_at: string;
+          status: string;
+        }>(
+          `SELECT id, doc_id, requested_by, doc_number, requested_at
+           FROM approval_requests
+           WHERE module = 'purchasing_logistics' AND status = 'pending'
+           ORDER BY requested_at DESC
+           LIMIT 20`,
+          [],
+        );
+        const enriched = await Promise.all(
+          arRows.map(async (ar) => {
+            let lpr: typeof logisticPurchaseRequestsTable.$inferSelect | null = null;
+            if (ar.doc_id) {
+              const [row] = await db
+                .select()
+                .from(logisticPurchaseRequestsTable)
+                .where(eq(logisticPurchaseRequestsTable.id, ar.doc_id))
+                .limit(1);
+              lpr = row ?? null;
+            }
+            return {
+              approvalId: ar.id,
+              requestNumber: ar.doc_number ?? lpr?.requestNumber ?? "-",
+              requestedBy: ar.requested_by ?? "-",
+              riskTier: lpr?.aiRiskTier ?? null,
+              estimatedAmount: lpr?.estimatedAmount ? Number(lpr.estimatedAmount) : null,
+              vendorName: lpr?.vendorName ?? null,
+              serviceCategory: lpr?.serviceCategory ?? null,
+              requestId: ar.doc_id ?? null,
+              submittedAt: ar.requested_at ?? null,
+            };
+          }),
+        );
+        pendingApprovals = enriched;
+      } catch (arErr) {
+        logger.warn({ arErr }, "action-center: approval requests fetch failed (non-fatal)");
+      }
+
+      // High-risk quick links counts
+      const [
+        highRiskTasks,
+        highRiskFleet,
+        highRiskVendors,
+        highRiskCustomers,
+      ] = await Promise.all([
+        safeCount(sql`
+          SELECT COUNT(*)::int AS cnt FROM ai_tasks
+          WHERE company_id = ${companyId}
+            AND priority IN ('critical','high')
+            AND status NOT IN ('completed','cancelled','closed')
+        `),
+        safeCount(sql`
+          SELECT COUNT(*)::int AS cnt FROM fleet_risk_scores frs
+          JOIN fleet_units fu ON fu.id = frs.fleet_unit_id
+          WHERE fu.company_id = ${companyId}
+            AND frs.risk_level IN ('critical','high')
+        `),
+        safeCount(sql`
+          SELECT COUNT(*)::int AS cnt FROM intel_vendors
+          WHERE company_id = ${companyId}
+            AND risk_tier IN ('critical','high')
+            AND is_stale = false
+        `),
+        safeCount(sql`
+          SELECT COUNT(*)::int AS cnt FROM customers
+          WHERE risk_tier IN ('critical','high')
+        `),
+      ]);
+
+      res.json({
+        generatedAt: new Date().toISOString(),
+        pendingApprovals,
+        quickLinks: [
+          { label: "Tugas Prioritas Tinggi", count: highRiskTasks, href: "/ai-tasks", type: "task" },
+          { label: "Armada Risiko Tinggi", count: highRiskFleet, href: "/fleet/risk", type: "fleet" },
+          { label: "Vendor Risiko Tinggi", count: highRiskVendors, href: "/vendors", type: "vendor" },
+          { label: "Customer Risiko Tinggi", count: highRiskCustomers, href: "/customers", type: "customer" },
+        ],
+      });
+    } catch (err) {
+      logger.error({ err }, "GET /executive/action-center failed");
+      res.status(500).json({ error: "Gagal memuat action center" });
+    }
+  },
+);
+
+// ── POST /api/executive/actions/approve/:approvalId ───────────────────────────
+
+router.post(
+  "/executive/actions/approve/:approvalId",
+  ...RBAC,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const companyId = getCompanyId(req) ?? "default";
+      const approvalId = parseInt(req.params.approvalId as string);
+      const { notes } = req.body as { notes?: string };
+
+      if (isNaN(approvalId)) {
+        res.status(400).json({ error: "approvalId tidak valid" });
+        return;
+      }
+
+      const [approval] = await supabaseQuery<{
+        id: number;
+        doc_id: number;
+        status: string;
+        requested_by: string;
+      }>(
+        `SELECT id, doc_id, status, requested_by FROM approval_requests
+         WHERE id = $1 AND module = 'purchasing_logistics' LIMIT 1`,
+        [approvalId],
+      );
+      if (!approval) {
+        res.status(404).json({ error: "Approval request tidak ditemukan" });
+        return;
+      }
+      if (approval.status !== "pending") {
+        res.status(400).json({ error: `Approval sudah ${approval.status}` });
+        return;
+      }
+
+      const approverName = req.user?.name ?? req.user?.email ?? "executive";
+      const now = new Date().toISOString();
+
+      await supabaseQuery(
+        `UPDATE approval_requests SET status = 'approved', approved_by = $1, approved_at = $2, note = $3 WHERE id = $4`,
+        [approverName, now, notes ?? null, approvalId],
+      );
+
+      const [lpr] = await db
+        .select()
+        .from(logisticPurchaseRequestsTable)
+        .where(eq(logisticPurchaseRequestsTable.id, approval.doc_id))
+        .limit(1);
+
+      await db
+        .update(logisticPurchaseRequestsTable)
+        .set({ status: "approved", approvedBy: approverName, approvedAt: new Date() })
+        .where(eq(logisticPurchaseRequestsTable.id, approval.doc_id));
+
+      // Feedback loop signal
+      if (lpr) {
+        try {
+          await db.insert(purchasingSignalsTable).values({
+            companyId,
+            signalType: "approval_granted",
+            vendorId: lpr.vendorId ?? undefined,
+            vendorName: lpr.vendorName ?? undefined,
+            serviceCategory: lpr.serviceCategory ?? undefined,
+            origin: lpr.origin ?? undefined,
+            destination: lpr.destination ?? undefined,
+            quotedAmount: lpr.estimatedAmount ?? undefined,
+            actualAmount: lpr.estimatedAmount ?? 0,
+            currency: lpr.currency ?? "IDR",
+            sourceTable: "logistic_purchase_requests",
+            sourceId: lpr.id,
+            purchaseRequestId: lpr.id,
+            logisticOrderId: lpr.logisticOrderId ?? undefined,
+            recordedAt: new Date(),
+          });
+        } catch (sigErr) {
+          logger.warn({ sigErr }, "approve action: purchasing_signals write failed (non-fatal)");
+        }
+
+        // WA notification
+        try {
+          const requesterName = approval.requested_by ?? lpr.requestedBy ?? "";
+          if (requesterName) {
+            const members = await db
+              .select({ phone: teamMembersTable.phone })
+              .from(teamMembersTable)
+              .where(ilike(teamMembersTable.name, `%${requesterName.split(" ")[0]}%`))
+              .limit(1);
+            const phone = members[0]?.phone;
+            if (phone) {
+              const amount = lpr.estimatedAmount?.toLocaleString("id-ID") ?? "0";
+              const msg = `✅ *Purchasing Request Disetujui*\n\nRequest: ${lpr.requestNumber ?? "-"}\nVendor: ${lpr.vendorName ?? "-"}\nJumlah: Rp ${amount}\nDisetujui oleh: ${approverName}\n${notes ? `Catatan: ${notes}` : ""}`;
+              await sendFonnte(phone, msg);
+            }
+          }
+        } catch (waErr) {
+          logger.warn({ waErr }, "approve action: WA notification failed (non-fatal)");
+        }
+      }
+
+      // Audit: approval decision
+      await db.insert(auditLogsTable).values({
+        companyId,
+        userId: req.user?.id,
+        userName: req.user?.name,
+        action: "approval_approved",
+        module: "purchasing_intelligence",
+        entityId: approval.doc_id,
+        entityType: "logistic_purchase_request",
+        after: JSON.stringify({ approvalId, approvedBy: approverName, notes }),
+      });
+
+      // Audit: executive.action_triggered
+      await db.insert(auditLogsTable).values({
+        companyId,
+        userId: req.user?.id,
+        userName: req.user?.name,
+        action: "executive.action_triggered",
+        module: "executive_command",
+        entityId: approvalId,
+        entityType: "approval_request",
+        after: JSON.stringify({ actionType: "approve", approvalId, entityId: approval.doc_id, notes }),
+      });
+
+      res.json({
+        success: true,
+        message: "Request berhasil disetujui",
+      });
+    } catch (err) {
+      logger.error({ err }, "POST /executive/actions/approve failed");
+      res.status(500).json({ error: "Gagal menyetujui request" });
+    }
+  },
+);
+
+// ── POST /api/executive/actions/reject/:approvalId ────────────────────────────
+
+router.post(
+  "/executive/actions/reject/:approvalId",
+  ...RBAC,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const companyId = getCompanyId(req) ?? "default";
+      const approvalId = parseInt(req.params.approvalId as string);
+      const { notes } = req.body as { notes: string };
+
+      if (isNaN(approvalId)) {
+        res.status(400).json({ error: "approvalId tidak valid" });
+        return;
+      }
+      if (!notes || notes.trim().length === 0) {
+        res.status(400).json({ error: "notes wajib diisi untuk penolakan" });
+        return;
+      }
+
+      const [approval] = await supabaseQuery<{
+        id: number;
+        doc_id: number;
+        status: string;
+        requested_by: string;
+      }>(
+        `SELECT id, doc_id, status, requested_by FROM approval_requests
+         WHERE id = $1 AND module = 'purchasing_logistics' LIMIT 1`,
+        [approvalId],
+      );
+      if (!approval) {
+        res.status(404).json({ error: "Approval request tidak ditemukan" });
+        return;
+      }
+      if (approval.status !== "pending") {
+        res.status(400).json({ error: `Approval sudah ${approval.status}` });
+        return;
+      }
+
+      const rejectorName = req.user?.name ?? req.user?.email ?? "executive";
+      const now = new Date().toISOString();
+
+      await supabaseQuery(
+        `UPDATE approval_requests SET status = 'rejected', rejected_by = $1, rejected_at = $2, note = $3 WHERE id = $4`,
+        [rejectorName, now, notes, approvalId],
+      );
+
+      const [lpr] = await db
+        .select()
+        .from(logisticPurchaseRequestsTable)
+        .where(eq(logisticPurchaseRequestsTable.id, approval.doc_id))
+        .limit(1);
+
+      await db
+        .update(logisticPurchaseRequestsTable)
+        .set({ status: "rejected", rejectedBy: rejectorName, rejectedAt: new Date(), rejectedReason: notes })
+        .where(eq(logisticPurchaseRequestsTable.id, approval.doc_id));
+
+      // Feedback loop signal
+      if (lpr) {
+        try {
+          await db.insert(purchasingSignalsTable).values({
+            companyId,
+            signalType: "approval_rejected",
+            vendorId: lpr.vendorId ?? undefined,
+            vendorName: lpr.vendorName ?? undefined,
+            serviceCategory: lpr.serviceCategory ?? undefined,
+            origin: lpr.origin ?? undefined,
+            destination: lpr.destination ?? undefined,
+            quotedAmount: lpr.estimatedAmount ?? undefined,
+            actualAmount: lpr.estimatedAmount ?? 0,
+            currency: lpr.currency ?? "IDR",
+            sourceTable: "logistic_purchase_requests",
+            sourceId: lpr.id,
+            purchaseRequestId: lpr.id,
+            logisticOrderId: lpr.logisticOrderId ?? undefined,
+            recordedAt: new Date(),
+          });
+        } catch (sigErr) {
+          logger.warn({ sigErr }, "reject action: purchasing_signals write failed (non-fatal)");
+        }
+
+        // WA notification
+        try {
+          const requesterName = approval.requested_by ?? lpr.requestedBy ?? "";
+          if (requesterName) {
+            const members = await db
+              .select({ phone: teamMembersTable.phone })
+              .from(teamMembersTable)
+              .where(ilike(teamMembersTable.name, `%${requesterName.split(" ")[0]}%`))
+              .limit(1);
+            const phone = members[0]?.phone;
+            if (phone) {
+              const amount = lpr.estimatedAmount?.toLocaleString("id-ID") ?? "0";
+              const msg = `❌ *Purchasing Request Ditolak*\n\nRequest: ${lpr.requestNumber ?? "-"}\nVendor: ${lpr.vendorName ?? "-"}\nJumlah: Rp ${amount}\nDitolak oleh: ${rejectorName}\nAlasan: ${notes}`;
+              await sendFonnte(phone, msg);
+            }
+          }
+        } catch (waErr) {
+          logger.warn({ waErr }, "reject action: WA notification failed (non-fatal)");
+        }
+      }
+
+      // Audit: rejection
+      await db.insert(auditLogsTable).values({
+        companyId,
+        userId: req.user?.id,
+        userName: req.user?.name,
+        action: "approval_rejected",
+        module: "purchasing_intelligence",
+        entityId: approval.doc_id,
+        entityType: "logistic_purchase_request",
+        after: JSON.stringify({ approvalId, rejectedBy: rejectorName, notes }),
+      });
+
+      // Audit: executive.action_triggered
+      await db.insert(auditLogsTable).values({
+        companyId,
+        userId: req.user?.id,
+        userName: req.user?.name,
+        action: "executive.action_triggered",
+        module: "executive_command",
+        entityId: approvalId,
+        entityType: "approval_request",
+        after: JSON.stringify({ actionType: "reject", approvalId, entityId: approval.doc_id, notes }),
+      });
+
+      res.json({
+        success: true,
+        message: "Request berhasil ditolak",
+      });
+    } catch (err) {
+      logger.error({ err }, "POST /executive/actions/reject failed");
+      res.status(500).json({ error: "Gagal menolak request" });
+    }
+  },
+);
+
+// ── GET /api/executive/timeline ───────────────────────────────────────────────
+
+router.get(
+  "/executive/timeline",
+  ...RBAC,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const companyId = getCompanyId(req) ?? "default";
+      const limit = Math.min(parseInt(String(req.query.limit ?? "50")), 100);
+
+      type TimelineEvent = {
+        id: string;
+        source: string;
+        severity: "critical" | "high" | "medium" | "low" | "info";
+        title: string;
+        detail: string;
+        entityType: string;
+        entityId: string | null;
+        createdAt: string;
+        actionUrl: string | null;
+      };
+
+      const events: TimelineEvent[] = [];
+
+      // 1. Audit logs (Replit DB)
+      const auditRows = await safeRows<{
+        id: number;
+        action: string;
+        module: string;
+        entity_id: number | null;
+        entity_type: string | null;
+        user_name: string | null;
+        after: string | null;
+        created_at: string;
+      }>(sql`
+        SELECT id, action, module, entity_id, entity_type, user_name, after, created_at::text
+        FROM audit_logs
+        WHERE company_id = ${companyId}
+        ORDER BY created_at DESC
+        LIMIT 30
+      `);
+      for (const r of auditRows) {
+        const isExec = r.action === "executive.action_triggered";
+        events.push({
+          id: `audit-${r.id}`,
+          source: "audit_logs",
+          severity: isExec ? "high" : "info",
+          title: isExec
+            ? `Aksi Eksekutif: ${r.action}`
+            : `${r.module} — ${r.action}`,
+          detail: r.user_name ? `oleh ${r.user_name}` : r.action,
+          entityType: r.entity_type ?? r.module,
+          entityId: r.entity_id ? String(r.entity_id) : null,
+          createdAt: r.created_at,
+          actionUrl: null,
+        });
+      }
+
+      // 2. AI Tasks recently created (Replit DB)
+      const taskRows = await safeRows<{
+        id: number;
+        title: string;
+        priority: string | null;
+        ai_intent: string | null;
+        created_at: string;
+      }>(sql`
+        SELECT id, title, priority, ai_intent, created_at::text
+        FROM ai_tasks
+        WHERE company_id = ${companyId}
+        ORDER BY created_at DESC
+        LIMIT 20
+      `);
+      for (const r of taskRows) {
+        const sev: TimelineEvent["severity"] =
+          r.priority === "critical" ? "critical"
+          : r.priority === "high" ? "high"
+          : r.priority === "medium" ? "medium"
+          : "low";
+        events.push({
+          id: `task-${r.id}`,
+          source: "ai_tasks",
+          severity: sev,
+          title: `Tugas Baru: ${r.title}`,
+          detail: r.ai_intent ?? "Tugas AI dibuat",
+          entityType: "ai_task",
+          entityId: String(r.id),
+          createdAt: r.created_at,
+          actionUrl: `/ai-tasks`,
+        });
+      }
+
+      // 3. Purchasing intel signals (Replit DB)
+      const signalRows = await safeRows<{
+        id: number;
+        signal_type: string;
+        severity: string | null;
+        headline: string | null;
+        explanation: string | null;
+        purchase_request_id: number | null;
+        created_at: string;
+      }>(sql`
+        SELECT pis.id, pis.signal_type, pis.severity, pis.headline, pis.explanation,
+               pis.purchase_request_id, pis.created_at::text
+        FROM purchasing_intel_signals pis
+        JOIN logistic_purchase_requests lpr ON lpr.id = pis.purchase_request_id
+        WHERE lpr.company_id = ${companyId}
+        ORDER BY pis.created_at DESC
+        LIMIT 20
+      `);
+      for (const r of signalRows) {
+        const sev: TimelineEvent["severity"] =
+          r.severity === "critical" ? "critical"
+          : r.severity === "high" ? "high"
+          : r.severity === "medium" ? "medium"
+          : "info";
+        events.push({
+          id: `signal-${r.id}`,
+          source: "purchasing_intel_signals",
+          severity: sev,
+          title: `Intel Pembelian: ${r.headline ?? r.signal_type}`,
+          detail: r.explanation ?? r.signal_type,
+          entityType: "purchase_request",
+          entityId: r.purchase_request_id ? String(r.purchase_request_id) : null,
+          createdAt: r.created_at,
+          actionUrl: `/purchasing-intelligence`,
+        });
+      }
+
+      // 4. Fleet report logs (Supabase)
+      try {
+        const fleetRepRows = await supabaseQuery<{
+          id: number;
+          report_type: string;
+          recipient_name: string | null;
+          status: string | null;
+          created_at: string;
+        }>(
+          `SELECT id, report_type, recipient_name, status, created_at::text
+           FROM fleet_report_logs
+           ORDER BY created_at DESC
+           LIMIT 15`,
+          [],
+        );
+        for (const r of fleetRepRows) {
+          events.push({
+            id: `fleet-rep-${r.id}`,
+            source: "fleet_report_logs",
+            severity: r.status === "failed" ? "high" : "info",
+            title: `Laporan Armada: ${r.report_type}`,
+            detail: r.recipient_name ? `Ke: ${r.recipient_name}` : r.status ?? "dikirim",
+            entityType: "fleet_report",
+            entityId: String(r.id),
+            createdAt: r.created_at,
+            actionUrl: `/fleet/reports`,
+          });
+        }
+      } catch {
+        // fleet_report_logs may not exist yet
+      }
+
+      // 5. Vendor recommendation outcomes (Supabase)
+      try {
+        const vendorOutRows = await supabaseQuery<{
+          id: number;
+          outcome: string | null;
+          actual_cost: number | null;
+          created_at: string;
+        }>(
+          `SELECT id, outcome, actual_cost, created_at::text
+           FROM vendor_recommendation_outcomes
+           ORDER BY created_at DESC
+           LIMIT 15`,
+          [],
+        );
+        for (const r of vendorOutRows) {
+          events.push({
+            id: `vendor-out-${r.id}`,
+            source: "vendor_recommendation_outcomes",
+            severity: r.outcome === "rejected" ? "high" : "info",
+            title: `Rekomendasi Vendor: ${r.outcome ?? "diproses"}`,
+            detail: r.actual_cost ? `Biaya aktual: Rp ${Number(r.actual_cost).toLocaleString("id-ID")}` : "Outcome tercatat",
+            entityType: "vendor_recommendation",
+            entityId: String(r.id),
+            createdAt: r.created_at,
+            actionUrl: `/vendors`,
+          });
+        }
+      } catch {
+        // table may not exist yet
+      }
+
+      // 6. Fleet scheduler runs (Supabase)
+      try {
+        const schedulerRows = await supabaseQuery<{
+          id: number;
+          job_name: string;
+          status: string | null;
+          records_processed: number | null;
+          duration_ms: number | null;
+          ran_at: string;
+        }>(
+          `SELECT id, job_name, status, records_processed, duration_ms, ran_at::text
+           FROM fleet_scheduler_runs
+           ORDER BY ran_at DESC
+           LIMIT 15`,
+          [],
+        );
+        for (const r of schedulerRows) {
+          events.push({
+            id: `scheduler-${r.id}`,
+            source: "fleet_scheduler_runs",
+            severity: r.status === "error" ? "high" : "info",
+            title: `Scheduler: ${r.job_name}`,
+            detail: r.status === "error"
+              ? "Job gagal"
+              : `${r.records_processed ?? 0} records dalam ${r.duration_ms ?? 0}ms`,
+            entityType: "scheduler_run",
+            entityId: String(r.id),
+            createdAt: r.ran_at,
+            actionUrl: null,
+          });
+        }
+      } catch {
+        // table may not exist yet
+      }
+
+      // Sort all events newest-first and slice
+      events.sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      );
+
+      res.json({
+        generatedAt: new Date().toISOString(),
+        total: events.length,
+        events: events.slice(0, limit),
+      });
+    } catch (err) {
+      logger.error({ err }, "GET /executive/timeline failed");
+      res.status(500).json({ error: "Gagal memuat executive timeline" });
+    }
+  },
+);
+
+// ── GET /api/executive/risk-heatmap ──────────────────────────────────────────
+
+router.get(
+  "/executive/risk-heatmap",
+  ...RBAC,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const companyId = getCompanyId(req) ?? "default";
+
+      type RiskLevel = "critical" | "high" | "medium" | "low";
+      type HeatmapCell = {
+        count: number;
+        score: number;
+        topEntities: Array<{ id: string; label: string }>;
+        actionUrl: string;
+      };
+      type HeatmapRow = Record<RiskLevel, HeatmapCell>;
+
+      const LEVELS: RiskLevel[] = ["critical", "high", "medium", "low"];
+
+      function emptyCell(url: string): HeatmapCell {
+        return { count: 0, score: 0, topEntities: [], actionUrl: url };
+      }
+
+      // ── Customer ──────────────────────────────────────────────────────────────
+      const customerHeat: HeatmapRow = {
+        critical: emptyCell("/customers"),
+        high: emptyCell("/customers"),
+        medium: emptyCell("/customers"),
+        low: emptyCell("/customers"),
+      };
+      const custRows = await safeRows<{ risk_tier: string; cnt: number; names: string }>(sql`
+        SELECT risk_tier, COUNT(*)::int AS cnt,
+               STRING_AGG(name, ', ' ORDER BY name LIMIT 3) AS names
+        FROM customers
+        WHERE risk_tier IS NOT NULL
+        GROUP BY risk_tier
+      `);
+      for (const r of custRows) {
+        const lvl = r.risk_tier as RiskLevel;
+        if (LEVELS.includes(lvl)) {
+          customerHeat[lvl].count = r.cnt;
+          customerHeat[lvl].score = r.cnt * 10;
+          customerHeat[lvl].topEntities = (r.names ?? "")
+            .split(", ")
+            .filter(Boolean)
+            .slice(0, 3)
+            .map((n, i) => ({ id: String(i), label: n }));
+        }
+      }
+
+      // ── Vendor ────────────────────────────────────────────────────────────────
+      const vendorHeat: HeatmapRow = {
+        critical: emptyCell("/vendors"),
+        high: emptyCell("/vendors"),
+        medium: emptyCell("/vendors"),
+        low: emptyCell("/vendors"),
+      };
+      const vendorRows = await safeRows<{ risk_tier: string; cnt: number; names: string }>(sql`
+        SELECT risk_tier, COUNT(*)::int AS cnt,
+               STRING_AGG(vendor_name, ', ' ORDER BY vendor_name LIMIT 3) AS names
+        FROM intel_vendors
+        WHERE company_id = ${companyId}
+          AND risk_tier IS NOT NULL
+          AND is_stale = false
+        GROUP BY risk_tier
+      `);
+      for (const r of vendorRows) {
+        const lvl = r.risk_tier as RiskLevel;
+        if (LEVELS.includes(lvl)) {
+          vendorHeat[lvl].count = r.cnt;
+          vendorHeat[lvl].score = r.cnt * 10;
+          vendorHeat[lvl].topEntities = (r.names ?? "")
+            .split(", ")
+            .filter(Boolean)
+            .slice(0, 3)
+            .map((n, i) => ({ id: String(i), label: n }));
+        }
+      }
+
+      // ── Purchasing ────────────────────────────────────────────────────────────
+      const purchHeat: HeatmapRow = {
+        critical: emptyCell("/purchasing-intelligence"),
+        high: emptyCell("/purchasing-intelligence"),
+        medium: emptyCell("/purchasing-intelligence"),
+        low: emptyCell("/purchasing-intelligence"),
+      };
+      const purchRows = await safeRows<{ ai_risk_tier: string; cnt: number; numbers: string }>(sql`
+        SELECT ai_risk_tier, COUNT(*)::int AS cnt,
+               STRING_AGG(request_number, ', ' ORDER BY request_number LIMIT 3) AS numbers
+        FROM logistic_purchase_requests
+        WHERE company_id = ${companyId}
+          AND ai_risk_tier IS NOT NULL
+          AND status NOT IN ('completed','cancelled')
+        GROUP BY ai_risk_tier
+      `);
+      for (const r of purchRows) {
+        const lvl = r.ai_risk_tier as RiskLevel;
+        if (LEVELS.includes(lvl)) {
+          purchHeat[lvl].count = r.cnt;
+          purchHeat[lvl].score = r.cnt * 10;
+          purchHeat[lvl].topEntities = (r.numbers ?? "")
+            .split(", ")
+            .filter(Boolean)
+            .slice(0, 3)
+            .map((n, i) => ({ id: String(i), label: n }));
+        }
+      }
+
+      // ── Fleet ─────────────────────────────────────────────────────────────────
+      const fleetHeat: HeatmapRow = {
+        critical: emptyCell("/fleet/risk"),
+        high: emptyCell("/fleet/risk"),
+        medium: emptyCell("/fleet/risk"),
+        low: emptyCell("/fleet/risk"),
+      };
+      const fleetRows = await safeRows<{ risk_level: string; cnt: number; plates: string }>(sql`
+        SELECT frs.risk_level, COUNT(*)::int AS cnt,
+               STRING_AGG(fu.plate_number, ', ' ORDER BY fu.plate_number LIMIT 3) AS plates
+        FROM fleet_risk_scores frs
+        JOIN fleet_units fu ON fu.id = frs.fleet_unit_id
+        WHERE fu.company_id = ${companyId}
+          AND frs.risk_level IS NOT NULL
+        GROUP BY frs.risk_level
+      `);
+      for (const r of fleetRows) {
+        const lvl = r.risk_level as RiskLevel;
+        if (LEVELS.includes(lvl)) {
+          fleetHeat[lvl].count = r.cnt;
+          fleetHeat[lvl].score = r.cnt * 10;
+          fleetHeat[lvl].topEntities = (r.plates ?? "")
+            .split(", ")
+            .filter(Boolean)
+            .slice(0, 3)
+            .map((n, i) => ({ id: String(i), label: n }));
+        }
+      }
+
+      // ── AI Tasks ──────────────────────────────────────────────────────────────
+      const taskHeat: HeatmapRow = {
+        critical: emptyCell("/ai-tasks"),
+        high: emptyCell("/ai-tasks"),
+        medium: emptyCell("/ai-tasks"),
+        low: emptyCell("/ai-tasks"),
+      };
+      const taskRows = await safeRows<{ priority: string; cnt: number; titles: string }>(sql`
+        SELECT priority, COUNT(*)::int AS cnt,
+               STRING_AGG(title, ', ' ORDER BY title LIMIT 3) AS titles
+        FROM ai_tasks
+        WHERE company_id = ${companyId}
+          AND priority IS NOT NULL
+          AND status NOT IN ('completed','cancelled','closed')
+        GROUP BY priority
+      `);
+      for (const r of taskRows) {
+        const map: Record<string, RiskLevel> = {
+          critical: "critical", high: "high", medium: "medium", low: "low", normal: "low",
+        };
+        const lvl = map[r.priority];
+        if (lvl) {
+          taskHeat[lvl].count += r.cnt;
+          taskHeat[lvl].score = taskHeat[lvl].count * 10;
+          taskHeat[lvl].topEntities = (r.titles ?? "")
+            .split(", ")
+            .filter(Boolean)
+            .slice(0, 3)
+            .map((n, i) => ({ id: String(i), label: n }));
+        }
+      }
+
+      // ── Finance ───────────────────────────────────────────────────────────────
+      const financeHeat: HeatmapRow = {
+        critical: emptyCell("/purchasing-intelligence"),
+        high: emptyCell("/purchasing-intelligence"),
+        medium: emptyCell("/purchasing-intelligence"),
+        low: emptyCell("/purchasing-intelligence"),
+      };
+      const [marginCritical, marginHigh, duplicateMed, otherLow] = await Promise.all([
+        safeCount(sql`
+          SELECT COUNT(*)::int AS cnt FROM logistic_purchase_requests
+          WHERE company_id = ${companyId}
+            AND ai_margin_impact_pct IS NOT NULL AND ai_margin_impact_pct < 0
+            AND status NOT IN ('rejected','cancelled','completed')
+        `),
+        safeCount(sql`
+          SELECT COUNT(*)::int AS cnt FROM logistic_purchase_requests
+          WHERE company_id = ${companyId}
+            AND ai_margin_impact_pct IS NOT NULL AND ai_margin_impact_pct >= 0 AND ai_margin_impact_pct < 0.10
+            AND status NOT IN ('rejected','cancelled','completed')
+        `),
+        safeCount(sql`
+          SELECT COUNT(*)::int AS cnt FROM logistic_purchase_requests
+          WHERE company_id = ${companyId}
+            AND ai_duplicate_flag = true
+            AND status NOT IN ('rejected','cancelled','completed')
+        `),
+        safeCount(sql`
+          SELECT COUNT(*)::int AS cnt FROM logistic_purchase_requests
+          WHERE company_id = ${companyId}
+            AND status IN ('pending','pending_approval')
+        `),
+      ]);
+      financeHeat.critical.count = marginCritical;
+      financeHeat.critical.score = marginCritical * 15;
+      financeHeat.high.count = marginHigh;
+      financeHeat.high.score = marginHigh * 10;
+      financeHeat.medium.count = duplicateMed;
+      financeHeat.medium.score = duplicateMed * 8;
+      financeHeat.low.count = otherLow;
+      financeHeat.low.score = otherLow * 5;
+
+      res.json({
+        generatedAt: new Date().toISOString(),
+        rows: [
+          { module: "Customer", key: "customer", data: customerHeat },
+          { module: "Vendor", key: "vendor", data: vendorHeat },
+          { module: "Purchasing", key: "purchasing", data: purchHeat },
+          { module: "Fleet", key: "fleet", data: fleetHeat },
+          { module: "AI Tasks", key: "ai_tasks", data: taskHeat },
+          { module: "Finance", key: "finance", data: financeHeat },
+        ],
+        columns: LEVELS,
+      });
+    } catch (err) {
+      logger.error({ err }, "GET /executive/risk-heatmap failed");
+      res.status(500).json({ error: "Gagal memuat risk heatmap" });
     }
   },
 );
