@@ -16,6 +16,7 @@ import { logger } from "../lib/logger";
 import { getOrCreateCustomerContext, updateCustomerContextAfterTask } from "../lib/customer-context";
 import { createAdminNotification } from "../lib/admin-notifications";
 import { emitSseEvent } from "../lib/sse";
+import { sendFonnte } from "../lib/fonnte";
 
 const router: IRouter = Router();
 
@@ -550,6 +551,19 @@ async function runAiDetection({
 
       // Admin notification based on priority / task action
       await _notifyForTask({ taskOutput, result, from, effectiveName, companyId });
+
+      // Auto-reply acknowledgement ke customer untuk pesan yang di-append ke task existing
+      // (task baru sudah dapat notifikasi via notifyTaskCreated di task-service.ts)
+      if (taskOutput.action === "appended") {
+        const customerName = effectiveName ?? from;
+        const taskNo = taskOutput.taskNumber ?? taskOutput.taskId.toString();
+        const ackMsg =
+          `Halo ${customerName}, pesan Anda sudah kami terima dan dicatat pada tiket *${taskNo}*.\n\n` +
+          `Tim kami sedang menangani permintaan Anda. Kami akan segera menghubungi Anda kembali. Terima kasih 🙏`;
+        sendFonnte(from, ackMsg).catch((err) =>
+          logger.error({ err, from }, "Gagal mengirim auto-reply append")
+        );
+      }
     } else {
       // AI failed to produce task — create manual review notification
       await createAdminNotification({

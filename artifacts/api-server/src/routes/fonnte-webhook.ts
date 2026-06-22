@@ -43,6 +43,7 @@ router.post("/webhook/fonnte", async (req, res): Promise<void> => {
   try {
     // ── Normalize Fonnte payload ke format standar ─────────────────────────
     const sender  = normPhone(rawPayload.sender  ?? rawPayload.member);
+    const device  = normPhone(rawPayload.device);  // nomor WA bisnis (perangkat kita)
     const name    = toString(rawPayload.name);
     const msgType = toMsgType(rawPayload.type);
     const text    = toString(rawPayload.message) ?? toString(rawPayload.caption);
@@ -50,6 +51,22 @@ router.post("/webhook/fonnte", async (req, res): Promise<void> => {
 
     if (!sender) {
       logger.warn({ rawPayload }, "Fonnte webhook: no sender phone — skipping");
+      return;
+    }
+
+    // ── Filter pesan keluar (echo dari Fonnte) ─────────────────────────────
+    // Fonnte men-trigger webhook juga untuk pesan yang dikirim OLEH device kita.
+    // Jika sender == device, itu pesan yang kita kirim → abaikan.
+    if (device && sender === device) {
+      logger.debug({ sender, device }, "Fonnte webhook: outgoing echo — skipping");
+      return;
+    }
+
+    // Juga skip jika sender adalah salah satu nomor staff kita
+    const staffPhones = (process.env.WHATSAPP_PHONE_NUMBER_ID ?? "")
+      .split(",").map(p => normPhone(p.trim())).filter(Boolean);
+    if (staffPhones.includes(sender)) {
+      logger.debug({ sender }, "Fonnte webhook: message from staff number — skipping");
       return;
     }
 
