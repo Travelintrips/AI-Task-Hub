@@ -795,6 +795,31 @@ export async function resolveIntent({
     }));
 
     // ── 13. Assemble resolution ────────────────────────────────────────────────
+
+    // Build smart follow-up reply when there are missing required data fields.
+    // The AI doesn't know the template field labels (templates are loaded post-AI),
+    // so we override suggestedReply here with a structured question in Bahasa Indonesia.
+    let finalSuggestedReply = (parsed.suggestedReply as string | undefined) ??
+      "Terima kasih, tim kami akan segera menghubungi Anda.";
+
+    if (missingDataKeys.length > 0 && requiredDataFields.length > 0) {
+      const missingFields = requiredDataFields.filter(
+        (f) => missingDataKeys.includes(f.fieldName),
+      );
+      if (missingFields.length > 0) {
+        const greeting = customerName ? `Halo *${customerName}*! ` : "Halo! ";
+        const intentLabel = matchedIntent?.intentName ?? intentName;
+        const fieldLines = missingFields
+          .map((f, i) => `${i + 1}. ${f.fieldLabel}`)
+          .join("\n");
+        finalSuggestedReply =
+          `${greeting}Terima kasih atas permintaan *${intentLabel}* Anda. 🙏\n\n` +
+          `Untuk memproses permintaan ini, kami memerlukan beberapa informasi berikut:\n\n` +
+          `${fieldLines}\n\n` +
+          `Mohon balas dengan informasi di atas agar kami dapat segera menindaklanjuti. ✅`;
+      }
+    }
+
     const resolution: IntentResolution = {
       intentCode,
       intentName,
@@ -831,8 +856,7 @@ export async function resolveIntent({
       )
         ? (parsed.customerSentiment as "positive" | "neutral" | "negative" | "urgent")
         : "neutral"),
-      suggestedReply: (parsed.suggestedReply as string | undefined) ??
-        "Terima kasih, tim kami akan segera menghubungi Anda.",
+      suggestedReply: finalSuggestedReply,
       suggestedTeam: (parsed.suggestedTeam as string | undefined) ?? "Customer Service",
     };
 

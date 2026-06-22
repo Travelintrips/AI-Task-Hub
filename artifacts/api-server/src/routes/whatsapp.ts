@@ -465,7 +465,7 @@ async function runAiDetection({
 
         if (taskOutput) {
           await updateCustomerContextAfterTask({ phone: from, companyId, taskId: taskOutput.taskId, intent: result.intent, name: effectiveName });
-          await _notifyForTask({ taskOutput, result, from, effectiveName, companyId });
+          await _notifyForTask({ taskOutput, result, from, effectiveName, companyId, suggestedReply: result.suggested_reply ?? null });
         }
 
         await db
@@ -551,7 +551,7 @@ async function runAiDetection({
       await updateCustomerContextAfterTask({ phone: from, companyId, taskId: taskOutput.taskId, intent: result.intent, name: effectiveName });
 
       // Admin notification based on priority / task action
-      await _notifyForTask({ taskOutput, result, from, effectiveName, companyId });
+      await _notifyForTask({ taskOutput, result, from, effectiveName, companyId, suggestedReply: result.suggested_reply ?? null });
 
     } else {
       // AI failed to produce task — create manual review notification
@@ -587,17 +587,39 @@ async function _notifyForTask({
   from,
   effectiveName,
   companyId,
+  suggestedReply,
 }: {
   taskOutput: { action: string; taskId: number; title: string; taskNumber: string | null };
   result: { priority: string; category: string };
   from: string;
   effectiveName: string | null;
   companyId: string;
+  suggestedReply?: string | null;
 }) {
   const customerLabel = effectiveName ?? from;
   const taskLabel = taskOutput.taskNumber ? `[${taskOutput.taskNumber}]` : "";
 
   if (result.priority === "High" && taskOutput.action === "created") {
+    // Send AI follow-up reply to customer (e.g. kasbon field questions)
+    if (suggestedReply) {
+      try {
+        const sent = await sendFonnte(from, suggestedReply);
+        await db.insert(whatsappNotificationsTable).values({
+          taskId:            taskOutput.taskId,
+          companyId,
+          recipientPhone:    from,
+          recipientType:     "customer",
+          templateName:      "ai_auto_reply",
+          messageText:       suggestedReply,
+          status:            sent.success ? "sent" : "failed",
+          externalMessageId: sent.messageId,
+          errorMessage:      sent.error,
+          sentAt:            sent.success ? new Date() : null,
+        }).catch(() => { /* log only */ });
+      } catch (err) {
+        logger.error({ err, from }, "Gagal kirim AI auto-reply ke customer (high priority task)");
+      }
+    }
     await createAdminNotification({
       type: "high_priority_task",
       title: `Task Prioritas Tinggi ${taskLabel}`,
@@ -608,6 +630,26 @@ async function _notifyForTask({
       companyId,
     });
   } else if (taskOutput.action === "created") {
+    // Send AI follow-up reply to customer (e.g. kasbon field questions)
+    if (suggestedReply) {
+      try {
+        const sent = await sendFonnte(from, suggestedReply);
+        await db.insert(whatsappNotificationsTable).values({
+          taskId:            taskOutput.taskId,
+          companyId,
+          recipientPhone:    from,
+          recipientType:     "customer",
+          templateName:      "ai_auto_reply",
+          messageText:       suggestedReply,
+          status:            sent.success ? "sent" : "failed",
+          externalMessageId: sent.messageId,
+          errorMessage:      sent.error,
+          sentAt:            sent.success ? new Date() : null,
+        }).catch(() => { /* log only */ });
+      } catch (err) {
+        logger.error({ err, from }, "Gagal kirim AI auto-reply ke customer (new task)");
+      }
+    }
     await createAdminNotification({
       type: "new_inquiry",
       title: `Task Baru ${taskLabel}`,
