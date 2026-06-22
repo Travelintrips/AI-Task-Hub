@@ -426,7 +426,7 @@ async function runAiDetection({
 }): Promise<void> {
   const effectiveName = senderName ?? customerCtxName ?? null;
   let parsedPrevIntents: string[] = [];
-  try { parsedPrevIntents = JSON.parse(previousIntents ?? "[]"); } catch { parsedPrevIntents = []; }
+  try { parsedPrevIntents = JSON.parse(previousIntents ?? "[]"); } catch (_) { parsedPrevIntents = []; }
 
   try {
     // ── Step 0: Check for active intake session ────────────────────────────────
@@ -559,12 +559,16 @@ async function runAiDetection({
             resolution: result._resolution,
           });
 
-        if (taskOutput) {
-          await updateCustomerContextAfterTask({ phone: from, companyId, taskId: taskOutput.taskId, intent: result.intent, name: effectiveName });
-          await _notifyForTask({ taskOutput, result, from, effectiveName, companyId, suggestedReply: result._resolution?.suggestedReply ?? null });
-          if (intakeResult.action === "continue_collecting" || intakeResult.action === "ready_for_task") {
-            await sendFonnte(from, intakeResult.replyToUser).catch(() => {});
+          if (intakeResult.replyToUser) {
+            await sendFonnte(from, intakeResult.replyToUser).catch((e) =>
+              logger.warn({ e }, "Failed to send intake reply via Fonnte"),
+            );
           }
+
+          await db
+            .update(whatsappMessagesTable)
+            .set({ aiProcessed: true, detectedIntent: `intake_started:${result.intent}` })
+            .where(eq(whatsappMessagesTable.id, savedMsgId));
 
           if (intakeResult.action === "ready_for_task") {
             const taskOutput = await createTaskFromWhatsAppMessage({ savedMsgId, from, senderName, bodyText: transcript, companyId, result, resolution: result._resolution });
@@ -573,19 +577,28 @@ async function runAiDetection({
               await updateCustomerContextAfterTask({ phone: from, companyId, taskId: taskOutput.taskId, intent: result.intent, name: effectiveName });
               await _notifyForTask({ taskOutput, result, from, effectiveName, companyId, suggestedReply: null });
             }
+          } else {
+            await createAdminNotification({
+              type: "new_inquiry",
+              title: `📋 Intake Dimulai: ${result.intent}`,
+              body: `${effectiveName ?? from} mulai mengisi data untuk ${result.category}. Menunggu ${result.missing_data?.length ?? 0} field lagi.`,
+              customerPhone: from,
+              customerName: effectiveName,
+              companyId,
+            });
           }
         } else {
           const taskOutput = await createTaskFromWhatsAppMessage({ savedMsgId, from, senderName, bodyText: transcript, companyId, result, resolution: result._resolution });
           if (taskOutput) {
             await updateCustomerContextAfterTask({ phone: from, companyId, taskId: taskOutput.taskId, intent: result.intent, name: effectiveName });
-            await _notifyForTask({ taskOutput, result, from, effectiveName, companyId, suggestedReply: result.suggested_reply ?? null });
+            await _notifyForTask({ taskOutput, result, from, effectiveName, companyId, suggestedReply: result._resolution?.suggestedReply ?? null });
           }
-        }
 
-        await db
-          .update(whatsappMessagesTable)
-          .set({ aiProcessed: true, detectedIntent: result.intent })
-          .where(eq(whatsappMessagesTable.id, savedMsgId));
+          await db
+            .update(whatsappMessagesTable)
+            .set({ aiProcessed: true, detectedIntent: result.intent })
+            .where(eq(whatsappMessagesTable.id, savedMsgId));
+        }
       } else {
         logger.warn({ msgId: savedMsgId }, "Voice note transcription failed — marking as voice_note");
         await db
@@ -739,7 +752,7 @@ async function runAiDetection({
         customerName: effectiveName,
         companyId,
       });
-    } catch { /* ignore secondary failure */ }
+    } catch (_) { /* ignore secondary failure */ }
   }
 }
 
