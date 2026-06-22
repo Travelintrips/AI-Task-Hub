@@ -84,8 +84,8 @@ function AppRouter() {
     <AppLayout>
       <Switch>
         <Route path="/" component={Dashboard} />
-        <Route path="/tasks" component={Tasks} />
-        <Route path="/tasks/:id" component={TaskDetail} />
+        <Route path="/tasks">{() => { window.location.replace("/ai-tasks"); return null; }}</Route>
+        <Route path="/tasks/:id">{(params) => { window.location.replace(`/ai-tasks/${params.id}`); return null; }}</Route>
         <Route path="/ai-tasks" component={AiTaskBoard} />
         <Route path="/ai-tasks/:id" component={AiTaskDetail} />
         <Route path="/messages" component={Messages} />

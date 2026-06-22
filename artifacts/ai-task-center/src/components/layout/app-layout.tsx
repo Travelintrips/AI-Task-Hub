@@ -58,7 +58,6 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const navigation = [
     { name: "Dashboard",    href: "/",          icon: LayoutDashboard },
     { name: "AI Tasks",     href: "/ai-tasks",  icon: Kanban },
-    { name: "Tasks",        href: "/tasks",     icon: CheckSquare },
     { name: "Messages",     href: "/messages",  icon: MessageSquare },
     { name: "Documents",    href: "/documents", icon: FileText },
     { name: "Team",         href: "/team",      icon: Users },

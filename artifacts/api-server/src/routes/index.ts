@@ -55,6 +55,7 @@ import intakeSessionsRouter from "./intake-sessions";
 import intakeFormRouter from "./intake-form";
 import miniFormConfigRouter from "./mini-form-config";
 import documentValidationRouter from "./document-validation";
+import readinessRouter from "./readiness";
 import { extractUser } from "../middleware/auth";
 
 const router: IRouter = Router();
@@ -127,5 +128,7 @@ router.use(intakeFormRouter);
 router.use(miniFormConfigRouter);
 // ── Sprint 9C — Document Intake & Validation ──────────────────────────────────
 router.use(documentValidationRouter);
+// ── Sprint 8D — Memory Readiness ──────────────────────────────────────────────
+router.use(readinessRouter);
 
 export default router;

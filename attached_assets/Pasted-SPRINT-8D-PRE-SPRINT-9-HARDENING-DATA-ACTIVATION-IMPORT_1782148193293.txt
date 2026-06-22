@@ -1,0 +1,315 @@
+SPRINT 8D — PRE-SPRINT 9 HARDENING & DATA ACTIVATION
+
+IMPORTANT:
+
+JANGAN membuat fitur baru.
+JANGAN mengubah workflow bisnis.
+JANGAN membuat UI baru.
+
+Fokus hanya pada:
+- data activation
+- standardisasi
+- cleanup
+- conflict removal
+- memory readiness
+
+====================================================
+PHASE 1 — CUSTOMER MEMORY BACKFILL
+====================================================
+
+Audit menunjukkan:
+
+customer_memory_snapshots = 1
+customer_memory_events = 0
+customer_preferences = 0
+
+Padahal customers sudah berisi data.
+
+Tugas:
+
+1. Buat script backfill-customer-memory.ts
+
+Untuk setiap customer:
+
+- ambil quotation history
+- ambil whatsapp history
+- ambil ai_tasks history
+- ambil shipment history
+
+Generate:
+
+customer_memory_snapshots
+customer_memory_events
+
+Isi:
+
+preferred services
+frequent routes
+frequent cargo
+average order value
+total quotations
+total tasks
+last interaction
+risk indicators
+
+Jangan overwrite snapshot aktif.
+Gunakan versioning yang sudah ada.
+
+Target:
+
+customer_memory_snapshots coverage > 90%
+
+====================================================
+PHASE 2 — VENDOR MEMORY BACKFILL
+====================================================
+
+Audit menunjukkan:
+
+vendor_memory_snapshots = 1
+vendor_performance_snapshots = 0
+vendor_preferences = 0
+
+Tugas:
+
+Buat script backfill-vendor-memory.ts
+
+Generate:
+
+vendor_memory_snapshots
+vendor_performance_snapshots
+vendor_memory_events
+
+Hitung:
+
+on time rate
+completion rate
+average fulfillment cost
+service categories
+supported routes
+supported cargo types
+risk indicators
+
+Target:
+
+vendor_memory_snapshots coverage > 90%
+
+====================================================
+PHASE 3 — PURCHASING DATA ACTIVATION
+====================================================
+
+Audit menunjukkan:
+
+purchasing_budget_tracker = 0
+vendor_contract_rates = 0
+
+Tugas:
+
+1. Import budget baseline dari:
+
+expense_budgets
+expenses
+
+Isi:
+
+purchasing_budget_tracker
+
+2. Generate initial vendor contract baseline dari:
+
+logistic_vendor_fulfillments
+vendor invoices
+historical quotations
+
+Isi:
+
+vendor_contract_rates
+
+Jika data tidak cukup:
+
+set source='estimated'
+confidence='low'
+
+====================================================
+PHASE 4 — COMPANY_ID STANDARDIZATION
+====================================================
+
+CRITICAL
+
+Audit menemukan:
+
+company_id INTEGER
+company_id STRING
+
+Tugas:
+
+Scan seluruh codebase:
+
+backend
+frontend
+scheduler
+services
+
+Cari:
+
+company_id
+companyId
+
+Output:
+
+- tabel yang INTEGER
+- tabel yang TEXT
+- route yang cast
+- query yang cast
+
+JANGAN migrasi dulu.
+
+Buat laporan:
+
+company-id-standardization-report.md
+
+Isi:
+
+current state
+conflicts
+recommended target format
+
+====================================================
+PHASE 5 — LEGACY CLEANUP
+====================================================
+
+Audit menemukan:
+
+tasks
+ai_tasks
+
+activity
+activity_logs
+audit_logs
+
+Tugas:
+
+1. Hide legacy Tasks page dari sidebar
+
+2. Redirect:
+
+/tasks
+→
+/ai-tasks
+
+3. Tambahkan badge:
+
+LEGACY
+
+untuk route yang masih aktif namun deprecated.
+
+Jangan hapus tabel.
+Jangan drop data.
+
+====================================================
+PHASE 6 — MEMORY READINESS REPORT
+====================================================
+
+Buat endpoint:
+
+GET /api/readiness/memory
+
+Output:
+
+{
+ customerCoverage,
+ vendorCoverage,
+ customerSnapshots,
+ vendorSnapshots,
+ customerEvents,
+ vendorEvents,
+ readinessScore
+}
+
+====================================================
+PHASE 7 — SERVICE COVERAGE AUDIT
+====================================================
+
+Audit seluruh Knowledge Base.
+
+Bandingkan:
+
+intent_master
+keyword_rules
+data_templates
+document_templates
+service_catalog
+
+dengan layanan CST yang sudah ada.
+
+Kategori yang wajib dicek:
+
+- Trucking
+- Air Freight
+- Sea Freight
+- Customs Clearance
+- PPJK
+- Warehousing
+- Export
+- Import
+- DG Cargo
+- Live Animal
+- Cold Chain
+- Project Cargo
+- Fleet
+- Driver
+- Vendor Registration
+- Customer Complaint
+- Invoice Request
+- Payment Confirmation
+- Kasbon
+- HR Request
+- Tenant Rental
+- Sport Center Booking
+
+Output:
+
+service-coverage-audit.md
+
+Isi:
+
+service
+intent exists?
+template exists?
+document template exists?
+mini form exists?
+coverage score
+
+====================================================
+PHASE 8 — FINAL REPORT
+====================================================
+
+Jangan implement Sprint 9.
+
+Buat laporan:
+
+PRE-SPRINT-9-READINESS.md
+
+Isi:
+
+1. Customer Memory Readiness %
+2. Vendor Memory Readiness %
+3. Purchasing Readiness %
+4. Company ID Risk
+5. Legacy Risk
+6. Service Coverage %
+7. Sprint 9A Readiness
+8. Sprint 9B Readiness
+9. Sprint 9C Readiness
+10. Sprint 9D Readiness
+
+Verdict:
+
+GO
+atau
+
+NO-GO
+
+berdasarkan data aktual.
+
+DO NOT BUILD NEW FEATURES.
+DO NOT START SPRINT 9.
+COMPLETE HARDENING ONLY.

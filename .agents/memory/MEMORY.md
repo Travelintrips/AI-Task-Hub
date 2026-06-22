@@ -22,3 +22,4 @@
 - [AI Intake Flow](ai-intake-flow.md) — conversation_intake_sessions table; IntakeEngine in intake-engine.ts hooks into runAiDetection BEFORE task creation; apiFetch is always defined locally per-page (no shared module).
 - [Multi-vertical AI intents](multi-vertical-intents.md) — buildPrompt() covers 3 verticals (Logistik, Sport Center, Tenant); 15 new intents + 88 keywords in Supabase; intent_master has NO unique constraint → use DELETE+INSERT for idempotent seeding.
 - [Sprint 9C Document Validation](sprint9c-document-validation.md) — 2 tables (document_intake_audits, document_validation_rules), OpenAI Vision engine, 11 validation rules seeded; is_active stored as TEXT "true"/"false" not boolean.
+- [Sprint 8D Hardening & Backfill](sprint8d-hardening.md) — app.ts mounts router at /api so sub-router paths must NOT include /api prefix; PG arrays must be native JS arrays not JSON.stringify(); scripts/ has own pg in node_modules.
