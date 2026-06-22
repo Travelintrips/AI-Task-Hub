@@ -1,18 +1,12 @@
 /**
  * DocumentValidationEngine — Sprint 9C
  *
- * Responsibilities:
- * 1. Receive uploaded document (URL or base64)
- * 2. Load validation rules by document_type
- * 3. Extract fields using OpenAI Vision (gpt-4o-mini)
- * 4. Compare extracted vs required fields
- * 5. Determine validation_status: valid | incomplete | invalid | needs_review
- * 6. Save audit record to document_intake_audits
- * 7. Return structured result for WA reply / intake integration
+ * Uses supabaseQuery (raw SQL) instead of Drizzle db because
+ * document_intake_audits and document_validation_rules tables only exist
+ * in Supabase, not in the local helium postgres that db connects to.
  */
 
-import { db, documentIntakeAuditsTable, documentValidationRulesTable } from "@workspace/db";
-import { eq, and } from "drizzle-orm";
+import { supabaseQuery } from "./supabase-db";
 import { openai } from "./openai";
 import { logger } from "./logger";
 
@@ -57,32 +51,35 @@ async function loadRule(companyId: string, documentType: string) {
   const cached = ruleCache.get(key);
   if (cached && Date.now() < cached.expiresAt) return cached.data;
 
-  const [row] = await db
-    .select({
-      requiredFields: documentValidationRulesTable.requiredFields,
-      optionalFields: documentValidationRulesTable.optionalFields,
-      validationPrompt: documentValidationRulesTable.validationPrompt,
-    })
-    .from(documentValidationRulesTable)
-    .where(
-      and(
-        eq(documentValidationRulesTable.companyId, companyId),
-        eq(documentValidationRulesTable.documentType, documentType),
-        eq(documentValidationRulesTable.isActive, "true"),
-      ),
-    )
-    .limit(1);
+  try {
+    const rows = await supabaseQuery<{
+      required_fields: string[];
+      optional_fields: string[];
+      validation_prompt: string | null;
+    }>(
+      `SELECT required_fields, optional_fields, validation_prompt
+       FROM document_validation_rules
+       WHERE company_id = $1 AND document_type = $2 AND is_active = 'true'
+       LIMIT 1`,
+      [companyId, documentType],
+    );
 
-  const data = row
-    ? {
-        requiredFields: (row.requiredFields as string[]) ?? [],
-        optionalFields: (row.optionalFields as string[]) ?? [],
-        validationPrompt: row.validationPrompt ?? null,
-      }
-    : null;
+    const row = rows[0];
+    const data = row
+      ? {
+          requiredFields: (row.required_fields as string[]) ?? [],
+          optionalFields: (row.optional_fields as string[]) ?? [],
+          validationPrompt: row.validation_prompt ?? null,
+        }
+      : null;
 
-  ruleCache.set(key, { data, expiresAt: Date.now() + 5 * 60_000 });
-  return data;
+    ruleCache.set(key, { data, expiresAt: Date.now() + 5 * 60_000 });
+    return data;
+  } catch (err) {
+    logger.error({ err, companyId, documentType }, "loadRule failed");
+    ruleCache.set(key, { data: null, expiresAt: Date.now() + 60_000 });
+    return null;
+  }
 }
 
 // ─── Field extractor via OpenAI Vision ────────────────────────────────────────
@@ -109,14 +106,8 @@ Also include:
         {
           role: "user",
           content: [
-            {
-              type: "text",
-              text: systemPrompt,
-            },
-            {
-              type: "image_url",
-              image_url: { url: fileUrl, detail: "high" },
-            },
+            { type: "text", text: systemPrompt },
+            { type: "image_url", image_url: { url: fileUrl, detail: "high" } },
           ],
         },
       ],
@@ -134,7 +125,6 @@ Also include:
     const typeMatch = parsed.document_type_match !== false;
     const rawNotes = typeof parsed.validation_notes === "string" ? parsed.validation_notes : "";
 
-    // Remove meta-fields from extracted data
     const { confidence: _c, document_type_match: _m, validation_notes: _n, ...fields } = parsed;
 
     return { fields, confidence, typeMatch, rawNotes };
@@ -218,31 +208,37 @@ export async function validateDocument(input: ValidateDocumentInput): Promise<Va
     issueSummary = `Confidence rendah (${(confidence * 100).toFixed(0)}%). Perlu review manual.`;
   }
 
-  // 6. Save audit record
-  const [audit] = await db
-    .insert(documentIntakeAuditsTable)
-    .values({
+  // 6. Save audit record via raw SQL
+  const auditRows = await supabaseQuery<{ id: number }>(
+    `INSERT INTO document_intake_audits
+       (company_id, task_id, intake_session_id, customer_id, vendor_id, fleet_unit_id,
+        document_type, file_name, file_url, object_path,
+        extracted_fields, required_fields, missing_fields,
+        validation_status, confidence_score, issue_summary, ai_notes)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+     RETURNING id`,
+    [
       companyId,
-      taskId: input.taskId ?? null,
-      intakeSessionId: input.intakeSessionId ?? null,
-      customerId: input.customerId ?? null,
-      vendorId: input.vendorId ?? null,
-      fleetUnitId: input.fleetUnitId ?? null,
-      documentType: input.documentType,
-      fileName: input.fileName,
-      fileUrl: input.fileUrl,
-      objectPath: input.objectPath ?? null,
-      extractedFields: fields as Record<string, unknown>,
-      requiredFields: requiredFields as unknown as string[],
+      input.taskId ?? null,
+      input.intakeSessionId ?? null,
+      input.customerId ?? null,
+      input.vendorId ?? null,
+      input.fleetUnitId ?? null,
+      input.documentType,
+      input.fileName,
+      input.fileUrl,
+      input.objectPath ?? null,
+      JSON.stringify(fields),
+      JSON.stringify(requiredFields),
       missingFields,
       validationStatus,
-      confidenceScore: confidence.toFixed(4),
+      confidence.toFixed(4),
       issueSummary,
-      aiNotes: rawNotes || null,
-    })
-    .returning({ id: documentIntakeAuditsTable.id });
+      rawNotes || null,
+    ],
+  );
 
-  const auditId = audit?.id ?? 0;
+  const auditId = auditRows[0]?.id ?? 0;
 
   logger.info(
     { auditId, documentType: input.documentType, validationStatus, confidence, missingCount: missingFields.length },

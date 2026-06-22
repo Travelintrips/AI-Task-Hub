@@ -1,0 +1,174 @@
+SPRINT 9C PRODUCTION VALIDATION
+
+Do not add features.
+
+Audit actual runtime behavior only.
+
+Use real API calls, real database records, and browser validation.
+
+====================================================
+SECTION 1 — DATABASE
+====================
+
+Verify:
+
+document_intake_audits
+document_validation_rules
+
+Check:
+
+* row count
+* indexes
+* sample records
+* foreign key integrity
+* company isolation
+
+Output:
+
+PASS / FAIL
+
+====================================================
+SECTION 2 — VALIDATION RULES
+============================
+
+Verify all 16 rules exist.
+
+Check:
+
+* required_fields populated
+* validation_prompt populated
+* active=true
+
+Output:
+
+PASS / FAIL
+
+====================================================
+SECTION 3 — DOCUMENT VALIDATION ENGINE
+======================================
+
+Upload real files:
+
+1. Commercial Invoice
+2. Packing List
+3. STNK
+4. Fuel Receipt
+5. Damage Photo
+
+Verify:
+
+* extracted_fields
+* confidence_score
+* validation_status
+* missing_fields
+
+Output sample JSON result.
+
+====================================================
+SECTION 4 — WHATSAPP FLOW
+=========================
+
+Test:
+
+* document upload with active intake session
+* document upload without intake session
+
+Verify:
+
+* WA reply generated
+* audit record created
+* session updated
+
+Output actual WA reply text.
+
+====================================================
+SECTION 5 — MINI FORM FLOW
+==========================
+
+Test:
+
+* upload document from mini form
+
+Verify:
+
+* audit created
+* session updated
+* completion recalculated
+* task created only when threshold reached
+
+====================================================
+SECTION 6 — TASK DETAIL PANEL
+=============================
+
+Open task with document audit.
+
+Verify:
+
+* status badge
+* confidence
+* missing fields
+* override dialog
+* extracted fields
+
+Output screenshot evidence or component render proof.
+
+====================================================
+SECTION 7 — ADMIN PAGE
+======================
+
+Open:
+
+/document-intake
+
+Verify:
+
+* queue tab
+* valid tab
+* issues tab
+* rules tab
+* review override
+
+====================================================
+SECTION 8 — SECURITY
+====================
+
+Verify RBAC:
+
+staff
+supervisor
+company_admin
+super_admin
+
+Check:
+
+* upload
+* review
+* override
+* manage rules
+
+====================================================
+SECTION 9 — PERFORMANCE
+=======================
+
+Measure:
+
+* validation latency
+* OpenAI response time
+* audit write time
+* page load time
+
+====================================================
+FINAL REPORT
+============
+
+Output:
+
+PASS / FAIL per section
+
+Readiness score
+
+Production Ready?
+
+YES / NO
+
+GO / NO-GO for Sprint 9D
