@@ -134,10 +134,10 @@ function AddTripDialog({ units, drivers }: { units: FleetUnit[]; drivers: FleetD
             </div>
             <div>
               <Label>Pengemudi</Label>
-              <Select value={form.driverId} onValueChange={v => setForm(f => ({ ...f, driverId: v }))}>
+              <Select value={form.driverId || "none"} onValueChange={v => setForm(f => ({ ...f, driverId: v === "none" ? "" : v }))}>
                 <SelectTrigger><SelectValue placeholder="Pilih pengemudi" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Tidak ada</SelectItem>
+                  <SelectItem value="none">Tidak ada</SelectItem>
                   {drivers.map(d => <SelectItem key={d.id} value={String(d.id)}>{d.fullName}</SelectItem>)}
                 </SelectContent>
               </Select>
@@ -334,10 +334,10 @@ export default function FleetUtilizationPage() {
 
           <TabsContent value="trips" className="space-y-3">
             <div>
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <Select value={statusFilter || "all"} onValueChange={v => setStatusFilter(v === "all" ? "" : v)}>
                 <SelectTrigger className="w-52"><SelectValue placeholder="Filter status..." /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Semua status</SelectItem>
+                  <SelectItem value="all">Semua status</SelectItem>
                   <SelectItem value="planned">Direncanakan</SelectItem>
                   <SelectItem value="on_route">Dalam Perjalanan</SelectItem>
                   <SelectItem value="completed">Selesai</SelectItem>

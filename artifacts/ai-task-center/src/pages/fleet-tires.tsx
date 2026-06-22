@@ -313,10 +313,10 @@ export default function FleetTiresPage() {
 
           <TabsContent value="inventory">
             <div className="flex gap-2 mb-3">
-              <Select value={unitFilter} onValueChange={setUnitFilter}>
+              <Select value={unitFilter || "all"} onValueChange={v => setUnitFilter(v === "all" ? "" : v)}>
                 <SelectTrigger className="w-52"><SelectValue placeholder="Filter unit..." /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Semua unit</SelectItem>
+                  <SelectItem value="all">Semua unit</SelectItem>
                   {units.map(u => <SelectItem key={u.id} value={String(u.id)}>{u.plateNumber}</SelectItem>)}
                 </SelectContent>
               </Select>

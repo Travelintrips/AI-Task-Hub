@@ -415,7 +415,7 @@ export default function IntakeSessionsPage() {
 
       {/* Filters */}
       <div className="flex gap-3 flex-wrap">
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
+        <Select value={statusFilter || "all"} onValueChange={v => setStatusFilter(v === "all" ? "" : v)}>
           <SelectTrigger className="w-52">
             <SelectValue placeholder="Filter Status" />
           </SelectTrigger>
@@ -427,7 +427,7 @@ export default function IntakeSessionsPage() {
             <SelectItem value="submitted">Task Dibuat</SelectItem>
             <SelectItem value="cancelled">Dibatalkan</SelectItem>
             <SelectItem value="expired">Kedaluwarsa</SelectItem>
-            <SelectItem value="">Semua</SelectItem>
+            <SelectItem value="all">Semua</SelectItem>
           </SelectContent>
         </Select>
 
