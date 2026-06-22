@@ -1,0 +1,282 @@
+SPRINT 7D — FLEET RISK, COST, DASHBOARD, WHATSAPP REPORTING
+
+Sprint 7C-Fix is validated and GO.
+
+Do not create new unrelated modules.
+Do not auto-create expenses without human approval.
+Do not auto-assign vehicles without human approval.
+
+Scope:
+
+1. Fleet Risk Score
+2. Cost per KM
+3. Route Profitability
+4. Fleet Dashboard
+5. WhatsApp Reporting
+6. Driver Memory
+
+Important migration rule:
+Use node scripts/migrate-sprint-7d.mjs connected to SUPABASE_DATABASE_URL.
+Do not use executeSql for DDL.
+
+Important schema rule:
+All actor/user ID fields must be TEXT, not INTEGER.
+
+====================================================
+A. DATABASE
+====================================================
+
+Create tables:
+
+1. fleet_risk_scores
+2. fleet_cost_per_km
+3. fleet_route_profitability
+4. driver_memory_snapshots
+5. fleet_report_logs
+6. fleet_scheduler_runs
+
+All tables must include:
+- company_id
+- created_at
+- updated_at where applicable
+- indexes on company_id and fleet_unit_id / driver_id / route fields
+
+====================================================
+B. FLEET RISK SCORE
+====================================================
+
+Implement:
+
+GET  /api/fleet/risk-scores
+GET  /api/fleet/risk-scores/:unitId
+POST /api/fleet/risk-scores/refresh
+
+Scoring components:
+- document compliance score
+- maintenance score
+- fuel efficiency score
+- driver score
+- age condition score
+- utilization score
+
+Weighted:
+document 25%
+maintenance 25%
+fuel 15%
+driver 15%
+age 10%
+utilization 10%
+
+Risk level:
+80–100 LOW
+60–79 MEDIUM
+40–59 HIGH
+0–39 CRITICAL
+
+Create AI task if:
+- risk level HIGH
+- risk level CRITICAL
+
+====================================================
+C. COST PER KM
+====================================================
+
+Implement:
+
+GET  /api/fleet/cost-per-km
+GET  /api/fleet/cost-per-km/summary
+POST /api/fleet/cost-per-km/recompute
+
+Use:
+- fleet_fuel_logs
+- fleet_maintenance_records
+- fleet_tires
+- fleet_utilization_logs
+- fleet_documents
+- purchasing_signals if available
+
+Calculate:
+- total_km
+- fuel_cost
+- maintenance_cost
+- tire_cost
+- insurance_cost
+- tax_cost
+- depreciation_cost
+- total_cost
+- cost_per_km
+- revenue_generated
+- gross_profit
+- profit_margin_pct
+
+====================================================
+D. ROUTE PROFITABILITY
+====================================================
+
+Implement:
+
+GET  /api/fleet/route-profitability
+POST /api/fleet/route-profitability/recompute
+
+Use:
+- fleet_utilization_logs
+- intel_routes
+- intel_profit
+- ai_tasks
+- logistic_purchase_requests
+- purchasing_signals
+
+Calculate:
+- route
+- total trips
+- total km
+- vehicle cost
+- revenue
+- margin
+- most profitable route
+- least profitable route
+
+====================================================
+E. DRIVER MEMORY
+====================================================
+
+Implement:
+
+GET  /api/fleet/drivers/:id/memory
+POST /api/fleet/drivers/:id/memory/refresh
+
+Create driver_memory_snapshots:
+
+- driver_id
+- strengths
+- weaknesses
+- preferred_routes
+- fuel_efficiency_trend
+- safety_trend
+- performance_summary
+- ai_context_block
+- freshness_score
+- valid_until
+
+Use:
+- fleet_driver_performance
+- fleet_driver_incidents
+- fleet_fuel_logs
+- fleet_utilization_logs
+
+====================================================
+F. FLEET DASHBOARD
+====================================================
+
+Create page:
+
+/fleet/dashboard
+
+Dashboard sections:
+
+1. KPI cards
+- total units
+- available units
+- maintenance units
+- high-risk units
+- average cost/km
+- average utilization %
+
+2. Risk scorecard
+- unit cards by risk level
+
+3. Cost per KM chart
+- monthly trend
+
+4. Route profitability table
+- best/worst routes
+
+5. Alerts
+- expiring documents
+- overdue maintenance
+- fuel anomalies
+- tire critical wear
+- over-utilized vehicles
+
+6. Driver leaderboard
+- top drivers
+- drivers needing review
+
+====================================================
+G. WHATSAPP REPORTING
+====================================================
+
+Implement:
+
+POST /api/fleet/reports/whatsapp
+
+Report types:
+1. daily_fleet_summary
+2. critical_alert
+3. weekly_performance
+4. maintenance_approval
+
+Rules:
+- send only to internal team members
+- never broadcast to customers
+- use Fonnte if token exists
+- if Fonnte unavailable, save report to fleet_report_logs with status failed
+- all sends logged
+
+====================================================
+H. SCHEDULERS
+====================================================
+
+Implement scheduler jobs:
+
+1. fleet-doc-expiry-check daily 07:00
+2. fleet-maintenance-due-check daily 07:30
+3. fleet-risk-score-refresh daily 08:00
+4. fleet-cost-per-km-compute monthly
+5. fleet-driver-performance-compute weekly Monday 06:00
+6. fleet-fuel-anomaly-scan every 6 hours
+
+Each job writes to fleet_scheduler_runs.
+
+====================================================
+I. FRONTEND ROUTES
+====================================================
+
+Add or improve:
+
+/fleet/dashboard
+/fleet/risk
+/fleet/cost
+/fleet/route-profitability
+/fleet/drivers/:id/memory
+
+Add sidebar links if missing.
+
+====================================================
+J. VALIDATION
+====================================================
+
+Run:
+
+1. migration success
+2. backend typecheck
+3. frontend typecheck
+4. server start
+5. risk score refresh
+6. cost per KM recompute
+7. route profitability recompute
+8. driver memory refresh
+9. WhatsApp report fallback test
+10. dashboard loads
+11. AI task created for HIGH/CRITICAL risk
+12. scheduler registered
+13. fleet_scheduler_runs records written
+
+Output:
+- tables created
+- endpoints created
+- frontend pages created
+- scheduler status
+- test results
+- readiness score
+- remaining risks

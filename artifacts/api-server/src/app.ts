@@ -7,6 +7,7 @@ import { startFollowUpScheduler } from "./lib/follow-up-scheduler";
 import { startOrderSyncScheduler } from "./lib/order-sync-scheduler";
 import { startEscalationScheduler } from "./lib/escalation-scheduler";
 import { startIntelScheduler } from "./lib/intel-scheduler";
+import { startFleetScheduler } from "./lib/fleet-scheduler";
 import { refreshSlaStatuses } from "./lib/sla";
 
 const app: Express = express();
@@ -63,6 +64,9 @@ startEscalationScheduler();
 
 // Sprint 5E: Intelligence Readiness Layer — nightly refresh at 00:30
 startIntelScheduler();
+
+// Sprint 7D: Fleet Scheduler — risk, cost, maintenance, fuel anomaly
+startFleetScheduler();
 
 // Refresh SLA statuses every 15 minutes
 setInterval(() => { refreshSlaStatuses().catch(() => {}); }, 15 * 60 * 1000);

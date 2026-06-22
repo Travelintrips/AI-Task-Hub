@@ -45,6 +45,11 @@ import fleetMaintenanceRouter from "./fleet-maintenance";
 import fleetFuelRouter from "./fleet-fuel";
 import fleetTiresRouter from "./fleet-tires";
 import fleetUtilizationRouter from "./fleet-utilization";
+import fleetRiskRouter from "./fleet-risk";
+import fleetCostRouter from "./fleet-cost";
+import fleetRouteProfitabilityRouter from "./fleet-route-profitability";
+import fleetDriverMemoryRouter from "./fleet-driver-memory";
+import fleetReportsRouter from "./fleet-reports";
 import { extractUser } from "../middleware/auth";
 
 const router: IRouter = Router();
@@ -103,5 +108,11 @@ router.use(fleetMaintenanceRouter);
 router.use(fleetFuelRouter);
 router.use(fleetTiresRouter);
 router.use(fleetUtilizationRouter);
+// ── Sprint 7D — Fleet Risk, Cost, Dashboard, WhatsApp Reporting ───────────────
+router.use(fleetRiskRouter);
+router.use(fleetCostRouter);
+router.use(fleetRouteProfitabilityRouter);
+router.use(fleetDriverMemoryRouter);
+router.use(fleetReportsRouter);
 
 export default router;

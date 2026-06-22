@@ -50,6 +50,10 @@ import FleetMaintenancePage from "@/pages/fleet-maintenance";
 import FleetFuelPage from "@/pages/fleet-fuel";
 import FleetTiresPage from "@/pages/fleet-tires";
 import FleetUtilizationPage from "@/pages/fleet-utilization";
+import FleetDashboardPage from "@/pages/fleet-dashboard";
+import FleetRiskPage from "@/pages/fleet-risk";
+import FleetCostPage from "@/pages/fleet-cost";
+import FleetRouteProfitabilityPage from "@/pages/fleet-route-profitability";
 
 const queryClient = new QueryClient();
 
@@ -105,6 +109,10 @@ function AppRouter() {
         <Route path="/vendors/:id/memory" component={VendorMemoryPage} />
         <Route path="/purchasing-intelligence" component={PurchasingIntelligencePage} />
         <Route path="/executive-intelligence" component={ExecutiveIntelligencePage} />
+        <Route path="/fleet/dashboard" component={FleetDashboardPage} />
+        <Route path="/fleet/risk" component={FleetRiskPage} />
+        <Route path="/fleet/cost" component={FleetCostPage} />
+        <Route path="/fleet/route-profitability" component={FleetRouteProfitabilityPage} />
         <Route path="/fleet/units/:id" component={FleetUnitDetailPage} />
         <Route path="/fleet/units" component={FleetUnitsPage} />
         <Route path="/fleet/drivers/:id" component={FleetDriverDetailPage} />
