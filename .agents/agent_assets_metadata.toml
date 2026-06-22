@@ -18,3 +18,9 @@ id = "qc79XLlccT07T3C-HXv2v"
 uri = "file://docs/sprint-5e-intelligence-readiness-layer-design.md"
 type = "text"
 title = "Sprint 5E — Intelligence Readiness Layer Architecture"
+
+[[outputs]]
+id = "HXAaSENFjhKj-Gsu1nS0u"
+uri = "file://docs/sprint-9c-report.md"
+type = "text"
+title = "Sprint 9C — Laporan Implementasi Document Validation AI"
