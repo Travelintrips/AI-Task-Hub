@@ -27,6 +27,7 @@ export const companySettingsTable = pgTable("company_settings", {
   // AI settings
   openaiModel: text("openai_model").default("gpt-4o-mini"),
   aiEnabled: boolean("ai_enabled").notNull().default(true),
+  aiProductionMode: text("ai_production_mode").notNull().default("off"),
   // Auto-dispatcher settings
   dispatcherEnabled: boolean("dispatcher_enabled").notNull().default(false),
   autoAssignEnabled: boolean("auto_assign_enabled").notNull().default(false),

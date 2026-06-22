@@ -43,3 +43,5 @@ export * from "./fleet";
 export * from "./intake_sessions";
 // ── Sprint 9C — Document Intake & Validation ────────────────────────────────
 export * from "./document_validation";
+// ── Sprint 9D — Conversation Test Suite & AI Quality Gate ───────────────────
+export * from "./conversation_tests";

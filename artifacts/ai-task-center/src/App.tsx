@@ -59,6 +59,7 @@ import IntakeSessionsPage from "@/pages/intake-sessions";
 import DocumentIntakePage from "@/pages/document-intake";
 import MiniFormPage from "@/pages/mini-form-page";
 import MiniFormConfigPage from "@/pages/mini-form-config";
+import ConversationTestsPage from "@/pages/conversation-tests";
 
 const queryClient = new QueryClient();
 
@@ -131,6 +132,7 @@ function AppRouter() {
         <Route path="/fleet/fuel" component={FleetFuelPage} />
         <Route path="/fleet/tires" component={FleetTiresPage} />
         <Route path="/fleet/utilization" component={FleetUtilizationPage} />
+        <Route path="/conversation-tests" component={ConversationTestsPage} />
         <Route component={NotFound} />
       </Switch>
     </AppLayout>

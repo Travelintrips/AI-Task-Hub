@@ -65,6 +65,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
     { name: "AI Intake",     href: "/intake-sessions",   icon: MessageSquare },
     { name: "Doc Validation", href: "/document-intake",  icon: FileCheck },
     { name: "Mini Form Config", href: "/mini-form-config", icon: Layers },
+    { name: "Test Suite AI", href: "/conversation-tests", icon: FlaskConical },
     { name: "AI Dispatcher", href: "/dispatcher",        icon: Brain },
     { name: "Knowledge Base", href: "/knowledge-base",  icon: BookOpen },
     { name: "Governance",    href: "/governance",        icon: Shield },
