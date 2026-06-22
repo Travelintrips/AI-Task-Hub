@@ -9,7 +9,7 @@
  */
 
 import { Router, type IRouter } from "express";
-import { eq, desc, and, inArray } from "drizzle-orm";
+import { eq, desc, and, inArray, gte, sql } from "drizzle-orm";
 import { db, intakeSessionsTable, aiTasksTable, dataTemplatesTable } from "@workspace/db";
 import { requireAuth } from "../middleware/auth";
 import { logger } from "../lib/logger";
@@ -294,6 +294,39 @@ router.post("/intake-sessions/:id/convert-to-task", requireAuth, async (req, res
   } catch (err) {
     logger.error({ err }, "POST /intake-sessions/:id/convert-to-task failed");
     res.status(500).json({ error: "Gagal membuat task dari session" });
+  }
+});
+
+// ── GET /intake-sessions/stats ────────────────────────────────────────────────
+
+router.get("/intake-sessions/stats", requireAuth, async (req, res): Promise<void> => {
+  try {
+    const companyId = req.user?.companyId ?? "default";
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    const all = await db
+      .select({
+        status: intakeSessionsTable.status,
+        createdAt: intakeSessionsTable.createdAt,
+      })
+      .from(intakeSessionsTable)
+      .where(eq(intakeSessionsTable.companyId, companyId));
+
+    const active    = all.filter((s) => s.status === "collecting" || s.status === "form_sent").length;
+    const waitingUser = all.filter((s) => s.status === "collecting").length;
+    const waitingDocument = all.filter((s) => s.status === "form_sent").length;
+    const completedToday = all.filter(
+      (s) => (s.status === "submitted" || s.status === "ready_for_task") && new Date(s.createdAt) >= todayStart,
+    ).length;
+    const expiredToday = all.filter(
+      (s) => s.status === "expired" && new Date(s.createdAt) >= todayStart,
+    ).length;
+
+    res.json({ active, waitingUser, waitingDocument, completedToday, expiredToday });
+  } catch (err) {
+    logger.error({ err }, "GET /intake-sessions/stats failed");
+    res.status(500).json({ error: "Gagal mengambil statistik" });
   }
 });
 

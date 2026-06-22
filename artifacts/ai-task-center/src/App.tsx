@@ -56,6 +56,7 @@ import FleetRiskPage from "@/pages/fleet-risk";
 import FleetCostPage from "@/pages/fleet-cost";
 import FleetRouteProfitabilityPage from "@/pages/fleet-route-profitability";
 import IntakeSessionsPage from "@/pages/intake-sessions";
+import ConversationIntakePage from "@/pages/conversation-intake";
 import DocumentIntakePage from "@/pages/document-intake";
 import MiniFormPage from "@/pages/mini-form-page";
 import MiniFormConfigPage from "@/pages/mini-form-config";
@@ -121,6 +122,7 @@ function AppRouter() {
         <Route path="/fleet/cost" component={FleetCostPage} />
         <Route path="/fleet/route-profitability" component={FleetRouteProfitabilityPage} />
         <Route path="/intake-sessions" component={IntakeSessionsPage} />
+        <Route path="/conversation-intake" component={ConversationIntakePage} />
         <Route path="/document-intake" component={DocumentIntakePage} />
         <Route path="/mini-form-config" component={MiniFormConfigPage} />
         <Route path="/fleet/units/:id" component={FleetUnitDetailPage} />

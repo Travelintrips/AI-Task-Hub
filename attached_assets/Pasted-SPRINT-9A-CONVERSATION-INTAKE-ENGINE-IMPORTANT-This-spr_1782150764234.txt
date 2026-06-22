@@ -1,0 +1,494 @@
+SPRINT 9A — CONVERSATION INTAKE ENGINE
+
+IMPORTANT:
+
+This sprint is the highest priority.
+
+Do not modify:
+
+* Fleet Intelligence
+* Purchasing Intelligence
+* Executive Command Center
+* Memory Systems
+
+Use existing:
+
+* Intent Engine
+* Knowledge Base
+* Customer Memory
+* Vendor Memory
+* Governance Engine
+* AI Task Center
+
+Goal:
+
+AI must stop creating tasks immediately.
+
+AI must:
+
+1. detect intent
+2. determine required fields
+3. ask follow-up questions
+4. collect missing information
+5. remember previous answers
+6. continue interrupted conversations
+7. create task only after minimum data completeness is achieved
+
+====================================================
+PHASE 1 — DATABASE
+==================
+
+Create table:
+
+conversation_intake_sessions
+
+Fields:
+
+* id
+* company_id
+* customer_id nullable
+* vendor_id nullable
+* phone
+* intent_code
+* category
+* status
+
+Allowed status:
+
+* active
+* waiting_user
+* waiting_document
+* completed
+* cancelled
+* expired
+
+Fields:
+
+* required_fields jsonb
+* collected_fields jsonb
+* missing_fields jsonb
+* uploaded_documents jsonb
+* confidence_score numeric
+* completion_pct numeric
+* needs_admin_review boolean
+* ai_summary text
+* last_message_at
+* expires_at
+* created_at
+* updated_at
+
+Indexes:
+
+(company_id, phone)
+(company_id, status)
+(company_id, intent_code)
+
+====================================================
+PHASE 2 — SESSION ENGINE
+========================
+
+Create:
+
+src/lib/conversation-intake-engine.ts
+
+Responsibilities:
+
+1. receive intent result
+2. load data_template
+3. determine required fields
+4. load active session by phone
+5. merge existing answers
+6. calculate missing fields
+7. calculate completion %
+8. generate next question
+9. determine task readiness
+
+Methods:
+
+findOrCreateSession()
+
+updateSessionField()
+
+calculateCompletion()
+
+getMissingFields()
+
+generateNextQuestion()
+
+completeSession()
+
+cancelSession()
+
+expireSession()
+
+====================================================
+PHASE 3 — FOLLOW-UP QUESTION ENGINE
+===================================
+
+AI must ask questions dynamically.
+
+Example:
+
+Intent:
+cash_advance
+
+Required:
+
+amount
+purpose
+payment_method
+
+User:
+
+"Saya mau kasbon"
+
+AI:
+
+"Baik. Berapa nominal kasbon yang diajukan?"
+
+User:
+
+"500 ribu"
+
+AI:
+
+"Untuk keperluan apa kasbon tersebut?"
+
+User:
+
+"Bensin"
+
+AI:
+
+"Metode pembayaran yang diinginkan?"
+
+Only after complete:
+
+create task.
+
+====================================================
+PHASE 4 — COMPLETENESS RULES
+============================
+
+Create:
+
+src/lib/intake-completeness.ts
+
+Rules:
+
+completion_pct =
+collected_fields / required_fields
+
+Threshold:
+
+0–49%
+Not Ready
+
+50–79%
+Continue collecting
+
+80–100%
+Eligible
+
+Each intent may override threshold.
+
+Example:
+
+complaint:
+60%
+
+import:
+90%
+
+fleet_repair:
+80%
+
+cash_advance:
+100%
+
+====================================================
+PHASE 5 — MEMORY INTEGRATION
+============================
+
+When session starts:
+
+Load:
+
+customer memory
+
+vendor memory
+
+Use memory to prefill fields.
+
+Example:
+
+customer always ships:
+
+Jakarta → Surabaya
+
+AI:
+
+"Saya lihat biasanya pengiriman dari Jakarta ke Surabaya. Apakah tujuan pengiriman kali ini sama?"
+
+====================================================
+PHASE 6 — TASK CREATION CONTROL
+===============================
+
+CRITICAL
+
+Task creation must move here.
+
+Current:
+
+message
+→ intent
+→ task
+
+Replace with:
+
+message
+→ intent
+→ intake session
+→ collect data
+→ task
+
+Task creation only if:
+
+completion threshold met
+
+OR
+
+user submits all required data
+
+OR
+
+admin forces create
+
+====================================================
+PHASE 7 — CONVERSATION RECOVERY
+===============================
+
+If user disappears.
+
+Resume later.
+
+Example:
+
+Day 1:
+
+"Saya mau trucking"
+
+AI asks 5 questions.
+
+User answers 2.
+
+Session remains active.
+
+Day 3:
+
+User returns.
+
+AI continues from remaining fields.
+
+Do not restart conversation.
+
+====================================================
+PHASE 8 — EXPIRATION
+====================
+
+Session expiry:
+
+24 hours default
+
+After expiry:
+
+status=expired
+
+New message:
+
+create new session
+
+Preserve history.
+
+====================================================
+PHASE 9 — WHATSAPP INTEGRATION
+==============================
+
+Update whatsapp intake flow.
+
+Before creating task:
+
+Check:
+
+active session exists?
+
+If yes:
+
+update session
+
+continue intake
+
+If no:
+
+create session
+
+start intake
+
+====================================================
+PHASE 10 — ADMIN VIEW
+=====================
+
+Create page:
+
+/conversation-intake
+
+Columns:
+
+phone
+intent
+completion %
+status
+missing fields
+last activity
+created task?
+
+Filters:
+
+active
+waiting document
+completed
+expired
+
+Supervisor+
+can view
+
+Company Admin+
+can edit
+
+====================================================
+PHASE 11 — EXECUTIVE COMMAND CENTER
+===================================
+
+Add widget:
+
+Conversation Intake
+
+Metrics:
+
+active sessions
+waiting user
+waiting document
+completed today
+expired today
+
+====================================================
+PHASE 12 — AUDIT LOGGING
+========================
+
+Write audit_logs:
+
+session_created
+
+field_collected
+
+completion_threshold_reached
+
+task_created_from_session
+
+session_expired
+
+session_cancelled
+
+====================================================
+PHASE 13 — VALIDATION TESTS
+===========================
+
+Scenario 1
+
+"Saya mau kasbon"
+
+Expected:
+
+session created
+
+task NOT created
+
+follow-up asked
+
+Scenario 2
+
+Kasbon completed
+
+Expected:
+
+task created
+
+Scenario 3
+
+Trucking inquiry
+
+Expected:
+
+collect required fields
+
+task delayed
+
+Scenario 4
+
+Complaint
+
+Expected:
+
+collect complaint details
+
+Scenario 5
+
+Import
+
+Expected:
+
+collect required import data
+
+Scenario 6
+
+Resume after 3 days
+
+Expected:
+
+continue previous session
+
+Scenario 7
+
+Session expiry
+
+Expected:
+
+status expired
+
+Scenario 8
+
+Memory-assisted trucking
+
+Expected:
+
+prefill route suggestion
+
+====================================================
+OUTPUT
+======
+
+Provide:
+
+* DB migration summary
+* files created
+* files modified
+* API impact
+* frontend impact
+* typecheck result
+* test results
+* readiness score
+* remaining risks
+
+Do not start Sprint 9B.
+
+Finish Sprint 9A only.

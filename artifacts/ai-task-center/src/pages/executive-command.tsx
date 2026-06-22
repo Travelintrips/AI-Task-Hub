@@ -38,6 +38,7 @@ import {
   ShieldOff,
   Shield,
   Play,
+  MessageSquare,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { useState } from "react";
@@ -401,6 +402,59 @@ function sourceLabel(source: string) {
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
+function ConversationIntakeWidget() {
+  const [, navigate] = useLocation();
+  const statsQ = useQuery<{ active: number; waitingUser: number; waitingDocument: number; completedToday: number; expiredToday: number }>({
+    queryKey: ["intake-stats-ecc"],
+    queryFn: () => apiFetch("/intake-sessions/stats"),
+    refetchInterval: 30_000,
+  });
+  const s = statsQ.data;
+  return (
+    <section>
+      <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+        Conversation Intake
+      </h2>
+      <Card className="border shadow-sm">
+        <CardContent className="pt-4">
+          <div className="flex items-start gap-4">
+            <div className="p-2 rounded-lg bg-blue-100 shrink-0">
+              <MessageSquare className="h-5 w-5 text-blue-600" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-sm font-semibold">Sesi WhatsApp Aktif</span>
+                {(s?.active ?? 0) > 0 && (
+                  <Badge className="bg-blue-100 text-blue-800 border-0 text-xs">{s?.active} aktif</Badge>
+                )}
+              </div>
+              <div className="grid grid-cols-5 gap-2 text-center">
+                {[
+                  { label: "Aktif",          value: s?.active ?? 0,          color: "text-blue-600" },
+                  { label: "Menunggu Jawab", value: s?.waitingUser ?? 0,      color: "text-orange-600" },
+                  { label: "Menunggu Dok",   value: s?.waitingDocument ?? 0,  color: "text-purple-600" },
+                  { label: "Selesai",        value: s?.completedToday ?? 0,   color: "text-green-600" },
+                  { label: "Kedaluwarsa",    value: s?.expiredToday ?? 0,     color: "text-gray-500" },
+                ].map((item) => (
+                  <div key={item.label}>
+                    <div className={`text-xl font-bold ${item.color}`}>{item.value}</div>
+                    <div className="text-xs text-muted-foreground leading-tight">{item.label}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+          <div className="flex gap-2 mt-3">
+            <Button size="sm" variant="outline" onClick={() => navigate("/conversation-intake")}>
+              Lihat Semua Sesi →
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </section>
+  );
+}
+
 export default function ExecutiveCommandPage() {
   const qc = useQueryClient();
   const [rejectTarget, setRejectTarget] = useState<PendingApproval | null>(null);
@@ -672,6 +726,9 @@ export default function ExecutiveCommandPage() {
             </div>
           )}
         </section>
+
+        {/* ── Conversation Intake Widget ─────────────────────────────────── */}
+        <ConversationIntakeWidget />
 
         {/* ── AI Quality Gate Widget ─────────────────────────────────────── */}
         <section>

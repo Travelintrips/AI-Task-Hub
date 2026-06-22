@@ -21,11 +21,13 @@ import {
   dataTemplateFieldsTable,
   documentTemplatesTable,
   documentTemplateFieldsTable,
+  auditLogsTable,
   type IntakeSession,
 } from "@workspace/db";
 import { openai } from "./openai";
 import { logger } from "./logger";
 import type { IntentResolution } from "./intent-engine";
+import { calculateCompleteness, getCompletionThreshold } from "./intake-completeness";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -333,14 +335,32 @@ export async function createIntakeSession({
       intentName: intentName ?? null,
       category: category ?? null,
       status: "collecting",
+      requiredFields: resolution.missingDataKeys,
       collectedFields: {},
       missingFields: resolution.missingDataKeys,
-      requiredDocuments: resolution.missingDocuments,
+      requiredDocuments: resolution.missingDocuments.map((d) =>
+        typeof d === "string" ? d : ((d as { documentName?: string }).documentName ?? String(d)),
+      ),
       uploadedDocuments: [],
+      completionPct: "0",
+      needsAdminReview: resolution.needsAdminReview ?? false,
       lastMessage: initialMessage,
+      lastMessageAt: new Date(),
       expiresAt,
     })
     .returning();
+
+  // Audit log
+  try {
+    await db.insert(auditLogsTable).values({
+      companyId,
+      action: "session_created",
+      entityType: "intake_session",
+      entityId: String(session!.id),
+      metadata: JSON.stringify({ sessionId: session!.id, intentCode, phone }),
+      createdAt: new Date(),
+    });
+  } catch { /* non-fatal */ }
 
   return session!;
 }
@@ -424,24 +444,65 @@ export async function processIntakeMessage({
     (dname) => !uploadedDocs.some((u) => u.toLowerCase().includes(dname.toLowerCase())),
   );
 
-  const isComplete = stillMissing.length === 0;
-
-  // 6a. If no template fields defined at all → treat as complete immediately
+  // 5b. Use per-intent completeness threshold
+  const completeness = calculateCompleteness(requiredFieldNames, newCollected, session.intentCode);
+  const isComplete = completeness.isReady;
   const hasTemplateFields = dataFields.length > 0;
 
+  // Write audit log for field collection
+  try {
+    const prevCount = Object.keys(existingCollected).length;
+    const newCount = Object.keys(newCollected).length;
+    if (newCount > prevCount) {
+      await db.insert(auditLogsTable).values({
+        companyId,
+        action: "field_collected",
+        entityType: "intake_session",
+        entityId: String(session.id),
+        metadata: JSON.stringify({
+          sessionId: session.id,
+          completionPct: completeness.completionPct,
+          newFields: newCount - prevCount,
+        }),
+        createdAt: new Date(),
+      });
+    }
+  } catch { /* non-fatal */ }
+
+  const now = new Date();
+
+  // 6a. If no template fields defined at all → treat as complete immediately
   if (!hasTemplateFields || isComplete) {
-    // Mark session as ready
+    // Write threshold-reached audit log
+    try {
+      await db.insert(auditLogsTable).values({
+        companyId,
+        action: "completion_threshold_reached",
+        entityType: "intake_session",
+        entityId: String(session.id),
+        metadata: JSON.stringify({
+          sessionId: session.id,
+          completionPct: completeness.completionPct,
+          threshold: completeness.threshold,
+        }),
+        createdAt: new Date(),
+      });
+    } catch { /* non-fatal */ }
+
     const [updated] = await db
       .update(intakeSessionsTable)
       .set({
-        status: "ready_for_task",
-        collectedFields: newCollected,
-        missingFields: [],
+        status:           "ready_for_task",
+        collectedFields:  newCollected,
+        missingFields:    [],
+        requiredFields:   requiredFieldNames,
         requiredDocuments: stillMissingDocs,
         uploadedDocuments: uploadedDocs,
-        lastMessage: message,
-        updatedAt: new Date(),
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        completionPct:    "100",
+        lastMessage:      message,
+        lastMessageAt:    now,
+        updatedAt:        now,
+        expiresAt:        new Date(Date.now() + 24 * 60 * 60 * 1000),
       })
       .where(eq(intakeSessionsTable.id, session.id))
       .returning();
@@ -460,7 +521,7 @@ export async function processIntakeMessage({
 
   // 6b. Still collecting — generate next question
   const missingFieldDefs = dataFields.filter((f) =>
-    f.isRequired && stillMissing.includes(f.fieldName),
+    f.isRequired && completeness.missingFieldNames.includes(f.fieldName),
   );
 
   const nextQuestion = await generateNextQuestion(
@@ -473,14 +534,17 @@ export async function processIntakeMessage({
   const [updated] = await db
     .update(intakeSessionsTable)
     .set({
-      collectedFields: newCollected,
-      missingFields: stillMissing,
+      collectedFields:  newCollected,
+      missingFields:    completeness.missingFieldNames,
+      requiredFields:   requiredFieldNames,
       requiredDocuments: stillMissingDocs,
       uploadedDocuments: uploadedDocs,
-      lastQuestion: nextQuestion,
-      lastMessage: message,
-      updatedAt: new Date(),
-      expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+      completionPct:    String(completeness.completionPct),
+      lastQuestion:     nextQuestion,
+      lastMessage:      message,
+      lastMessageAt:    now,
+      updatedAt:        now,
+      expiresAt:        new Date(Date.now() + 24 * 60 * 60 * 1000),
     })
     .where(eq(intakeSessionsTable.id, session.id))
     .returning();
@@ -490,7 +554,7 @@ export async function processIntakeMessage({
     session: updated!,
     replyToUser: nextQuestion,
     collectedFields: newCollected,
-    missingFields: stillMissing,
+    missingFields: completeness.missingFieldNames,
     requiredDocuments: stillMissingDocs,
   };
 }

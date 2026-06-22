@@ -112,10 +112,20 @@ if (supabasePool) {
     ALTER TABLE data_templates ADD COLUMN IF NOT EXISTS mini_form_type TEXT;
     ALTER TABLE data_templates ADD COLUMN IF NOT EXISTS mini_form_route TEXT;
     ALTER TABLE data_templates ADD COLUMN IF NOT EXISTS intake_mode    TEXT NOT NULL DEFAULT 'conversation';
-    ALTER TABLE conversation_intake_sessions ADD COLUMN IF NOT EXISTS mini_form_type TEXT;
-    ALTER TABLE conversation_intake_sessions ADD COLUMN IF NOT EXISTS form_token    TEXT;
-    ALTER TABLE conversation_intake_sessions ADD COLUMN IF NOT EXISTS form_sent_at  TIMESTAMPTZ;
+    ALTER TABLE conversation_intake_sessions ADD COLUMN IF NOT EXISTS mini_form_type      TEXT;
+    ALTER TABLE conversation_intake_sessions ADD COLUMN IF NOT EXISTS form_token          TEXT;
+    ALTER TABLE conversation_intake_sessions ADD COLUMN IF NOT EXISTS form_sent_at        TIMESTAMPTZ;
     CREATE INDEX IF NOT EXISTS intake_sessions_form_token_idx ON conversation_intake_sessions(form_token);
+    ALTER TABLE conversation_intake_sessions ADD COLUMN IF NOT EXISTS vendor_id           TEXT;
+    ALTER TABLE conversation_intake_sessions ADD COLUMN IF NOT EXISTS required_fields     JSONB NOT NULL DEFAULT '[]'::jsonb;
+    ALTER TABLE conversation_intake_sessions ADD COLUMN IF NOT EXISTS confidence_score    NUMERIC(5,2);
+    ALTER TABLE conversation_intake_sessions ADD COLUMN IF NOT EXISTS completion_pct      NUMERIC(5,2) NOT NULL DEFAULT 0;
+    ALTER TABLE conversation_intake_sessions ADD COLUMN IF NOT EXISTS needs_admin_review  BOOLEAN NOT NULL DEFAULT false;
+    ALTER TABLE conversation_intake_sessions ADD COLUMN IF NOT EXISTS ai_summary          TEXT;
+    ALTER TABLE conversation_intake_sessions ADD COLUMN IF NOT EXISTS last_message_at     TIMESTAMPTZ;
+    CREATE INDEX IF NOT EXISTS intake_sessions_company_phone_idx  ON conversation_intake_sessions(company_id, phone);
+    CREATE INDEX IF NOT EXISTS intake_sessions_company_status_idx ON conversation_intake_sessions(company_id, status);
+    CREATE INDEX IF NOT EXISTS intake_sessions_company_intent_idx ON conversation_intake_sessions(company_id, intent_code);
   `)
   .then(() => logger.info("Sprint 9A startup migrations OK"))
   .catch((err: unknown) => logger.warn({ err }, "Sprint 9A startup migration warning (may already exist)"));
