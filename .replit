@@ -79,7 +79,7 @@ channel = "stable-25_05"
 [userenv]
 
 [userenv.shared]
-WHATSAPP_PHONE_NUMBER_ID = "081382702074,087882639826"
+WHATSAPP_PHONE_NUMBER_ID = "085121073537,087882639826"
 WHATSAPP_WEBHOOK_VERIFY_TOKEN = "f1add4cb13fcac68b030e521cd006e3e1faf5a3cd589fd0cdcc2793f1200d5f9"
 BASE_PATH = "/"
 SUPABASE_URL = "https://nzdweipzckfszczzqtuw.supabase.co"
