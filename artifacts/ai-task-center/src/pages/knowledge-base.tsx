@@ -50,7 +50,7 @@ interface DataTemplateField {
   helpText: string | null; sampleValue: string | null;
 }
 interface DataTemplate {
-  id: number; companyId: string; name: string; category: string | null;
+  id: number; companyId: string; intentCode: string | null; name: string; category: string | null;
   description: string | null; isActive: boolean; createdAt: string;
   fields: DataTemplateField[];
 }
@@ -60,7 +60,7 @@ interface DocTemplateField {
   exampleFileDescription: string | null;
 }
 interface DocTemplate {
-  id: number; companyId: string; name: string; category: string | null;
+  id: number; companyId: string; intentCode: string | null; name: string; category: string | null;
   description: string | null; isActive: boolean; createdAt: string;
   fields: DocTemplateField[];
 }
@@ -484,7 +484,7 @@ function DataTemplatesTab({ canEdit }: { canEdit: boolean }) {
   const [expanded, setExpanded] = useState<number | null>(null);
   const [dialog, setDialog] = useState<{ mode: "add" | "edit"; tpl?: DataTemplate } | null>(null);
   const [fieldDialog, setFieldDialog] = useState<{ tplId: number } | null>(null);
-  const [form, setForm] = useState({ name: "", category: "", description: "", isActive: true });
+  const [form, setForm] = useState({ intentCode: "", name: "", category: "", description: "", isActive: true });
   const [fieldForm, setFieldForm] = useState({ fieldName: "", fieldLabel: "", fieldType: "text", isRequired: true, helpText: "", sampleValue: "" });
 
   const { data, isLoading } = useQuery({ queryKey: ["data-templates"], queryFn: api.dataTpls, staleTime: 30_000 });
@@ -494,8 +494,8 @@ function DataTemplatesTab({ canEdit }: { canEdit: boolean }) {
   const mutAddField   = useMutation({ mutationFn: ({ tplId, b }: { tplId: number; b: object }) => api.addDataField(tplId, b), onSuccess: () => { qc.invalidateQueries({ queryKey: ["data-templates"] }); setFieldDialog(null); toast({ title: "Field ditambahkan" }); }, onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }) });
   const mutDelField   = useMutation({ mutationFn: ({ tplId, fId }: { tplId: number; fId: number }) => api.deleteDataField(tplId, fId), onSuccess: () => { qc.invalidateQueries({ queryKey: ["data-templates"] }); toast({ title: "Field dihapus" }); } });
 
-  const openAdd  = () => { setForm({ name: "", category: "", description: "", isActive: true }); setDialog({ mode: "add" }); };
-  const openEdit = (t: DataTemplate) => { setForm({ name: t.name, category: t.category ?? "", description: t.description ?? "", isActive: t.isActive }); setDialog({ mode: "edit", tpl: t }); };
+  const openAdd  = () => { setForm({ intentCode: "", name: "", category: "", description: "", isActive: true }); setDialog({ mode: "add" }); };
+  const openEdit = (t: DataTemplate) => { setForm({ intentCode: t.intentCode ?? "", name: t.name, category: t.category ?? "", description: t.description ?? "", isActive: t.isActive }); setDialog({ mode: "edit", tpl: t }); };
   const handleSave = () => {
     if (dialog?.mode === "add") mutCreate.mutate(form);
     else if (dialog?.tpl) mutUpdate.mutate({ id: dialog.tpl.id, b: form });
@@ -513,7 +513,10 @@ function DataTemplatesTab({ canEdit }: { canEdit: boolean }) {
             <div className="flex items-center gap-3">
               {expanded === tpl.id ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
               <div>
-                <p className="font-medium text-sm">{tpl.name}</p>
+                <div className="flex items-center gap-2">
+                  <p className="font-medium text-sm">{tpl.name}</p>
+                  {tpl.intentCode && <Badge variant="outline" className="font-mono text-xs text-blue-700 border-blue-300 px-1.5">{tpl.intentCode}</Badge>}
+                </div>
                 <p className="text-xs text-muted-foreground">{tpl.category ?? "—"} · {tpl.fields.length} field</p>
               </div>
             </div>
@@ -562,6 +565,11 @@ function DataTemplatesTab({ canEdit }: { canEdit: boolean }) {
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>{dialog?.mode === "add" ? "Tambah Data Template" : "Edit Data Template"}</DialogTitle></DialogHeader>
           <div className="grid gap-3">
+            <div>
+              <Label className="text-xs mb-1">Intent Code <span className="text-blue-600">(untuk AI Intake)</span></Label>
+              <Input value={form.intentCode} onChange={(e) => setForm((f) => ({ ...f, intentCode: e.target.value.toUpperCase() }))} placeholder="cth: KASBON, PENGIRIMAN_IMPORT" className="font-mono" />
+              <p className="text-xs text-muted-foreground mt-0.5">Harus sama persis dengan intent_code di Intent Master agar intake flow aktif</p>
+            </div>
             <div><Label className="text-xs mb-1">Nama Template *</Label><Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} /></div>
             <div><Label className="text-xs mb-1">Kategori</Label><Input value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} /></div>
             <div><Label className="text-xs mb-1">Deskripsi</Label><Textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} rows={2} /></div>
@@ -615,7 +623,7 @@ function DocTemplatesTab({ canEdit }: { canEdit: boolean }) {
   const [expanded, setExpanded] = useState<number | null>(null);
   const [dialog, setDialog] = useState<{ mode: "add" | "edit"; tpl?: DocTemplate } | null>(null);
   const [fieldDialog, setFieldDialog] = useState<{ tplId: number } | null>(null);
-  const [form, setForm] = useState({ name: "", category: "", description: "", isActive: true });
+  const [form, setForm] = useState({ intentCode: "", name: "", category: "", description: "", isActive: true });
   const [fieldForm, setFieldForm] = useState({ documentName: "", documentType: "", isRequired: true, description: "", exampleFileDescription: "" });
 
   const { data, isLoading } = useQuery({ queryKey: ["doc-templates"], queryFn: api.docTpls, staleTime: 30_000 });
@@ -625,8 +633,8 @@ function DocTemplatesTab({ canEdit }: { canEdit: boolean }) {
   const mutAddField   = useMutation({ mutationFn: ({ tplId, b }: { tplId: number; b: object }) => api.addDocField(tplId, b), onSuccess: () => { qc.invalidateQueries({ queryKey: ["doc-templates"] }); setFieldDialog(null); toast({ title: "Dokumen ditambahkan" }); }, onError: (e: Error) => toast({ title: "Error", description: e.message, variant: "destructive" }) });
   const mutDelField   = useMutation({ mutationFn: ({ tplId, fId }: { tplId: number; fId: number }) => api.deleteDocField(tplId, fId), onSuccess: () => { qc.invalidateQueries({ queryKey: ["doc-templates"] }); toast({ title: "Dokumen dihapus" }); } });
 
-  const openAdd  = () => { setForm({ name: "", category: "", description: "", isActive: true }); setDialog({ mode: "add" }); };
-  const openEdit = (t: DocTemplate) => { setForm({ name: t.name, category: t.category ?? "", description: t.description ?? "", isActive: t.isActive }); setDialog({ mode: "edit", tpl: t }); };
+  const openAdd  = () => { setForm({ intentCode: "", name: "", category: "", description: "", isActive: true }); setDialog({ mode: "add" }); };
+  const openEdit = (t: DocTemplate) => { setForm({ intentCode: t.intentCode ?? "", name: t.name, category: t.category ?? "", description: t.description ?? "", isActive: t.isActive }); setDialog({ mode: "edit", tpl: t }); };
   const handleSave = () => {
     if (dialog?.mode === "add") mutCreate.mutate(form);
     else if (dialog?.tpl) mutUpdate.mutate({ id: dialog.tpl.id, b: form });
@@ -644,7 +652,10 @@ function DocTemplatesTab({ canEdit }: { canEdit: boolean }) {
             <div className="flex items-center gap-3">
               {expanded === tpl.id ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
               <div>
-                <p className="font-medium text-sm">{tpl.name}</p>
+                <div className="flex items-center gap-2">
+                  <p className="font-medium text-sm">{tpl.name}</p>
+                  {tpl.intentCode && <Badge variant="outline" className="font-mono text-xs text-purple-700 border-purple-300 px-1.5">{tpl.intentCode}</Badge>}
+                </div>
                 <p className="text-xs text-muted-foreground">{tpl.category ?? "—"} · {tpl.fields.length} dokumen</p>
               </div>
             </div>
@@ -692,6 +703,11 @@ function DocTemplatesTab({ canEdit }: { canEdit: boolean }) {
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>{dialog?.mode === "add" ? "Tambah Document Template" : "Edit Document Template"}</DialogTitle></DialogHeader>
           <div className="grid gap-3">
+            <div>
+              <Label className="text-xs mb-1">Intent Code <span className="text-purple-600">(untuk AI Intake)</span></Label>
+              <Input value={form.intentCode} onChange={(e) => setForm((f) => ({ ...f, intentCode: e.target.value.toUpperCase() }))} placeholder="cth: KASBON, PENGIRIMAN_IMPORT" className="font-mono" />
+              <p className="text-xs text-muted-foreground mt-0.5">Dokumen ini akan diminta saat intake intent tersebut aktif</p>
+            </div>
             <div><Label className="text-xs mb-1">Nama Template *</Label><Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} /></div>
             <div><Label className="text-xs mb-1">Kategori</Label><Input value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} /></div>
             <div><Label className="text-xs mb-1">Deskripsi</Label><Textarea value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} rows={2} /></div>
