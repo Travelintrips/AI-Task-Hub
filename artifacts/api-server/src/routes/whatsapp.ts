@@ -24,6 +24,7 @@ import {
   startIntakeSession,
   markIntakeSubmitted,
 } from "../lib/intake-engine";
+import { routeIntentToFlow } from "../lib/mini-form-router";
 
 const router: IRouter = Router();
 
@@ -650,9 +651,61 @@ async function runAiDetection({
     if (hasMissingFields && !isGeneralInquiry && result._resolution) {
       logger.info(
         { intent: result.intent, missing: result.missing_data?.length },
-        "Missing fields detected — starting intake session",
+        "Missing fields detected — checking intake flow mode",
       );
 
+      // ── Sprint 9B: Route to correct flow (conversation / hybrid / mini_form) ─
+      const route = await routeIntentToFlow({
+        phone: from,
+        companyId,
+        intentCode: result.intent,
+        intentName: result._resolution?.intentName ?? result.intent,
+        category: result.category ?? null,
+        resolution: result._resolution,
+        collectedFields: {},
+        missingFields: result.missing_data ?? [],
+        requiredDocuments: [],
+      });
+
+      if (route.flow === "mini_form" || route.flow === "hybrid") {
+        // Form link already sent via Fonnte by routeIntentToFlow
+        const modeLabel = route.flow === "hybrid" ? "Hybrid Form" : "Mini Form";
+        await db
+          .update(whatsappMessagesTable)
+          .set({ aiProcessed: true, detectedIntent: `${route.flow}_sent:${result.intent}` })
+          .where(eq(whatsappMessagesTable.id, savedMsgId));
+
+        await createAdminNotification({
+          type: "new_inquiry",
+          title: `📋 ${modeLabel} Dikirim: ${result.intent}`,
+          body: `${effectiveName ?? from} diminta mengisi ${modeLabel} untuk ${result.category ?? result.intent}. ${route.waSent ? "Link berhasil dikirim via WA." : "Gagal kirim WA — cek FONNTE_TOKEN."}`,
+          customerPhone: from,
+          customerName: effectiveName,
+          companyId,
+        });
+
+        // For hybrid: also start conversation intake in parallel so agent can follow-up
+        if (route.flow === "hybrid" && result._resolution) {
+          const intakeResult = await startIntakeSession({
+            phone: from,
+            companyId,
+            message: bodyText,
+            attachmentUrl: attachmentUrl ?? undefined,
+            resolution: result._resolution,
+          }).catch((e) => {
+            logger.warn({ e }, "hybrid: failed to start parallel conversation intake");
+            return null;
+          });
+          if (intakeResult?.replyToUser) {
+            // Hybrid: don't send duplicate WA — form link is sufficient
+            logger.info({ sessionId: intakeResult.session.id }, "hybrid: parallel intake session created");
+          }
+        }
+
+        return;
+      }
+
+      // flow === "conversation" → existing IntakeEngine flow
       const intakeResult = await startIntakeSession({
         phone: from,
         companyId,

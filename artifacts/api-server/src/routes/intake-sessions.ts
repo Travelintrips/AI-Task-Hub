@@ -330,4 +330,106 @@ router.get("/intake-sessions/stats", requireAuth, async (req, res): Promise<void
   }
 });
 
+// ── GET /intake-sessions/analytics ── Sprint 9B ───────────────────────────────
+
+router.get("/intake-sessions/analytics", requireAuth, async (req, res): Promise<void> => {
+  try {
+    const companyId = req.user?.companyId ?? "default";
+    const { days: daysStr } = req.query as Record<string, string>;
+    const days = Math.min(parseInt(daysStr ?? "30", 10) || 30, 90);
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    const sessions = await db
+      .select({
+        id: intakeSessionsTable.id,
+        status: intakeSessionsTable.status,
+        miniFormType: intakeSessionsTable.miniFormType,
+        intentCode: intakeSessionsTable.intentCode,
+        category: intakeSessionsTable.category,
+        createdAt: intakeSessionsTable.createdAt,
+        formSentAt: intakeSessionsTable.formSentAt,
+        updatedAt: intakeSessionsTable.updatedAt,
+      })
+      .from(intakeSessionsTable)
+      .where(and(eq(intakeSessionsTable.companyId, companyId), gte(intakeSessionsTable.createdAt, since)));
+
+    // Overall counts
+    const total = sessions.length;
+    const byStatus: Record<string, number> = {};
+    for (const s of sessions) {
+      byStatus[s.status] = (byStatus[s.status] ?? 0) + 1;
+    }
+
+    // Flow breakdown: form_sent / submitted = mini_form; collecting = conversation
+    const miniFormTotal = sessions.filter((s) => s.miniFormType && s.formSentAt).length;
+    const conversationTotal = sessions.filter((s) => !s.miniFormType && !s.formSentAt).length;
+    const hybridTotal = sessions.filter((s) => s.miniFormType && !s.formSentAt).length;
+
+    // Submission rate for mini forms
+    const miniFormSubmitted = sessions.filter(
+      (s) => s.miniFormType && s.formSentAt && s.status === "submitted",
+    ).length;
+    const submissionRate = miniFormTotal > 0 ? Math.round((miniFormSubmitted / miniFormTotal) * 100) : 0;
+
+    // Breakdown by form type
+    const byFormType: Record<string, { sent: number; submitted: number; expired: number; pending: number }> = {};
+    for (const s of sessions.filter((s) => s.miniFormType)) {
+      const ft = s.miniFormType!;
+      if (!byFormType[ft]) byFormType[ft] = { sent: 0, submitted: 0, expired: 0, pending: 0 };
+      byFormType[ft].sent++;
+      if (s.status === "submitted") byFormType[ft].submitted++;
+      else if (s.status === "expired") byFormType[ft].expired++;
+      else if (s.status === "form_sent" || s.status === "collecting") byFormType[ft].pending++;
+    }
+
+    // Daily breakdown (last N days)
+    const daily: { date: string; conversation: number; mini_form: number; submitted: number }[] = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(Date.now() - i * 24 * 60 * 60 * 1000);
+      const dateStr = d.toISOString().slice(0, 10);
+      const dayStart = new Date(dateStr + "T00:00:00.000Z");
+      const dayEnd = new Date(dateStr + "T23:59:59.999Z");
+      const daySessions = sessions.filter((s) => {
+        const t = new Date(s.createdAt);
+        return t >= dayStart && t <= dayEnd;
+      });
+      daily.push({
+        date: dateStr,
+        conversation: daySessions.filter((s) => !s.miniFormType).length,
+        mini_form: daySessions.filter((s) => !!s.miniFormType).length,
+        submitted: daySessions.filter((s) => s.status === "submitted").length,
+      });
+    }
+
+    // Top intents
+    const intentCounts: Record<string, number> = {};
+    for (const s of sessions) {
+      intentCounts[s.intentCode] = (intentCounts[s.intentCode] ?? 0) + 1;
+    }
+    const topIntents = Object.entries(intentCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 8)
+      .map(([code, count]) => ({ intentCode: code, count }));
+
+    res.json({
+      period: { days, since: since.toISOString() },
+      summary: {
+        total,
+        miniFormTotal,
+        conversationTotal,
+        hybridTotal,
+        miniFormSubmitted,
+        submissionRate,
+        byStatus,
+      },
+      byFormType,
+      topIntents,
+      daily: days <= 30 ? daily : daily.filter((_, i) => i % Math.ceil(days / 30) === 0),
+    });
+  } catch (err) {
+    logger.error({ err }, "GET /intake-sessions/analytics failed");
+    res.status(500).json({ error: "Gagal mengambil analytics" });
+  }
+});
+
 export default router;

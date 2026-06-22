@@ -1,0 +1,297 @@
+SPRINT 9B — MINI FORM ROUTER
+
+IMPORTANT
+
+Use existing:
+
+* Conversation Intake Engine
+* Intent Engine
+* Knowledge Base
+* Customer Memory
+* Vendor Memory
+* AI Task Center
+* WhatsApp Integration
+
+Do not replace Sprint 9A.
+
+Mini Form Router must work on top of Sprint 9A.
+
+====================================================
+GOAL
+====
+
+AI decides whether:
+
+1. Continue conversation
+2. Send Mini Form
+3. Use Hybrid flow
+
+based on intake_mode.
+
+Supported modes:
+
+conversation
+hybrid
+mini_form
+
+====================================================
+PHASE 1 — ROUTER ENGINE
+=======================
+
+Create:
+
+src/lib/mini-form-router.ts
+
+Methods:
+
+resolveMode()
+
+shouldSendForm()
+
+getFormType()
+
+generateFormLink()
+
+determineRoutingDecision()
+
+Output:
+
+{
+mode,
+formType,
+sendForm,
+reason,
+missingFields,
+completionPct
+}
+
+====================================================
+PHASE 2 — FORM CONFIG REGISTRY
+==============================
+
+Create:
+
+mini_form_registry
+
+Fields:
+
+id
+intent_code
+form_type
+title
+description
+is_active
+required_completion_pct
+created_at
+
+Populate:
+
+Priority 1:
+
+* trucking_inquiry
+* import_inquiry
+* export_inquiry
+* damaged_goods_complaint
+* fleet_repair
+* permintaan_vendor
+
+Priority 2:
+
+* customs_clearance
+* ppjk_service
+* dg_cargo
+* klaim_asuransi
+* pendaftaran_pelanggan
+* project_cargo
+
+====================================================
+PHASE 3 — HYBRID FLOW
+=====================
+
+Example:
+
+User:
+
+"Saya mau trucking"
+
+AI:
+
+asks:
+
+origin
+destination
+
+After first answers:
+
+if remaining fields > 3
+
+send form automatically
+
+Example reply:
+
+"Untuk mempercepat proses, silakan lengkapi detail pengiriman melalui form berikut:
+
+[FORM LINK]"
+
+====================================================
+PHASE 4 — MINI FORM FLOW
+========================
+
+Example:
+
+Import inquiry
+
+AI immediately sends:
+
+Import Mini Form
+
+Required docs:
+
+* Invoice
+* Packing List
+* BL
+* API
+* NPWP
+
+Session remains active.
+
+====================================================
+PHASE 5 — FORM SUBMISSION
+=========================
+
+When form submitted:
+
+update:
+
+conversation_intake_sessions
+
+merge:
+
+collected_fields
+
+recalculate:
+
+completion_pct
+
+If threshold reached:
+
+create task
+
+====================================================
+PHASE 6 — DOCUMENT ATTACHMENT
+=============================
+
+Store uploaded docs.
+
+Link docs to:
+
+conversation session
+
+and later:
+
+ai_task
+
+====================================================
+PHASE 7 — WHATSAPP INTEGRATION
+==============================
+
+Conversation mode:
+
+normal chat
+
+Hybrid mode:
+
+chat
++
+form
+
+Mini form mode:
+
+form first
+
+WhatsApp message must include:
+
+title
+reason
+link
+
+====================================================
+PHASE 8 — ADMIN PAGE
+====================
+
+Create:
+
+/mini-forms
+
+Show:
+
+form type
+intent
+submissions
+completion rate
+conversion rate
+
+====================================================
+PHASE 9 — ANALYTICS
+===================
+
+Metrics:
+
+forms sent
+forms opened
+forms submitted
+abandoned forms
+task conversion %
+
+====================================================
+PHASE 10 — EXECUTIVE COMMAND CENTER
+===================================
+
+Add widget:
+
+Mini Form Performance
+
+Show:
+
+forms sent today
+submitted today
+conversion %
+abandoned %
+
+====================================================
+VALIDATION
+==========
+
+Test:
+
+1. trucking inquiry
+2. import inquiry
+3. damaged goods complaint
+4. fleet repair
+5. vendor registration
+
+Verify:
+
+* form sent
+* session updated
+* completion recalculated
+* task created only after threshold
+
+====================================================
+OUTPUT
+======
+
+Provide:
+
+* DB changes
+* files created
+* files modified
+* API impact
+* frontend impact
+* typecheck result
+* validation results
+* readiness score
+
+Do not start Sprint 9C.
+
+Finish Sprint 9B only.

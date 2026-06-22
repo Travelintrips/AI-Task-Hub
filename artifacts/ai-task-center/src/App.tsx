@@ -60,6 +60,7 @@ import ConversationIntakePage from "@/pages/conversation-intake";
 import DocumentIntakePage from "@/pages/document-intake";
 import MiniFormPage from "@/pages/mini-form-page";
 import MiniFormConfigPage from "@/pages/mini-form-config";
+import MiniFormAnalyticsPage from "@/pages/mini-form-analytics";
 import ConversationTestsPage from "@/pages/conversation-tests";
 
 const queryClient = new QueryClient();
@@ -125,6 +126,7 @@ function AppRouter() {
         <Route path="/conversation-intake" component={ConversationIntakePage} />
         <Route path="/document-intake" component={DocumentIntakePage} />
         <Route path="/mini-form-config" component={MiniFormConfigPage} />
+        <Route path="/mini-form-analytics" component={MiniFormAnalyticsPage} />
         <Route path="/fleet/units/:id" component={FleetUnitDetailPage} />
         <Route path="/fleet/units" component={FleetUnitsPage} />
         <Route path="/fleet/drivers/:id" component={FleetDriverDetailPage} />
