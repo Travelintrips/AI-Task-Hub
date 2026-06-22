@@ -36,6 +36,7 @@ export interface ValidationResult {
   issueSummary: string | null;
   aiNotes: string | null;
   waReply: string;
+  _timing?: { openai_latency_ms: number; audit_write_ms: number; total_validation_ms: number };
 }
 
 // ─── Rule Cache (5-min TTL) ───────────────────────────────────────────────────
@@ -89,7 +90,7 @@ async function extractFieldsFromDocument(
   documentType: string,
   customPrompt: string | null,
   requiredFields: string[],
-): Promise<{ fields: Record<string, unknown>; confidence: number; typeMatch: boolean; rawNotes: string }> {
+): Promise<{ fields: Record<string, unknown>; confidence: number; typeMatch: boolean; rawNotes: string; openai_latency_ms: number }> {
   const defaultPrompt = `You are a document validation assistant. Examine this document image and extract the following fields: ${requiredFields.join(", ")}.
 Return a JSON object with exactly these keys (use null for any field you cannot find or read clearly).
 Also include:
@@ -98,6 +99,7 @@ Also include:
 - "validation_notes": a brief string describing any issues, unclear areas, or why confidence is low (or null if all looks good)`;
 
   const systemPrompt = customPrompt ?? defaultPrompt;
+  const t0 = Date.now();
 
   try {
     const response = await openai.chat.completions.create({
@@ -116,6 +118,7 @@ Also include:
       response_format: { type: "json_object" },
     });
 
+    const openai_latency_ms = Date.now() - t0;
     const raw = response.choices[0]?.message?.content?.trim() ?? "{}";
     const parsed = JSON.parse(raw) as Record<string, unknown>;
 
@@ -127,10 +130,11 @@ Also include:
 
     const { confidence: _c, document_type_match: _m, validation_notes: _n, ...fields } = parsed;
 
-    return { fields, confidence, typeMatch, rawNotes };
+    return { fields, confidence, typeMatch, rawNotes, openai_latency_ms };
   } catch (err) {
-    logger.error({ err, documentType }, "DocumentValidationEngine: OpenAI Vision call failed");
-    return { fields: {}, confidence: 0, typeMatch: false, rawNotes: "AI extraction failed" };
+    const openai_latency_ms = Date.now() - t0;
+    logger.error({ err, documentType, openai_latency_ms }, "DocumentValidationEngine: OpenAI Vision call failed");
+    return { fields: {}, confidence: 0, typeMatch: false, rawNotes: "AI extraction failed", openai_latency_ms };
   }
 }
 
@@ -176,14 +180,15 @@ function buildWaReply(
 // ─── Main: validateDocument ───────────────────────────────────────────────────
 
 export async function validateDocument(input: ValidateDocumentInput): Promise<ValidationResult> {
+  const totalStart = Date.now();
   const companyId = input.companyId ?? "default";
 
   // 1. Load validation rules
   const rule = await loadRule(companyId, input.documentType);
   const requiredFields = rule?.requiredFields ?? [];
 
-  // 2. Extract fields via OpenAI Vision
-  const { fields, confidence, typeMatch, rawNotes } = await extractFieldsFromDocument(
+  // 2. Extract fields via OpenAI Vision (with latency measurement)
+  const { fields, confidence, typeMatch, rawNotes, openai_latency_ms } = await extractFieldsFromDocument(
     input.fileUrl,
     input.documentType,
     rule?.validationPrompt ?? null,
@@ -208,7 +213,8 @@ export async function validateDocument(input: ValidateDocumentInput): Promise<Va
     issueSummary = `Confidence rendah (${(confidence * 100).toFixed(0)}%). Perlu review manual.`;
   }
 
-  // 6. Save audit record via raw SQL
+  // 6. Save audit record via raw SQL (with write latency measurement)
+  const writeStart = Date.now();
   const auditRows = await supabaseQuery<{ id: number }>(
     `INSERT INTO document_intake_audits
        (company_id, task_id, intake_session_id, customer_id, vendor_id, fleet_unit_id,
@@ -237,11 +243,22 @@ export async function validateDocument(input: ValidateDocumentInput): Promise<Va
       rawNotes || null,
     ],
   );
+  const audit_write_ms = Date.now() - writeStart;
+  const total_validation_ms = Date.now() - totalStart;
 
   const auditId = auditRows[0]?.id ?? 0;
 
   logger.info(
-    { auditId, documentType: input.documentType, validationStatus, confidence, missingCount: missingFields.length },
+    {
+      auditId,
+      documentType: input.documentType,
+      validationStatus,
+      confidence,
+      missingCount: missingFields.length,
+      openai_latency_ms,
+      audit_write_ms,
+      total_validation_ms,
+    },
     "DocumentValidationEngine: validation complete",
   );
 
@@ -256,6 +273,7 @@ export async function validateDocument(input: ValidateDocumentInput): Promise<Va
     issueSummary,
     aiNotes: rawNotes || null,
     waReply: buildWaReply(validationStatus, input.documentType, missingFields),
+    _timing: { openai_latency_ms, audit_write_ms, total_validation_ms },
   };
 }
 

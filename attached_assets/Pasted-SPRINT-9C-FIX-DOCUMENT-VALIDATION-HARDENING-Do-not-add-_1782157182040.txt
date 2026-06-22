@@ -1,0 +1,126 @@
+SPRINT 9C-FIX — DOCUMENT VALIDATION HARDENING
+
+Do not add new features.
+Fix only the gaps from Sprint 9C Production Validation.
+
+====================================================
+A. FIX SECURITY RBAC — CRITICAL
+====================================================
+
+File:
+artifacts/api-server/src/routes/document-validation.ts
+
+Current problem:
+All endpoints only use requireAuth.
+Staff can review/override document audits and manage validation rules.
+
+Required:
+
+1. PATCH /api/documents/audits/:id/review
+Allow only:
+- supervisor
+- company_admin
+- super_admin
+
+2. POST /api/documents/rules
+Allow only:
+- company_admin
+- super_admin
+
+3. PATCH /api/documents/rules/:id
+Allow only:
+- company_admin
+- super_admin
+
+Keep these as requireAuth only:
+- POST /api/documents/validate
+- GET /api/documents/audits
+- GET /api/documents/audits/:id
+- GET /api/documents/rules
+
+Validation:
+- staff receives 403 on review override
+- staff receives 403 on rule create/update
+- supervisor can review
+- supervisor cannot create/update rules
+- company_admin can review and manage rules
+
+====================================================
+B. FIX MINI FORM DOCUMENT COMPLETION — MEDIUM
+====================================================
+
+Current problem:
+POST /api/intake-sessions/:id/documents validates document and updates uploaded_documents, but does not recalculate:
+- missing documents
+- completion_pct
+- threshold readiness
+- task creation eligibility
+
+Required:
+
+After document validation:
+
+1. Update uploaded_documents
+2. Recalculate required documents vs uploaded valid documents
+3. Recalculate completion_pct
+4. If fields + documents meet threshold:
+   - mark session ready_for_task
+   - if task creation mode is auto after form submit, create ai_task
+   - else keep ready_for_task for admin/manual conversion
+5. If incomplete:
+   - keep collecting/form_sent
+   - send WA reply listing missing documents/fields
+
+Important:
+Do not create task if documents are invalid or needs_review unless intent allows admin review.
+
+====================================================
+C. VERIFY DATABASE ROW COUNTS — MEDIUM
+====================================================
+
+Run real Supabase query and report:
+
+SELECT COUNT(*) FROM document_intake_audits;
+SELECT COUNT(*) FROM document_validation_rules;
+
+Expected:
+- rules >= 16
+- audits may be 0 if no real uploads yet, but table must exist
+
+====================================================
+D. ADD BASIC PERFORMANCE TIMING — LOW
+====================================================
+
+In document-validation-engine.ts, log:
+
+- openai_latency_ms
+- audit_write_ms
+- total_validation_ms
+
+Do not build dashboard yet.
+
+====================================================
+E. VALIDATION
+====================================================
+
+Run:
+
+1. RBAC test staff review override → 403
+2. RBAC test staff rule create → 403
+3. RBAC test supervisor review override → 200
+4. RBAC test supervisor rule create → 403
+5. RBAC test company_admin rule create → 200
+6. Document upload to intake session recalculates completion_pct
+7. Invalid document does not complete session
+8. Valid document can move session to ready_for_task or submitted according to threshold
+9. Row count verified from Supabase
+10. Typecheck/build passes
+
+Output:
+- files changed
+- RBAC test result
+- completion recalculation result
+- row count result
+- performance log sample
+- final readiness score
+- GO/NO-GO for Sprint 9D
