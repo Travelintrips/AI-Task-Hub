@@ -43,6 +43,7 @@ import {
   Package,
   Navigation,
   Zap,
+  Layers,
 } from "lucide-react";
 import { NotificationsBell } from "@/components/notifications-bell";
 import { useAuth } from "@/contexts/auth-context";
@@ -61,6 +62,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
     { name: "Documents",    href: "/documents", icon: FileText },
     { name: "Team",         href: "/team",      icon: Users },
     { name: "AI Intake",     href: "/intake-sessions",   icon: MessageSquare },
+    { name: "Mini Form Config", href: "/mini-form-config", icon: Layers },
     { name: "AI Dispatcher", href: "/dispatcher",        icon: Brain },
     { name: "Knowledge Base", href: "/knowledge-base",  icon: BookOpen },
     { name: "Governance",    href: "/governance",        icon: Shield },

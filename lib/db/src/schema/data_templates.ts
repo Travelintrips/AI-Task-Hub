@@ -10,6 +10,10 @@ export const dataTemplatesTable = pgTable("data_templates", {
   category: text("category"),
   description: text("description"),
   isActive: boolean("is_active").notNull().default(true),
+  useMiniForm: boolean("use_mini_form").notNull().default(false),
+  miniFormType: text("mini_form_type"),
+  miniFormRoute: text("mini_form_route"),
+  intakeMode: text("intake_mode").notNull().default("conversation"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
 }, (t) => [
