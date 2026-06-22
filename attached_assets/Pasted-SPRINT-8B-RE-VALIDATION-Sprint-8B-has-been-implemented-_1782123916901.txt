@@ -1,0 +1,165 @@
+SPRINT 8B RE-VALIDATION
+
+Sprint 8B has been implemented.
+
+Now verify runtime behavior end-to-end.
+
+Do not add features.
+
+====================================================
+SECTION 1 — ROUTE VALIDATION
+============================
+
+Verify:
+
+/executive-command
+
+exists and loads.
+
+Capture:
+
+* route registration location
+* screenshot
+* HTTP status
+
+====================================================
+SECTION 2 — RBAC VALIDATION
+===========================
+
+Test roles:
+
+super_admin
+company_admin
+owner
+supervisor
+staff
+
+Expected:
+
+super_admin      -> 200
+company_admin    -> 200
+owner            -> 200
+supervisor       -> 403
+staff            -> 403
+
+Test both:
+
+Frontend route
+API endpoints
+
+====================================================
+SECTION 3 — API VALIDATION
+==========================
+
+Verify:
+
+GET /api/executive/kpis
+GET /api/executive/alerts
+GET /api/executive/readiness
+GET /api/executive/financial-protection
+GET /api/executive/refresh-health
+
+For each endpoint provide:
+
+* response sample
+* row counts used
+* execution time
+* empty-state handling
+
+====================================================
+SECTION 4 — DASHBOARD VALIDATION
+================================
+
+Verify all panels render:
+
+Executive KPI Grid
+Operational Alerts
+Intelligence Readiness
+Financial Protection
+Refresh Health
+
+Check:
+
+* loading state
+* empty state
+* stale state
+* no crash
+
+====================================================
+SECTION 5 — SIDEBAR VALIDATION
+==============================
+
+Verify:
+
+Command Center entry visible only to:
+
+owner
+company_admin
+super_admin
+
+Hidden for:
+
+supervisor
+staff
+vendor
+
+====================================================
+SECTION 6 — DATA QUALITY
+========================
+
+Report:
+
+Customer Memory readiness
+Vendor Memory readiness
+Purchasing readiness
+Fleet readiness
+Driver Memory readiness
+
+Explain why overall readiness is only 27%.
+
+====================================================
+SECTION 7 — TYPECHECK
+=====================
+
+Run:
+
+backend typecheck
+frontend typecheck
+
+Report:
+
+0 errors?
+or remaining errors?
+
+====================================================
+SECTION 8 — FINAL SCORE
+=======================
+
+Output:
+
+PASS count
+FAIL count
+
+Executive Command Center Readiness %
+
+GO / NO-GO for Sprint 8C
+
+````
+
+Jika hasilnya:
+
+```txt
+PASS 8/8
+RBAC OK
+Typecheck OK
+Dashboard Load OK
+````
+
+maka status resmi berubah menjadi:
+
+```txt
+Sprint 8B Executive Command Center ✅ COMPLETE
+Sprint 8C Action Center            🟢 READY
+```
+
+Saat itu baru aman melanjutkan ke Action Center, Executive Timeline, dan Risk Heatmap.

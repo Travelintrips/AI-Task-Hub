@@ -59,11 +59,12 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
 
 /**
  * Role-based access control — requires at minimum the given role level.
- * Roles hierarchy: super_admin > company_admin > supervisor > staff > vendor > customer
+ * Roles hierarchy: super_admin > company_admin = owner > supervisor > staff > vendor > customer
  */
 const ROLE_HIERARCHY: Record<UserRole, number> = {
   super_admin:   6,
   company_admin: 5,
+  owner:         5,
   supervisor:    4,
   staff:         3,
   vendor:        2,

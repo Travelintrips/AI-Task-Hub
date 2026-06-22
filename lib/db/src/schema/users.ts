@@ -5,6 +5,7 @@ import { z } from "zod/v4";
 export const USER_ROLES = [
   "super_admin",
   "company_admin",
+  "owner",
   "supervisor",
   "staff",
   "vendor",
@@ -16,6 +17,7 @@ export type UserRole = (typeof USER_ROLES)[number];
 export const ROLE_HIERARCHY: Record<UserRole, number> = {
   super_admin:   6,
   company_admin: 5,
+  owner:         5,
   supervisor:    4,
   staff:         3,
   vendor:        2,

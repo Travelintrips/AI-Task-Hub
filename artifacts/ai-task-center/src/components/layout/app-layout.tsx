@@ -77,7 +77,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
     { name: "Utilisasi",       href: "/fleet/utilization",     icon: Navigation },
     { name: "Purchasing",  href: "/purchasing-intelligence", icon: ShoppingCart },
     { name: "Exec Intelligence", href: "/executive-intelligence", icon: Sparkles },
-    ...(user?.role === "super_admin" || user?.role === "company_admin"
+    ...(user?.role === "super_admin" || user?.role === "company_admin" || user?.role === "owner"
       ? [{ name: "Command Center", href: "/executive-command", icon: Zap }]
       : []),
     { name: "Quotation",   href: "/quotations",        icon: DollarSign },
