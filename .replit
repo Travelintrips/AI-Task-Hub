@@ -74,10 +74,6 @@ localPort = 8081
 externalPort = 8081
 
 [[ports]]
-localPort = 8082
-externalPort = 3002
-
-[[ports]]
 localPort = 21440
 externalPort = 3000
 
@@ -100,10 +96,12 @@ DEFAULT_OBJECT_STORAGE_BUCKET_ID = "replit-objstore-e357cc66-19c3-4d73-9ca9-3069
 PUBLIC_OBJECT_SEARCH_PATHS = "/replit-objstore-e357cc66-19c3-4d73-9ca9-3069d78355d1/public"
 VITE_API_URL = "/api"
 FONNTE_TOKEN = "XnEnfXdKb6DrWPrmVSSZ"
+OPENAI_API_KEY = "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"
+SUPABASE_STORAGE_BUCKET_DEV = "https://xssrfshdrtdfupgqwfdw.storage.supabase.co/storage/v1/s3"
+SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56ZHdlaXB6Y2tmc3pjenpxdHV3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg0MDI4NDQsImV4cCI6MjA5Mzk3ODg0NH0.p9k3-qyRjPuXsHLizUrSRMyS-0yJAatUyjQU9NIIu1U"
+PORTAL_ADMIN_KEY_DEV = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhzc3Jmc2hkcnRkZnVwZ3F3ZmR3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg4OTY3MjgsImV4cCI6MjA5NDQ3MjcyOH0.czKzR9GjEL6UK8AhPAX6OYyF74fz1YtImYQSXiiG69U"
+SUPABASE_SERVICE_ROLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56ZHdlaXB6Y2tmc3pjenpxdHV3Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3ODQwMjg0NCwiZXhwIjoyMDkzOTc4ODQ0fQ.W0uM_UzGfF8Zy4PFQKhz6dKpEVDHS6_k9FtqoM9iGms"
+SUPABASE_SERVICE_ROLE_KEY_DEV = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhzc3Jmc2hkcnRkZnVwZ3F3ZmR3Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3ODg5NjcyOCwiZXhwIjoyMDk0NDcyNzI4fQ.VFPcBxsVJkYwNo3ojy3uOHglqUA9zILhjw4_0JAhZYI"
 SUPABASE_DATABASE_URL = "postgresql://postgres.nzdweipzckfszczzqtuw:AnTXXOl0t1ArQOEU@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres"
 SUPABASE_DATABASE_URL_DEV = "postgresql://postgres.xssrfshdrtdfupgqwfdw:nvVEWjiHruxen4cE@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres"
-SUPABASE_STORAGE_BUCKET_DEV = "https://xssrfshdrtdfupgqwfdw.storage.supabase.co/storage/v1/s3"
-SUPABASE_STORAGE_BUCKET_DEV = "https://xssrfshdrtdfupgqwfdw.storage.supabase.co/storage/v1/s3"
-ALLOW_LOCAL_DB = "true"
-SUPABASE_DATABASE_URL = "postgresql://postgres.nzdweipzckfszczzqtuw:AnTXXOl0t1ArQOEU@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres"
-SUPABASE_DATABASE_URL_DEV = "postgresql://postgres.xssrfshdrtdfupgqwfdw:nvVEWjiHruxen4cE@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres"
+SUPABASE_ANON_KEY_DEV = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhzc3Jmc2hkcnRkZnVwZ3F3ZmR3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg4OTY3MjgsImV4cCI6MjA5NDQ3MjcyOH0.czKzR9GjEL6UK8AhPAX6OYyF74fz1YtImYQSXiiG69U"
