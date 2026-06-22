@@ -465,7 +465,7 @@ async function runAiDetection({
 
         if (taskOutput) {
           await updateCustomerContextAfterTask({ phone: from, companyId, taskId: taskOutput.taskId, intent: result.intent, name: effectiveName });
-          await _notifyForTask({ taskOutput, result, from, effectiveName, companyId, suggestedReply: result.suggested_reply ?? null });
+          await _notifyForTask({ taskOutput, result, from, effectiveName, companyId, suggestedReply: result._resolution?.suggestedReply ?? null });
         }
 
         await db
@@ -551,7 +551,7 @@ async function runAiDetection({
       await updateCustomerContextAfterTask({ phone: from, companyId, taskId: taskOutput.taskId, intent: result.intent, name: effectiveName });
 
       // Admin notification based on priority / task action
-      await _notifyForTask({ taskOutput, result, from, effectiveName, companyId, suggestedReply: result.suggested_reply ?? null });
+      await _notifyForTask({ taskOutput, result, from, effectiveName, companyId, suggestedReply: result._resolution?.suggestedReply ?? null });
 
     } else {
       // AI failed to produce task — create manual review notification
@@ -600,26 +600,7 @@ async function _notifyForTask({
   const taskLabel = taskOutput.taskNumber ? `[${taskOutput.taskNumber}]` : "";
 
   if (result.priority === "High" && taskOutput.action === "created") {
-    // Send AI follow-up reply to customer (e.g. kasbon field questions)
-    if (suggestedReply) {
-      try {
-        const sent = await sendFonnte(from, suggestedReply);
-        await db.insert(whatsappNotificationsTable).values({
-          taskId:            taskOutput.taskId,
-          companyId,
-          recipientPhone:    from,
-          recipientType:     "customer",
-          templateName:      "ai_auto_reply",
-          messageText:       suggestedReply,
-          status:            sent.success ? "sent" : "failed",
-          externalMessageId: sent.messageId,
-          errorMessage:      sent.error,
-          sentAt:            sent.success ? new Date() : null,
-        }).catch(() => { /* log only */ });
-      } catch (err) {
-        logger.error({ err, from }, "Gagal kirim AI auto-reply ke customer (high priority task)");
-      }
-    }
+    // WA reply to customer already sent by notifyTaskCreated (includes suggestedReply via templateTaskCreated)
     await createAdminNotification({
       type: "high_priority_task",
       title: `Task Prioritas Tinggi ${taskLabel}`,
@@ -630,26 +611,7 @@ async function _notifyForTask({
       companyId,
     });
   } else if (taskOutput.action === "created") {
-    // Send AI follow-up reply to customer (e.g. kasbon field questions)
-    if (suggestedReply) {
-      try {
-        const sent = await sendFonnte(from, suggestedReply);
-        await db.insert(whatsappNotificationsTable).values({
-          taskId:            taskOutput.taskId,
-          companyId,
-          recipientPhone:    from,
-          recipientType:     "customer",
-          templateName:      "ai_auto_reply",
-          messageText:       suggestedReply,
-          status:            sent.success ? "sent" : "failed",
-          externalMessageId: sent.messageId,
-          errorMessage:      sent.error,
-          sentAt:            sent.success ? new Date() : null,
-        }).catch(() => { /* log only */ });
-      } catch (err) {
-        logger.error({ err, from }, "Gagal kirim AI auto-reply ke customer (new task)");
-      }
-    }
+    // WA reply to customer already sent by notifyTaskCreated (includes suggestedReply via templateTaskCreated)
     await createAdminNotification({
       type: "new_inquiry",
       title: `Task Baru ${taskLabel}`,
@@ -660,17 +622,18 @@ async function _notifyForTask({
       companyId,
     });
   } else if (taskOutput.action === "appended") {
-    // Pesan lanjutan — kirim balasan singkat ke customer & beri tahu admin
-    const ackMsg = `✅ Pesan Anda sudah kami terima dan ditambahkan ke tiket ${taskLabel}.\n\nTim kami akan segera merespons.`;
+    // Pesan lanjutan — gunakan AI suggestedReply jika ada, kalau tidak pakai ACK singkat
+    const replyMsg = suggestedReply?.trim()
+      || `Pesan Anda sudah kami catat pada tiket ${taskLabel}. Tim kami akan segera merespons.`;
     try {
-      const sent = await sendFonnte(from, ackMsg);
+      const sent = await sendFonnte(from, replyMsg);
       await db.insert(whatsappNotificationsTable).values({
         taskId:            taskOutput.taskId,
         companyId,
         recipientPhone:    from,
         recipientType:     "customer",
         templateName:      "followup_ack",
-        messageText:       ackMsg,
+        messageText:       replyMsg,
         status:            sent.success ? "sent" : "failed",
         externalMessageId: sent.messageId,
         errorMessage:      sent.error,

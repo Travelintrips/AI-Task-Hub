@@ -588,6 +588,7 @@ async function createNewTask({
     status,
     priority:     result.priority.toLowerCase(),
     companyId,
+    suggestedReply: resolution?.suggestedReply ?? null,
   }).catch((err) => logger.error({ err }, "notifyTaskCreated gagal"));
 
   return {

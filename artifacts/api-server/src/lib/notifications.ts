@@ -12,6 +12,8 @@ export interface TaskNotifContext {
   status: string;
   priority: string;
   companyId: string;
+  /** AI-generated reply — if present, sent as the main message to customer */
+  suggestedReply?: string | null;
 }
 
 // ─── Staff phones dari env ─────────────────────────────────────────────────────
@@ -27,11 +29,22 @@ function getStaffPhones(): string[] {
 // ─── Template pesan ────────────────────────────────────────────────────────────
 
 function templateTaskCreated(ctx: TaskNotifContext): string {
+  // If AI generated a contextual reply (e.g. "Kasbon berapa?"), use it as the
+  // main body so the customer gets a relevant answer, not a robotic template.
+  if (ctx.suggestedReply?.trim()) {
+    return [
+      ctx.suggestedReply.trim(),
+      ``,
+      `📋 No. Tiket: *${ctx.taskNumber}* _(simpan untuk referensi)_`,
+      `_AI Task Center_`,
+    ].join("\n");
+  }
+  // Fallback to structured template when no AI reply available
   const lines = [
-    `✅ *Task Baru Dibuat*`,
+    `✅ *Permintaan Anda Sudah Kami Terima*`,
     ``,
     `📋 No: *${ctx.taskNumber}*`,
-    `📝 Judul: ${ctx.title}`,
+    `📝 ${ctx.title}`,
   ];
   if (ctx.customerName) lines.push(`👤 Customer: ${ctx.customerName}`);
   lines.push(`🚦 Status: ${ctx.status}`);
