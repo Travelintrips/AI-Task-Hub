@@ -34,7 +34,12 @@ import {
   Link2,
   LayoutGrid,
   ListChecks,
+  ShieldCheck,
+  ShieldOff,
+  Shield,
+  Play,
 } from "lucide-react";
+import { useLocation } from "wouter";
 import { useState } from "react";
 
 // ── API helpers ────────────────────────────────────────────────────────────────
@@ -517,6 +522,23 @@ export default function ExecutiveCommandPage() {
     },
   });
 
+  const gateQ = useQuery<{ latestRun: { passRate: number; passedCases: number; failedCases: number; totalCases: number; qualityGatePassed: boolean | null; startedAt: string } | null; aiProductionMode: string }>({
+    queryKey: ["exec-conv-test-gate"],
+    queryFn: () => apiFetch("/api/conversation-tests/latest-gate"),
+    staleTime: 60_000,
+    retry: 1,
+  });
+
+  const runTestsMut = useMutation({
+    mutationFn: () => apiFetch("/api/conversation-tests/run", {
+      method: "POST",
+      body: JSON.stringify({ runName: `Run dari Command Center ${new Date().toLocaleString("id-ID")}` }),
+    }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["exec-conv-test-gate"] }),
+  });
+
+  const [, navigate] = useLocation();
+
   const kpi = kpisQ.data;
   const alerts = alertsQ.data?.alerts ?? [];
   const readiness = readinessQ.data;
@@ -525,6 +547,7 @@ export default function ExecutiveCommandPage() {
   const actionCenter = actionCenterQ.data;
   const timeline = timelineQ.data;
   const heatmap = heatmapQ.data;
+  const gate = gateQ.data;
 
   const RISK_COLS: { key: RiskLevel; label: string }[] = [
     { key: "critical", label: "Kritis" },
@@ -648,6 +671,72 @@ export default function ExecutiveCommandPage() {
               })}
             </div>
           )}
+        </section>
+
+        {/* ── AI Quality Gate Widget ─────────────────────────────────────── */}
+        <section>
+          <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide mb-3">
+            AI Quality Gate
+          </h2>
+          <Card className="border shadow-sm">
+            <CardContent className="pt-4">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  {gate?.latestRun?.qualityGatePassed === true ? (
+                    <div className="p-2 rounded-lg bg-green-100"><ShieldCheck className="h-5 w-5 text-green-600" /></div>
+                  ) : gate?.latestRun?.qualityGatePassed === false ? (
+                    <div className="p-2 rounded-lg bg-red-100"><ShieldOff className="h-5 w-5 text-red-600" /></div>
+                  ) : (
+                    <div className="p-2 rounded-lg bg-muted"><Shield className="h-5 w-5 text-muted-foreground" /></div>
+                  )}
+                  <div>
+                    <div className="text-sm font-semibold">
+                      {gate?.latestRun?.qualityGatePassed === true ? "Quality Gate Lulus" :
+                        gate?.latestRun?.qualityGatePassed === false ? "Quality Gate Gagal" :
+                        "Belum Diuji"}
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-0.5">
+                      Mode AI:{" "}
+                      <span className={`font-medium ${gate?.aiProductionMode === "production" ? "text-green-600" : gate?.aiProductionMode === "test" ? "text-blue-600" : "text-muted-foreground"}`}>
+                        {gate?.aiProductionMode === "production" ? "Produksi" : gate?.aiProductionMode === "test" ? "Test" : "Nonaktif"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  {gate?.latestRun ? (
+                    <>
+                      <div className={`text-2xl font-bold ${(gate.latestRun.passRate ?? 0) >= 90 ? "text-green-600" : "text-red-600"}`}>
+                        {gate.latestRun.passRate}%
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {gate.latestRun.passedCases}/{gate.latestRun.totalCases} kasus lulus
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-0.5">
+                        {new Date(gate.latestRun.startedAt).toLocaleDateString("id-ID")}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-xs text-muted-foreground">Belum ada test run</div>
+                  )}
+                </div>
+              </div>
+              <div className="flex gap-2 mt-3">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => runTestsMut.mutate()}
+                  disabled={runTestsMut.isPending}
+                >
+                  {runTestsMut.isPending ? <RefreshCw className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Play className="h-3.5 w-3.5 mr-1" />}
+                  Jalankan Test
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => navigate("/conversation-tests")}>
+                  Lihat Detail →
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </section>
 
         {/* ── Panels 2 & 3: Alerts + Readiness ──────────────────────────── */}

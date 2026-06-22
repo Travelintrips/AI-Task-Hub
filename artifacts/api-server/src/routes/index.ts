@@ -56,6 +56,7 @@ import intakeFormRouter from "./intake-form";
 import miniFormConfigRouter from "./mini-form-config";
 import documentValidationRouter from "./document-validation";
 import readinessRouter from "./readiness";
+import conversationTestsRouter from "./conversation-tests";
 import { extractUser } from "../middleware/auth";
 
 const router: IRouter = Router();
@@ -130,5 +131,7 @@ router.use(miniFormConfigRouter);
 router.use(documentValidationRouter);
 // ── Sprint 8D — Memory Readiness ──────────────────────────────────────────────
 router.use(readinessRouter);
+// ── Sprint 9D — Conversation Test Suite & AI Quality Gate ─────────────────────
+router.use(conversationTestsRouter);
 
 export default router;
