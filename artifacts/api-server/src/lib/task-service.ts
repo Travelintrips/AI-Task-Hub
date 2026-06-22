@@ -553,7 +553,7 @@ async function createNewTask({
     body: `${result.category} · ${result.division} · Status: ${status}${customerName ? ` · ${customerName}` : ""}`,
     taskId: task.id,
     customerPhone: customerPhone ?? null,
-    customerName: customerName ?? null,
+    customerName: customerName ?? customerPhone ?? "Unknown",
   }).returning();
 
   emitSseEvent(

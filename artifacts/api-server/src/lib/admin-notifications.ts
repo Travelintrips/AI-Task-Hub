@@ -33,7 +33,8 @@ export async function createAdminNotification(input: CreateNotificationInput): P
       body: input.body,
       taskId: input.taskId ?? null,
       customerPhone: input.customerPhone ?? null,
-      customerName: input.customerName ?? null,
+      // customer_name is NOT NULL in DB — fallback to phone or "Unknown"
+      customerName: input.customerName ?? input.customerPhone ?? "Unknown",
       isRead: false,
     });
     logger.info({ type: input.type, taskId: input.taskId }, "Admin notification created");

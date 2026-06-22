@@ -55,18 +55,20 @@ router.post("/webhook/fonnte", async (req, res): Promise<void> => {
     }
 
     // ── Filter pesan keluar (echo dari Fonnte) ─────────────────────────────
-    // Fonnte men-trigger webhook juga untuk pesan yang dikirim OLEH device kita.
-    // Jika sender == device, itu pesan yang kita kirim → abaikan.
-    if (device && sender === device) {
-      logger.debug({ sender, device }, "Fonnte webhook: outgoing echo — skipping");
+    // Fonnte men-trigger webhook untuk SEMUA pesan di device, termasuk pesan
+    // yang kita kirim keluar (outgoing). Pesan outgoing ditandai dengan:
+    //   - quick: true  → pesan yang dikirim via API (bukan dari pengguna WA)
+    //   - name: null   → tidak ada nama pengirim (bukan kontak masuk)
+    // Kedua kondisi ini cukup untuk membedakan echo dari pesan customer asli.
+    const isOutgoingEcho = rawPayload.quick === true;
+    if (isOutgoingEcho) {
+      logger.debug({ sender, device }, "Fonnte webhook: outgoing echo (quick=true) — skipping");
       return;
     }
 
-    // Juga skip jika sender adalah salah satu nomor staff kita
-    const staffPhones = (process.env.WHATSAPP_PHONE_NUMBER_ID ?? "")
-      .split(",").map(p => normPhone(p.trim())).filter(Boolean);
-    if (staffPhones.includes(sender)) {
-      logger.debug({ sender }, "Fonnte webhook: message from staff number — skipping");
+    // Fallback: jika sender sama dengan device, juga skip
+    if (device && sender === device) {
+      logger.debug({ sender, device }, "Fonnte webhook: sender=device echo — skipping");
       return;
     }
 
