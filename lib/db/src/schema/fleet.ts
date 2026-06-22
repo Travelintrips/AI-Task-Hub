@@ -356,3 +356,191 @@ export const fleetDriverIncidentsTable = pgTable("fleet_driver_incidents", {
 export const insertFleetDriverIncidentSchema = createInsertSchema(fleetDriverIncidentsTable).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertFleetDriverIncident = z.infer<typeof insertFleetDriverIncidentSchema>;
 export type FleetDriverIncident = typeof fleetDriverIncidentsTable.$inferSelect;
+
+// ── Sprint 7C — Fuel Intelligence, Tire Lifecycle, Utilization ────────────────
+
+export const FLEET_UTILIZATION_STATUSES = ["planned", "on_route", "completed", "cancelled"] as const;
+export type FleetUtilizationStatus = (typeof FLEET_UTILIZATION_STATUSES)[number];
+
+export const FLEET_TIRE_POSITIONS = [
+  "front_left", "front_right", "rear_left_outer", "rear_left_inner",
+  "rear_right_outer", "rear_right_inner", "spare",
+] as const;
+export type FleetTirePosition = (typeof FLEET_TIRE_POSITIONS)[number];
+
+export const FLEET_TIRE_STATUSES = ["good", "worn", "replaced", "scrapped"] as const;
+export type FleetTireStatus = (typeof FLEET_TIRE_STATUSES)[number];
+
+// ── 9. fleet_fuel_benchmarks ──────────────────────────────────────────────────
+
+export const fleetFuelBenchmarksTable = pgTable("fleet_fuel_benchmarks", {
+  id: serial("id").primaryKey(),
+  companyId: text("company_id").notNull().default("default"),
+
+  vehicleType: text("vehicle_type").notNull(),
+  fuelType: text("fuel_type").notNull().default("solar"),
+  benchmarkKmPerLiter: real("benchmark_km_per_liter").notNull(),
+  tolerancePct: real("tolerance_pct").notNull().default(20),
+  minLitersAlert: real("min_liters_alert"),
+  maxLitersAlert: real("max_liters_alert"),
+  notes: text("notes"),
+
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+}, (t) => [
+  index("fleet_fuel_bench_company_idx").on(t.companyId),
+  index("fleet_fuel_bench_type_idx").on(t.vehicleType, t.fuelType),
+]);
+
+export const insertFleetFuelBenchmarkSchema = createInsertSchema(fleetFuelBenchmarksTable).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertFleetFuelBenchmark = z.infer<typeof insertFleetFuelBenchmarkSchema>;
+export type FleetFuelBenchmark = typeof fleetFuelBenchmarksTable.$inferSelect;
+
+// ── 10. fleet_fuel_logs ───────────────────────────────────────────────────────
+
+export const fleetFuelLogsTable = pgTable("fleet_fuel_logs", {
+  id: serial("id").primaryKey(),
+  companyId: text("company_id").notNull().default("default"),
+  fleetUnitId: integer("fleet_unit_id").notNull(),
+  driverId: integer("driver_id"),
+
+  loggedAt: timestamp("logged_at", { withTimezone: true }).notNull().defaultNow(),
+  odometerKm: real("odometer_km").notNull(),
+  litersFilled: real("liters_filled").notNull(),
+  fuelType: text("fuel_type").default("solar"),
+  pricePerLiter: real("price_per_liter"),
+  totalCost: real("total_cost"),
+  stationName: text("station_name"),
+
+  kmSinceLastFill: real("km_since_last_fill"),
+  kmPerLiter: real("km_per_liter"),
+
+  isAnomaly: boolean("is_anomaly").default(false),
+  anomalyReason: text("anomaly_reason"),
+  anomalyScore: real("anomaly_score"),
+
+  notes: text("notes"),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("fleet_fuel_unit_idx").on(t.fleetUnitId),
+  index("fleet_fuel_company_idx").on(t.companyId),
+  index("fleet_fuel_logged_idx").on(t.loggedAt),
+  index("fleet_fuel_anomaly_idx").on(t.isAnomaly),
+]);
+
+export const insertFleetFuelLogSchema = createInsertSchema(fleetFuelLogsTable).omit({ id: true, createdAt: true });
+export type InsertFleetFuelLog = z.infer<typeof insertFleetFuelLogSchema>;
+export type FleetFuelLog = typeof fleetFuelLogsTable.$inferSelect;
+
+// ── 11. fleet_tires ───────────────────────────────────────────────────────────
+
+export const fleetTiresTable = pgTable("fleet_tires", {
+  id: serial("id").primaryKey(),
+  companyId: text("company_id").notNull().default("default"),
+  fleetUnitId: integer("fleet_unit_id").notNull(),
+
+  serialNumber: text("serial_number"),
+  brand: text("brand"),
+  model: text("model"),
+  sizeName: text("size_name"),
+  position: text("position").notNull(),
+
+  installDate: date("install_date"),
+  installOdometerKm: real("install_odometer_km"),
+  expectedLifeKm: real("expected_life_km").default(80000),
+
+  currentOdometerKm: real("current_odometer_km"),
+  usedKm: real("used_km"),
+  remainingKm: real("remaining_km"),
+  wearPct: real("wear_pct"),
+
+  status: text("status").notNull().default("good"),
+  replacedAt: timestamp("replaced_at", { withTimezone: true }),
+  replacedReason: text("replaced_reason"),
+
+  isActive: boolean("is_active").notNull().default(true),
+  notes: text("notes"),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+}, (t) => [
+  index("fleet_tires_unit_idx").on(t.fleetUnitId),
+  index("fleet_tires_company_idx").on(t.companyId),
+  index("fleet_tires_status_idx").on(t.status),
+  index("fleet_tires_active_idx").on(t.isActive),
+]);
+
+export const insertFleetTireSchema = createInsertSchema(fleetTiresTable).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertFleetTire = z.infer<typeof insertFleetTireSchema>;
+export type FleetTire = typeof fleetTiresTable.$inferSelect;
+
+// ── 12. fleet_tire_rotations ──────────────────────────────────────────────────
+
+export const fleetTireRotationsTable = pgTable("fleet_tire_rotations", {
+  id: serial("id").primaryKey(),
+  companyId: text("company_id").notNull().default("default"),
+  fleetUnitId: integer("fleet_unit_id").notNull(),
+
+  rotationDate: date("rotation_date").notNull(),
+  odometerAtRotation: real("odometer_at_rotation"),
+  positionsChanged: jsonb("positions_changed"),
+  performedBy: text("performed_by"),
+  workshopName: text("workshop_name"),
+  notes: text("notes"),
+
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index("fleet_tire_rot_unit_idx").on(t.fleetUnitId),
+  index("fleet_tire_rot_company_idx").on(t.companyId),
+  index("fleet_tire_rot_date_idx").on(t.rotationDate),
+]);
+
+export const insertFleetTireRotationSchema = createInsertSchema(fleetTireRotationsTable).omit({ id: true, createdAt: true });
+export type InsertFleetTireRotation = z.infer<typeof insertFleetTireRotationSchema>;
+export type FleetTireRotation = typeof fleetTireRotationsTable.$inferSelect;
+
+// ── 13. fleet_utilization_logs ────────────────────────────────────────────────
+
+export const fleetUtilizationLogsTable = pgTable("fleet_utilization_logs", {
+  id: serial("id").primaryKey(),
+  companyId: text("company_id").notNull().default("default"),
+  fleetUnitId: integer("fleet_unit_id").notNull(),
+  driverId: integer("driver_id"),
+  aiTaskId: integer("ai_task_id"),
+
+  origin: text("origin"),
+  destination: text("destination"),
+  tripPurpose: text("trip_purpose"),
+
+  plannedKm: real("planned_km"),
+  actualKm: real("actual_km"),
+
+  plannedDeparture: timestamp("planned_departure", { withTimezone: true }),
+  actualDeparture: timestamp("actual_departure", { withTimezone: true }),
+  plannedArrival: timestamp("planned_arrival", { withTimezone: true }),
+  actualArrival: timestamp("actual_arrival", { withTimezone: true }),
+  delayMinutes: integer("delay_minutes"),
+
+  capacityUsedPct: real("capacity_used_pct"),
+  cargoWeightKg: real("cargo_weight_kg"),
+
+  status: text("status").notNull().default("planned"),
+  cancelReason: text("cancel_reason"),
+  notes: text("notes"),
+
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+}, (t) => [
+  index("fleet_util_unit_idx").on(t.fleetUnitId),
+  index("fleet_util_company_idx").on(t.companyId),
+  index("fleet_util_status_idx").on(t.status),
+  index("fleet_util_departure_idx").on(t.plannedDeparture),
+]);
+
+export const insertFleetUtilizationLogSchema = createInsertSchema(fleetUtilizationLogsTable).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertFleetUtilizationLog = z.infer<typeof insertFleetUtilizationLogSchema>;
+export type FleetUtilizationLog = typeof fleetUtilizationLogsTable.$inferSelect;

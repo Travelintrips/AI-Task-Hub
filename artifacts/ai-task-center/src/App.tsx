@@ -47,6 +47,9 @@ import FleetDriversPage from "@/pages/fleet-drivers";
 import FleetDriverDetailPage from "@/pages/fleet-driver-detail";
 import FleetDocumentsPage from "@/pages/fleet-documents";
 import FleetMaintenancePage from "@/pages/fleet-maintenance";
+import FleetFuelPage from "@/pages/fleet-fuel";
+import FleetTiresPage from "@/pages/fleet-tires";
+import FleetUtilizationPage from "@/pages/fleet-utilization";
 
 const queryClient = new QueryClient();
 
@@ -108,6 +111,9 @@ function AppRouter() {
         <Route path="/fleet/drivers" component={FleetDriversPage} />
         <Route path="/fleet/documents" component={FleetDocumentsPage} />
         <Route path="/fleet/maintenance" component={FleetMaintenancePage} />
+        <Route path="/fleet/fuel" component={FleetFuelPage} />
+        <Route path="/fleet/tires" component={FleetTiresPage} />
+        <Route path="/fleet/utilization" component={FleetUtilizationPage} />
         <Route component={NotFound} />
       </Switch>
     </AppLayout>

@@ -39,6 +39,9 @@ import {
   ShoppingCart,
   Sparkles,
   Truck,
+  Droplets,
+  Package,
+  Navigation,
 } from "lucide-react";
 import { NotificationsBell } from "@/components/notifications-bell";
 import { useAuth } from "@/contexts/auth-context";
@@ -64,6 +67,9 @@ export function AppLayout({ children }: { children: ReactNode }) {
     { name: "CRM",          href: "/crm",               icon: Building2 },
     { name: "Vendors",     href: "/vendors",           icon: TrendingUp },
     { name: "Fleet",       href: "/fleet/units",            icon: Truck },
+    { name: "Fleet BBM",  href: "/fleet/fuel",             icon: Droplets },
+    { name: "Fleet Ban",  href: "/fleet/tires",            icon: Package },
+    { name: "Utilisasi",  href: "/fleet/utilization",      icon: Navigation },
     { name: "Purchasing",  href: "/purchasing-intelligence", icon: ShoppingCart },
     { name: "Exec Intelligence", href: "/executive-intelligence", icon: Sparkles },
     { name: "Quotation",   href: "/quotations",        icon: DollarSign },

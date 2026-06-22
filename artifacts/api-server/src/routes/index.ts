@@ -42,6 +42,9 @@ import fleetUnitsRouter from "./fleet-units";
 import fleetDriversRouter from "./fleet-drivers";
 import fleetDocumentsRouter from "./fleet-documents";
 import fleetMaintenanceRouter from "./fleet-maintenance";
+import fleetFuelRouter from "./fleet-fuel";
+import fleetTiresRouter from "./fleet-tires";
+import fleetUtilizationRouter from "./fleet-utilization";
 import { extractUser } from "../middleware/auth";
 
 const router: IRouter = Router();
@@ -96,5 +99,9 @@ router.use(fleetUnitsRouter);
 router.use(fleetDriversRouter);
 router.use(fleetDocumentsRouter);
 router.use(fleetMaintenanceRouter);
+// ── Sprint 7C — Fuel Intelligence, Tire Lifecycle, Utilization ────────────────
+router.use(fleetFuelRouter);
+router.use(fleetTiresRouter);
+router.use(fleetUtilizationRouter);
 
 export default router;

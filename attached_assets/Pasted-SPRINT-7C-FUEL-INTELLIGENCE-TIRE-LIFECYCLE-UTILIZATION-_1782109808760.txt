@@ -1,0 +1,192 @@
+SPRINT 7C — FUEL INTELLIGENCE, TIRE LIFECYCLE, UTILIZATION
+
+Sprint 7B Fleet Foundation is validated and GO.
+
+Do not implement Fleet Risk Score yet.
+Do not implement Cost per KM dashboard yet.
+Do not implement WhatsApp reporting yet.
+
+Important migration rule:
+Use node scripts/migrate-sprint-7c.mjs connected to SUPABASE_DATABASE_URL.
+Do not use executeSql for DDL.
+
+Important schema rule:
+All actor fields that store app user ID must be TEXT, not INTEGER.
+
+Scope:
+
+1. Fuel Intelligence
+2. Tire Lifecycle
+3. Utilization & Availability
+
+====================================================
+A. DATABASE
+====================================================
+
+Create tables in Supabase:
+
+1. fleet_fuel_logs
+2. fleet_fuel_benchmarks
+3. fleet_tires
+4. fleet_tire_rotations
+5. fleet_utilization_logs
+
+Optional if needed:
+6. fleet_fuel_anomalies
+
+All tables must include:
+- company_id
+- created_at
+- updated_at where applicable
+- created_by TEXT
+- indexes on company_id, fleet_unit_id, date fields
+
+====================================================
+B. FUEL INTELLIGENCE
+====================================================
+
+Implement:
+
+POST /api/fleet/fuel
+GET  /api/fleet/fuel
+GET  /api/fleet/fuel/analytics
+GET  /api/fleet/fuel/anomalies
+POST /api/fleet/fuel/benchmarks
+
+Logic:
+- calculate km_since_last_fill
+- calculate km_per_liter
+- compare with fleet_fuel_benchmarks
+- flag anomaly if below tolerance
+- write audit log fleet.fuel.logged
+- write audit log fleet.fuel.anomaly_flagged
+- do not create expense automatically
+
+Anomaly examples:
+- KM/L below benchmark tolerance
+- odometer regression
+- liters unusually high
+- duplicate fuel entry same day/unit/amount
+
+====================================================
+C. TIRE LIFECYCLE
+====================================================
+
+Implement:
+
+POST /api/fleet/tires
+GET  /api/fleet/tires
+PATCH /api/fleet/tires/:id
+POST /api/fleet/tires/rotation
+GET  /api/fleet/tires/lifecycle
+
+Logic:
+- track tire serial, position, install date, install odometer
+- track expected life km
+- calculate used km
+- calculate remaining km
+- flag worn tires
+- track tire rotations
+- write audit logs:
+  fleet.tire.installed
+  fleet.tire.updated
+  fleet.tire.rotated
+  fleet.tire.replaced
+
+====================================================
+D. UTILIZATION & AVAILABILITY
+====================================================
+
+Implement:
+
+POST /api/fleet/utilization
+GET  /api/fleet/utilization
+PATCH /api/fleet/utilization/:id
+GET  /api/fleet/utilization/analytics
+
+Logic:
+- track vehicle trips
+- link to ai_task_id if provided
+- origin/destination
+- planned_km and actual_km
+- departure/arrival
+- capacity utilization
+- delay minutes
+- status planned/on_route/completed/cancelled
+- detect idle vehicles
+- detect over-utilized vehicles
+
+====================================================
+E. FRONTEND
+====================================================
+
+Add pages:
+
+/fleet/fuel
+/fleet/tires
+/fleet/utilization
+
+Fuel page:
+- fuel logs table
+- add fuel log dialog
+- analytics card
+- anomaly list
+- benchmark settings
+
+Tires page:
+- tire inventory table
+- tire lifecycle indicators
+- rotation form
+- worn tire alerts
+
+Utilization page:
+- trip log table
+- vehicle availability view
+- utilization % by unit
+- idle vehicle alerts
+
+====================================================
+F. AI TASK INTEGRATION
+====================================================
+
+Create ai_tasks only for:
+
+- critical fuel anomaly
+- tire remaining life below threshold
+- vehicle idle more than configured threshold
+- vehicle over-utilized
+
+All tasks:
+- auto_created = true
+- requires_human_review = true
+- no automatic action
+
+====================================================
+G. VALIDATION
+====================================================
+
+Run:
+
+1. migration script success
+2. backend typecheck
+3. frontend typecheck
+4. server start
+5. create fuel benchmark
+6. create normal fuel log
+7. create anomalous fuel log
+8. register tire
+9. rotate tire
+10. calculate lifecycle
+11. create utilization trip
+12. complete trip
+13. detect idle vehicle
+14. audit logs written
+15. AI task created for critical anomaly
+
+Output:
+- tables created
+- endpoints created
+- frontend pages created
+- test results
+- readiness score
+- GO/NO-GO for Sprint 7D
