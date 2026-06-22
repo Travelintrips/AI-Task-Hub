@@ -58,6 +58,7 @@ import documentValidationRouter from "./document-validation";
 import readinessRouter from "./readiness";
 import conversationTestsRouter from "./conversation-tests";
 import qualityGateRouter from "./quality-gate";
+import waCommandsRouter from "./wa-commands";
 import { extractUser } from "../middleware/auth";
 
 const router: IRouter = Router();
@@ -136,5 +137,7 @@ router.use(readinessRouter);
 router.use(conversationTestsRouter);
 // ── Sprint 9D — Quality Gate & Certification ───────────────────────────────────
 router.use(qualityGateRouter);
+// ── Sprint 10A-1 — WhatsApp First Operations ──────────────────────────────────
+router.use(waCommandsRouter);
 
 export default router;

@@ -1,0 +1,386 @@
+SPRINT 10A-1 — WHATSAPP FIRST OPERATIONS
+
+IMPORTANT
+
+Do not replace existing portals.
+
+Do not replace Conversation Intake Engine.
+
+Do not replace Mini Form Router.
+
+Goal:
+
+Allow Driver, Vendor, Customer, Supervisor, and Executive
+to perform daily operations directly from WhatsApp.
+
+Portal remains available.
+
+WhatsApp becomes primary interaction channel.
+
+====================================================
+PHASE 1 — WHATSAPP COMMAND REGISTRY
+====================================================
+
+Create:
+
+whatsapp_commands
+
+Fields:
+
+id
+command
+description
+user_type
+enabled
+created_at
+
+Supported user types:
+
+customer
+vendor
+driver
+staff
+supervisor
+company_admin
+owner
+super_admin
+
+====================================================
+PHASE 2 — CUSTOMER COMMANDS
+====================================================
+
+Implement:
+
+STATUS [ORDER]
+
+Example:
+
+STATUS CST-2026-001
+
+Return:
+
+Order Status
+Current Stage
+Last Update
+PIC
+Invoice Status
+Payment Status
+
+----------------------------------------------------
+
+DOCS [ORDER]
+
+Return:
+
+Required Documents
+Uploaded Documents
+Missing Documents
+
+----------------------------------------------------
+
+HELP
+
+Return available commands.
+
+====================================================
+PHASE 3 — DRIVER COMMANDS
+====================================================
+
+Implement:
+
+BBM [PLAT] [LITER] [ODOMETER]
+
+Example:
+
+BBM B1234XYZ 40 125000
+
+System:
+
+Create fuel log
+Run anomaly detection
+Return KM/L benchmark
+
+----------------------------------------------------
+
+RUSAK [PLAT] [DESKRIPSI]
+
+Example:
+
+RUSAK B1234XYZ Rem belakang bunyi
+
+System:
+
+Create maintenance request
+Create AI task
+Notify supervisor
+
+----------------------------------------------------
+
+POSISI [PLAT] [LOKASI]
+
+Example:
+
+POSISI B1234XYZ Cikampek KM72
+
+System:
+
+Append fleet utilization note
+
+----------------------------------------------------
+
+HELP DRIVER
+
+====================================================
+PHASE 4 — VENDOR COMMANDS
+====================================================
+
+Implement:
+
+DAFTAR VENDOR
+
+System:
+
+Start vendor onboarding
+
+Send vendor registration mini form
+
+----------------------------------------------------
+
+STATUS VENDOR
+
+Return:
+
+Vendor Tier
+Risk Tier
+Document Status
+Contract Status
+
+----------------------------------------------------
+
+DOKUMEN VENDOR
+
+Return:
+
+Expired Documents
+Expiring Documents
+Missing Documents
+
+====================================================
+PHASE 5 — SUPERVISOR COMMANDS
+====================================================
+
+Implement:
+
+APPROVAL
+
+Return:
+
+Pending approvals list
+
+----------------------------------------------------
+
+APPROVE [ID]
+
+Example:
+
+APPROVE PR-001
+
+Requires:
+
+confirmation step
+
+----------------------------------------------------
+
+REJECT [ID]
+
+System asks:
+
+Reason?
+
+Then process rejection.
+
+====================================================
+PHASE 6 — EXECUTIVE COMMANDS
+====================================================
+
+Implement:
+
+DASHBOARD
+
+Return:
+
+Executive Summary
+
+- Active Tasks
+- High Risk Customers
+- High Risk Vendors
+- Fleet Alerts
+- Pending Approvals
+
+----------------------------------------------------
+
+RISK
+
+Return:
+
+Top 10 risks today
+
+----------------------------------------------------
+
+BRIEFING
+
+Return:
+
+AI Executive Summary
+
+same data as Executive Command Center
+
+====================================================
+PHASE 7 — ROLE DETECTION
+====================================================
+
+Use:
+
+phone number
+linked user
+role mapping
+
+Priority:
+
+super_admin
+owner
+company_admin
+supervisor
+staff
+vendor
+driver
+customer
+
+Unauthorized command:
+
+Return permission denied.
+
+====================================================
+PHASE 8 — WHATSAPP MENU
+====================================================
+
+When user sends:
+
+MENU
+
+Return role-specific menu.
+
+Customer:
+
+STATUS
+DOCS
+HELP
+
+Driver:
+
+BBM
+RUSAK
+POSISI
+
+Vendor:
+
+STATUS VENDOR
+DOKUMEN VENDOR
+
+Supervisor:
+
+APPROVAL
+
+Executive:
+
+DASHBOARD
+RISK
+BRIEFING
+
+====================================================
+PHASE 9 — AUDIT LOGGING
+====================================================
+
+Create audit event:
+
+whatsapp_command_executed
+
+Store:
+
+phone
+role
+command
+result
+duration_ms
+
+====================================================
+PHASE 10 — ADOPTION METRICS
+====================================================
+
+Create:
+
+whatsapp_usage_metrics
+
+Track:
+
+daily active users
+commands executed
+driver usage
+vendor usage
+customer usage
+executive usage
+
+====================================================
+PHASE 11 — EXECUTIVE COMMAND CENTER
+====================================================
+
+Add WhatsApp Adoption Widget
+
+Show:
+
+Daily Active WA Users
+Commands Executed
+Top Commands
+Most Active Roles
+
+====================================================
+PHASE 12 — VALIDATION
+====================================================
+
+Run tests:
+
+Customer:
+STATUS
+DOCS
+
+Driver:
+BBM
+RUSAK
+POSISI
+
+Vendor:
+DAFTAR VENDOR
+STATUS VENDOR
+
+Supervisor:
+APPROVAL
+APPROVE
+REJECT
+
+Executive:
+DASHBOARD
+RISK
+BRIEFING
+
+Output:
+
+commands implemented
+RBAC validation
+sample replies
+audit logs
+usage metrics
+readiness score
+
+GO / NO-GO
+
+for Sprint 10A-2 Guided Onboarding

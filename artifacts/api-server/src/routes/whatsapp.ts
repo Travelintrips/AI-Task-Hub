@@ -340,7 +340,25 @@ export async function processIncomingMessage({
       companyId,
     );
 
-    // 2. Save attachment reference if present
+    // 2. Route as WA command first — if handled, skip AI pipeline
+    if (messageType === "text" && messageText) {
+      const { routeWaCommand } = await import("../lib/wa-command-router");
+      const handled = await routeWaCommand(from, messageText, companyId).catch((err) => {
+        logger.error({ err, from }, "wa-command-router: uncaught error");
+        return false;
+      });
+      if (handled) {
+        // Mark message as processed so it doesn't re-appear in unprocessed queue
+        await db
+          .update(whatsappMessagesTable)
+          .set({ processed: true, aiProcessed: true })
+          .where(eq(whatsappMessagesTable.id, savedMsg.id))
+          .catch(() => {});
+        return;
+      }
+    }
+
+    // 3. Save attachment reference if present
     if (attachment?.url && savedMsg.id) {
       try {
         await db.insert(taskAttachmentsTable).values({

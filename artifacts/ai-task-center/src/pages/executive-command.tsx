@@ -1620,6 +1620,253 @@ export default function ExecutiveCommandPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* WA First Operations Widget */}
+      <WaAdoptionWidget />
     </div>
+  );
+}
+
+// ── WhatsApp First Operations Adoption Widget ─────────────────────────────────
+
+interface WaMetrics {
+  totalExecs: number;
+  uniqueUsersLast7d: number;
+  byCommand: Array<{ command: string; execCount: number; successRate: number; roles: string[] }>;
+  byRole: Array<{ role: string; count: number }>;
+}
+
+interface WaCmdLog {
+  id: number;
+  phone: string;
+  role: string;
+  command: string;
+  args: string | null;
+  result: string;
+  replyPreview: string | null;
+  executedAt: string;
+}
+
+const ROLE_LABEL: Record<string, string> = {
+  customer: "Customer", vendor: "Vendor", driver: "Driver",
+  staff: "Staff", supervisor: "Supervisor", company_admin: "Admin",
+  owner: "Owner", super_admin: "Super Admin",
+};
+
+const ROLE_COLOR: Record<string, string> = {
+  customer: "bg-blue-100 text-blue-700",
+  vendor: "bg-purple-100 text-purple-700",
+  driver: "bg-orange-100 text-orange-700",
+  staff: "bg-gray-100 text-gray-700",
+  supervisor: "bg-yellow-100 text-yellow-800",
+  company_admin: "bg-green-100 text-green-700",
+  owner: "bg-red-100 text-red-700",
+  super_admin: "bg-red-200 text-red-900",
+  ok: "bg-green-100 text-green-700",
+  error: "bg-red-100 text-red-700",
+  unauthorized: "bg-yellow-100 text-yellow-800",
+};
+
+function WaAdoptionWidget() {
+  const [testPhone, setTestPhone] = useState("");
+  const [testText, setTestText] = useState("");
+  const [testResult, setTestResult] = useState<{ handled: boolean } | null>(null);
+  const [testLoading, setTestLoading] = useState(false);
+
+  const metricsQ = useQuery<WaMetrics>({
+    queryKey: ["wa-metrics"],
+    queryFn: () => apiFetch("/api/wa-commands/metrics?days=7"),
+    refetchInterval: 30_000,
+  });
+
+  const logsQ = useQuery<{ logs: WaCmdLog[] }>({
+    queryKey: ["wa-cmd-logs"],
+    queryFn: () => apiFetch("/api/wa-commands/logs?limit=20&days=7"),
+    refetchInterval: 15_000,
+  });
+
+  const metrics = metricsQ.data;
+  const logs = logsQ.data?.logs ?? [];
+
+  async function runTest() {
+    if (!testPhone || !testText) return;
+    setTestLoading(true);
+    setTestResult(null);
+    try {
+      const r = await apiFetch("/api/wa-commands/test", {
+        method: "POST",
+        body: JSON.stringify({ phone: testPhone, text: testText }),
+      });
+      setTestResult(r);
+    } catch {
+      setTestResult({ handled: false });
+    } finally {
+      setTestLoading(false);
+      metricsQ.refetch();
+      logsQ.refetch();
+    }
+  }
+
+  return (
+    <section className="mt-10">
+      <div className="flex items-center gap-2 mb-4">
+        <MessageSquare className="h-5 w-5 text-green-600" />
+        <h2 className="text-xl font-bold">WhatsApp First Operations</h2>
+        <Badge variant="outline" className="ml-2 text-xs">Sprint 10A-1</Badge>
+      </div>
+
+      {/* Summary stats */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+        <Card>
+          <CardContent className="pt-4 pb-3">
+            <p className="text-xs text-muted-foreground mb-1">Total Eksekusi (7 hari)</p>
+            <p className="text-2xl font-bold">{metrics?.totalExecs ?? 0}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4 pb-3">
+            <p className="text-xs text-muted-foreground mb-1">Pengguna Unik</p>
+            <p className="text-2xl font-bold">{metrics?.uniqueUsersLast7d ?? 0}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4 pb-3">
+            <p className="text-xs text-muted-foreground mb-1">Perintah Tersedia</p>
+            <p className="text-2xl font-bold">{metrics?.byCommand?.length ?? 0}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-4 pb-3">
+            <p className="text-xs text-muted-foreground mb-1">Role Aktif</p>
+            <p className="text-2xl font-bold">{metrics?.byRole?.length ?? 0}</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Top commands */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold">Perintah Terpopuler</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {(!metrics || metrics.byCommand.length === 0) ? (
+              <p className="text-sm text-muted-foreground text-center py-6">Belum ada data perintah</p>
+            ) : (
+              <div className="space-y-2">
+                {metrics.byCommand.slice(0, 8).map((cmd) => (
+                  <div key={cmd.command} className="flex items-center gap-2">
+                    <code className="text-xs font-mono bg-muted px-1.5 py-0.5 rounded w-32 shrink-0">
+                      {cmd.command}
+                    </code>
+                    <div className="flex-1 h-2 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-green-500 rounded-full transition-all"
+                        style={{ width: `${Math.min((cmd.execCount / (metrics.byCommand[0]?.execCount || 1)) * 100, 100)}%` }}
+                      />
+                    </div>
+                    <span className="text-xs text-muted-foreground w-8 text-right">{cmd.execCount}</span>
+                    <span className="text-xs text-green-600 w-12 text-right">{cmd.successRate}%</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Recent logs */}
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-semibold">Log Eksekusi Terbaru</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {logs.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-6">Belum ada log</p>
+            ) : (
+              <div className="space-y-1.5 max-h-64 overflow-y-auto">
+                {logs.map((log) => (
+                  <div key={log.id} className="flex items-start gap-2 text-xs py-1 border-b last:border-0">
+                    <span className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium ${ROLE_COLOR[log.result] ?? "bg-gray-100"}`}>
+                      {log.result.toUpperCase()}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <code className="font-mono font-semibold">{log.command}</code>
+                        {log.args && <span className="text-muted-foreground truncate">{log.args}</span>}
+                      </div>
+                      <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                        <span className={`px-1 py-px rounded ${ROLE_COLOR[log.role] ?? "bg-gray-100"}`}>
+                          {ROLE_LABEL[log.role] ?? log.role}
+                        </span>
+                        <span>{log.phone.slice(-4).padStart(log.phone.length, "•")}</span>
+                      </div>
+                    </div>
+                    <span className="shrink-0 text-[10px] text-muted-foreground whitespace-nowrap">
+                      {new Date(log.executedAt).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Test console */}
+      <Card className="mt-4">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2">
+            <Play className="h-4 w-4" />
+            Uji Perintah WhatsApp
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <input
+              type="text"
+              placeholder="Nomor HP (contoh: 628123456789)"
+              value={testPhone}
+              onChange={(e) => setTestPhone(e.target.value)}
+              className="flex h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring w-full sm:w-64"
+            />
+            <input
+              type="text"
+              placeholder="Teks perintah (contoh: MENU)"
+              value={testText}
+              onChange={(e) => setTestText(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") runTest(); }}
+              className="flex h-9 rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring flex-1"
+            />
+            <Button
+              size="sm"
+              onClick={runTest}
+              disabled={testLoading || !testPhone || !testText}
+              className="shrink-0"
+            >
+              {testLoading ? <RefreshCw className="h-3 w-3 animate-spin mr-1" /> : <Play className="h-3 w-3 mr-1" />}
+              Kirim
+            </Button>
+          </div>
+          {testResult !== null && (
+            <div className={`mt-2 px-3 py-2 rounded text-sm ${testResult.handled ? "bg-green-50 text-green-700" : "bg-yellow-50 text-yellow-700"}`}>
+              {testResult.handled
+                ? "✅ Perintah berhasil diproses — balasan sudah dikirim via WhatsApp."
+                : "⚠️ Perintah tidak dikenali — akan diproses melalui jalur AI normal."}
+            </div>
+          )}
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {["MENU", "STATUS CST-001", "APPROVAL", "DASHBOARD", "BBM B1234XYZ 40 125000", "RUSAK B1234XYZ Rem bunyi", "DAFTAR VENDOR"].map((ex) => (
+              <button
+                key={ex}
+                onClick={() => setTestText(ex)}
+                className="text-[11px] font-mono bg-muted hover:bg-muted/80 px-2 py-0.5 rounded border transition-colors"
+              >
+                {ex}
+              </button>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    </section>
   );
 }

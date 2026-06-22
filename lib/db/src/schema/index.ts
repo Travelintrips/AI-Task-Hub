@@ -45,3 +45,5 @@ export * from "./intake_sessions";
 export * from "./document_validation";
 // ── Sprint 9D — Conversation Test Suite & AI Quality Gate ───────────────────
 export * from "./conversation_tests";
+// ── Sprint 10A-1 — WhatsApp First Operations ────────────────────────────────
+export * from "./whatsapp_commands";

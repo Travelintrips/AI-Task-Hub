@@ -238,4 +238,83 @@ if (supabasePool) {
   .catch((err: unknown) => logger.warn({ err }, "Sprint 9C startup migration warning (may already exist)"));
 }
 
+// ── Sprint 10A-1 startup migrations (idempotent) ──────────────────────────────
+if (supabasePool) {
+  supabasePool.query(`
+    CREATE TABLE IF NOT EXISTS whatsapp_commands (
+      id          SERIAL PRIMARY KEY,
+      command     TEXT NOT NULL,
+      description TEXT NOT NULL,
+      user_type   TEXT NOT NULL,
+      enabled     BOOLEAN NOT NULL DEFAULT true,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS wa_commands_user_type_idx ON whatsapp_commands(user_type);
+    CREATE INDEX IF NOT EXISTS wa_commands_enabled_idx   ON whatsapp_commands(enabled);
+
+    CREATE TABLE IF NOT EXISTS whatsapp_command_logs (
+      id            SERIAL PRIMARY KEY,
+      company_id    TEXT NOT NULL DEFAULT 'default',
+      phone         TEXT NOT NULL,
+      role          TEXT NOT NULL,
+      command       TEXT NOT NULL,
+      args          TEXT,
+      result        TEXT NOT NULL DEFAULT 'ok',
+      reply_preview TEXT,
+      duration_ms   INTEGER,
+      executed_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS wa_cmd_logs_phone_idx    ON whatsapp_command_logs(phone);
+    CREATE INDEX IF NOT EXISTS wa_cmd_logs_command_idx  ON whatsapp_command_logs(command);
+    CREATE INDEX IF NOT EXISTS wa_cmd_logs_role_idx     ON whatsapp_command_logs(role);
+    CREATE INDEX IF NOT EXISTS wa_cmd_logs_company_idx  ON whatsapp_command_logs(company_id);
+    CREATE INDEX IF NOT EXISTS wa_cmd_logs_executed_idx ON whatsapp_command_logs(executed_at);
+
+    CREATE TABLE IF NOT EXISTS whatsapp_usage_metrics (
+      id             SERIAL PRIMARY KEY,
+      company_id     TEXT NOT NULL DEFAULT 'default',
+      metric_date    TEXT NOT NULL,
+      role           TEXT NOT NULL,
+      command        TEXT NOT NULL,
+      exec_count     INTEGER NOT NULL DEFAULT 0,
+      unique_phones  INTEGER NOT NULL DEFAULT 0,
+      success_count  INTEGER NOT NULL DEFAULT 0,
+      error_count    INTEGER NOT NULL DEFAULT 0,
+      avg_duration_ms REAL,
+      updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS wa_usage_date_idx         ON whatsapp_usage_metrics(metric_date);
+    CREATE INDEX IF NOT EXISTS wa_usage_role_idx         ON whatsapp_usage_metrics(role);
+    CREATE INDEX IF NOT EXISTS wa_usage_company_date_idx ON whatsapp_usage_metrics(company_id, metric_date);
+
+    INSERT INTO whatsapp_commands (command, description, user_type, enabled)
+    SELECT cmd, dsc, utype, true
+    FROM (VALUES
+      ('STATUS',        'Cek status pesanan',                     'customer'),
+      ('DOCS',          'Cek dokumen pesanan',                    'customer'),
+      ('HELP',          'Panduan perintah',                       'customer'),
+      ('MENU',          'Tampilkan menu utama',                   'customer'),
+      ('BBM',           'Log pengisian bahan bakar',              'driver'),
+      ('RUSAK',         'Lapor kerusakan kendaraan',              'driver'),
+      ('POSISI',        'Update posisi kendaraan',                'driver'),
+      ('HELP DRIVER',   'Panduan perintah driver',                'driver'),
+      ('DAFTAR VENDOR', 'Onboarding vendor baru',                 'vendor'),
+      ('STATUS VENDOR', 'Status akun vendor',                     'vendor'),
+      ('DOKUMEN VENDOR','Cek dokumen vendor',                     'vendor'),
+      ('APPROVAL',      'Daftar approval menunggu',               'supervisor'),
+      ('APPROVE',       'Setujui purchase request',               'supervisor'),
+      ('KONFIRMASI',    'Konfirmasi approval',                    'supervisor'),
+      ('REJECT',        'Tolak purchase request dengan alasan',   'supervisor'),
+      ('DASHBOARD',     'Executive KPI dashboard',                'owner'),
+      ('RISK',          'Top risiko hari ini',                    'owner'),
+      ('BRIEFING',      'AI executive summary',                   'owner')
+    ) AS t(cmd, dsc, utype)
+    WHERE NOT EXISTS (
+      SELECT 1 FROM whatsapp_commands wc WHERE wc.command = t.cmd AND wc.user_type = t.utype
+    );
+  `)
+  .then(() => logger.info("Sprint 10A-1 startup migrations OK"))
+  .catch((err: unknown) => logger.warn({ err }, "Sprint 10A-1 startup migration warning (may already exist)"));
+}
+
 export default app;
