@@ -2,41 +2,42 @@ import pg from "pg";
 import { logger } from "./logger";
 
 const connectionString =
-  process.env.SUPABASE_DATABASE_URL ?? process.env.SUPABASE_DATABASE_URL_DEV;
+  process.env.SUPABASE_DATABASE_URL ??
+  process.env.SUPABASE_DATABASE_URL_DEV ??
+  process.env.DATABASE_URL;
 
 if (!connectionString) {
   logger.warn(
-    "SUPABASE_DATABASE_URL is not set — routes yang membaca data dari Supabase Postgres " +
-    "(messages, team sinkron, documents legacy) akan mengembalikan array kosong. " +
-    "Set secret SUPABASE_DATABASE_URL dengan connection string dari Supabase Dashboard → Settings → Database.",
+    "DATABASE_URL is not set — database queries will return empty arrays.",
   );
+} else if (!process.env.SUPABASE_DATABASE_URL && !process.env.SUPABASE_DATABASE_URL_DEV) {
+  logger.info("Using Replit DATABASE_URL as fallback for supabaseQuery pool.");
 }
 
-// Buat pool hanya jika connection string tersedia
-// Jika tidak ada, pool akan null dan supabaseQuery akan return [] dengan aman
 export const supabasePool = connectionString
   ? new pg.Pool({
       connectionString,
       max: 5,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 5000,
-      ssl: { rejectUnauthorized: false },
+      ssl: connectionString.includes("supabase.co")
+        ? { rejectUnauthorized: false }
+        : false,
     })
   : null;
 
 if (supabasePool) {
   supabasePool.on("error", (err) => {
-    logger.error({ err }, "Supabase DB pool error");
+    logger.error({ err }, "DB pool error");
   });
 
-  // Test koneksi saat startup
   supabasePool.connect()
     .then((client) => {
       client.release();
       logger.info("Supabase DB pool connected successfully");
     })
     .catch((err) => {
-      logger.error({ err }, "Supabase DB pool failed to connect — cek SUPABASE_DATABASE_URL");
+      logger.error({ err }, "DB pool failed to connect");
     });
 }
 
@@ -45,7 +46,7 @@ export async function supabaseQuery<T = Record<string, unknown>>(
   params?: unknown[],
 ): Promise<T[]> {
   if (!supabasePool) {
-    logger.warn({ query: text.slice(0, 80) }, "supabaseQuery skipped — SUPABASE_DATABASE_URL tidak dikonfigurasi");
+    logger.warn({ query: text.slice(0, 80) }, "supabaseQuery skipped — database not configured");
     return [];
   }
   try {
