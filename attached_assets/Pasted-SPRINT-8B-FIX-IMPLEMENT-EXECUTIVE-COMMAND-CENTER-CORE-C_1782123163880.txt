@@ -1,0 +1,231 @@
+SPRINT 8B-FIX — IMPLEMENT EXECUTIVE COMMAND CENTER CORE
+
+Checkpoint found Sprint 8B was not implemented.
+
+Do not start Sprint 8C.
+
+Implement Sprint 8B correctly.
+
+====================================================
+A. FIX PRE-EXISTING TYPECHECK BLOCKER
+=====================================
+
+Fix 18 TypeScript errors in:
+
+artifacts/api-server/src/routes/training.ts
+
+Error pattern:
+Argument of type 'string | string[]' is not assignable to parameter of type 'string'.
+
+Apply safe helper:
+
+function firstParam(value: string | string[] | undefined): string | undefined {
+return Array.isArray(value) ? value[0] : value;
+}
+
+Do not change business logic.
+
+Typecheck must be clean before closing Sprint 8B-Fix.
+
+====================================================
+B. DATABASE
+===========
+
+Create Supabase table:
+
+executive_refresh_logs
+
+Fields:
+
+* id serial primary key
+* company_id text not null default 'default'
+* section_name text not null
+* status text not null
+* duration_ms integer
+* rows_processed integer default 0
+* error_message text
+* created_at timestamptz default now()
+
+Use migration script:
+scripts/migrate-sprint-8b.mjs
+
+Do not use executeSql.
+
+====================================================
+C. BACKEND API
+==============
+
+Create new route file:
+
+artifacts/api-server/src/routes/executive-command.ts
+
+Register in routes/index.ts under:
+
+/api/executive
+
+Implement endpoints:
+
+GET /api/executive/kpis
+GET /api/executive/alerts
+GET /api/executive/readiness
+GET /api/executive/financial-protection
+GET /api/executive/refresh-health
+
+RBAC:
+owner, company_admin, super_admin only.
+
+Important:
+Do not reuse /api/executive/intelligence as replacement.
+That endpoint belongs to old Sprint 6D.
+
+====================================================
+D. API LOGIC
+============
+
+1. KPIs:
+
+* total active tasks
+* high risk customers
+* high risk vendors
+* high risk fleet units
+* pending approvals
+* projected margin risk
+* duplicate purchase risk
+* average fleet cost per KM
+
+2. Alerts:
+
+* overdue tasks
+* expiring fleet documents
+* vendor risk alerts
+* duplicate purchase alerts
+* margin below floor alerts
+* fleet fuel anomalies
+* AI low confidence alerts
+
+Return sorted by:
+CRITICAL > HIGH > MEDIUM > LOW
+
+3. Readiness:
+   Return exactly 5 modules:
+
+* Customer Memory
+* Vendor Memory
+* Purchasing
+* Fleet
+* Driver Memory
+
+Each includes:
+score
+status
+lastRefresh
+staleCount
+totalCount
+
+4. Financial Protection:
+   Return:
+
+* estimated savings
+* prevented duplicates
+* prevented low-margin purchases
+* vendor optimization opportunities
+* fleet cost savings opportunities
+
+Return monthly and all_time.
+
+5. Refresh Health:
+   Return:
+
+* section_name
+* last_success
+* last_failure
+* duration_ms
+* status
+
+====================================================
+E. FRONTEND
+===========
+
+Create page:
+
+artifacts/ai-task-center/src/pages/executive-command.tsx
+
+Route:
+
+/executive-command
+
+Panels:
+
+1. Executive KPI Grid
+2. Operational Alerts
+3. Intelligence Readiness
+4. Financial Protection
+5. Refresh Health
+
+Desktop-first layout.
+Empty state safe.
+Stale badge safe.
+No crash if tables empty.
+
+====================================================
+F. SIDEBAR
+==========
+
+Add sidebar entry:
+
+Command Center
+
+Icon:
+Zap
+
+Visible only to:
+owner
+company_admin
+super_admin
+
+Do not show to:
+supervisor
+staff
+vendor
+
+====================================================
+G. RBAC VALIDATION
+==================
+
+Test:
+
+super_admin can access
+company_admin can access
+owner can access
+supervisor cannot access
+staff cannot access
+
+API endpoints must return 403 for forbidden roles.
+
+====================================================
+H. VALIDATION
+=============
+
+Run:
+
+1. migration success
+2. backend typecheck
+3. frontend typecheck
+4. server start
+5. GET /api/executive/kpis
+6. GET /api/executive/alerts
+7. GET /api/executive/readiness
+8. GET /api/executive/financial-protection
+9. GET /api/executive/refresh-health
+10. frontend /executive-command loads
+11. sidebar Command Center visible only to allowed roles
+
+Output:
+
+* files created
+* endpoints created
+* route status
+* RBAC test
+* typecheck result
+* readiness score
+* GO / NO-GO for Sprint 8C

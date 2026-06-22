@@ -40,6 +40,7 @@ import CustomerMemoryPage from "@/pages/customer-memory";
 import VendorsPage from "@/pages/vendors";
 import VendorMemoryPage from "@/pages/vendor-memory";
 import ExecutiveIntelligencePage from "@/pages/executive-intelligence";
+import ExecutiveCommandPage from "@/pages/executive-command";
 import PurchasingIntelligencePage from "@/pages/purchasing-intelligence";
 import FleetUnitsPage from "@/pages/fleet-units";
 import FleetUnitDetailPage from "@/pages/fleet-unit-detail";
@@ -109,6 +110,7 @@ function AppRouter() {
         <Route path="/vendors/:id/memory" component={VendorMemoryPage} />
         <Route path="/purchasing-intelligence" component={PurchasingIntelligencePage} />
         <Route path="/executive-intelligence" component={ExecutiveIntelligencePage} />
+        <Route path="/executive-command" component={ExecutiveCommandPage} />
         <Route path="/fleet/dashboard" component={FleetDashboardPage} />
         <Route path="/fleet/risk" component={FleetRiskPage} />
         <Route path="/fleet/cost" component={FleetCostPage} />

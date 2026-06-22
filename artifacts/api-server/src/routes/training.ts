@@ -36,6 +36,12 @@ import { openai } from "../lib/openai";
 
 const router: IRouter = Router();
 
+// ── Express 5 params helper ────────────────────────────────────────────────────
+// req.params values may be string | string[] in @types/express v5
+function firstParam(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
 // ══════════════════════════════════════════════════════════════════════════════
 // CORRECTION QUEUE
 // ══════════════════════════════════════════════════════════════════════════════
@@ -85,7 +91,7 @@ router.get("/training/corrections/pending-count", requireAuth, async (req: Reque
 // GET /training/corrections/task/:taskId
 router.get("/training/corrections/task/:taskId", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
-    const taskId = parseInt(req.params.taskId, 10);
+    const taskId = parseInt(firstParam(req.params["taskId"]) ?? "", 10);
     const companyId = getCompanyId(req) ?? "default";
     const rows = await db.select().from(correctionQueueTable)
       .where(and(eq(correctionQueueTable.taskId, taskId), eq(correctionQueueTable.companyId, companyId)))
@@ -100,7 +106,7 @@ router.get("/training/corrections/task/:taskId", requireAuth, async (req: Reques
 // GET /training/corrections/:id
 router.get("/training/corrections/:id", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id = parseInt(firstParam(req.params["id"]) ?? "", 10);
     const [row] = await db.select().from(correctionQueueTable).where(eq(correctionQueueTable.id, id));
     if (!row) { res.status(404).json({ error: "Koreksi tidak ditemukan" }); return; }
     res.json(row);
@@ -155,7 +161,7 @@ router.post("/training/corrections", requireAuth, async (req: Request, res: Resp
 // PATCH /training/corrections/:id/archive  (company_admin+)
 router.patch("/training/corrections/:id/archive", requireAuth, requireRole("company_admin"), async (req: Request, res: Response): Promise<void> => {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id = parseInt(firstParam(req.params["id"]) ?? "", 10);
     const [row] = await db.update(correctionQueueTable)
       .set({ status: "archived" })
       .where(eq(correctionQueueTable.id, id))
@@ -295,7 +301,7 @@ router.get("/training/dataset", requireAuth, async (req: Request, res: Response)
 // GET /training/dataset/:id
 router.get("/training/dataset/:id", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id = parseInt(firstParam(req.params["id"]) ?? "", 10);
     const [row] = await db.select().from(trainingDatasetTable).where(eq(trainingDatasetTable.id, id));
     if (!row) { res.status(404).json({ error: "Record tidak ditemukan" }); return; }
     res.json(row);
@@ -307,7 +313,7 @@ router.get("/training/dataset/:id", requireAuth, async (req: Request, res: Respo
 // PATCH /training/dataset/:id/split  (company_admin+)
 router.patch("/training/dataset/:id/split", requireAuth, requireRole("company_admin"), async (req: Request, res: Response): Promise<void> => {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id = parseInt(firstParam(req.params["id"]) ?? "", 10);
     const { splitTag } = req.body as { splitTag: string };
     if (!["train", "validation", "test"].includes(splitTag)) {
       res.status(400).json({ error: "splitTag harus: train, validation, atau test" }); return;
@@ -322,7 +328,7 @@ router.patch("/training/dataset/:id/split", requireAuth, requireRole("company_ad
 // PATCH /training/dataset/:id/exclude  (company_admin+)
 router.patch("/training/dataset/:id/exclude", requireAuth, requireRole("company_admin"), async (req: Request, res: Response): Promise<void> => {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id = parseInt(firstParam(req.params["id"]) ?? "", 10);
     const [row] = await db.update(trainingDatasetTable).set({ isActive: false }).where(eq(trainingDatasetTable.id, id)).returning();
     res.json(row);
   } catch (err) {
@@ -605,7 +611,7 @@ router.post("/training/prompt-versions", requireAuth, requireRole("company_admin
 // GET /training/prompt-versions/:id
 router.get("/training/prompt-versions/:id", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id = parseInt(firstParam(req.params["id"]) ?? "", 10);
     const [row] = await db.select().from(promptVersionsTable).where(eq(promptVersionsTable.id, id));
     if (!row) { res.status(404).json({ error: "Prompt version tidak ditemukan" }); return; }
     res.json(row);
@@ -617,7 +623,7 @@ router.get("/training/prompt-versions/:id", requireAuth, async (req: Request, re
 // PATCH /training/prompt-versions/:id  (company_admin+, draft only)
 router.patch("/training/prompt-versions/:id", requireAuth, requireRole("company_admin"), async (req: Request, res: Response): Promise<void> => {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id = parseInt(firstParam(req.params["id"]) ?? "", 10);
     const [existing] = await db.select().from(promptVersionsTable).where(eq(promptVersionsTable.id, id));
     if (!existing) { res.status(404).json({ error: "Tidak ditemukan" }); return; }
     if (existing.status !== "draft") { res.status(400).json({ error: "Hanya draft yang bisa diedit" }); return; }
@@ -639,7 +645,7 @@ router.patch("/training/prompt-versions/:id", requireAuth, requireRole("company_
 // POST /training/prompt-versions/:id/promote  (company_admin for draft→testing; super_admin for testing→active)
 router.post("/training/prompt-versions/:id/promote", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id = parseInt(firstParam(req.params["id"]) ?? "", 10);
     const user = (req as Request & { user?: { email: string; role: string } }).user;
     const role = user?.role ?? "supervisor";
     const companyId = getCompanyIdForWrite(req);
@@ -693,7 +699,7 @@ router.post("/training/prompt-versions/:id/promote", requireAuth, async (req: Re
 // POST /training/prompt-versions/:id/archive  (super_admin)
 router.post("/training/prompt-versions/:id/archive", requireAuth, requireRole("super_admin"), async (req: Request, res: Response): Promise<void> => {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id = parseInt(firstParam(req.params["id"]) ?? "", 10);
     const user = (req as Request & { user?: { email: string } }).user;
     const [row] = await db.update(promptVersionsTable)
       .set({ status: "archived", archivedAt: new Date(), archivedBy: user?.email ?? "system", updatedAt: new Date() })
@@ -710,7 +716,7 @@ router.post("/training/prompt-versions/:id/archive", requireAuth, requireRole("s
 // Shadow-run the prompt against validation dataset records
 router.post("/training/prompt-versions/:id/run-test", requireAuth, requireRole("company_admin"), async (req: Request, res: Response): Promise<void> => {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id = parseInt(firstParam(req.params["id"]) ?? "", 10);
     const [version] = await db.select().from(promptVersionsTable).where(eq(promptVersionsTable.id, id));
     if (!version) { res.status(404).json({ error: "Tidak ditemukan" }); return; }
     if (version.status !== "testing") { res.status(400).json({ error: "Hanya version dengan status testing yang bisa diuji" }); return; }
@@ -773,7 +779,7 @@ router.post("/training/prompt-versions/:id/run-test", requireAuth, requireRole("
 // GET /training/prompt-versions/:id/test-results
 router.get("/training/prompt-versions/:id/test-results", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id = parseInt(firstParam(req.params["id"]) ?? "", 10);
     const rows = await db.select().from(promptTestResultsTable)
       .where(eq(promptTestResultsTable.promptVersionId, id))
       .orderBy(desc(promptTestResultsTable.runAt))
@@ -819,7 +825,7 @@ router.post("/training/experiments", requireAuth, requireRole("company_admin"), 
 // GET /training/experiments/:id
 router.get("/training/experiments/:id", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id = parseInt(firstParam(req.params["id"]) ?? "", 10);
     const [row] = await db.select().from(aiExperimentsTable).where(eq(aiExperimentsTable.id, id));
     if (!row) { res.status(404).json({ error: "Eksperimen tidak ditemukan" }); return; }
     res.json(row);
@@ -831,7 +837,7 @@ router.get("/training/experiments/:id", requireAuth, async (req: Request, res: R
 // POST /training/experiments/:id/start  (super_admin)
 router.post("/training/experiments/:id/start", requireAuth, requireRole("super_admin"), async (req: Request, res: Response): Promise<void> => {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id = parseInt(firstParam(req.params["id"]) ?? "", 10);
     const [row] = await db.update(aiExperimentsTable)
       .set({ status: "running", startedAt: new Date(), updatedAt: new Date() })
       .where(and(eq(aiExperimentsTable.id, id), eq(aiExperimentsTable.status, "draft")))
@@ -846,7 +852,7 @@ router.post("/training/experiments/:id/start", requireAuth, requireRole("super_a
 // POST /training/experiments/:id/pause  (company_admin+)
 router.post("/training/experiments/:id/pause", requireAuth, requireRole("company_admin"), async (req: Request, res: Response): Promise<void> => {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id = parseInt(firstParam(req.params["id"]) ?? "", 10);
     const [row] = await db.update(aiExperimentsTable)
       .set({ status: "paused", updatedAt: new Date() })
       .where(and(eq(aiExperimentsTable.id, id), eq(aiExperimentsTable.status, "running")))
@@ -861,7 +867,7 @@ router.post("/training/experiments/:id/pause", requireAuth, requireRole("company
 // POST /training/experiments/:id/conclude  (super_admin)
 router.post("/training/experiments/:id/conclude", requireAuth, requireRole("super_admin"), async (req: Request, res: Response): Promise<void> => {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id = parseInt(firstParam(req.params["id"]) ?? "", 10);
     const user = (req as Request & { user?: { email: string } }).user;
     const { conclusion, conclusionNotes } = req.body as { conclusion: string; conclusionNotes?: string };
     if (!["challenger_wins", "control_wins", "inconclusive"].includes(conclusion)) {
@@ -881,7 +887,7 @@ router.post("/training/experiments/:id/conclude", requireAuth, requireRole("supe
 // GET /training/experiments/:id/results
 router.get("/training/experiments/:id/results", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id = parseInt(firstParam(req.params["id"]) ?? "", 10);
     const [result] = await db.select().from(experimentResultsTable).where(eq(experimentResultsTable.experimentId, id));
 
     // Also compute live from observations if no stored result
@@ -915,7 +921,7 @@ router.get("/training/experiments/:id/results", requireAuth, async (req: Request
 // GET /training/experiments/:id/observations
 router.get("/training/experiments/:id/observations", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
-    const id = parseInt(req.params.id, 10);
+    const id = parseInt(firstParam(req.params["id"]) ?? "", 10);
     const { group } = req.query as { group?: string };
     const rows = await db.select().from(experimentObservationsTable)
       .where(and(

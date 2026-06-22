@@ -38,6 +38,7 @@ import purchasingBudgetRouter from "./purchasing-budget";
 import purchasingMarginRouter from "./purchasing-margin";
 import purchasingApprovalRouter from "./purchasing-approval";
 import executiveIntelligenceRouter from "./executive-intelligence";
+import executiveCommandRouter from "./executive-command";
 import fleetUnitsRouter from "./fleet-units";
 import fleetDriversRouter from "./fleet-drivers";
 import fleetDocumentsRouter from "./fleet-documents";
@@ -99,6 +100,8 @@ router.use(purchasingBudgetRouter);
 router.use(purchasingMarginRouter);
 router.use(purchasingApprovalRouter);
 router.use(executiveIntelligenceRouter);
+// ── Sprint 8B — Executive Command Center ──────────────────────────────────────
+router.use(executiveCommandRouter);
 // ── Sprint 7B — Fleet Foundation ──────────────────────────────────────────────
 router.use(fleetUnitsRouter);
 router.use(fleetDriversRouter);

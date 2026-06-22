@@ -42,6 +42,7 @@ import {
   Droplets,
   Package,
   Navigation,
+  Zap,
 } from "lucide-react";
 import { NotificationsBell } from "@/components/notifications-bell";
 import { useAuth } from "@/contexts/auth-context";
@@ -76,6 +77,9 @@ export function AppLayout({ children }: { children: ReactNode }) {
     { name: "Utilisasi",       href: "/fleet/utilization",     icon: Navigation },
     { name: "Purchasing",  href: "/purchasing-intelligence", icon: ShoppingCart },
     { name: "Exec Intelligence", href: "/executive-intelligence", icon: Sparkles },
+    ...(user?.role === "super_admin" || user?.role === "company_admin"
+      ? [{ name: "Command Center", href: "/executive-command", icon: Zap }]
+      : []),
     { name: "Quotation",   href: "/quotations",        icon: DollarSign },
     { name: "Laporan",     href: "/reports",           icon: TrendingUp },
     { name: "Notifikasi",  href: "/notifications",     icon: Bell },
