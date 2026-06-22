@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useRoute } from "wouter";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { 
   useGetTask, getGetTaskQueryKey,
   useUpdateTask,
@@ -11,7 +11,8 @@ import {
   useGenerateTaskAiSummary,
 } from "@workspace/api-client-react";
 import { TaskUpdateStatus, TaskUpdatePriority } from "@workspace/api-zod";
-import { format } from "date-fns";
+import { format, formatDistanceToNow } from "date-fns";
+import { id as localeId } from "date-fns/locale";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,8 +20,262 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, Clock, User, Tag, AlertCircle, Trash2, Activity, MessageSquare, Sparkles, TriangleAlert, Lightbulb, RefreshCw } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { ArrowLeft, Clock, User, Tag, AlertCircle, Trash2, Activity, MessageSquare, Sparkles, TriangleAlert, Lightbulb, RefreshCw, FileCheck, CheckCircle2, XCircle, ChevronDown, ChevronRight } from "lucide-react";
 import { Link, useLocation } from "wouter";
+import { getStoredToken } from "@/lib/auth-api";
+
+// ─── Document Validation Panel ────────────────────────────────────────────────
+
+interface DocumentAudit {
+  id: number;
+  documentType: string;
+  fileName: string;
+  fileUrl: string;
+  validationStatus: "valid" | "incomplete" | "invalid" | "needs_review";
+  confidenceScore: string;
+  missingFields: string[];
+  issueSummary: string | null;
+  aiNotes: string | null;
+  extractedFields: Record<string, unknown>;
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+  createdAt: string;
+}
+
+const VAL_STATUS_CONFIG = {
+  valid:        { label: "Valid",         icon: CheckCircle2, cls: "bg-green-100 text-green-800" },
+  incomplete:   { label: "Tidak Lengkap", icon: AlertCircle,  cls: "bg-yellow-100 text-yellow-800" },
+  invalid:      { label: "Tidak Valid",   icon: XCircle,      cls: "bg-red-100 text-red-800" },
+  needs_review: { label: "Perlu Review",  icon: Clock,        cls: "bg-blue-100 text-blue-800" },
+};
+
+async function apiFetchWithAuth(path: string, init?: RequestInit) {
+  const token = getStoredToken();
+  const res = await fetch(`/api${path}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(init?.headers ?? {}),
+    },
+  });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? res.statusText);
+  return res.json();
+}
+
+function AuditRow({ audit, onReview }: { audit: DocumentAudit; onReview: (a: DocumentAudit) => void }) {
+  const [expanded, setExpanded] = useState(false);
+  const cfg = VAL_STATUS_CONFIG[audit.validationStatus] ?? VAL_STATUS_CONFIG.needs_review;
+  const Icon = cfg.icon;
+  const docLabel = audit.documentType.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  const confidence = Math.round(parseFloat(audit.confidenceScore) * 100);
+
+  return (
+    <div className="border rounded-lg overflow-hidden">
+      <div
+        className="flex items-start gap-3 p-3 cursor-pointer hover:bg-muted/40 transition-colors"
+        onClick={() => setExpanded(!expanded)}
+      >
+        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${cfg.cls} shrink-0 mt-0.5`}>
+          <Icon className="h-3 w-3" />
+          {cfg.label}
+        </span>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium truncate">{docLabel}</p>
+          <p className="text-xs text-muted-foreground truncate">{audit.fileName}</p>
+        </div>
+        <div className="text-xs text-muted-foreground shrink-0">{confidence}%</div>
+        {expanded ? <ChevronDown className="h-4 w-4 text-muted-foreground shrink-0" /> : <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />}
+      </div>
+
+      {expanded && (
+        <div className="px-3 pb-3 space-y-3 border-t bg-muted/20">
+          {audit.missingFields.length > 0 && (
+            <div className="pt-3">
+              <p className="text-xs font-semibold text-amber-700 mb-1">Field Tidak Lengkap</p>
+              <div className="flex flex-wrap gap-1">
+                {audit.missingFields.map((f) => (
+                  <span key={f} className="px-1.5 py-0.5 bg-amber-100 text-amber-800 rounded text-xs">{f.replace(/_/g, " ")}</span>
+                ))}
+              </div>
+            </div>
+          )}
+          {audit.issueSummary && (
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground mb-0.5">Ringkasan Masalah</p>
+              <p className="text-xs">{audit.issueSummary}</p>
+            </div>
+          )}
+          {audit.aiNotes && (
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground mb-0.5">Catatan AI</p>
+              <p className="text-xs text-muted-foreground">{audit.aiNotes}</p>
+            </div>
+          )}
+          {Object.keys(audit.extractedFields).length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground mb-1">Field Terekstrak</p>
+              <div className="grid grid-cols-2 gap-x-3 gap-y-0.5">
+                {Object.entries(audit.extractedFields).map(([k, v]) => (
+                  v != null && (
+                    <div key={k} className="flex gap-1 text-xs">
+                      <span className="text-muted-foreground truncate">{k.replace(/_/g, " ")}:</span>
+                      <span className="font-medium truncate">{String(v)}</span>
+                    </div>
+                  )
+                ))}
+              </div>
+            </div>
+          )}
+          {audit.reviewedBy && (
+            <p className="text-xs text-muted-foreground">
+              Direview oleh <strong>{audit.reviewedBy}</strong>
+              {audit.reviewedAt && ` · ${formatDistanceToNow(new Date(audit.reviewedAt), { addSuffix: true, locale: localeId })}`}
+            </p>
+          )}
+          <div className="flex gap-2 pt-1">
+            <Button size="sm" variant="outline" className="h-7 text-xs" asChild>
+              <a href={audit.fileUrl} target="_blank" rel="noreferrer">Lihat File</a>
+            </Button>
+            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => onReview(audit)}>
+              Review / Override
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ReviewOverrideDialog({
+  audit,
+  onClose,
+  onSaved,
+}: {
+  audit: DocumentAudit;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const { toast } = useToast();
+  const [status, setStatus] = useState<DocumentAudit["validationStatus"]>(audit.validationStatus);
+  const [note, setNote] = useState(audit.issueSummary ?? "");
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await apiFetchWithAuth(`/documents/audits/${audit.id}/review`, {
+        method: "PATCH",
+        body: JSON.stringify({ validationStatus: status, issueSummary: note }),
+      });
+      toast({ title: "Review disimpan" });
+      onSaved();
+      onClose();
+    } catch {
+      toast({ title: "Gagal menyimpan review", variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Review Dokumen</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="space-y-1.5">
+            <Label>Override Status</Label>
+            <Select value={status} onValueChange={(v) => setStatus(v as DocumentAudit["validationStatus"])}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="valid">Valid</SelectItem>
+                <SelectItem value="incomplete">Tidak Lengkap</SelectItem>
+                <SelectItem value="invalid">Tidak Valid</SelectItem>
+                <SelectItem value="needs_review">Perlu Review</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Catatan Review</Label>
+            <Textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="Tulis catatan review..."
+              rows={3}
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Batal</Button>
+          <Button onClick={handleSave} disabled={saving}>
+            {saving ? "Menyimpan..." : "Simpan Review"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function DocumentValidationPanel({ taskId }: { taskId: number }) {
+  const queryClient = useQueryClient();
+  const [reviewAudit, setReviewAudit] = useState<DocumentAudit | null>(null);
+
+  const { data, isLoading } = useQuery<{ data: DocumentAudit[] }>({
+    queryKey: ["task-doc-audits", taskId],
+    queryFn: () => apiFetchWithAuth(`/documents/audits?taskId=${taskId}`),
+    enabled: !!taskId,
+  });
+
+  const audits = data?.data ?? [];
+
+  return (
+    <Card className="border-violet-200 bg-violet-50/30">
+      <CardHeader className="pb-3">
+        <CardTitle className="flex items-center gap-2 text-violet-700 text-base">
+          <FileCheck className="h-4 w-4" />
+          Validasi Dokumen
+          {audits.length > 0 && (
+            <span className="ml-auto text-xs font-normal bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full">
+              {audits.length} dokumen
+            </span>
+          )}
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="space-y-2">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        ) : audits.length === 0 ? (
+          <p className="text-sm text-violet-600/70 italic">
+            Belum ada dokumen yang divalidasi untuk task ini.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {audits.map((a) => (
+              <AuditRow key={a.id} audit={a} onReview={setReviewAudit} />
+            ))}
+          </div>
+        )}
+      </CardContent>
+      {reviewAudit && (
+        <ReviewOverrideDialog
+          audit={reviewAudit}
+          onClose={() => setReviewAudit(null)}
+          onSaved={() => queryClient.invalidateQueries({ queryKey: ["task-doc-audits", taskId] })}
+        />
+      )}
+    </Card>
+  );
+}
+
+// ─── AI Summary Card ──────────────────────────────────────────────────────────
 
 interface AiSummaryResult {
   summary: string;
@@ -223,6 +478,8 @@ export default function TaskDetail() {
       ) : task ? (
         <div className="space-y-6">
           <AiSummaryCard taskId={id} />
+
+          <DocumentValidationPanel taskId={id} />
 
           <div className="grid gap-6 md:grid-cols-3">
             <div className="md:col-span-2 space-y-6">

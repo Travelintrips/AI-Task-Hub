@@ -129,6 +129,113 @@ if (supabasePool) {
   `)
   .then(() => logger.info("Sprint 9A startup migrations OK"))
   .catch((err: unknown) => logger.warn({ err }, "Sprint 9A startup migration warning (may already exist)"));
+
+  // ── Sprint 9C startup migrations (idempotent) ─────────────────────────────
+  supabasePool.query(`
+    CREATE TABLE IF NOT EXISTS document_intake_audits (
+      id                SERIAL PRIMARY KEY,
+      company_id        TEXT NOT NULL DEFAULT 'default',
+      task_id           INTEGER,
+      intake_session_id INTEGER,
+      customer_id       INTEGER,
+      vendor_id         INTEGER,
+      fleet_unit_id     INTEGER,
+      document_type     TEXT NOT NULL,
+      file_name         TEXT NOT NULL,
+      file_url          TEXT NOT NULL,
+      object_path       TEXT,
+      extracted_fields  JSONB NOT NULL DEFAULT '{}',
+      required_fields   JSONB NOT NULL DEFAULT '[]',
+      missing_fields    TEXT[] NOT NULL DEFAULT '{}',
+      validation_status TEXT NOT NULL DEFAULT 'needs_review',
+      confidence_score  NUMERIC(5,4) NOT NULL DEFAULT 0,
+      issue_summary     TEXT,
+      ai_notes          TEXT,
+      reviewed_by       TEXT,
+      reviewed_at       TIMESTAMPTZ,
+      created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS doc_intake_audits_company_idx ON document_intake_audits(company_id);
+    CREATE INDEX IF NOT EXISTS doc_intake_audits_task_idx    ON document_intake_audits(task_id);
+    CREATE INDEX IF NOT EXISTS doc_intake_audits_session_idx ON document_intake_audits(intake_session_id);
+    CREATE INDEX IF NOT EXISTS doc_intake_audits_status_idx  ON document_intake_audits(validation_status);
+    CREATE INDEX IF NOT EXISTS doc_intake_audits_type_idx    ON document_intake_audits(document_type);
+
+    CREATE TABLE IF NOT EXISTS document_validation_rules (
+      id                SERIAL PRIMARY KEY,
+      company_id        TEXT NOT NULL DEFAULT 'default',
+      document_type     TEXT NOT NULL,
+      intent_code       TEXT,
+      required_fields   TEXT[] NOT NULL DEFAULT '{}',
+      optional_fields   TEXT[] NOT NULL DEFAULT '{}',
+      validation_prompt TEXT,
+      is_active         TEXT NOT NULL DEFAULT 'true',
+      created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS doc_validation_rules_company_idx ON document_validation_rules(company_id);
+    CREATE INDEX IF NOT EXISTS doc_validation_rules_type_idx    ON document_validation_rules(document_type);
+
+    INSERT INTO document_validation_rules (company_id, document_type, required_fields, optional_fields, validation_prompt, is_active)
+    SELECT 'default', r.doc_type, r.req_fields, r.opt_fields, r.prompt, 'true'
+    FROM (VALUES
+      ('commercial_invoice',   ARRAY['invoice_number','invoice_date','seller_name','buyer_name','total_amount','currency','item_description'],
+                               ARRAY['payment_terms','incoterms','port_of_loading','port_of_discharge'],
+                               'Ini adalah Commercial Invoice ekspor/impor. Ekstrak: nomor invoice, tanggal, nama penjual, nama pembeli, total nilai, mata uang, deskripsi barang.'),
+      ('packing_list',         ARRAY['packing_list_number','shipper_name','consignee_name','total_packages','total_gross_weight','total_net_weight'],
+                               ARRAY['marks_and_numbers','package_type','dimensions'],
+                               'Ini adalah Packing List. Ekstrak: nomor packing list, nama shipper, nama consignee, jumlah kemasan, berat bruto total, berat neto total.'),
+      ('bl_awb',               ARRAY['bl_number','shipper_name','consignee_name','port_of_loading','port_of_discharge','description_of_goods'],
+                               ARRAY['vessel_name','voyage_number','notify_party','freight_terms'],
+                               'Ini adalah Bill of Lading atau Airway Bill. Ekstrak: nomor B/L atau AWB, shipper, consignee, pelabuhan muat, pelabuhan bongkar, deskripsi barang.'),
+      ('hs_code',              ARRAY['hs_code','product_description'],
+                               ARRAY['country_of_origin','chapter','heading'],
+                               'Ini adalah dokumen HS Code. Ekstrak: kode HS (minimal 6 digit), deskripsi produk.'),
+      ('msds',                 ARRAY['product_name','manufacturer','hazard_classification','handling_instructions','emergency_contact'],
+                               ARRAY['un_number','flash_point','storage_conditions'],
+                               'Ini adalah Material Safety Data Sheet (MSDS/SDS). Ekstrak: nama produk, produsen, klasifikasi bahaya, instruksi penanganan, kontak darurat.'),
+      ('damage_photo',         ARRAY['damage_visible','photo_description'],
+                               ARRAY['location','item_damaged','severity'],
+                               'Ini adalah foto kerusakan barang/kargo. Pastikan foto menunjukkan kerusakan yang jelas. Deskripsikan: jenis kerusakan, lokasi, tingkat keparahan.'),
+      ('stnk',                 ARRAY['plate_number','vehicle_type','owner_name','expiry_date'],
+                               ARRAY['engine_number','chassis_number','color'],
+                               'Ini adalah STNK kendaraan. Ekstrak: nomor plat, jenis kendaraan, nama pemilik, tanggal kadaluarsa.'),
+      ('kir',                  ARRAY['vehicle_plate','inspection_date','expiry_date','inspection_result'],
+                               ARRAY['inspector_name','vehicle_type'],
+                               'Ini adalah KIR (Kartu Uji Berkala) kendaraan. Ekstrak: nomor plat, tanggal inspeksi, tanggal kadaluarsa, hasil inspeksi.'),
+      ('insurance',            ARRAY['policy_number','insured_name','coverage_amount','start_date','end_date'],
+                               ARRAY['insurance_company','coverage_type','premium'],
+                               'Ini adalah polis asuransi. Ekstrak: nomor polis, nama tertanggung, nilai pertanggungan, tanggal mulai, tanggal berakhir.'),
+      ('fuel_receipt',         ARRAY['transaction_date','fuel_type','quantity_liters','total_amount','station_name'],
+                               ARRAY['vehicle_plate','driver_name','price_per_liter'],
+                               'Ini adalah struk/nota BBM. Ekstrak: tanggal transaksi, jenis BBM, jumlah liter, total harga, nama SPBU.'),
+      ('maintenance_invoice',  ARRAY['invoice_number','invoice_date','workshop_name','vehicle_plate','total_amount','service_description'],
+                               ARRAY['parts_replaced','labor_cost','parts_cost','warranty_period'],
+                               'Ini adalah invoice bengkel/perawatan kendaraan. Ekstrak: nomor invoice, tanggal, nama bengkel, nomor plat, total biaya, deskripsi layanan.'),
+      ('cash_advance_receipt', ARRAY['receipt_date','recipient_name','amount','purpose'],
+                               ARRAY['approver_name','reference_number','repayment_deadline'],
+                               'Ini adalah kwitansi kasbon/uang muka. Ekstrak: tanggal, nama penerima, jumlah, keperluan.'),
+      ('vendor_license',       ARRAY['company_name','nib_number','business_type','issue_date'],
+                               ARRAY['expiry_date','address','authorized_signatory'],
+                               'Ini adalah SIUP/NIB/izin usaha vendor. Ekstrak: nama perusahaan, nomor NIB/SIUP, jenis usaha, tanggal terbit.'),
+      ('surat_jalan',          ARRAY['sj_number','sj_date','sender_name','recipient_name','goods_description','destination'],
+                               ARRAY['driver_name','vehicle_plate','quantity','weight'],
+                               'Ini adalah Surat Jalan pengiriman barang. Ekstrak: nomor surat jalan, tanggal, nama pengirim, nama penerima, deskripsi barang, tujuan.'),
+      ('foto_barang',          ARRAY['goods_visible','condition_description'],
+                               ARRAY['quantity_visible','label_visible','damage_notes'],
+                               'Ini adalah foto barang/produk. Pastikan barang terlihat jelas. Deskripsikan: kondisi barang, apakah label terlihat, estimasi jumlah yang terlihat.'),
+      ('draft_pib_peb',        ARRAY['document_type','importer_exporter_name','customs_office','total_value','currency','hs_code'],
+                               ARRAY['consignee','document_date','payment_method','insurance_value'],
+                               'Ini adalah Draft PIB (Pemberitahuan Impor Barang) atau PEB (Pemberitahuan Ekspor Barang). Ekstrak: jenis dokumen, nama importir/eksportir, kantor pabean, nilai total, mata uang, HS Code.')
+    ) AS r(doc_type, req_fields, opt_fields, prompt)
+    WHERE NOT EXISTS (
+      SELECT 1 FROM document_validation_rules dvr
+      WHERE dvr.company_id = 'default' AND dvr.document_type = r.doc_type
+    );
+  `)
+  .then(() => logger.info("Sprint 9C startup migrations OK"))
+  .catch((err: unknown) => logger.warn({ err }, "Sprint 9C startup migration warning (may already exist)"));
 }
 
 export default app;

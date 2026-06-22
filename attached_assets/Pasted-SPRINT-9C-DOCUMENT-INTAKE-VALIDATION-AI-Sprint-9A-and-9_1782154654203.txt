@@ -1,0 +1,261 @@
+SPRINT 9C — DOCUMENT INTAKE & VALIDATION AI
+
+Sprint 9A and 9B are validated.
+
+Goal:
+AI must validate uploaded documents from WhatsApp, mini forms, tasks, fleet, vendor, and purchasing flows.
+
+Do not replace Intake Engine.
+Do not replace Mini Form Router.
+Integrate document validation into existing intake flow.
+
+Scope:
+
+1. Document validation rules
+2. Document audit engine
+3. Upload integration
+4. Intake session document validation
+5. Task document validation panel
+6. WhatsApp reply for missing/invalid documents
+
+====================================================
+A. DATABASE
+====================================================
+
+Verify or create:
+
+document_intake_audits
+document_validation_rules
+
+If tables already exist, do not recreate.
+
+Ensure document_intake_audits has:
+
+- id
+- company_id
+- task_id nullable
+- intake_session_id nullable
+- customer_id nullable
+- vendor_id nullable
+- fleet_unit_id nullable
+- document_type
+- file_name
+- file_url
+- object_path
+- extracted_fields jsonb
+- required_fields jsonb
+- missing_fields text[]
+- validation_status
+- confidence_score
+- issue_summary
+- ai_notes
+- reviewed_by text nullable
+- reviewed_at timestamptz nullable
+- created_at
+- updated_at
+
+Validation status:
+valid
+incomplete
+invalid
+needs_review
+
+====================================================
+B. VALIDATION RULES
+====================================================
+
+Seed or verify rules for:
+
+1. Commercial Invoice
+2. Packing List
+3. BL / AWB
+4. HS Code
+5. MSDS
+6. Damage Photo
+7. STNK
+8. KIR
+9. Insurance
+10. Fuel Receipt
+11. Maintenance Invoice
+12. Cash Advance Receipt
+13. Vendor License / NIB
+14. Surat Jalan
+15. Foto Barang
+16. Draft PIB / PEB
+
+Each rule must include:
+- required_fields
+- optional_fields
+- validation_prompt
+- is_active=true
+
+====================================================
+C. DOCUMENT VALIDATION ENGINE
+====================================================
+
+Create or complete:
+
+src/lib/document-validation-engine.ts
+
+Responsibilities:
+
+1. identify document type
+2. load rule by document_type + intent_code
+3. extract fields using OpenAI vision/OCR
+4. compare extracted_fields vs required_fields
+5. calculate missing_fields
+6. assign validation_status
+7. save document_intake_audits
+8. return result
+
+Rules:
+
+- confidence < 0.65 → needs_review
+- required fields missing → incomplete
+- wrong document type → invalid
+- all required fields found → valid
+
+====================================================
+D. MINI FORM INTEGRATION
+====================================================
+
+When mini form includes file upload:
+
+1. Save file
+2. Call DocumentValidationEngine
+3. Store audit id in uploaded_documents
+4. Update conversation_intake_sessions.uploaded_documents
+5. Recalculate missing documents
+6. If documents incomplete:
+   - keep session active
+   - send WhatsApp reply asking missing documents
+7. If documents valid and fields complete:
+   - create ai_task
+   - attach document audit results
+   - mark session submitted
+
+====================================================
+E. WHATSAPP DOCUMENT INTEGRATION
+====================================================
+
+When WA receives image/document:
+
+1. Check active intake session
+2. Identify expected document types from session
+3. Validate uploaded document
+4. Update session uploaded_documents
+5. Reply to user:
+
+Valid:
+"Dokumen {document_type} sudah diterima dan valid."
+
+Incomplete:
+"Dokumen {document_type} sudah diterima, tetapi data berikut belum terlihat: {missing_fields}. Mohon kirim ulang atau lengkapi."
+
+Invalid:
+"Dokumen yang dikirim belum sesuai dengan {document_type}. Mohon kirim dokumen yang benar."
+
+Needs review:
+"Dokumen sudah diterima dan akan dicek manual oleh admin."
+
+====================================================
+F. TASK DETAIL PANEL
+====================================================
+
+Add Document Validation Panel to task detail.
+
+Show:
+
+- document type
+- file name
+- status
+- confidence
+- missing fields
+- issue summary
+- extracted fields
+- reviewed by
+- reviewed at
+
+Admin actions:
+
+- accept AI validation
+- override status
+- request re-upload
+
+====================================================
+G. ADMIN PAGE
+====================================================
+
+Create or improve:
+
+/document-intake
+
+Tabs:
+
+1. Audit Queue
+2. Valid
+3. Incomplete
+4. Invalid / Needs Review
+5. Rules
+
+Features:
+
+- filter by status
+- filter by document type
+- view extracted fields
+- review/override
+- manage rules
+
+====================================================
+H. RBAC
+====================================================
+
+staff:
+- upload
+- view own audits
+
+supervisor:
+- review validation
+- request re-upload
+
+company_admin:
+- manage rules
+- override validation
+
+super_admin:
+- full access
+
+====================================================
+I. VALIDATION TESTS
+====================================================
+
+Run:
+
+1. Upload valid Commercial Invoice
+2. Upload incomplete Packing List
+3. Upload wrong document type
+4. Upload low-quality damage photo
+5. Upload STNK with expiry date
+6. Upload fuel receipt
+7. Upload Surat Jalan
+8. Upload Draft PIB / PEB
+9. Mini form upload triggers validation
+10. WA document upload triggers validation
+11. Incomplete document triggers WA reply
+12. Valid document allows intake completion
+13. Admin override works
+14. Rule CRUD works
+15. Task detail panel shows audit
+
+Output:
+
+- tables verified/created
+- rules seeded
+- engine implemented
+- endpoints created
+- frontend pages/panels
+- WA reply samples
+- validation result
+- typecheck result
+- readiness score
+- GO/NO-GO for Sprint 9D

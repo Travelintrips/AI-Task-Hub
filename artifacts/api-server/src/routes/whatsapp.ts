@@ -18,6 +18,7 @@ import { getOrCreateCustomerContext, updateCustomerContextAfterTask } from "../l
 import { createAdminNotification } from "../lib/admin-notifications";
 import { emitSseEvent } from "../lib/sse";
 import { sendFonnte } from "../lib/fonnte";
+import { validateDocument } from "../lib/document-validation-engine";
 import {
   findActiveIntakeSession,
   processIntakeMessage,
@@ -448,6 +449,28 @@ async function runAiDetection({
       let effectiveText = bodyText;
       if ((messageType === "image" || messageType === "document") && effectiveAttachmentUrl) {
         effectiveText = bodyText.startsWith("[") ? `[Dokumen dikirim]` : bodyText;
+
+        // Sprint 9C: validate document in background, send WA reply for validation status
+        const fileNameFromUrl = effectiveAttachmentUrl.split("/").pop()?.split("?")[0] ?? `doc_${Date.now()}`;
+        const docType = resolveDocumentType(
+          messageType === "image" ? "image" : undefined,
+          fileNameFromUrl,
+        );
+        validateDocument({
+          companyId,
+          documentType: docType,
+          fileName: fileNameFromUrl,
+          fileUrl: effectiveAttachmentUrl,
+          intakeSessionId: activeSession.id,
+        }).then((valResult) => {
+          sendFonnte(from, valResult.waReply).catch((e) =>
+            logger.warn({ e }, "intake: failed to send document validation WA reply"),
+          );
+          logger.info(
+            { sessionId: activeSession.id, docType, status: valResult.validationStatus },
+            "Sprint 9C: document validated in intake session",
+          );
+        }).catch((err) => logger.warn({ err }, "Sprint 9C: document validation failed (intake)"));
       }
 
       const intakeResult = await processIntakeMessage({
@@ -618,13 +641,37 @@ async function runAiDetection({
       return;
     }
 
-    // Non-text attachments without caption: check if inside intake session first (handled above), else flag
-    if ((messageType === "image" || messageType === "sticker") && bodyText.startsWith("[")) {
-      logger.info({ msgId: savedMsgId }, "Image/sticker without text — flagged as attachment_submission");
+    // Non-text attachments without caption: validate document then flag
+    if ((messageType === "image" || messageType === "sticker" || messageType === "document") && bodyText.startsWith("[")) {
+      logger.info({ msgId: savedMsgId }, "Image/document without text — validating and flagging as attachment_submission");
       await db
         .update(whatsappMessagesTable)
         .set({ aiProcessed: true, detectedIntent: "attachment_submission" })
         .where(eq(whatsappMessagesTable.id, savedMsgId));
+
+      // Sprint 9C: validate the document and reply
+      if (attachmentUrl) {
+        const fileNameFromUrl2 = attachmentUrl.split("/").pop()?.split("?")[0] ?? `doc_${Date.now()}`;
+        const docType = resolveDocumentType(
+          messageType === "image" || messageType === "sticker" ? "image" : undefined,
+          fileNameFromUrl2,
+        );
+        validateDocument({
+          companyId,
+          documentType: docType,
+          fileName: fileNameFromUrl2,
+          fileUrl: attachmentUrl,
+        }).then((valResult) => {
+          sendFonnte(from, valResult.waReply).catch((e) =>
+            logger.warn({ e }, "WA: failed to send document validation reply"),
+          );
+          logger.info(
+            { docType, status: valResult.validationStatus, from },
+            "Sprint 9C: standalone document validated",
+          );
+        }).catch((err) => logger.warn({ err }, "Sprint 9C: document validation failed (standalone)"));
+      }
+
       await createAdminNotification({
         type: "document_uploaded",
         title: "Dokumen Diterima",
