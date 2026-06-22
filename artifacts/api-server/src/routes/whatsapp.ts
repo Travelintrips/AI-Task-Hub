@@ -6,6 +6,7 @@ import {
   aiTasksTable,
   taskAttachmentsTable,
   auditLogsTable,
+  whatsappNotificationsTable,
 } from "@workspace/db";
 import { detectWhatsAppIntent } from "../lib/whatsapp-ai";
 import { createTaskFromWhatsAppMessage } from "../lib/task-service";
@@ -16,6 +17,7 @@ import { logger } from "../lib/logger";
 import { getOrCreateCustomerContext, updateCustomerContextAfterTask } from "../lib/customer-context";
 import { createAdminNotification } from "../lib/admin-notifications";
 import { emitSseEvent } from "../lib/sse";
+import { sendFonnte } from "../lib/fonnte";
 
 const router: IRouter = Router();
 
@@ -610,6 +612,35 @@ async function _notifyForTask({
       type: "new_inquiry",
       title: `Task Baru ${taskLabel}`,
       body: `Task "${taskOutput.title}" dibuat untuk ${customerLabel} (${result.category}).`,
+      taskId: taskOutput.taskId,
+      customerPhone: from,
+      customerName: effectiveName,
+      companyId,
+    });
+  } else if (taskOutput.action === "appended") {
+    // Pesan lanjutan — kirim balasan singkat ke customer & beri tahu admin
+    const ackMsg = `✅ Pesan Anda sudah kami terima dan ditambahkan ke tiket ${taskLabel}.\n\nTim kami akan segera merespons.`;
+    try {
+      const sent = await sendFonnte(from, ackMsg);
+      await db.insert(whatsappNotificationsTable).values({
+        taskId:            taskOutput.taskId,
+        companyId,
+        recipientPhone:    from,
+        recipientType:     "customer",
+        templateName:      "followup_ack",
+        messageText:       ackMsg,
+        status:            sent.success ? "sent" : "failed",
+        externalMessageId: sent.messageId,
+        errorMessage:      sent.error,
+        sentAt:            sent.success ? new Date() : null,
+      }).catch(() => { /* log only */ });
+    } catch (err) {
+      logger.error({ err, from }, "Gagal kirim balasan pesan lanjutan");
+    }
+    await createAdminNotification({
+      type: "new_inquiry",
+      title: `Pesan Lanjutan ${taskLabel}`,
+      body: `${customerLabel} mengirim pesan lanjutan untuk task "${taskOutput.title}".`,
       taskId: taskOutput.taskId,
       customerPhone: from,
       customerName: effectiveName,
