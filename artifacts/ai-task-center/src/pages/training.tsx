@@ -88,15 +88,15 @@ function MetricCard({ label, value, sub }: { label: string; value: string | numb
 function CorrectionQueueTab() {
   const { toast } = useToast();
   const qc = useQueryClient();
-  const [fieldFilter, setFieldFilter] = useState("");
+  const [fieldFilter, setFieldFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("pending");
 
   const { data: corrections = [], isLoading } = useQuery<Correction[]>({
     queryKey: ["training-corrections", fieldFilter, statusFilter],
     queryFn: () => {
       const p = new URLSearchParams({ limit: "100" });
-      if (fieldFilter) p.set("field", fieldFilter);
-      if (statusFilter) p.set("status", statusFilter);
+      if (fieldFilter !== "all") p.set("field", fieldFilter);
+      if (statusFilter && statusFilter !== "all") p.set("status", statusFilter);
       return apiFetch<Correction[]>(`/training/corrections?${p.toString()}`);
     },
   });
@@ -142,7 +142,7 @@ function CorrectionQueueTab() {
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-44"><SelectValue placeholder="Status" /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="">Semua Status</SelectItem>
+            <SelectItem value="all">Semua Status</SelectItem>
             <SelectItem value="pending">Pending</SelectItem>
             <SelectItem value="exported_to_dataset">Diekspor</SelectItem>
             <SelectItem value="archived">Archived</SelectItem>
@@ -151,7 +151,7 @@ function CorrectionQueueTab() {
         <Select value={fieldFilter} onValueChange={setFieldFilter}>
           <SelectTrigger className="w-44"><SelectValue placeholder="Field" /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="">Semua Field</SelectItem>
+            <SelectItem value="all">Semua Field</SelectItem>
             <SelectItem value="intent">Intent</SelectItem>
             <SelectItem value="routing_role">Routing</SelectItem>
             <SelectItem value="priority">Prioritas</SelectItem>
@@ -213,14 +213,14 @@ function DatasetTab() {
   const { user } = useAuth();
   const { toast } = useToast();
   const qc = useQueryClient();
-  const [splitFilter, setSplitFilter] = useState("");
+  const [splitFilter, setSplitFilter] = useState("all");
   const [exporting, setExporting] = useState(false);
 
   const { data: records = [], isLoading } = useQuery<DatasetRecord[]>({
     queryKey: ["training-dataset", splitFilter],
     queryFn: () => {
       const p = new URLSearchParams({ limit: "100" });
-      if (splitFilter) p.set("split_tag", splitFilter);
+      if (splitFilter !== "all") p.set("split_tag", splitFilter);
       return apiFetch<DatasetRecord[]>(`/training/dataset?${p.toString()}`);
     },
   });
@@ -237,7 +237,7 @@ function DatasetTab() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ format, split_tag: splitFilter || undefined }),
+        body: JSON.stringify({ format, split_tag: splitFilter !== "all" ? splitFilter : undefined }),
       });
       if (!res.ok) throw new Error("Export gagal");
       const blob = await res.blob();
@@ -275,7 +275,7 @@ function DatasetTab() {
           <Select value={splitFilter} onValueChange={setSplitFilter}>
             <SelectTrigger className="w-40"><SelectValue placeholder="Split Tag" /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="">Semua</SelectItem>
+              <SelectItem value="all">Semua</SelectItem>
               <SelectItem value="train">Train</SelectItem>
               <SelectItem value="validation">Validation</SelectItem>
               <SelectItem value="test">Test</SelectItem>
