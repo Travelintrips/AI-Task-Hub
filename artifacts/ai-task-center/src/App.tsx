@@ -56,6 +56,8 @@ import FleetRiskPage from "@/pages/fleet-risk";
 import FleetCostPage from "@/pages/fleet-cost";
 import FleetRouteProfitabilityPage from "@/pages/fleet-route-profitability";
 import IntakeSessionsPage from "@/pages/intake-sessions";
+import MiniFormPage from "@/pages/mini-form-page";
+import MiniFormConfigPage from "@/pages/mini-form-config";
 
 const queryClient = new QueryClient();
 
@@ -117,6 +119,7 @@ function AppRouter() {
         <Route path="/fleet/cost" component={FleetCostPage} />
         <Route path="/fleet/route-profitability" component={FleetRouteProfitabilityPage} />
         <Route path="/intake-sessions" component={IntakeSessionsPage} />
+        <Route path="/mini-form-config" component={MiniFormConfigPage} />
         <Route path="/fleet/units/:id" component={FleetUnitDetailPage} />
         <Route path="/fleet/units" component={FleetUnitsPage} />
         <Route path="/fleet/drivers/:id" component={FleetDriverDetailPage} />
@@ -137,6 +140,8 @@ function Router() {
     <Switch>
       <Route path="/mini-task/:taskId/:token" component={MiniTaskForm} />
       <Route path="/customer-data/:taskId/:token" component={CustomerDataForm} />
+      <Route path="/mini-form/preview/:templateId" component={MiniFormPage} />
+      <Route path="/mini-form/:type/:token" component={MiniFormPage} />
       <Route path="/setup" component={Setup} />
       <Route>
         {() => <AppRouter />}

@@ -10,10 +10,13 @@
 
 import { Router, type IRouter } from "express";
 import { eq, desc, and, inArray } from "drizzle-orm";
-import { db, intakeSessionsTable, aiTasksTable } from "@workspace/db";
+import { db, intakeSessionsTable, aiTasksTable, dataTemplatesTable } from "@workspace/db";
 import { requireAuth } from "../middleware/auth";
 import { logger } from "../lib/logger";
 import { createAdminNotification } from "../lib/admin-notifications";
+import { sendFonnte } from "../lib/fonnte";
+import { generateSecureToken } from "../lib/tokens";
+import { getFormConfig, inferFormType } from "../lib/mini-form-config";
 
 const router: IRouter = Router();
 
@@ -103,6 +106,92 @@ router.patch("/intake-sessions/:id/cancel", requireAuth, async (req, res): Promi
   } catch (err) {
     logger.error({ err }, "PATCH /intake-sessions/:id/cancel failed");
     res.status(500).json({ error: "Gagal membatalkan session" });
+  }
+});
+
+// ── POST /intake-sessions/:id/send-form ──────────────────────────────────────
+
+router.post("/intake-sessions/:id/send-form", requireAuth, async (req, res): Promise<void> => {
+  try {
+    const id = parseInt(req.params["id"] as string, 10);
+    if (isNaN(id)) { res.status(400).json({ error: "ID tidak valid" }); return; }
+
+    const companyId = req.user?.companyId ?? "default";
+    const [session] = await db
+      .select()
+      .from(intakeSessionsTable)
+      .where(and(eq(intakeSessionsTable.id, id), eq(intakeSessionsTable.companyId, companyId)))
+      .limit(1);
+
+    if (!session) { res.status(404).json({ error: "Session tidak ditemukan" }); return; }
+    if (["submitted", "cancelled", "expired"].includes(session.status)) {
+      res.status(400).json({ error: "Session tidak aktif" }); return;
+    }
+
+    // Determine form type
+    const { formType: requestedType } = req.body as { formType?: string };
+    let formType = requestedType ?? session.miniFormType ?? "";
+    if (!formType || !getFormConfig(formType)) {
+      formType = inferFormType(session.intentCode, session.category);
+    }
+
+    const formCfg = getFormConfig(formType)!;
+
+    // Generate or reuse token
+    let token = session.formToken;
+    if (!token) {
+      token = generateSecureToken();
+    }
+
+    // Build form URL
+    const domain = process.env.REPLIT_DOMAINS?.split(",")[0]?.trim()
+      ?? process.env.REPLIT_DEV_DOMAIN
+      ?? "localhost:5000";
+    const scheme = domain.includes("localhost") ? "http" : "https";
+    const basePath = (process.env.BASE_PATH ?? "/").replace(/\/$/, "");
+    const formUrl = `${scheme}://${domain}${basePath}/mini-form/${formType}/${token}`;
+
+    // WhatsApp message
+    const isUrgent = session.category?.toLowerCase().includes("komplain") || formType === "complaint";
+    const waTmpl = isUrgent && formCfg.urgentWaMessage
+      ? formCfg.urgentWaMessage
+      : formCfg.waMessageTemplate;
+    const waMessage = waTmpl.replace("{mini_form_url}", formUrl);
+
+    // Update session
+    await db
+      .update(intakeSessionsTable)
+      .set({
+        status: "form_sent",
+        miniFormType: formType,
+        formToken: token,
+        formSentAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(intakeSessionsTable.id, id));
+
+    // Send WhatsApp
+    const waResult = await sendFonnte(session.phone, waMessage);
+
+    logger.info(
+      { sessionId: id, formType, formUrl, waSuccess: waResult.success },
+      "Mini form link sent via WhatsApp",
+    );
+
+    res.json({
+      ok: true,
+      formType,
+      formUrl,
+      token,
+      waSuccess: waResult.success,
+      waError: waResult.error,
+      message: waResult.success
+        ? `Link form ${formCfg.title} berhasil dikirim ke ${session.phone}`
+        : `Link dibuat, tapi gagal kirim WA: ${waResult.error}`,
+    });
+  } catch (err) {
+    logger.error({ err }, "POST /intake-sessions/:id/send-form failed");
+    res.status(500).json({ error: "Gagal mengirim form" });
   }
 });
 

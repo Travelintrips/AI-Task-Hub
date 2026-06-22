@@ -112,6 +112,10 @@ if (supabasePool) {
     ALTER TABLE data_templates ADD COLUMN IF NOT EXISTS mini_form_type TEXT;
     ALTER TABLE data_templates ADD COLUMN IF NOT EXISTS mini_form_route TEXT;
     ALTER TABLE data_templates ADD COLUMN IF NOT EXISTS intake_mode    TEXT NOT NULL DEFAULT 'conversation';
+    ALTER TABLE conversation_intake_sessions ADD COLUMN IF NOT EXISTS mini_form_type TEXT;
+    ALTER TABLE conversation_intake_sessions ADD COLUMN IF NOT EXISTS form_token    TEXT;
+    ALTER TABLE conversation_intake_sessions ADD COLUMN IF NOT EXISTS form_sent_at  TIMESTAMPTZ;
+    CREATE INDEX IF NOT EXISTS intake_sessions_form_token_idx ON conversation_intake_sessions(form_token);
   `)
   .then(() => logger.info("Sprint 9A startup migrations OK"))
   .catch((err: unknown) => logger.warn({ err }, "Sprint 9A startup migration warning (may already exist)"));

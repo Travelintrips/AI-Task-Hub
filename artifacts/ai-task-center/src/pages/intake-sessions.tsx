@@ -9,11 +9,19 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { useToast } from "@/hooks/use-toast";
 import {
   MessageSquare, CheckCircle2, XCircle, AlertCircle, RefreshCw, X,
-  ArrowRightCircle, CheckCheck, Eye,
+  ArrowRightCircle, CheckCheck, Eye, Send, ExternalLink,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { id as localeId } from "date-fns/locale";
 import { getStoredToken } from "@/lib/auth-api";
+
+const FORM_TYPE_OPTIONS = [
+  { value: "trucking",    label: "Trucking" },
+  { value: "freight",     label: "Freight / Import" },
+  { value: "complaint",   label: "Komplain Barang Rusak" },
+  { value: "fleet-repair", label: "Fleet Repair" },
+  { value: "cash-advance", label: "Kasbon" },
+];
 
 // ─── API helper ────────────────────────────────────────────────────────────────
 
@@ -52,6 +60,9 @@ interface IntakeSession {
   lastQuestion: string | null;
   lastMessage: string | null;
   taskId: string | null;
+  miniFormType: string | null;
+  formToken: string | null;
+  formSentAt: string | null;
   expiresAt: string | null;
   createdAt: string;
   updatedAt: string;
@@ -102,6 +113,7 @@ function SessionDetailDialog({
   onCancel,
   onMarkReady,
   onConvert,
+  onSendForm,
   isLoading,
 }: {
   session: IntakeSession;
@@ -109,11 +121,14 @@ function SessionDetailDialog({
   onCancel: (id: number) => void;
   onMarkReady: (id: number) => void;
   onConvert: (id: number) => void;
+  onSendForm: (id: number, formType: string) => void;
   isLoading: boolean;
 }) {
+  const [selectedFormType, setSelectedFormType] = useState(session.miniFormType ?? "trucking");
   const canCancel  = !["submitted","cancelled","expired"].includes(session.status);
   const canReady   = ["collecting","form_sent"].includes(session.status);
   const canConvert = !["submitted","cancelled","expired"].includes(session.status);
+  const canSendForm = !["submitted","cancelled","expired"].includes(session.status);
 
   return (
     <Dialog open onOpenChange={onClose}>
@@ -205,7 +220,59 @@ function SessionDetailDialog({
               </div>
             </div>
           )}
+
+          {/* Mini Form Info */}
+          {session.formToken && (
+            <div className="bg-blue-50 rounded-lg p-3 space-y-1.5">
+              <p className="text-xs font-semibold text-blue-800">📋 Mini Form</p>
+              <p className="text-xs text-blue-700">Tipe: <span className="font-medium">{session.miniFormType ?? "-"}</span></p>
+              {session.formSentAt && (
+                <p className="text-xs text-blue-600">Dikirim: {new Date(session.formSentAt).toLocaleString("id-ID")}</p>
+              )}
+              <a
+                href={`/mini-form/${session.miniFormType ?? "trucking"}/${session.formToken}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-xs text-blue-700 underline font-medium"
+              >
+                <ExternalLink className="w-3 h-3" /> Lihat Form
+              </a>
+            </div>
+          )}
         </div>
+
+        {/* Send Form Section */}
+        {canSendForm && (
+          <div className="border rounded-lg p-3 space-y-2 bg-green-50/50">
+            <p className="text-xs font-semibold text-gray-700 flex items-center gap-1">
+              <Send className="w-3 h-3 text-green-600" />
+              Kirim Mini Form via WhatsApp
+            </p>
+            <div className="flex gap-2 items-center">
+              <Select value={selectedFormType} onValueChange={setSelectedFormType}>
+                <SelectTrigger className="h-8 text-xs flex-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {FORM_TYPE_OPTIONS.map((o) => (
+                    <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                size="sm" className="h-8 text-xs bg-green-600 hover:bg-green-700"
+                disabled={isLoading}
+                onClick={() => { onSendForm(session.id, selectedFormType); onClose(); }}
+              >
+                <Send className="w-3 h-3 mr-1" />
+                {session.formToken ? "Kirim Ulang" : "Kirim Form"}
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Link form akan dikirim ke <span className="font-mono font-medium">{session.phone}</span> via WhatsApp
+            </p>
+          </div>
+        )}
 
         <DialogFooter className="flex flex-wrap gap-2 pt-2">
           {canReady && (
@@ -294,7 +361,20 @@ export default function IntakeSessionsPage() {
     onError: (err: Error) => toast({ title: "Gagal buat task", description: err.message, variant: "destructive" }),
   });
 
-  const isMutating = mutCancel.isPending || mutMarkReady.isPending || mutConvert.isPending;
+  const mutSendForm = useMutation({
+    mutationFn: ({ id, formType }: { id: number; formType: string }) =>
+      apiFetch(`/intake-sessions/${id}/send-form`, { method: "POST", body: JSON.stringify({ formType }) }),
+    onSuccess: (res: { ok: boolean; message: string; formUrl?: string; waSuccess?: boolean }) => {
+      toast({
+        title: res.waSuccess ? "✅ Form berhasil dikirim via WhatsApp!" : "⚠️ Link form dibuat",
+        description: res.message,
+      });
+      queryClient.invalidateQueries({ queryKey: ["intake-sessions"] });
+    },
+    onError: (err: Error) => toast({ title: "Gagal kirim form", description: err.message, variant: "destructive" }),
+  });
+
+  const isMutating = mutCancel.isPending || mutMarkReady.isPending || mutConvert.isPending || mutSendForm.isPending;
 
   const activeCnt   = sessions.filter((s) => s.status === "collecting").length;
   const readyCnt    = sessions.filter((s) => s.status === "ready_for_task").length;
@@ -424,6 +504,20 @@ export default function IntakeSessionsPage() {
                         {!["submitted","cancelled","expired"].includes(s.status) && (
                           <Button
                             size="sm" variant="ghost"
+                            className="h-7 px-2 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+                            disabled={isMutating}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              mutSendForm.mutate({ id: s.id, formType: s.miniFormType ?? "trucking" });
+                            }}
+                            title="Kirim mini form"
+                          >
+                            <Send className="w-3 h-3" />
+                          </Button>
+                        )}
+                        {!["submitted","cancelled","expired"].includes(s.status) && (
+                          <Button
+                            size="sm" variant="ghost"
                             className="h-7 px-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
                             disabled={isMutating}
                             onClick={(e) => { e.stopPropagation(); mutConvert.mutate(s.id); }}
@@ -472,6 +566,7 @@ export default function IntakeSessionsPage() {
           onCancel={mutCancel.mutate}
           onMarkReady={mutMarkReady.mutate}
           onConvert={mutConvert.mutate}
+          onSendForm={(id, formType) => mutSendForm.mutate({ id, formType })}
           isLoading={isMutating}
         />
       )}

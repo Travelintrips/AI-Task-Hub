@@ -2,7 +2,7 @@ import { pgTable, text, serial, timestamp, jsonb, index } from "drizzle-orm/pg-c
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
-export const INTAKE_STATUSES = ["collecting", "ready_for_task", "submitted", "cancelled", "expired"] as const;
+export const INTAKE_STATUSES = ["collecting", "form_sent", "ready_for_task", "submitted", "cancelled", "expired"] as const;
 export type IntakeStatus = (typeof INTAKE_STATUSES)[number];
 
 export const intakeSessionsTable = pgTable("conversation_intake_sessions", {
@@ -26,6 +26,10 @@ export const intakeSessionsTable = pgTable("conversation_intake_sessions", {
   lastMessage: text("last_message"),
 
   taskId: text("task_id"),
+
+  miniFormType: text("mini_form_type"),
+  formToken: text("form_token"),
+  formSentAt: timestamp("form_sent_at", { withTimezone: true }),
 
   expiresAt: timestamp("expires_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
