@@ -9,6 +9,7 @@ import { startEscalationScheduler } from "./lib/escalation-scheduler";
 import { startIntelScheduler } from "./lib/intel-scheduler";
 import { startFleetScheduler } from "./lib/fleet-scheduler";
 import { refreshSlaStatuses } from "./lib/sla";
+import { expireOldIntakeSessions } from "./lib/intake-engine";
 
 const app: Express = express();
 
@@ -70,5 +71,12 @@ startFleetScheduler();
 
 // Refresh SLA statuses every 15 minutes
 setInterval(() => { refreshSlaStatuses().catch(() => {}); }, 15 * 60 * 1000);
+
+// Expire stale intake sessions every hour
+setInterval(() => {
+  expireOldIntakeSessions()
+    .then((n) => { if (n > 0) logger.info({ expired: n }, "intake-sessions: expired stale sessions"); })
+    .catch(() => {});
+}, 60 * 60 * 1000);
 
 export default app;

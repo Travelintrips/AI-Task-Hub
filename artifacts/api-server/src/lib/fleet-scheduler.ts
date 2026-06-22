@@ -66,17 +66,16 @@ async function runDocExpiryCheck(): Promise<void> {
     await supabaseQuery(`
       UPDATE fleet_documents
       SET status = CASE
-        WHEN expiry_date < NOW() THEN 'expired'
-        WHEN expiry_date < NOW() + INTERVAL '30 days' THEN 'expiring_soon'
+        WHEN expired_date < NOW() THEN 'expired'
+        WHEN expired_date < NOW() + INTERVAL '30 days' THEN 'expiring_soon'
         ELSE 'active'
       END,
       updated_at = NOW()
-      WHERE is_active = true
     `, []);
 
     const expiring = await supabaseQuery<{ count: string }>(`
       SELECT COUNT(*) AS count FROM fleet_documents
-      WHERE status IN ('expired', 'expiring_soon') AND is_active = true
+      WHERE status IN ('expired', 'expiring_soon')
     `, []);
     const count = parseInt(expiring[0]?.count ?? "0");
 
@@ -84,7 +83,7 @@ async function runDocExpiryCheck(): Promise<void> {
     if (count > 0) {
       const teamManagers = await supabaseQuery<{ phone: string; name: string }>(`
         SELECT phone, name FROM team_members
-        WHERE company_id = $1 AND is_active = true AND phone IS NOT NULL
+        WHERE company_id = $1 AND phone IS NOT NULL
           AND role IN ('manager', 'supervisor', 'fleet_manager', 'company_admin')
         LIMIT 5
       `, [DEFAULT_COMPANY_ID]).catch(() => []);
@@ -123,7 +122,7 @@ async function runMaintenanceDueCheck(): Promise<void> {
     if (count > 0 || upcoming > 0) {
       const teamManagers = await supabaseQuery<{ phone: string; name: string }>(`
         SELECT phone, name FROM team_members
-        WHERE company_id = $1 AND is_active = true AND phone IS NOT NULL
+        WHERE company_id = $1 AND phone IS NOT NULL
           AND role IN ('manager', 'supervisor', 'fleet_manager', 'company_admin')
         LIMIT 5
       `, [DEFAULT_COMPANY_ID]).catch(() => []);
@@ -150,7 +149,7 @@ async function runRiskScoreRefresh(): Promise<void> {
   try {
     const units = await supabaseQuery<{ id: number; unit_number: string; plate_number: string; year: number | null }>(`
       SELECT id, unit_number, plate_number, year
-      FROM fleet_units WHERE company_id = $1 AND is_active = true
+      FROM fleet_units WHERE company_id = $1
     `, [DEFAULT_COMPANY_ID]);
 
     let processed = 0;
@@ -162,7 +161,7 @@ async function runRiskScoreRefresh(): Promise<void> {
         SELECT
           COUNT(*) FILTER (WHERE status = 'expired') AS expired,
           COUNT(*) FILTER (WHERE status = 'expiring_soon') AS expiring
-        FROM fleet_documents WHERE fleet_unit_id = $1 AND is_active = true
+        FROM fleet_documents WHERE fleet_unit_id = $1
       `, [unit.id]).catch(() => [{ expired: "0", expiring: "0" }]);
 
       const expiredCount = parseInt(docs[0]?.expired ?? "0");
@@ -206,7 +205,7 @@ async function runCostPerKmCompute(): Promise<void> {
   try {
     const units = await supabaseQuery<{ id: number; unit_number: string; plate_number: string }>(`
       SELECT id, unit_number, plate_number FROM fleet_units
-      WHERE company_id = $1 AND is_active = true
+      WHERE company_id = $1
     `, [DEFAULT_COMPANY_ID]);
 
     for (const unit of units) {

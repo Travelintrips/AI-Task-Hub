@@ -39,3 +39,5 @@ export * from "./intel";
 export * from "./purchasing";
 // ── Sprint 7B new tables ────────────────────────────────────────────────────
 export * from "./fleet";
+// ── AI Intake Sessions ──────────────────────────────────────────────────────
+export * from "./intake_sessions";

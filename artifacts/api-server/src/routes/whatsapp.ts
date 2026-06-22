@@ -18,6 +18,12 @@ import { getOrCreateCustomerContext, updateCustomerContextAfterTask } from "../l
 import { createAdminNotification } from "../lib/admin-notifications";
 import { emitSseEvent } from "../lib/sse";
 import { sendFonnte } from "../lib/fonnte";
+import {
+  findActiveIntakeSession,
+  processIntakeMessage,
+  startIntakeSession,
+  markIntakeSubmitted,
+} from "../lib/intake-engine";
 
 const router: IRouter = Router();
 
@@ -423,6 +429,88 @@ async function runAiDetection({
   try { parsedPrevIntents = JSON.parse(previousIntents ?? "[]"); } catch { parsedPrevIntents = []; }
 
   try {
+    // ── Step 0: Check for active intake session ────────────────────────────────
+    // If customer is mid-conversation collecting data, continue that session
+    // instead of detecting a new intent.
+    const activeSession = await findActiveIntakeSession(from, companyId);
+
+    if (activeSession) {
+      logger.info(
+        { msgId: savedMsgId, sessionId: activeSession.id, intent: activeSession.intentCode },
+        "Active intake session found — continuing data collection",
+      );
+
+      // Handle image attachment upload within intake session
+      const effectiveAttachmentUrl = attachmentUrl ?? null;
+
+      // For image/sticker in intake session → treat as document upload
+      let effectiveText = bodyText;
+      if ((messageType === "image" || messageType === "document") && effectiveAttachmentUrl) {
+        effectiveText = bodyText.startsWith("[") ? `[Dokumen dikirim]` : bodyText;
+      }
+
+      const intakeResult = await processIntakeMessage({
+        session: activeSession,
+        message: effectiveText,
+        attachmentUrl: effectiveAttachmentUrl,
+        companyId,
+      });
+
+      // Always send reply to customer
+      if (intakeResult.replyToUser) {
+        await sendFonnte(from, intakeResult.replyToUser).catch((e) =>
+          logger.warn({ e }, "intake: failed to send reply via Fonnte"),
+        );
+      }
+
+      await db
+        .update(whatsappMessagesTable)
+        .set({ aiProcessed: true, detectedIntent: `intake:${activeSession.intentCode}` })
+        .where(eq(whatsappMessagesTable.id, savedMsgId));
+
+      if (intakeResult.action === "ready_for_task") {
+        // All data collected — create the task now
+        logger.info({ sessionId: activeSession.id }, "Intake complete — creating task");
+
+        const result = await detectWhatsAppIntent(
+          `${activeSession.intentCode} - ${Object.entries(intakeResult.collectedFields).map(([k, v]) => `${k}: ${v}`).join(", ")}`,
+          { name: effectiveName, phone: from, companyId, previousIntents: parsedPrevIntents },
+          savedMsgId,
+        );
+
+        // Inject collected fields into the result context
+        const taskOutput = await createTaskFromWhatsAppMessage({
+          savedMsgId,
+          from,
+          senderName,
+          bodyText: `[Intake Complete] ${JSON.stringify(intakeResult.collectedFields)}`,
+          companyId,
+          result,
+          resolution: result._resolution,
+        });
+
+        if (taskOutput) {
+          await markIntakeSubmitted(activeSession.id, taskOutput.taskId);
+          await updateCustomerContextAfterTask({ phone: from, companyId, taskId: taskOutput.taskId, intent: result.intent, name: effectiveName });
+          await createAdminNotification({
+            type: "new_inquiry",
+            title: `✅ Task Baru dari Intake: ${result.intent}`,
+            body: `Data lengkap dari ${effectiveName ?? from}. Task #${taskOutput.taskNumber ?? taskOutput.taskId} telah dibuat.`,
+            customerPhone: from,
+            customerName: effectiveName,
+            companyId,
+          });
+          logger.info({ taskId: taskOutput.taskId, sessionId: activeSession.id }, "Task created from completed intake");
+        }
+      } else if (intakeResult.action === "cancelled") {
+        logger.info({ sessionId: activeSession.id }, "Intake session cancelled by user");
+      }
+
+      return;
+    }
+
+    // ── No active session: normal flow ────────────────────────────────────────
+
     // Voice notes: transcribe with OpenAI Whisper, then run full AI detection
     if (messageType === "audio") {
       logger.info({ msgId: savedMsgId, hasMediaId: !!mediaId, hasUrl: !!attachmentUrl }, "Voice note received — attempting Whisper transcription");
@@ -461,11 +549,37 @@ async function runAiDetection({
           previousIntents: parsedPrevIntents,
         }, savedMsgId);
 
-        const taskOutput = await createTaskFromWhatsAppMessage({ savedMsgId, from, senderName, bodyText: transcript, companyId, result, resolution: result._resolution });
+        // Start intake session if fields are missing
+        const hasMissingFields = (result.missing_data?.length ?? 0) > 0;
+        if (hasMissingFields && result._resolution) {
+          const intakeResult = await startIntakeSession({
+            phone: from,
+            companyId,
+            message: transcript,
+            resolution: result._resolution,
+          });
 
         if (taskOutput) {
           await updateCustomerContextAfterTask({ phone: from, companyId, taskId: taskOutput.taskId, intent: result.intent, name: effectiveName });
           await _notifyForTask({ taskOutput, result, from, effectiveName, companyId, suggestedReply: result._resolution?.suggestedReply ?? null });
+          if (intakeResult.action === "continue_collecting" || intakeResult.action === "ready_for_task") {
+            await sendFonnte(from, intakeResult.replyToUser).catch(() => {});
+          }
+
+          if (intakeResult.action === "ready_for_task") {
+            const taskOutput = await createTaskFromWhatsAppMessage({ savedMsgId, from, senderName, bodyText: transcript, companyId, result, resolution: result._resolution });
+            if (taskOutput) {
+              await markIntakeSubmitted(intakeResult.session.id, taskOutput.taskId);
+              await updateCustomerContextAfterTask({ phone: from, companyId, taskId: taskOutput.taskId, intent: result.intent, name: effectiveName });
+              await _notifyForTask({ taskOutput, result, from, effectiveName, companyId, suggestedReply: null });
+            }
+          }
+        } else {
+          const taskOutput = await createTaskFromWhatsAppMessage({ savedMsgId, from, senderName, bodyText: transcript, companyId, result, resolution: result._resolution });
+          if (taskOutput) {
+            await updateCustomerContextAfterTask({ phone: from, companyId, taskId: taskOutput.taskId, intent: result.intent, name: effectiveName });
+            await _notifyForTask({ taskOutput, result, from, effectiveName, companyId, suggestedReply: result.suggested_reply ?? null });
+          }
         }
 
         await db
@@ -478,7 +592,6 @@ async function runAiDetection({
           .update(whatsappMessagesTable)
           .set({ aiProcessed: true, detectedIntent: "voice_note" })
           .where(eq(whatsappMessagesTable.id, savedMsgId));
-        // Error handling: save failed transcription as manual review notification
         await createAdminNotification({
           type: "waiting_review",
           title: "Voice Note Perlu Review Manual",
@@ -491,16 +604,13 @@ async function runAiDetection({
       return;
     }
 
-    // Non-text attachments without caption: flag as attachment_submission
-    if ((messageType === "image" || messageType === "sticker") && !bodyText.startsWith("[")) {
-      // has caption — fall through to AI
-    } else if (messageType === "image" || messageType === "sticker") {
+    // Non-text attachments without caption: check if inside intake session first (handled above), else flag
+    if ((messageType === "image" || messageType === "sticker") && bodyText.startsWith("[")) {
       logger.info({ msgId: savedMsgId }, "Image/sticker without text — flagged as attachment_submission");
       await db
         .update(whatsappMessagesTable)
         .set({ aiProcessed: true, detectedIntent: "attachment_submission" })
         .where(eq(whatsappMessagesTable.id, savedMsgId));
-      // Notify admin: customer uploaded document
       await createAdminNotification({
         type: "document_uploaded",
         title: "Dokumen Diterima",
@@ -512,7 +622,7 @@ async function runAiDetection({
       return;
     }
 
-    // Run full structured AI analysis (Sprint 2A: passes savedMsgId for audit logging)
+    // Run full structured AI analysis
     const result = await detectWhatsAppIntent(bodyText, {
       name: effectiveName,
       phone: from,
@@ -520,7 +630,62 @@ async function runAiDetection({
       previousIntents: parsedPrevIntents,
     }, savedMsgId);
 
-    // Create task or append to existing active task (duplicate guard built-in)
+    // ── Intake gate: start session if required fields are missing ──────────────
+    const hasMissingFields = (result.missing_data?.length ?? 0) > 0;
+    const isGeneralInquiry = result.intent === "general_inquiry";
+
+    if (hasMissingFields && !isGeneralInquiry && result._resolution) {
+      logger.info(
+        { intent: result.intent, missing: result.missing_data?.length },
+        "Missing fields detected — starting intake session",
+      );
+
+      const intakeResult = await startIntakeSession({
+        phone: from,
+        companyId,
+        message: bodyText,
+        attachmentUrl: attachmentUrl ?? undefined,
+        resolution: result._resolution,
+      });
+
+      // Send question to customer
+      if (intakeResult.replyToUser) {
+        await sendFonnte(from, intakeResult.replyToUser).catch((e) =>
+          logger.warn({ e }, "Failed to send intake question via Fonnte"),
+        );
+      }
+
+      await db
+        .update(whatsappMessagesTable)
+        .set({ aiProcessed: true, detectedIntent: `intake_started:${result.intent}` })
+        .where(eq(whatsappMessagesTable.id, savedMsgId));
+
+      // If intake immediately ready (no template fields), create task
+      if (intakeResult.action === "ready_for_task") {
+        const taskOutput = await createTaskFromWhatsAppMessage({
+          savedMsgId, from, senderName, bodyText, companyId, result, resolution: result._resolution,
+        });
+        if (taskOutput) {
+          await markIntakeSubmitted(intakeResult.session.id, taskOutput.taskId);
+          await updateCustomerContextAfterTask({ phone: from, companyId, taskId: taskOutput.taskId, intent: result.intent, name: effectiveName });
+          await _notifyForTask({ taskOutput, result, from, effectiveName, companyId, suggestedReply: null });
+        }
+      } else {
+        // Notify admin: intake started, no task yet
+        await createAdminNotification({
+          type: "new_inquiry",
+          title: `📋 Intake Dimulai: ${result.intent}`,
+          body: `${effectiveName ?? from} mulai mengisi data untuk ${result.category}. Menunggu ${result.missing_data?.length ?? 0} field lagi.`,
+          customerPhone: from,
+          customerName: effectiveName,
+          companyId,
+        });
+      }
+
+      return;
+    }
+
+    // ── No missing fields OR general inquiry: create task immediately ─────────
     const taskOutput = await createTaskFromWhatsAppMessage({
       savedMsgId,
       from,
@@ -547,14 +712,13 @@ async function runAiDetection({
           : "WhatsApp message appended to existing task",
       );
 
-      // Update customer context
       await updateCustomerContextAfterTask({ phone: from, companyId, taskId: taskOutput.taskId, intent: result.intent, name: effectiveName });
 
       // Admin notification based on priority / task action
       await _notifyForTask({ taskOutput, result, from, effectiveName, companyId, suggestedReply: result._resolution?.suggestedReply ?? null });
+      await _notifyForTask({ taskOutput, result, from, effectiveName, companyId, suggestedReply: result.suggested_reply ?? null });
 
     } else {
-      // AI failed to produce task — create manual review notification
       await createAdminNotification({
         type: "waiting_review",
         title: "Pesan Perlu Review Manual",
@@ -566,7 +730,6 @@ async function runAiDetection({
     }
   } catch (err) {
     logger.error({ err, msgId: savedMsgId }, "AI detection failed for message");
-    // Safe error handling: create manual review notification even if AI crashes
     try {
       await createAdminNotification({
         type: "waiting_review",
