@@ -42,6 +42,12 @@ import {
   ClipboardList,
   Award,
   Database,
+  Bell,
+  BellOff,
+  Send,
+  Eye,
+  ToggleLeft,
+  ToggleRight,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { useState } from "react";
@@ -1797,6 +1803,254 @@ const ROLE_COLOR: Record<string, string> = {
   unauthorized: "bg-yellow-100 text-yellow-800",
 };
 
+// ── Sprint 10A-5: Daily Briefing Widget ───────────────────────────────────────
+
+interface BriefingSettings {
+  enabled: boolean;
+  time: string;
+  recipients: string[];
+}
+
+interface BriefingLog {
+  id: number;
+  recipient_phone: string;
+  recipient_role: string | null;
+  status: string;
+  message_preview: string | null;
+  sent_at: string | null;
+  error_message: string | null;
+  delivery_provider: string;
+  created_at: string;
+}
+
+interface BriefingSettingsResponse {
+  settings: BriefingSettings;
+  nextRun: string;
+  recentLogs: BriefingLog[];
+}
+
+interface BriefingPreview {
+  message: string;
+  generatedAt: string;
+}
+
+function DailyBriefingWidget() {
+  const qc = useQueryClient();
+  const [sending, setSending] = useState(false);
+  const [sendResult, setSendResult] = useState<string | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [editEnabled, setEditEnabled] = useState<boolean | null>(null);
+  const [editTime, setEditTime] = useState<string | null>(null);
+
+  const q = useQuery<BriefingSettingsResponse>({
+    queryKey: ["briefing-settings"],
+    queryFn: () => apiFetch("/api/executive/briefing/settings"),
+    refetchInterval: 60_000,
+  });
+
+  const settings = q.data?.settings;
+  const nextRun = q.data?.nextRun;
+  const recentLogs = q.data?.recentLogs ?? [];
+
+  const currentEnabled = editEnabled ?? settings?.enabled ?? false;
+  const currentTime = editTime ?? settings?.time ?? "07:00";
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      await apiFetch("/api/executive/briefing/settings", {
+        method: "PUT",
+        body: JSON.stringify({
+          enabled: currentEnabled,
+          time: currentTime,
+          recipients: settings?.recipients ?? ["owner", "super_admin", "company_admin"],
+        }),
+      });
+      setEditEnabled(null);
+      setEditTime(null);
+      await qc.invalidateQueries({ queryKey: ["briefing-settings"] });
+      setSendResult("✅ Pengaturan disimpan");
+    } catch {
+      setSendResult("❌ Gagal menyimpan pengaturan");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleSendTest() {
+    setSending(true);
+    setSendResult(null);
+    try {
+      const r = await apiFetch("/api/executive/briefing/send", {
+        method: "POST",
+        body: JSON.stringify({ force: true }),
+      });
+      if (r.sent > 0) {
+        setSendResult(`✅ Briefing terkirim ke ${r.sent} penerima`);
+      } else if (r.skipped > 0) {
+        setSendResult(`⚠️ Dilewati (${r.skipped}): tidak ada penerima dengan HP atau WA tidak aktif`);
+      } else {
+        setSendResult(`❌ Gagal: ${r.failed} error`);
+      }
+      await qc.invalidateQueries({ queryKey: ["briefing-settings"] });
+    } catch {
+      setSendResult("❌ Gagal mengirim briefing");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function handlePreview() {
+    setLoadingPreview(true);
+    setShowPreview(true);
+    try {
+      const r = await apiFetch("/api/executive/briefing/preview") as BriefingPreview;
+      setPreview(r.message);
+    } catch {
+      setPreview("❌ Gagal memuat preview");
+    } finally {
+      setLoadingPreview(false);
+    }
+  }
+
+  const lastSent = recentLogs.find((l) => l.status === "sent");
+  const isDirty = editEnabled !== null || editTime !== null;
+
+  return (
+    <Card className="mt-4">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-semibold flex items-center gap-2">
+          <Bell className="h-4 w-4 text-blue-500" />
+          Briefing Harian Otomatis
+          <span className={`ml-auto text-[11px] font-medium px-2 py-0.5 rounded-full ${
+            currentEnabled ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"
+          }`}>
+            {currentEnabled ? "Aktif" : "Nonaktif"}
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Settings row */}
+        <div className="flex flex-wrap items-center gap-3 p-3 bg-muted/40 rounded-lg">
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setEditEnabled(!currentEnabled)}
+              className="flex items-center gap-1 text-sm font-medium"
+            >
+              {currentEnabled
+                ? <ToggleRight className="h-5 w-5 text-green-600" />
+                : <ToggleLeft className="h-5 w-5 text-gray-400" />}
+              {currentEnabled ? "Aktif" : "Nonaktif"}
+            </button>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+            <span className="text-xs text-muted-foreground">Jam:</span>
+            <input
+              type="time"
+              value={currentTime}
+              onChange={(e) => setEditTime(e.target.value)}
+              className="h-7 text-xs border rounded px-2 bg-background"
+            />
+            <span className="text-xs text-muted-foreground">WIB</span>
+          </div>
+          {isDirty && (
+            <Button size="sm" onClick={handleSave} disabled={saving} className="h-7 text-xs">
+              {saving ? <RefreshCw className="h-3 w-3 animate-spin mr-1" /> : null}
+              Simpan
+            </Button>
+          )}
+        </div>
+
+        {/* Info row */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
+          <div>
+            <div className="text-muted-foreground mb-0.5">Jadwal berikutnya</div>
+            <div className="font-medium">
+              {nextRun
+                ? new Date(nextRun).toLocaleString("id-ID", { weekday: "short", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) + " WIB"
+                : "—"}
+            </div>
+          </div>
+          <div>
+            <div className="text-muted-foreground mb-0.5">Terakhir dikirim</div>
+            <div className="font-medium">
+              {lastSent?.sent_at
+                ? new Date(lastSent.sent_at).toLocaleString("id-ID", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })
+                : "Belum pernah"}
+            </div>
+          </div>
+          <div>
+            <div className="text-muted-foreground mb-0.5">Penerima (role)</div>
+            <div className="font-medium truncate">
+              {settings?.recipients?.join(", ") ?? "owner, super_admin, company_admin"}
+            </div>
+          </div>
+        </div>
+
+        {/* Action buttons */}
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" variant="outline" onClick={handlePreview} disabled={loadingPreview} className="h-8 text-xs">
+            {loadingPreview ? <RefreshCw className="h-3 w-3 animate-spin mr-1" /> : <Eye className="h-3 w-3 mr-1" />}
+            Preview Pesan
+          </Button>
+          <Button size="sm" onClick={handleSendTest} disabled={sending} className="h-8 text-xs">
+            {sending ? <RefreshCw className="h-3 w-3 animate-spin mr-1" /> : <Send className="h-3 w-3 mr-1" />}
+            Kirim Test Sekarang
+          </Button>
+        </div>
+
+        {sendResult && (
+          <div className={`text-xs px-3 py-2 rounded ${sendResult.startsWith("✅") ? "bg-green-50 text-green-700" : sendResult.startsWith("⚠️") ? "bg-yellow-50 text-yellow-700" : "bg-red-50 text-red-700"}`}>
+            {sendResult}
+          </div>
+        )}
+
+        {/* Preview dialog */}
+        {showPreview && (
+          <div className="border rounded-lg p-3 bg-gray-50 relative">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-semibold text-gray-600">📱 Preview Pesan WA</span>
+              <button onClick={() => setShowPreview(false)} className="text-xs text-muted-foreground hover:text-foreground">✕ Tutup</button>
+            </div>
+            {loadingPreview
+              ? <div className="text-xs text-muted-foreground animate-pulse">Memuat...</div>
+              : <pre className="text-[11px] whitespace-pre-wrap font-sans text-gray-800 max-h-64 overflow-y-auto">{preview}</pre>}
+          </div>
+        )}
+
+        {/* Recent logs */}
+        {recentLogs.length > 0 && (
+          <div>
+            <div className="text-xs font-semibold text-muted-foreground mb-1.5">Log Pengiriman Terbaru</div>
+            <div className="space-y-1">
+              {recentLogs.slice(0, 5).map((log) => (
+                <div key={log.id} className="flex items-center gap-2 text-[11px]">
+                  <span className={`w-14 text-center font-medium px-1 py-0.5 rounded text-[10px] ${
+                    log.status === "sent" ? "bg-green-100 text-green-700"
+                    : log.status === "failed" ? "bg-red-100 text-red-700"
+                    : "bg-gray-100 text-gray-600"
+                  }`}>
+                    {log.status.toUpperCase()}
+                  </span>
+                  <span className="text-muted-foreground">{log.recipient_phone.slice(-4).padStart(8, "•")}</span>
+                  <span className="text-muted-foreground">{log.recipient_role ?? "manual"}</span>
+                  <span className="ml-auto text-muted-foreground whitespace-nowrap">
+                    {new Date(log.created_at).toLocaleString("id-ID", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function WaAdoptionWidget() {
   const [testPhone, setTestPhone] = useState("");
   const [testText, setTestText] = useState("");
@@ -1944,6 +2198,9 @@ function WaAdoptionWidget() {
 
       {/* Data Health Widget — Sprint 10A-1.1 */}
       <DataHealthWidget />
+
+      {/* Daily Briefing Widget — Sprint 10A-5 */}
+      <DailyBriefingWidget />
 
       {/* Test console */}
       <Card className="mt-4">

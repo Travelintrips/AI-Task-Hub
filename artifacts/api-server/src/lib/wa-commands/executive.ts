@@ -7,13 +7,13 @@
  *   BRIEFING   — AI executive summary
  */
 
-import { eq, and, desc, gte, sql } from "drizzle-orm";
+import { eq, and, desc, sql } from "drizzle-orm";
 import {
   db, aiTasksTable, logisticPurchaseRequestsTable, fleetUnitsTable,
-  fleetDriversTable, customersTable,
+  customersTable,
 } from "@workspace/db";
-import { supabasePool } from "../supabase-db";
 import { logger } from "../logger";
+import { generateBriefingMessage } from "../executive-briefing";
 import type { WaCommandContext, WaCommandResult } from "./types";
 
 export async function handleExecutiveCommand(
@@ -196,55 +196,16 @@ export async function handleExecutiveCommand(
 
   // ── BRIEFING ────────────────────────────────────────────────────────────────
   if (command === "BRIEFING") {
-    let summary: string | null = null;
-
-    // Try to get latest AI executive summary from Supabase
     try {
-      if (supabasePool) {
-        const result = await supabasePool.query<{ ai_summary: string; generated_at: string }>(
-          `SELECT ai_summary, generated_at
-           FROM executive_summaries
-           WHERE company_id = $1
-           ORDER BY generated_at DESC
-           LIMIT 1`,
-          [companyId],
-        );
-        if (result.rows[0]?.ai_summary) {
-          summary = result.rows[0].ai_summary;
-          const genAt = new Date(result.rows[0].generated_at).toLocaleString("id-ID", {
-            day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
-          });
-          summary = `📊 *AI Executive Briefing*\n_(Dibuat: ${genAt})_\n\n${summary}`;
-        }
-      }
+      const message = await generateBriefingMessage(companyId);
+      return { reply: message, handled: true };
     } catch (err) {
-      logger.warn({ err }, "wa-executive: executive_summaries query failed");
+      logger.error({ err }, "wa-executive: generateBriefingMessage failed");
+      return {
+        reply: "⚠️ Gagal membuat briefing. Coba lagi atau buka Executive Command Center di dashboard.",
+        handled: true,
+      };
     }
-
-    if (!summary) {
-      // Fallback: build quick briefing from live data
-      const [active, pending, overdueCount] = await Promise.all([
-        db.select({ count: sql<number>`count(*)` }).from(aiTasksTable)
-          .where(and(eq(aiTasksTable.companyId, companyId), sql`${aiTasksTable.status} NOT IN ('completed','cancelled')`))
-          .then((r) => Number(r[0]?.count ?? 0)),
-        db.select({ count: sql<number>`count(*)` }).from(logisticPurchaseRequestsTable)
-          .where(and(eq(logisticPurchaseRequestsTable.companyId, companyId), eq(logisticPurchaseRequestsTable.status, "submitted_for_approval")))
-          .then((r) => Number(r[0]?.count ?? 0)),
-        db.select({ count: sql<number>`count(*)` }).from(aiTasksTable)
-          .where(and(eq(aiTasksTable.companyId, companyId), eq(aiTasksTable.slaStatus, "overdue")))
-          .then((r) => Number(r[0]?.count ?? 0)),
-      ]);
-
-      const now = new Date().toLocaleDateString("id-ID", { weekday: "long", day: "2-digit", month: "long" });
-
-      summary =
-        `📊 *Executive Briefing — ${now}*\n\n` +
-        `Operasional berjalan dengan ${active} task aktif, ${overdueCount} task melewati SLA, dan ${pending} purchase request menunggu persetujuan.\n\n` +
-        `${pending > 0 ? `⚠️ Tindakan diperlukan: ${pending} approval menunggu keputusan.\n\n` : ""}` +
-        `_Untuk AI Briefing lengkap, buka Executive Command Center di dashboard._`;
-    }
-
-    return { reply: summary, handled: true };
   }
 
   return null;

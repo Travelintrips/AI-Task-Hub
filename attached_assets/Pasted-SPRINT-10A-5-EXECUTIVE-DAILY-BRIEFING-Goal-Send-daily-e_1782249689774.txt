@@ -1,0 +1,178 @@
+SPRINT 10A-5 — EXECUTIVE DAILY BRIEFING
+
+Goal:
+Send daily executive briefing automatically via WhatsApp so owner/directors do not need to open dashboard every morning.
+
+Use existing:
+- Executive Command Center
+- AI Executive Summary
+- WhatsApp command BRIEFING
+- Quality Gate
+- Fleet KPIs
+- Purchasing KPIs
+- Vendor KPIs
+- Driver KPIs
+- Customer Memory
+- Vendor Memory
+
+Do not auto-approve anything.
+Do not auto-pay anything.
+Do not auto-purchase anything.
+
+====================================================
+A. BRIEFING SCHEDULER
+====================================================
+
+Create scheduled job:
+
+executive-daily-briefing
+
+Runs daily:
+07:00 WIB
+
+Recipients:
+- owner
+- super_admin
+- company_admin
+
+Only if:
+- phone number exists
+- WhatsApp health = healthy
+
+====================================================
+B. BRIEFING CONTENT
+====================================================
+
+Generate compact WhatsApp message:
+
+1. Executive Summary
+2. Top 5 Risks
+3. Pending Approvals
+4. Fleet Alerts
+5. Purchasing Alerts
+6. Vendor Alerts
+7. Customer/Task Alerts
+8. Recommended Actions
+
+Format:
+
+"Selamat pagi, berikut briefing CST hari ini..."
+
+====================================================
+C. DATA SOURCES
+====================================================
+
+Use same sources as:
+
+GET /api/executive/kpis
+GET /api/executive/alerts
+GET /api/executive/risk-heatmap
+GET /api/executive/action-center
+GET /api/executive/ai-summary/latest
+
+Do not duplicate logic if reusable.
+
+====================================================
+D. MANUAL TRIGGER
+====================================================
+
+Create endpoint:
+
+POST /api/executive/briefing/send
+
+RBAC:
+owner
+super_admin
+company_admin
+
+Optional body:
+{
+  "phone": "628...",
+  "force": true
+}
+
+====================================================
+E. BRIEFING LOG
+====================================================
+
+Create table:
+
+executive_briefing_logs
+
+Fields:
+- id
+- company_id
+- recipient_phone
+- recipient_role
+- status
+- message_preview
+- sent_at
+- error_message
+- delivery_provider
+- created_at
+
+====================================================
+F. SETTINGS
+====================================================
+
+Add settings:
+
+executive_briefing_enabled
+executive_briefing_time
+executive_briefing_recipients
+
+Default:
+enabled = false
+time = "07:00"
+recipients = owner/super_admin/company_admin with phone
+
+====================================================
+G. EXECUTIVE COMMAND CENTER
+====================================================
+
+Add widget:
+
+Daily Briefing
+
+Show:
+- enabled/disabled
+- next run
+- last sent
+- recipients
+- send test button
+- recent logs
+
+====================================================
+H. WHATSAPP COMMAND ENHANCEMENT
+====================================================
+
+BRIEFING command should use same briefing generator.
+
+So manual command and scheduled briefing are consistent.
+
+====================================================
+I. VALIDATION
+====================================================
+
+Test:
+
+1. briefing generator returns message
+2. manual send endpoint works
+3. RBAC blocks supervisor/staff
+4. recipients resolved correctly
+5. missing phone skipped
+6. WhatsApp unhealthy → not sent, logged
+7. scheduler registered
+8. briefing log created
+9. ECC widget loads
+10. BRIEFING command returns same summary
+
+Output:
+- files created
+- scheduler registered
+- sample briefing message
+- manual send result
+- log result
+- RBAC result
+- readiness score
+- GO/NO-GO for Sprint 10B

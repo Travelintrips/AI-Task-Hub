@@ -26,6 +26,12 @@ import { logger } from "../lib/logger";
 import { supabaseQuery } from "../lib/supabase-db";
 import { sendFonnte } from "../lib/fonnte";
 import { openai } from "../lib/openai";
+import {
+  generateBriefingMessage,
+  sendExecutiveBriefing,
+  getBriefingSettings,
+  logBriefingSend,
+} from "../lib/executive-briefing";
 
 const router: IRouter = Router();
 
@@ -1916,6 +1922,165 @@ router.get(
     } catch (err) {
       logger.error({ err }, "GET /executive/ai-summary/history failed");
       res.status(500).json({ error: "Gagal memuat riwayat ringkasan" });
+    }
+  },
+);
+
+// ── Sprint 10A-5 — Executive Daily Briefing Routes ───────────────────────────
+
+const BRIEFING_RBAC = [requireAuth, requireRole("company_admin")] as const;
+
+// GET /api/executive/briefing/settings
+router.get(
+  "/executive/briefing/settings",
+  ...BRIEFING_RBAC,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const companyId = getCompanyId(req) ?? "default";
+      const settings = await getBriefingSettings(companyId);
+
+      // Fetch recent logs
+      const logs = await safeRows<{
+        id: number; recipient_phone: string; recipient_role: string | null;
+        status: string; message_preview: string | null; sent_at: string | null;
+        error_message: string | null; delivery_provider: string; created_at: string;
+      }>(sql`
+        SELECT id, recipient_phone, recipient_role, status, message_preview, sent_at,
+               error_message, delivery_provider, created_at
+        FROM executive_briefing_logs
+        WHERE company_id = ${companyId}
+        ORDER BY created_at DESC
+        LIMIT 10
+      `);
+
+      // Next run calculation
+      const [hStr, mStr] = settings.time.split(":");
+      const wibHour = parseInt(hStr ?? "7", 10);
+      const wibMin  = parseInt(mStr ?? "0", 10);
+      const utcHour = ((wibHour - 7) % 24 + 24) % 24;
+      const nextRun = new Date();
+      nextRun.setUTCHours(utcHour, wibMin, 0, 0);
+      if (nextRun.getTime() <= Date.now()) nextRun.setUTCDate(nextRun.getUTCDate() + 1);
+
+      res.json({ settings, nextRun: nextRun.toISOString(), recentLogs: logs });
+    } catch (err) {
+      logger.error({ err }, "GET /executive/briefing/settings failed");
+      res.status(500).json({ error: "Gagal memuat pengaturan briefing" });
+    }
+  },
+);
+
+// PUT /api/executive/briefing/settings
+router.put(
+  "/executive/briefing/settings",
+  ...BRIEFING_RBAC,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const companyId = getCompanyIdForWrite(req) ?? "default";
+      const body = req.body as Record<string, unknown>;
+      const enabled = body["enabled"] === true || body["enabled"] === "true";
+      const time = String(body["time"] ?? "07:00").trim();
+      const recipients = Array.isArray(body["recipients"])
+        ? (body["recipients"] as string[]).join(",")
+        : "owner,super_admin,company_admin";
+
+      // Upsert into company_settings
+      await supabaseQuery(
+        `INSERT INTO company_settings (company_id, executive_briefing_enabled, executive_briefing_time, executive_briefing_recipients)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (company_id) DO UPDATE
+           SET executive_briefing_enabled = EXCLUDED.executive_briefing_enabled,
+               executive_briefing_time    = EXCLUDED.executive_briefing_time,
+               executive_briefing_recipients = EXCLUDED.executive_briefing_recipients,
+               updated_at = NOW()`,
+        [companyId, enabled, time, recipients],
+      );
+
+      res.json({ success: true, settings: { enabled, time, recipients: recipients.split(",") } });
+    } catch (err) {
+      logger.error({ err }, "PUT /executive/briefing/settings failed");
+      res.status(500).json({ error: "Gagal menyimpan pengaturan briefing" });
+    }
+  },
+);
+
+// POST /api/executive/briefing/send  — manual trigger
+router.post(
+  "/executive/briefing/send",
+  ...BRIEFING_RBAC,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const companyId = getCompanyId(req) ?? "default";
+      const body = req.body as Record<string, unknown>;
+      const forcePhone = body["phone"] ? String(body["phone"]) : undefined;
+      const force = body["force"] === true;
+
+      const stats = await sendExecutiveBriefing(companyId, {
+        forcePhone,
+        forceEnabled: force,
+      });
+
+      // Audit log
+      try {
+        await db.insert(auditLogsTable).values({
+          companyId,
+          action: "executive.briefing_manual_send",
+          module: "executive",
+          entityType: "briefing",
+          userId: req.user?.id ?? null,
+          userEmail: req.user?.email ?? null,
+          after: JSON.stringify({ forcePhone, force, stats }),
+        });
+      } catch { /* non-fatal */ }
+
+      res.json({ success: true, ...stats });
+    } catch (err) {
+      logger.error({ err }, "POST /executive/briefing/send failed");
+      res.status(500).json({ error: "Gagal mengirim briefing" });
+    }
+  },
+);
+
+// GET /api/executive/briefing/preview  — preview message without sending
+router.get(
+  "/executive/briefing/preview",
+  ...BRIEFING_RBAC,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const companyId = getCompanyId(req) ?? "default";
+      const message = await generateBriefingMessage(companyId);
+      res.json({ message, generatedAt: new Date().toISOString() });
+    } catch (err) {
+      logger.error({ err }, "GET /executive/briefing/preview failed");
+      res.status(500).json({ error: "Gagal membuat preview briefing" });
+    }
+  },
+);
+
+// GET /api/executive/briefing/logs
+router.get(
+  "/executive/briefing/logs",
+  ...BRIEFING_RBAC,
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const companyId = getCompanyId(req) ?? "default";
+      const limit = Math.min(Number(req.query.limit ?? 20), 100);
+      const logs = await safeRows<{
+        id: number; recipient_phone: string; recipient_role: string | null;
+        status: string; message_preview: string | null; sent_at: string | null;
+        error_message: string | null; delivery_provider: string; created_at: string;
+      }>(sql`
+        SELECT id, recipient_phone, recipient_role, status, message_preview, sent_at,
+               error_message, delivery_provider, created_at
+        FROM executive_briefing_logs
+        WHERE company_id = ${companyId}
+        ORDER BY created_at DESC
+        LIMIT ${limit}
+      `);
+      res.json({ total: logs.length, logs });
+    } catch (err) {
+      logger.error({ err }, "GET /executive/briefing/logs failed");
+      res.status(500).json({ error: "Gagal memuat log briefing" });
     }
   },
 );

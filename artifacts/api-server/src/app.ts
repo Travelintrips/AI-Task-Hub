@@ -8,6 +8,7 @@ import { startOrderSyncScheduler } from "./lib/order-sync-scheduler";
 import { startEscalationScheduler } from "./lib/escalation-scheduler";
 import { startIntelScheduler } from "./lib/intel-scheduler";
 import { startFleetScheduler } from "./lib/fleet-scheduler";
+import { startExecutiveBriefingScheduler } from "./lib/executive-briefing";
 import { refreshSlaStatuses } from "./lib/sla";
 import { expireOldIntakeSessions } from "./lib/intake-engine";
 import { supabasePool } from "./lib/supabase-db";
@@ -69,6 +70,9 @@ startIntelScheduler();
 
 // Sprint 7D: Fleet Scheduler — risk, cost, maintenance, fuel anomaly
 startFleetScheduler();
+
+// Sprint 10A-5: Executive Daily Briefing — 07:00 WIB
+startExecutiveBriefingScheduler();
 
 // Refresh SLA statuses every 15 minutes
 setInterval(() => { refreshSlaStatuses().catch(() => {}); }, 15 * 60 * 1000);
@@ -433,6 +437,31 @@ if (supabasePool) {
   run10A4()
     .then(() => logger.info("Sprint 10A-4 startup migrations OK"))
     .catch((err: unknown) => logger.warn({ err }, "Sprint 10A-4 startup migration warning"));
+
+  const run10A5 = async () => {
+    await supabasePool!.query(`
+      CREATE TABLE IF NOT EXISTS executive_briefing_logs (
+        id                SERIAL PRIMARY KEY,
+        company_id        TEXT NOT NULL DEFAULT 'default',
+        recipient_phone   TEXT NOT NULL,
+        recipient_role    TEXT,
+        status            TEXT NOT NULL DEFAULT 'pending',
+        message_preview   TEXT,
+        sent_at           TIMESTAMPTZ,
+        error_message     TEXT,
+        delivery_provider TEXT NOT NULL DEFAULT 'fonnte',
+        created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS ebr_company_idx ON executive_briefing_logs(company_id)`);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS ebr_created_idx ON executive_briefing_logs(created_at DESC)`);
+    await supabasePool!.query(`ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS executive_briefing_enabled    BOOLEAN NOT NULL DEFAULT FALSE`);
+    await supabasePool!.query(`ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS executive_briefing_time       TEXT NOT NULL DEFAULT '07:00'`);
+    await supabasePool!.query(`ALTER TABLE company_settings ADD COLUMN IF NOT EXISTS executive_briefing_recipients TEXT NOT NULL DEFAULT 'owner,super_admin,company_admin'`);
+  };
+  run10A5()
+    .then(() => logger.info("Sprint 10A-5 startup migrations OK"))
+    .catch((err: unknown) => logger.warn({ err }, "Sprint 10A-5 startup migration warning"));
 }
 
 // ── Sprint 10A-1.1 startup schema validation ───────────────────────────────────
