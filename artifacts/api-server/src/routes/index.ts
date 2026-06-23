@@ -66,6 +66,7 @@ import systemRouter from "./system";
 import companyGovernanceRouter from "./company-governance";
 import { companyOnboardingRouter } from "./company-onboarding";
 import holdingDashboardRouter from "./holding-dashboard";
+import aiOperationsRouter from "./ai-operations";
 import { extractUser } from "../middleware/auth";
 
 const router: IRouter = Router();
@@ -159,5 +160,7 @@ router.use(companyGovernanceRouter);
 router.use(companyOnboardingRouter);
 // ── Sprint 10B-3 — Cross-Company Consolidation: Holding Dashboard ───────────────
 router.use(holdingDashboardRouter);
+// ── Sprint 10B-4 — AI Operations Center ────────────────────────────────────────
+router.use(aiOperationsRouter);
 
 export default router;

@@ -45,6 +45,7 @@ import {
   Zap,
   Layers,
   FileCheck,
+  Cpu,
 } from "lucide-react";
 import { NotificationsBell } from "@/components/notifications-bell";
 import { useAuth } from "@/contexts/auth-context";
@@ -116,6 +117,9 @@ export function AppLayout({ children }: { children: ReactNode }) {
       : []),
     ...(user?.role === "super_admin"
       ? [{ name: "Holding Dashboard", href: "/holding-dashboard", icon: Globe }]
+      : []),
+    ...(user?.role === "super_admin" || user?.role === "company_admin" || user?.role === "owner" || user?.role === "supervisor"
+      ? [{ name: "AI Operations", href: "/ai-operations", icon: Cpu }]
       : []),
   ];
 

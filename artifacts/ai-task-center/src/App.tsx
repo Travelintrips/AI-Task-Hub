@@ -77,6 +77,7 @@ import DriverAdminPage from "@/pages/driver-admin";
 import CompanyGovernancePage from "@/pages/company-governance";
 import CompanyOnboardingFactoryPage from "@/pages/company-onboarding-factory";
 import HoldingDashboardPage from "@/pages/holding-dashboard";
+import AiOperationsPage from "@/pages/ai-operations";
 
 const queryClient = new QueryClient();
 
@@ -160,6 +161,7 @@ function AppRouter() {
         <Route path="/company-governance" component={CompanyGovernancePage} />
         <Route path="/company-onboarding" component={CompanyOnboardingFactoryPage} />
         <Route path="/holding-dashboard" component={HoldingDashboardPage} />
+        <Route path="/ai-operations" component={AiOperationsPage} />
         <Route component={NotFound} />
       </Switch>
     </AppLayout>
