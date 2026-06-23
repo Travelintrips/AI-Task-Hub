@@ -355,10 +355,10 @@ export async function createIntakeSession({
     await db.insert(auditLogsTable).values({
       companyId,
       action: "session_created",
+      module: "intake",
       entityType: "intake_session",
-      entityId: String(session!.id),
-      metadata: JSON.stringify({ sessionId: session!.id, intentCode, phone }),
-      createdAt: new Date(),
+      entityId: session!.id,
+      after: JSON.stringify({ sessionId: session!.id, intentCode, phone }),
     });
   } catch { /* non-fatal */ }
 
@@ -457,14 +457,14 @@ export async function processIntakeMessage({
       await db.insert(auditLogsTable).values({
         companyId,
         action: "field_collected",
+        module: "intake",
         entityType: "intake_session",
-        entityId: String(session.id),
-        metadata: JSON.stringify({
+        entityId: session.id,
+        after: JSON.stringify({
           sessionId: session.id,
           completionPct: completeness.completionPct,
           newFields: newCount - prevCount,
         }),
-        createdAt: new Date(),
       });
     }
   } catch { /* non-fatal */ }
@@ -478,9 +478,10 @@ export async function processIntakeMessage({
       await db.insert(auditLogsTable).values({
         companyId,
         action: "completion_threshold_reached",
+        module: "intake",
         entityType: "intake_session",
-        entityId: String(session.id),
-        metadata: JSON.stringify({
+        entityId: session.id,
+        after: JSON.stringify({
           sessionId: session.id,
           completionPct: completeness.completionPct,
           threshold: completeness.threshold,

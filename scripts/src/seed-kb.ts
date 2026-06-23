@@ -141,7 +141,7 @@ async function run() {
       await client.query(`
         INSERT INTO data_template_fields (template_id, field_name, field_label, field_type, is_required, sort_order, help_text, sample_value)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-      `, [importTemplate.id, f.name, f.label, f.type, f.required, f.order, f.help || null, f.sample]);
+      `, [importTemplate.id, f.name, f.label, f.type, f.required, f.order, null, f.sample]);
     }
     console.log(`✅ Template import + ${importFields.length} field ditambahkan`);
 

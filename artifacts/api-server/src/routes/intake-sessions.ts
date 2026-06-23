@@ -392,7 +392,6 @@ router.post("/intake-sessions/:id/convert-to-task", requireAuth, async (req, res
         category: session.category ?? "General",
         customerPhone: session.phone,
         aiSummary: fieldSummary || "Data dari intake session",
-        needsAdminReview: true,
         missingData: JSON.stringify(session.missingFields ?? []),
       })
       .returning();

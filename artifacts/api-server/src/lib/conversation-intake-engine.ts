@@ -161,10 +161,10 @@ async function writeAuditLog(
     await db.insert(auditLogsTable).values({
       companyId,
       action,
+      module: "intake",
       entityType: "intake_session",
-      entityId: String(sessionId),
-      metadata: JSON.stringify({ sessionId, ...metadata }),
-      createdAt: new Date(),
+      entityId: sessionId,
+      after: JSON.stringify({ sessionId, ...metadata }),
     });
   } catch (err) {
     logger.warn({ err, action, sessionId }, "ConversationIntakeEngine: audit log write failed");
@@ -226,7 +226,7 @@ export class ConversationIntakeEngine {
         requiredFields:  requiredFieldNames,
         collectedFields: prefilled,
         missingFields:   completeness.missingFieldNames,
-        requiredDocuments: ctx.resolution.missingDocuments.map((d) => d.documentName ?? d),
+        requiredDocuments: ctx.resolution.missingDocuments.map((d) => (typeof d === "string" ? d : (d as { documentName?: string }).documentName ?? String(d))),
         uploadedDocuments: [],
         confidenceScore:   String(ctx.resolution.keywordScore ?? 0),
         completionPct:     String(completeness.completionPct),

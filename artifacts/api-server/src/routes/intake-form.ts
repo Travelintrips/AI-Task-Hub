@@ -248,7 +248,6 @@ router.post("/public/mini-form/:type/:token", async (req, res): Promise<void> =>
           customerId: session.customerId ? parseInt(session.customerId, 10) || null : null,
           aiSummary: `Form ${formCfg.title} diisi via link WhatsApp`,
           source: "mini_form",
-          needsAdminReview: true,
           missingData: JSON.stringify([]),
         })
         .returning();

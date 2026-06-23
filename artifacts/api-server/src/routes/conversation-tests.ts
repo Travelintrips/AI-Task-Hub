@@ -51,13 +51,13 @@ router.get("/conversation-tests/cases", async (req, res) => {
   }
 });
 
-router.post("/conversation-tests/cases", async (req, res) => {
+router.post("/conversation-tests/cases", async (req, res): Promise<void> => {
   try {
     const companyId = getCompanyId(req as Parameters<typeof getCompanyId>[0]);
     const body = req.body as Record<string, unknown>;
 
     if (!body.testName) {
-      return res.status(400).json({ error: "testName wajib diisi" });
+      res.status(400).json({ error: "testName wajib diisi" }); return;
     }
 
     const [row] = await db
@@ -86,11 +86,11 @@ router.post("/conversation-tests/cases", async (req, res) => {
   }
 });
 
-router.patch("/conversation-tests/cases/:id", async (req, res) => {
+router.patch("/conversation-tests/cases/:id", async (req, res): Promise<void> => {
   try {
     const companyId = getCompanyId(req as Parameters<typeof getCompanyId>[0]);
     const id = parseInt(req.params.id!, 10);
-    if (isNaN(id)) return res.status(400).json({ error: "ID tidak valid" });
+    if (isNaN(id)) { res.status(400).json({ error: "ID tidak valid" }); return; }
 
     const body = req.body as Record<string, unknown>;
     const allowed = [
@@ -105,7 +105,7 @@ router.patch("/conversation-tests/cases/:id", async (req, res) => {
     }
 
     if (Object.keys(updates).length === 0) {
-      return res.status(400).json({ error: "Tidak ada field yang diupdate" });
+      res.status(400).json({ error: "Tidak ada field yang diupdate" }); return;
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -114,7 +114,7 @@ router.patch("/conversation-tests/cases/:id", async (req, res) => {
       .where(and(eq(conversationTestCasesTable.id, id), eq(conversationTestCasesTable.companyId, companyId)))
       .returning();
 
-    if (!row) return res.status(404).json({ error: "Test case tidak ditemukan" });
+    if (!row) { res.status(404).json({ error: "Test case tidak ditemukan" }); return; }
     res.json(row);
   } catch (err) {
     logger.error({ err }, "PATCH /conversation-tests/cases/:id failed");
@@ -122,22 +122,23 @@ router.patch("/conversation-tests/cases/:id", async (req, res) => {
   }
 });
 
-router.delete("/conversation-tests/cases/:id", async (req, res) => {
+router.delete("/conversation-tests/cases/:id", async (req, res): Promise<void> => {
   try {
     const companyId = getCompanyId(req as Parameters<typeof getCompanyId>[0]);
     const id = parseInt(req.params.id!, 10);
-    if (isNaN(id)) return res.status(400).json({ error: "ID tidak valid" });
+    if (isNaN(id)) { res.status(400).json({ error: "ID tidak valid" }); return; }
 
     const [row] = await db
       .delete(conversationTestCasesTable)
       .where(and(eq(conversationTestCasesTable.id, id), eq(conversationTestCasesTable.companyId, companyId)))
       .returning();
 
-    if (!row) return res.status(404).json({ error: "Test case tidak ditemukan" });
+    if (!row) { res.status(404).json({ error: "Test case tidak ditemukan" }); return; }
     res.json({ success: true });
   } catch (err) {
     logger.error({ err }, "DELETE /conversation-tests/cases/:id failed");
     res.status(500).json({ error: "Gagal menghapus test case" });
+    return;
   }
 });
 
@@ -189,30 +190,31 @@ router.get("/conversation-tests/runs", async (req, res) => {
   }
 });
 
-router.get("/conversation-tests/runs/:id", async (req, res) => {
+router.get("/conversation-tests/runs/:id", async (req, res): Promise<void> => {
   try {
     const companyId = getCompanyId(req as Parameters<typeof getCompanyId>[0]);
     const id = parseInt(req.params.id!, 10);
-    if (isNaN(id)) return res.status(400).json({ error: "ID tidak valid" });
+    if (isNaN(id)) { res.status(400).json({ error: "ID tidak valid" }); return; }
 
     const [run] = await db
       .select()
       .from(conversationTestRunsTable)
       .where(and(eq(conversationTestRunsTable.id, id), eq(conversationTestRunsTable.companyId, companyId)));
 
-    if (!run) return res.status(404).json({ error: "Test run tidak ditemukan" });
+    if (!run) { res.status(404).json({ error: "Test run tidak ditemukan" }); return; }
     res.json(run);
   } catch (err) {
     logger.error({ err }, "GET /conversation-tests/runs/:id failed");
     res.status(500).json({ error: "Gagal memuat test run" });
+    return;
   }
 });
 
-router.get("/conversation-tests/results/:runId", async (req, res) => {
+router.get("/conversation-tests/results/:runId", async (req, res): Promise<void> => {
   try {
     const companyId = getCompanyId(req as Parameters<typeof getCompanyId>[0]);
     const runId = parseInt(req.params.runId!, 10);
-    if (isNaN(runId)) return res.status(400).json({ error: "runId tidak valid" });
+    if (isNaN(runId)) { res.status(400).json({ error: "runId tidak valid" }); return; }
 
     const results = await db
       .select({
@@ -236,6 +238,7 @@ router.get("/conversation-tests/results/:runId", async (req, res) => {
   } catch (err) {
     logger.error({ err }, "GET /conversation-tests/results/:runId failed");
     res.status(500).json({ error: "Gagal memuat test results" });
+    return;
   }
 });
 
@@ -266,14 +269,14 @@ router.get("/conversation-tests/latest-gate", async (req, res) => {
   }
 });
 
-router.patch("/conversation-tests/production-mode", async (req, res) => {
+router.patch("/conversation-tests/production-mode", async (req, res): Promise<void> => {
   try {
     const companyId = getCompanyId(req as Parameters<typeof getCompanyId>[0]);
     const { mode } = req.body as { mode?: string };
 
     const allowed = ["off", "test", "production"];
     if (!mode || !allowed.includes(mode)) {
-      return res.status(400).json({ error: "Mode harus: off, test, atau production" });
+      res.status(400).json({ error: "Mode harus: off, test, atau production" }); return;
     }
 
     if (mode === "production") {
@@ -290,9 +293,9 @@ router.patch("/conversation-tests/production-mode", async (req, res) => {
         .limit(1);
 
       if (!latestPassed) {
-        return res.status(400).json({
+        res.status(400).json({
           error: "Mode production tidak bisa diaktifkan. Quality gate belum pernah lulus. Jalankan test suite terlebih dahulu.",
-        });
+        }); return;
       }
     }
 
