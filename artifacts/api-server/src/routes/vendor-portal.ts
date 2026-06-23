@@ -73,7 +73,7 @@ router.post("/vendors/portal/generate-token", async (req: Request, res: Response
     if (!phone) { res.status(400).json({ error: "phone wajib diisi" }); return; }
 
     const token = generateToken();
-    const expiryHours = purpose === "register" ? 168 : 24; // 7 days for register, 24h for others
+    const expiryHours = purpose === "register" ? 72 : 24; // 72h for register, 24h for others
     const expiresAt = new Date(Date.now() + expiryHours * 3600 * 1000);
 
     await db.execute(sql`
@@ -378,7 +378,7 @@ router.get("/public/vendor/documents/:token", async (req: Request, res: Response
 
     const docRows = await db.execute(sql`
       SELECT id, document_type, file_url, file_name, expiry_date,
-             is_verified, is_current, status, created_at
+             is_verified, is_current, created_at
       FROM vendor_document_registry
       WHERE vendor_id = ${vendorId}
       ORDER BY created_at DESC
@@ -423,6 +423,7 @@ router.get("/public/vendor/documents/:token", async (req: Request, res: Response
         label: docLabels[d] ?? d,
         uploaded: uploadedDocTypes.has(d),
       })),
+      _meta: { total_required: requiredDocs.length, total_uploaded: docs.length },
     });
   } catch (err) {
     logger.error({ err }, "GET /public/vendor/documents failed");

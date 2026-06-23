@@ -29,7 +29,7 @@ async function createPortalToken(
   phone: string,
   purpose: "register" | "status" | "documents",
   vendorId?: number,
-  expiryHours = 168,
+  expiryHours = 72,
 ): Promise<string> {
   const token = generateToken();
   const expiresAt = new Date(Date.now() + expiryHours * 3600 * 1000);
@@ -64,7 +64,7 @@ export async function handleVendorCommand(
   ctx: WaCommandContext,
 ): Promise<WaCommandResult | null> {
   const { command, user } = ctx;
-  const phone = user.phone ?? "";
+  const phone = ctx.phone ?? "";
 
   // ── DAFTAR VENDOR ───────────────────────────────────────────────────────────
   if (command === "DAFTAR VENDOR") {
