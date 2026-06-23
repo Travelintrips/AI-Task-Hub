@@ -1,11 +1,13 @@
 /**
  * Sprint 10A-3 — Vendor Self-Service Portal
+ * Sprint 10A-3.1 — Vendor Portal Hardening
  *
  * Public (token-gated, no auth):
- *   GET  /api/public/vendor/register/:token  — form schema
- *   POST /api/public/vendor/register/:token  — submit registration
- *   GET  /api/public/vendor/status/:token    — vendor status page data
- *   GET  /api/public/vendor/documents/:token — document list + status
+ *   GET  /api/public/vendor/register/:token           — form schema
+ *   POST /api/public/vendor/register/:token           — submit registration
+ *   GET  /api/public/vendor/status/:token             — vendor status page data
+ *   GET  /api/public/vendor/documents/:token          — document list + status
+ *   POST /api/public/vendor/documents/:token/upload   — upload document file
  *
  * Internal (from WA handler):
  *   POST /api/vendors/portal/generate-token  — generate portal token
@@ -23,6 +25,8 @@ import { sql } from "drizzle-orm";
 import { requireAuth } from "../middleware/auth";
 import { logger } from "../lib/logger";
 import { sendFonnte } from "../lib/fonnte";
+import { uploadBuffer } from "../lib/supabase";
+import { validateDocument } from "../lib/document-validation-engine";
 
 const router: IRouter = Router();
 
@@ -234,16 +238,34 @@ router.post("/public/vendor/register/:token", async (req: Request, res: Response
       logger.warn({ taskErr }, "Failed to create ai_task for vendor registration");
     }
 
-    // Notify admin via Fonnte (non-blocking)
-    sendFonnte(
-      process.env["ADMIN_PHONE"] ?? "admin",
-      `🏢 *Vendor Baru Terdaftar*\n\n` +
-      `Perusahaan: ${company_name.trim()}\n` +
-      `Layanan: ${service_type}\n` +
-      `PIC: ${pic_name ?? "-"} (${contactPhone})\n` +
-      `Status: Pending Review\n\n` +
-      `Buka halaman admin untuk review.`,
-    ).catch(() => {});
+    // Notify admin via Fonnte (non-blocking) — query team_members for active admins
+    (async () => {
+      try {
+        const adminRows = await db.execute(sql`
+          SELECT phone FROM team_members
+          WHERE role IN ('super_admin', 'company_admin', 'owner')
+            AND phone IS NOT NULL AND is_active = true
+          LIMIT 10
+        `);
+        const adminPhones = (adminRows.rows as Record<string, unknown>[])
+          .map(r => String(r["phone"] ?? "")).filter(p => p.length > 5);
+        if (adminPhones.length === 0 && process.env["ADMIN_PHONE"]) {
+          adminPhones.push(process.env["ADMIN_PHONE"]);
+        }
+        const requiredForNotif = getRequiredDocs(service_type);
+        const msg =
+          `🏢 *Vendor Baru Terdaftar — Perlu Review*\n\n` +
+          `Perusahaan: ${(company_name as string).trim()}\n` +
+          `Layanan: ${service_type ?? "-"}\n` +
+          `PIC: ${pic_name ?? "-"} (${contactPhone})\n` +
+          `Dokumen wajib: ${requiredForNotif.join(", ").toUpperCase()}\n` +
+          `Status: Pending Review\n\n` +
+          `👉 Review di halaman admin vendor portal.`;
+        await Promise.allSettled(adminPhones.map(p => sendFonnte(p, msg)));
+      } catch (notifErr) {
+        logger.warn({ notifErr }, "vendor-portal: admin WA notification failed");
+      }
+    })();
 
     const requiredDocs = getRequiredDocs(service_type);
     const BASE_URL = process.env["BASE_URL"] ?? `https://${process.env["REPL_SLUG"] ?? "app"}.replit.app`;
@@ -428,6 +450,147 @@ router.get("/public/vendor/documents/:token", async (req: Request, res: Response
   } catch (err) {
     logger.error({ err }, "GET /public/vendor/documents failed");
     res.status(500).json({ error: "Gagal memuat dokumen" });
+  }
+});
+
+// ─── POST /api/public/vendor/documents/:token/upload ──────────────────────────
+// Body (JSON): { document_type, file_name, file_base64, mime_type?, expiry_date? }
+// Max file: 8 MB (base64 ~10.7 MB JSON body)
+
+router.post("/public/vendor/documents/:token/upload", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { token } = req.params as { token: string };
+
+    // ── Token validation ────────────────────────────────────────────────────────
+    const check = await validatePortalToken(token, "documents");
+    if (!check.valid) {
+      res.status(401).json({ error: check.error ?? "Token tidak valid atau sudah kadaluarsa" });
+      return;
+    }
+
+    const tokenRow = check.row as Record<string, unknown>;
+    const vendorId = tokenRow["vendor_id"] as number | null;
+    if (!vendorId) {
+      res.status(404).json({ error: "Vendor belum terdaftar" });
+      return;
+    }
+
+    // ── Input validation ────────────────────────────────────────────────────────
+    const body = req.body as Record<string, unknown>;
+    const documentType = String(body["document_type"] ?? "").trim().toLowerCase();
+    const fileName     = String(body["file_name"]     ?? "").trim();
+    const fileBase64   = String(body["file_base64"]   ?? "").trim();
+    const mimeType     = String(body["mime_type"]     ?? "application/octet-stream");
+    const expiryDate   = body["expiry_date"] ? String(body["expiry_date"]) : null;
+
+    if (!documentType) { res.status(400).json({ error: "document_type wajib diisi" }); return; }
+    if (!fileName)     { res.status(400).json({ error: "file_name wajib diisi" }); return; }
+    if (!fileBase64)   { res.status(400).json({ error: "file_base64 wajib diisi" }); return; }
+
+    const ALLOWED_TYPES = ["npwp", "nib", "siup", "stnk", "kir", "company_profile", "pkc", "insurance"];
+    if (!ALLOWED_TYPES.includes(documentType)) {
+      res.status(400).json({ error: `Tipe dokumen tidak valid. Pilih: ${ALLOWED_TYPES.join(", ")}` });
+      return;
+    }
+
+    const ALLOWED_MIME = ["application/pdf", "image/jpeg", "image/jpg", "image/png", "image/webp"];
+    if (!ALLOWED_MIME.includes(mimeType)) {
+      res.status(400).json({ error: "Format file tidak didukung. Gunakan PDF, JPG, atau PNG." });
+      return;
+    }
+
+    // ── Decode + size check (max 8 MB) ──────────────────────────────────────────
+    let fileBuffer: Buffer;
+    try {
+      fileBuffer = Buffer.from(fileBase64, "base64");
+    } catch {
+      res.status(400).json({ error: "file_base64 tidak valid" });
+      return;
+    }
+    const MAX_BYTES = 8 * 1024 * 1024;
+    if (fileBuffer.byteLength > MAX_BYTES) {
+      res.status(413).json({ error: "Ukuran file maksimal 8 MB" });
+      return;
+    }
+
+    // ── Upload ke Supabase Storage ──────────────────────────────────────────────
+    const safeName    = fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const objectPath  = `vendor-docs/${vendorId}/${documentType}_${Date.now()}_${safeName}`;
+    const { publicUrl } = await uploadBuffer(fileBuffer, objectPath, mimeType);
+
+    // ── Mark dokumen lama sebagai tidak aktif ───────────────────────────────────
+    await db.execute(sql`
+      UPDATE vendor_document_registry
+      SET is_current = false
+      WHERE vendor_id = ${vendorId} AND document_type = ${documentType}
+    `);
+
+    // ── Insert record baru ──────────────────────────────────────────────────────
+    const inserted = await db.execute(sql`
+      INSERT INTO vendor_document_registry (
+        company_id, vendor_id, document_type, file_name, file_url,
+        object_path, mime_type, file_size_bytes, source_type,
+        expiry_date, is_current, is_verified, uploaded_at, created_at
+      ) VALUES (
+        'default', ${vendorId}, ${documentType}, ${fileName}, ${publicUrl},
+        ${objectPath}, ${mimeType}, ${fileBuffer.byteLength}, 'portal',
+        ${expiryDate}, true, false, NOW(), NOW()
+      ) RETURNING id
+    `);
+    const docId = (inserted.rows as Record<string, unknown>[])[0]!["id"] as number;
+
+    // ── Trigger DocumentValidationEngine (async — tidak blokir response) ─────────
+    let auditResult: { validationStatus: string; confidenceScore: number; issues: string[] } | null = null;
+    try {
+      const vResult = await validateDocument({
+        companyId: "default",
+        documentType,
+        fileName,
+        fileUrl: publicUrl,
+        objectPath,
+        vendorId,
+      });
+
+      auditResult = {
+        validationStatus: vResult.validationStatus,
+        confidenceScore:  vResult.confidenceScore,
+        issues:           vResult.missingFields ?? [],
+      };
+
+      // Update registry dengan hasil audit
+      await db.execute(sql`
+        UPDATE vendor_document_registry
+        SET is_verified = ${vResult.validationStatus === "valid"},
+            verification_notes = ${vResult.issueSummary ?? null}
+        WHERE id = ${docId}
+      `);
+    } catch (auditErr) {
+      logger.warn({ auditErr, docId }, "vendor-upload: DocumentValidationEngine gagal (non-fatal)");
+    }
+
+    logger.info({ vendorId, documentType, docId, fileSize: fileBuffer.byteLength }, "vendor-upload: dokumen berhasil diupload");
+
+    res.json({
+      success:         true,
+      document_id:     docId,
+      document_type:   documentType,
+      file_url:        publicUrl,
+      file_size_bytes: fileBuffer.byteLength,
+      audit:           auditResult
+        ? {
+            status:     auditResult.validationStatus,
+            score:      auditResult.confidenceScore,
+            passed:     auditResult.validationStatus === "valid",
+            issues:     auditResult.issues,
+          }
+        : { status: "pending", score: null, passed: null, issues: [] },
+      message: auditResult?.validationStatus === "valid"
+        ? "Dokumen berhasil diupload dan terverifikasi ✅"
+        : "Dokumen berhasil diupload — menunggu verifikasi admin",
+    });
+  } catch (err) {
+    logger.error({ err }, "POST /public/vendor/documents/:token/upload failed");
+    res.status(500).json({ error: "Gagal mengupload dokumen" });
   }
 });
 

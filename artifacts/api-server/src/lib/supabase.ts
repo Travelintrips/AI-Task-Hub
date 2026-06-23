@@ -57,3 +57,20 @@ export async function getUploadUrl(filename: string, _mimeType: string): Promise
     path,
   };
 }
+
+export async function uploadBuffer(
+  buffer: Buffer,
+  objectPath: string,
+  mimeType: string,
+): Promise<{ publicUrl: string; path: string }> {
+  if (!supabase) throw new Error("Supabase not configured");
+
+  const { error } = await supabase.storage
+    .from(BUCKET)
+    .upload(objectPath, buffer, { contentType: mimeType, upsert: true });
+
+  if (error) throw new Error(`Upload failed: ${error.message}`);
+
+  const { data: publicData } = supabase.storage.from(BUCKET).getPublicUrl(objectPath);
+  return { publicUrl: publicData.publicUrl, path: objectPath };
+}
