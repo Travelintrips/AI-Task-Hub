@@ -61,7 +61,9 @@ interface AiTestResult {
   dataTemplateName: string | null;
   missingFields: string[];
   wouldCreateTask: boolean;
+  wouldStartIntake: boolean;
   wouldSendMiniForm: boolean;
+  nextQuestion: string | null;
 }
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -718,16 +720,25 @@ function StepAiTest({ onComplete }: { onComplete: () => void }) {
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-3 pt-2 border-t">
-              <div className={`flex items-center gap-2 text-xs rounded p-2 ${result.wouldCreateTask ? "bg-green-50 text-green-700" : "bg-muted text-muted-foreground"}`}>
-                {result.wouldCreateTask ? <Check className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}
-                {result.wouldCreateTask ? "Task akan dibuat" : "Task tidak dibuat"}
+            <div className="grid grid-cols-3 gap-2 pt-2 border-t">
+              <div className={`flex items-center gap-1.5 text-xs rounded p-2 ${result.wouldStartIntake ? "bg-green-50 text-green-700" : "bg-muted text-muted-foreground"}`}>
+                {result.wouldStartIntake ? <Check className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}
+                {result.wouldStartIntake ? "Intake dimulai" : "Langsung task"}
               </div>
-              <div className={`flex items-center gap-2 text-xs rounded p-2 ${result.wouldSendMiniForm ? "bg-blue-50 text-blue-700" : "bg-muted text-muted-foreground"}`}>
+              <div className={`flex items-center gap-1.5 text-xs rounded p-2 ${result.wouldSendMiniForm ? "bg-blue-50 text-blue-700" : "bg-muted text-muted-foreground"}`}>
                 {result.wouldSendMiniForm ? <Check className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}
-                {result.wouldSendMiniForm ? "Mini form akan dikirim" : "Tanpa mini form"}
+                {result.wouldSendMiniForm ? "Mini form dikirim" : "Tanpa mini form"}
+              </div>
+              <div className={`flex items-center gap-1.5 text-xs rounded p-2 ${result.wouldCreateTask ? "bg-amber-50 text-amber-700" : "bg-muted text-muted-foreground"}`}>
+                {result.wouldCreateTask ? <Check className="h-3 w-3" /> : <AlertCircle className="h-3 w-3" />}
+                {result.wouldCreateTask ? "Task dibuat langsung" : "Task setelah intake"}
               </div>
             </div>
+            {result.nextQuestion && (
+              <div className="bg-indigo-50 border border-indigo-200 rounded p-3 text-xs text-indigo-800">
+                <strong>Pertanyaan AI:</strong> {result.nextQuestion}
+              </div>
+            )}
           </div>
         </div>
       )}

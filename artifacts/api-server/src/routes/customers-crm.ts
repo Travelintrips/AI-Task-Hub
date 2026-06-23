@@ -12,10 +12,15 @@ router.get("/crm/customers", requireAuth, async (req: Request, res: Response): P
     const companyId = getCompanyId(req) ?? req.user!.companyId;
     const { search } = req.query as Record<string, string | undefined>;
 
-    let rows = await db.select().from(customersTable).where(eq(customersTable.companyId, companyId)).orderBy(desc(customersTable.updatedAt)).limit(300);
+    // company_id is INTEGER in DB — use raw SQL to avoid type mismatch
+    const result = await db.execute(sql`
+      SELECT * FROM customers WHERE company_id = ${Number(companyId) || 0}
+      ORDER BY updated_at DESC LIMIT 300
+    `);
+    let rows = ((result as unknown as { rows?: Record<string, unknown>[] }).rows ?? result as unknown as Record<string, unknown>[]);
     if (search) {
       const q = search.toLowerCase();
-      rows = rows.filter((r) => r.companyName.toLowerCase().includes(q) || (r.picName ?? "").toLowerCase().includes(q) || (r.whatsapp ?? "").includes(q) || (r.email ?? "").toLowerCase().includes(q));
+      rows = rows.filter((r) => String(r.company_name ?? "").toLowerCase().includes(q) || String(r.pic_name ?? "").toLowerCase().includes(q) || String(r.whatsapp ?? "").includes(q) || String(r.email ?? "").toLowerCase().includes(q));
     }
     res.json(rows);
   } catch (err) {

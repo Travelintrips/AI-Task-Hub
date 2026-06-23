@@ -97,7 +97,7 @@ router.put(
       const companyId = getCompanyIdForWrite(req);
 
       const {
-        companyName, companyPhone, companyAddress, companyEmail,
+        companyName, companyPhone, companyAddress, companyEmail, industryType,
         fonnteToken, whatsappPhoneNumberId, whatsappToken, whatsappWebhookVerifyToken,
         templateMissingDoc, templateNewTask, templateAssignment,
         templateProgress, templateApproval, templateCompleted,
@@ -118,6 +118,7 @@ router.put(
         companyPhone:              companyPhone ?? null,
         companyAddress:            companyAddress ?? null,
         companyEmail:              companyEmail ?? null,
+        industryType:              industryType ?? null,
         fonnteToken:               isMasked(fonnteToken) ? (existing?.fonnteToken ?? null) : (fonnteToken ?? null),
         whatsappPhoneNumberId:     whatsappPhoneNumberId ?? null,
         whatsappToken:             isMasked(whatsappToken) ? (existing?.whatsappToken ?? null) : (whatsappToken ?? null),

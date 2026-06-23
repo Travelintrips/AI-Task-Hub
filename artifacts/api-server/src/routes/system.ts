@@ -152,28 +152,40 @@ router.get("/system/onboarding-status", requireAuth, async (req: Request, res: R
     const metaOk = !!(settings?.whatsappToken ?? process.env.WHATSAPP_TOKEN);
     const waPct = fonnteOk ? 100 : metaOk ? 50 : 0;
 
+    // Helper: db.execute() may return {rows:[...]} or raw array depending on driver version
+    function safeRows(r: unknown): Record<string, unknown>[] {
+      if (Array.isArray(r)) return r as Record<string, unknown>[];
+      const obj = r as { rows?: unknown };
+      if (obj?.rows && Array.isArray(obj.rows)) return obj.rows as Record<string, unknown>[];
+      return [];
+    }
+    function safeCount(r: unknown): number {
+      const rows = safeRows(r);
+      return parseInt(String(rows[0]?.cnt ?? rows[0]?.count ?? "0"), 10);
+    }
+
     // Team members
-    const teamResult = await db.execute(sql`SELECT COUNT(*) AS cnt FROM team_members WHERE company_id = ${companyId}`).catch(() => [{ cnt: 0 }]);
-    const teamCount = parseInt(String((teamResult as unknown as Record<string, unknown>[])[0]?.cnt ?? "0"), 10);
+    const teamResult = await db.execute(sql`SELECT COUNT(*) AS cnt FROM team_members WHERE company_id = ${companyId}`).catch(() => ({ rows: [{ cnt: 0 }] }));
+    const teamCount = safeCount(teamResult);
 
     // Customers with phone
     const custResult = await db.execute(sql`
       SELECT COUNT(*) AS total, COUNT(CASE WHEN whatsapp IS NOT NULL THEN 1 END) AS with_wa
       FROM customers WHERE company_id = ${companyId}
-    `).catch(() => [{ total: 0, with_wa: 0 }]);
-    const custRow = (custResult as unknown as Record<string, unknown>[])[0] ?? {};
+    `).catch(() => ({ rows: [{ total: 0, with_wa: 0 }] }));
+    const custRow = safeRows(custResult)[0] ?? {};
 
     // Fleet units
-    const fleetResult = await db.execute(sql`SELECT COUNT(*) AS cnt FROM fleet_units WHERE company_id = ${companyId} AND is_active = true`).catch(() => [{ cnt: 0 }]);
-    const fleetCount = parseInt(String((fleetResult as unknown as Record<string, unknown>[])[0]?.cnt ?? "0"), 10);
+    const fleetResult = await db.execute(sql`SELECT COUNT(*) AS cnt FROM fleet_units WHERE company_id = ${companyId} AND is_active = true`).catch(() => ({ rows: [{ cnt: 0 }] }));
+    const fleetCount = safeCount(fleetResult);
 
     // Knowledge base
-    const kbResult = await db.execute(sql`SELECT COUNT(*) AS cnt FROM intent_master`).catch(() => [{ cnt: 0 }]);
-    const intentCount = parseInt(String((kbResult as unknown as Record<string, unknown>[])[0]?.cnt ?? "0"), 10);
+    const kbResult = await db.execute(sql`SELECT COUNT(*) AS cnt FROM intent_master`).catch(() => ({ rows: [{ cnt: 0 }] }));
+    const intentCount = safeCount(kbResult);
 
     // Tasks created
-    const taskResult = await db.execute(sql`SELECT COUNT(*) AS cnt FROM ai_tasks WHERE company_id = ${companyId}`).catch(() => [{ cnt: 0 }]);
-    const taskCount = parseInt(String((taskResult as unknown as Record<string, unknown>[])[0]?.cnt ?? "0"), 10);
+    const taskResult = await db.execute(sql`SELECT COUNT(*) AS cnt FROM ai_tasks WHERE company_id = ${companyId}`).catch(() => ({ rows: [{ cnt: 0 }] }));
+    const taskCount = safeCount(taskResult);
 
     const steps = {
       company_profile: { done: profilePct === 100, pct: profilePct, fields: profileFields },
@@ -215,14 +227,15 @@ router.post("/system/ai-test", requireAuth, async (req: Request, res: Response):
 
     // Step 1: keyword match against keyword_rules table
     const kwResult = await db.execute(sql`
-      SELECT k.keyword, k.weight, i.intent_code, i.category, i.description
+      SELECT k.keyword, k.weight, k.intent_code, i.category, i.description
       FROM keyword_rules k
-      JOIN intent_master i ON i.id = k.intent_id
+      LEFT JOIN intent_master i ON i.intent_code = k.intent_code
       WHERE ${msgLower} ILIKE '%' || k.keyword || '%'
+        AND (k.is_active IS NULL OR k.is_active = true)
       ORDER BY k.weight DESC
       LIMIT 5
-    `).catch(() => [] as unknown[]);
-    const kwRows = kwResult as unknown as Array<Record<string, unknown>>;
+    `).catch(() => ({ rows: [] }));
+    const kwRows = ((kwResult as unknown as { rows?: Array<Record<string, unknown>> }).rows ?? kwResult as unknown as Array<Record<string, unknown>>);
 
     // Step 2: direct intent_code substring match as fallback
     let detectedIntent: string | null = null;
@@ -283,8 +296,8 @@ router.post("/system/ai-test", requireAuth, async (req: Request, res: Response):
         WHERE dt.intent_code = ${intentCode}
         GROUP BY dt.id, dt.name, dt.intake_mode
         LIMIT 1
-      `).catch(() => [] as unknown[]);
-      const tmplRows = tmplResult as unknown as Array<Record<string, unknown>>;
+      `).catch(() => ({ rows: [] }));
+      const tmplRows = ((tmplResult as unknown as { rows?: Array<Record<string, unknown>> }).rows ?? tmplResult as unknown as Array<Record<string, unknown>>);
       if (tmplRows.length > 0) {
         dataTemplateName = String(tmplRows[0].name ?? "");
         intakeMode = String(tmplRows[0].intake_mode ?? "conversation");
@@ -293,8 +306,16 @@ router.post("/system/ai-test", requireAuth, async (req: Request, res: Response):
       }
     }
 
-    const wouldCreateTask = !!intentCode && confidence >= 50;
-    const wouldSendMiniForm = wouldCreateTask && intakeMode === "mini_form";
+    // If there's an intake template, flow goes through intake (not direct task creation)
+    const hasIntakeFlow = !!intakeMode && intakeMode !== "none";
+    const wouldStartIntake = hasIntakeFlow;
+    const wouldCreateTask = !!intentCode && confidence >= 50 && !hasIntakeFlow;
+    const wouldSendMiniForm = hasIntakeFlow && (intakeMode === "mini_form" || intakeMode === "hybrid");
+
+    // Build next question hint for conversation intake
+    const nextQuestion = intakeMode === "conversation" || intakeMode === "hybrid"
+      ? missingFields.length > 0 ? `Pertanyaan berikut: "${missingFields[0]}"` : "AI akan menanyakan detail lebih lanjut"
+      : null;
 
     res.json({
       simulation: true,
@@ -308,7 +329,9 @@ router.post("/system/ai-test", requireAuth, async (req: Request, res: Response):
       dataTemplateName,
       missingFields,
       wouldCreateTask,
+      wouldStartIntake,
       wouldSendMiniForm,
+      nextQuestion,
       note: "Mode simulasi — tidak ada task dibuat dan tidak ada WA terkirim",
       processedAt: new Date().toISOString(),
     });
