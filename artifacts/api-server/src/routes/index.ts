@@ -143,6 +143,8 @@ router.use(qualityGateRouter);
 router.use(waCommandsRouter);
 // ── Sprint 10A-1.2 — Onboarding Readiness Hardening ───────────────────────────
 router.use(vendorsRouter);
+// ── Sprint 10A-3 — Vendor Self-Service Portal ──────────────────────────────────
+router.use(vendorPortalRouter);
 router.use(systemRouter);
 
 export default router;
