@@ -1,0 +1,188 @@
+SPRINT 10A-4 — DRIVER SELF-SERVICE VALIDATION
+
+Do not build new features.
+
+Validate actual runtime behavior.
+
+====================================================
+SECTION 1 — DRIVER REGISTRATION
+===============================
+
+Test:
+
+DAFTAR DRIVER
+
+Expected:
+
+* token generated
+* 72h expiry
+* WA link sent
+* token stored in driver_portal_tokens
+
+Verify:
+
+token count
+expiry timestamp
+
+====================================================
+SECTION 2 — DRIVER PORTAL
+=========================
+
+Test:
+
+/driver/home/:token
+/driver/profile/:token
+/driver/documents/:token
+/driver/trips/:token
+/driver/history/:token
+
+Expected:
+
+* valid token loads
+* invalid token blocked
+* expired token blocked
+
+====================================================
+SECTION 3 — DRIVER ONBOARDING
+=============================
+
+Create new driver.
+
+Verify:
+
+* fleet_drivers row created
+* onboarding_status updated
+* duplicate phone updates existing driver
+
+====================================================
+SECTION 4 — DOCUMENT VALIDATION
+===============================
+
+Upload:
+
+* SIM
+* KTP
+
+Expected:
+
+* DocumentValidationEngine runs
+* driver_documents row created
+* audit created
+* validation status returned
+
+====================================================
+SECTION 5 — DRIVER COMMANDS
+===========================
+
+Test:
+
+STATUS DRIVER
+BBM
+RUSAK
+POSISI
+MULAI TRIP
+SELESAI TRIP
+
+Expected:
+
+* audit logs created
+* memory updated
+* fleet records updated
+
+====================================================
+SECTION 6 — DRIVER MEMORY
+=========================
+
+Verify:
+
+fuel score updates
+utilization score updates
+trip count updates
+incident count updates
+
+====================================================
+SECTION 7 — PERFORMANCE SCORE
+=============================
+
+Verify:
+
+fleet_driver_performance populated
+
+Fields:
+
+* safety_score
+* punctuality_score
+* fuel_score
+* utilization_score
+
+====================================================
+SECTION 8 — ADMIN REVIEW
+========================
+
+Verify:
+
+/driver-admin
+
+Loads:
+
+* onboarding queue
+* missing docs
+* expiring SIM
+* rankings
+
+Approve/reject actions work.
+
+====================================================
+SECTION 9 — EXECUTIVE KPIs
+==========================
+
+Verify:
+
+1. Active Drivers
+2. Onboarding Completion %
+3. SIM Expiring ≤30 Days
+4. Avg Fuel Score
+5. Incident Rate
+
+All values populated from real data.
+
+====================================================
+SECTION 10 — SECURITY
+=====================
+
+Verify:
+
+* token bound to driver
+* cross-driver access blocked
+* expired token blocked
+* no driver can see another driver data
+
+====================================================
+SECTION 11 — TYPECHECK
+======================
+
+Verify:
+
+frontend
+backend
+
+0 new errors.
+
+====================================================
+OUTPUT
+======
+
+PASS / FAIL
+
+Driver onboarding proof
+Document validation proof
+Trip proof
+Memory proof
+Performance score proof
+Executive KPI proof
+
+Readiness score
+
+GO / NO-GO
+
+for Sprint 10A-5 Executive Daily Briefing

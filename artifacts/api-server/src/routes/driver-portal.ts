@@ -77,9 +77,17 @@ router.post("/drivers/portal/generate-token", async (req: Request, res: Response
     const token = generateToken();
     const expiresAt = new Date(Date.now() + 72 * 3600 * 1000);
 
+    // Auto-link driver_id if driver already exists with this phone
+    let resolvedDriverId: number | null = (driver_id as number | null) ?? null;
+    if (!resolvedDriverId) {
+      const existing = await db.execute(sql`SELECT id FROM fleet_drivers WHERE phone = ${String(phone)} LIMIT 1`);
+      const row = (existing.rows as Record<string, unknown>[])[0];
+      if (row) resolvedDriverId = row["id"] as number;
+    }
+
     await db.execute(sql`
       INSERT INTO driver_portal_tokens (token, driver_id, phone, expires_at)
-      VALUES (${token}, ${driver_id ?? null}, ${String(phone)}, ${expiresAt.toISOString()})
+      VALUES (${token}, ${resolvedDriverId}, ${String(phone)}, ${expiresAt.toISOString()})
     `);
     res.json({ token, expires_at: expiresAt.toISOString() });
   } catch (err) {

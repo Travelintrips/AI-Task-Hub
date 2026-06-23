@@ -417,6 +417,7 @@ if (supabasePool) {
     `);
     await supabasePool!.query(`ALTER TABLE fleet_driver_performance ADD COLUMN IF NOT EXISTS period_start DATE`);
     await supabasePool!.query(`ALTER TABLE fleet_driver_performance ADD COLUMN IF NOT EXISTS period_end  DATE`);
+    await supabasePool!.query(`ALTER TABLE fleet_driver_performance ADD COLUMN IF NOT EXISTS overall_score       NUMERIC(5,2)`);
     await supabasePool!.query(`ALTER TABLE fleet_driver_performance ADD COLUMN IF NOT EXISTS safety_score       NUMERIC(5,2)`);
     await supabasePool!.query(`ALTER TABLE fleet_driver_performance ADD COLUMN IF NOT EXISTS punctuality_score   NUMERIC(5,2)`);
     await supabasePool!.query(`ALTER TABLE fleet_driver_performance ADD COLUMN IF NOT EXISTS fuel_score          NUMERIC(5,2)`);

@@ -110,7 +110,7 @@ export default function DriverTripsPage() {
         ) : (
           // Start Trip Form
           <StartTripCard
-            vehicle={data?.assigned_vehicle}
+            vehicle={data?.assigned_vehicle ?? null}
             destination={destination}
             onChangeDestination={setDestination}
             onStart={handleStart}
