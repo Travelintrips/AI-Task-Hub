@@ -317,6 +317,44 @@ if (supabasePool) {
   .catch((err: unknown) => logger.warn({ err }, "Sprint 10A-1 startup migration warning (may already exist)"));
 }
 
+// ── Sprint 10A-3 startup migrations (idempotent) ──────────────────────────────
+if (supabasePool) {
+  supabasePool.query(`
+    CREATE TABLE IF NOT EXISTS vendor_portal_tokens (
+      id             SERIAL PRIMARY KEY,
+      token          TEXT NOT NULL UNIQUE,
+      vendor_id      INTEGER,
+      phone          TEXT NOT NULL,
+      token_purpose  TEXT NOT NULL DEFAULT 'register',
+      company_id     TEXT NOT NULL DEFAULT 'default',
+      expires_at     TIMESTAMPTZ,
+      used_at        TIMESTAMPTZ,
+      is_revoked     BOOLEAN NOT NULL DEFAULT false,
+      created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS vp_tokens_token_idx  ON vendor_portal_tokens(token);
+    CREATE INDEX IF NOT EXISTS vp_tokens_phone_idx  ON vendor_portal_tokens(phone);
+    CREATE INDEX IF NOT EXISTS vp_tokens_vendor_idx ON vendor_portal_tokens(vendor_id);
+
+    ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS registration_status TEXT DEFAULT 'unregistered';
+    ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS portal_phone         TEXT;
+    ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS review_notes         TEXT;
+    ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS coverage_area        TEXT;
+    ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS vehicle_type         TEXT;
+    ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS service_capacity     TEXT;
+    ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS npwp                 TEXT;
+    ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS nib                  TEXT;
+    ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS admin_notes          TEXT;
+    ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS reviewed_by          TEXT;
+    ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS reviewed_at          TIMESTAMPTZ;
+    ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS onboarding_completed_at TIMESTAMPTZ;
+    ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS self_submitted        BOOLEAN DEFAULT false;
+    ALTER TABLE suppliers ADD COLUMN IF NOT EXISTS updated_at           TIMESTAMPTZ DEFAULT NOW();
+  `)
+  .then(() => logger.info("Sprint 10A-3 startup migrations OK"))
+  .catch((err: unknown) => logger.warn({ err }, "Sprint 10A-3 startup migration warning (may already exist)"));
+}
+
 // ── Sprint 10A-1.1 startup schema validation ───────────────────────────────────
 // Lightweight check — never fails startup, just logs drift summary.
 import("./lib/schema-startup-check").then((m) => m.runSchemaStartupCheck()).catch(() => {});

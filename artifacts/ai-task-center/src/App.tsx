@@ -39,6 +39,10 @@ import AiObservabilityPage from "@/pages/ai-observability";
 import CustomerMemoryPage from "@/pages/customer-memory";
 import VendorsPage from "@/pages/vendors";
 import VendorMemoryPage from "@/pages/vendor-memory";
+import VendorRegisterPage from "@/pages/vendor-register";
+import VendorStatusPage from "@/pages/vendor-status";
+import VendorDocumentsPage from "@/pages/vendor-documents";
+import VendorReviewAdmin from "@/pages/vendor-review-admin";
 import ExecutiveIntelligencePage from "@/pages/executive-intelligence";
 import ExecutiveCommandPage from "@/pages/executive-command";
 import PurchasingIntelligencePage from "@/pages/purchasing-intelligence";
@@ -117,6 +121,7 @@ function AppRouter() {
         <Route path="/crm/customers/:id/memory" component={CustomerMemoryPage} />
         <Route path="/vendors" component={VendorsPage} />
         <Route path="/vendors/:id/memory" component={VendorMemoryPage} />
+        <Route path="/admin/vendor-review" component={VendorReviewAdmin} />
         <Route path="/purchasing-intelligence" component={PurchasingIntelligencePage} />
         <Route path="/executive-intelligence" component={ExecutiveIntelligencePage} />
         <Route path="/executive-command" component={ExecutiveCommandPage} />
@@ -155,6 +160,9 @@ function Router() {
       <Route path="/customer-data/:taskId/:token" component={CustomerDataForm} />
       <Route path="/mini-form/preview/:templateId" component={MiniFormPage} />
       <Route path="/mini-form/:type/:token" component={MiniFormPage} />
+      <Route path="/vendor/register/:token" component={VendorRegisterPage} />
+      <Route path="/vendor/status/:token" component={VendorStatusPage} />
+      <Route path="/vendor/documents/:token" component={VendorDocumentsPage} />
       <Route path="/setup" component={Setup} />
       <Route>
         {() => <AppRouter />}

@@ -74,6 +74,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
     { name: "AI Observability", href: "/ai-observability", icon: Activity },
     { name: "CRM",          href: "/crm",               icon: Building2 },
     { name: "Vendors",     href: "/vendors",           icon: TrendingUp },
+    { name: "Vendor Review",  href: "/admin/vendor-review", icon: TrendingUp },
     { name: "Fleet Dashboard", href: "/fleet/dashboard",       icon: BarChart2 },
     { name: "Fleet Risk",      href: "/fleet/risk",            icon: Shield },
     { name: "Fleet Cost/KM",   href: "/fleet/cost",            icon: TrendingUp },

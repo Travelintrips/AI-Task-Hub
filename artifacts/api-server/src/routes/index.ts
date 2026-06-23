@@ -60,6 +60,7 @@ import conversationTestsRouter from "./conversation-tests";
 import qualityGateRouter from "./quality-gate";
 import waCommandsRouter from "./wa-commands";
 import vendorsRouter from "./vendors";
+import vendorPortalRouter from "./vendor-portal";
 import systemRouter from "./system";
 import { extractUser } from "../middleware/auth";
 
