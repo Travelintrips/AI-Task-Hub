@@ -61,6 +61,7 @@ import qualityGateRouter from "./quality-gate";
 import waCommandsRouter from "./wa-commands";
 import vendorsRouter from "./vendors";
 import vendorPortalRouter from "./vendor-portal";
+import driverPortalRouter from "./driver-portal";
 import systemRouter from "./system";
 import { extractUser } from "../middleware/auth";
 
@@ -146,6 +147,8 @@ router.use(waCommandsRouter);
 router.use(vendorsRouter);
 // ── Sprint 10A-3 — Vendor Self-Service Portal ──────────────────────────────────
 router.use(vendorPortalRouter);
+// ── Sprint 10A-4 — Driver Self-Service Portal ──────────────────────────────────
+router.use(driverPortalRouter);
 router.use(systemRouter);
 
 export default router;

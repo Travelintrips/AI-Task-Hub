@@ -38,6 +38,10 @@ const TWO_WORD_COMMANDS = new Set([
   "STATUS VENDOR",
   "DOKUMEN VENDOR",
   "HELP DRIVER",
+  "DAFTAR DRIVER",
+  "STATUS DRIVER",
+  "MULAI TRIP",
+  "SELESAI TRIP",
 ]);
 
 const ALL_COMMANDS = new Set([
@@ -228,7 +232,12 @@ export async function routeWaCommand(
     }
 
     // Driver commands
-    if (!result && ["BBM", "RUSAK", "POSISI", "HELP DRIVER"].includes(command)) {
+    // DAFTAR DRIVER is open to all (unknown phones can register)
+    if (!result && command === "DAFTAR DRIVER") {
+      result = await handleDriverCommand(ctx);
+    }
+
+    if (!result && ["BBM", "RUSAK", "POSISI", "HELP DRIVER", "STATUS DRIVER", "MULAI TRIP", "SELESAI TRIP"].includes(command)) {
       if (user.role !== "driver" && !isAdminOrAbove(user.role)) {
         const reply = "❌ Perintah ini hanya untuk driver terdaftar.";
         await sendFonnte(phone, reply);
