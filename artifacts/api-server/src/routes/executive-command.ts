@@ -145,6 +145,71 @@ router.get(
           AND cost_per_km > 0
       `);
 
+      const [
+        activeDrivers,
+        driverOnboardingCompletion,
+        simExpiringCount,
+        avgFuelScore,
+        incidentRate,
+      ] = await Promise.all([
+        safeCount(sql`
+          SELECT COUNT(*)::int AS cnt
+          FROM fleet_drivers
+          WHERE company_id = ${companyId} AND status = 'active'
+        `),
+        safeRow<{ total: number; complete: number }>(sql`
+          SELECT
+            COUNT(*)::int AS total,
+            COUNT(*) FILTER (
+              WHERE EXISTS (
+                SELECT 1 FROM driver_documents dd
+                WHERE dd.driver_id = fleet_drivers.id
+                  AND dd.document_type = 'sim'
+                  AND dd.is_current = true
+                  AND dd.is_verified = true
+              )
+            )::int AS complete
+          FROM fleet_drivers
+          WHERE company_id = ${companyId} AND status = 'active'
+        `),
+        safeCount(sql`
+          SELECT COUNT(*)::int AS cnt
+          FROM fleet_drivers
+          WHERE company_id = ${companyId}
+            AND status = 'active'
+            AND license_expired IS NOT NULL
+            AND license_expired <= CURRENT_DATE + INTERVAL '30 days'
+        `),
+        safeRow<{ avg_score: number | null }>(sql`
+          SELECT ROUND(AVG(avg_fuel_efficiency)::numeric, 1) AS avg_score
+          FROM fleet_driver_performance fp
+          JOIN fleet_drivers d ON d.id = fp.driver_id
+          WHERE d.company_id = ${companyId}
+            AND fp.period_end >= CURRENT_DATE - INTERVAL '90 days'
+        `),
+        safeRow<{ total_trips: number; incidents: number }>(sql`
+          SELECT
+            COALESCE(SUM(total_trips), 0)::int AS total_trips,
+            COALESCE(SUM(incidents_count), 0)::int AS incidents
+          FROM fleet_driver_performance fp
+          JOIN fleet_drivers d ON d.id = fp.driver_id
+          WHERE d.company_id = ${companyId}
+            AND fp.period_end >= CURRENT_DATE - INTERVAL '90 days'
+        `),
+      ]);
+
+      const onboardTotal = driverOnboardingCompletion?.total ?? 0;
+      const onboardComplete = driverOnboardingCompletion?.complete ?? 0;
+      const driverOnboardingRate = onboardTotal > 0
+        ? Math.round((onboardComplete / onboardTotal) * 100)
+        : 0;
+
+      const totalTrips = incidentRate?.total_trips ?? 0;
+      const totalIncidents = incidentRate?.incidents ?? 0;
+      const incidentsPer100Trips = totalTrips > 0
+        ? Math.round((totalIncidents / totalTrips) * 100)
+        : 0;
+
       res.json({
         generatedAt: new Date().toISOString(),
         totalActiveTasks,
@@ -155,6 +220,11 @@ router.get(
         projectedMarginRisk,
         duplicatePurchaseRisk,
         avgFleetCostPerKm: costRow?.avg_cost_per_km ?? null,
+        activeDrivers,
+        driverOnboardingRate,
+        simExpiringCount,
+        avgFuelScore: avgFuelScore?.avg_score ?? null,
+        incidentsPer100Trips,
       });
     } catch (err) {
       logger.error({ err }, "GET /executive/kpis failed");

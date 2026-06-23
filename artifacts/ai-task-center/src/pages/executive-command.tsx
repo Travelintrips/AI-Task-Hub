@@ -75,6 +75,11 @@ interface KpiData {
   projectedMarginRisk: number;
   duplicatePurchaseRisk: number;
   avgFleetCostPerKm: number | null;
+  activeDrivers: number;
+  driverOnboardingRate: number;
+  simExpiringCount: number;
+  avgFuelScore: number | null;
+  incidentsPer100Trips: number;
 }
 
 interface Alert {
@@ -802,6 +807,39 @@ export default function ExecutiveCommandPage() {
                   value: kpi?.avgFleetCostPerKm != null ? `Rp ${idrFmt.format(kpi.avgFleetCostPerKm)}` : "—",
                   icon: Flame,
                   accent: "text-indigo-600 bg-indigo-50",
+                  raw: true,
+                },
+                {
+                  label: "Driver Aktif",
+                  value: kpi?.activeDrivers,
+                  icon: Users,
+                  accent: "text-emerald-600 bg-emerald-50",
+                },
+                {
+                  label: "Onboarding Driver (%)",
+                  value: kpi?.driverOnboardingRate != null ? `${kpi.driverOnboardingRate}%` : "—",
+                  icon: CheckCircle2,
+                  accent: (kpi?.driverOnboardingRate ?? 0) >= 80 ? "text-emerald-600 bg-emerald-50" : "text-orange-600 bg-orange-50",
+                  raw: true,
+                },
+                {
+                  label: "SIM Kadaluarsa ≤30 Hari",
+                  value: kpi?.simExpiringCount,
+                  icon: AlertCircle,
+                  accent: kpi?.simExpiringCount ? "text-red-600 bg-red-50" : "text-muted-foreground bg-muted/40",
+                },
+                {
+                  label: "Rata-rata Efisiensi BBM",
+                  value: kpi?.avgFuelScore != null ? `${kpi.avgFuelScore} KM/L` : "—",
+                  icon: Award,
+                  accent: "text-blue-600 bg-blue-50",
+                  raw: true,
+                },
+                {
+                  label: "Insiden per 100 Trip",
+                  value: kpi?.incidentsPer100Trips != null ? `${kpi.incidentsPer100Trips}` : "—",
+                  icon: ShieldAlert,
+                  accent: (kpi?.incidentsPer100Trips ?? 0) > 5 ? "text-red-600 bg-red-50" : "text-muted-foreground bg-muted/40",
                   raw: true,
                 },
               ].map((item) => {

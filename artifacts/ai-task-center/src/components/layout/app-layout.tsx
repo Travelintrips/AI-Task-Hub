@@ -80,6 +80,8 @@ export function AppLayout({ children }: { children: ReactNode }) {
     { name: "Fleet Cost/KM",   href: "/fleet/cost",            icon: TrendingUp },
     { name: "Route Profit",    href: "/fleet/route-profitability", icon: Navigation },
     { name: "Fleet Units",     href: "/fleet/units",           icon: Truck },
+    { name: "Fleet Drivers",   href: "/fleet/drivers",         icon: Users },
+    { name: "Driver Admin",    href: "/driver-admin",          icon: ShieldCheck },
     { name: "Fleet BBM",       href: "/fleet/fuel",            icon: Droplets },
     { name: "Fleet Ban",       href: "/fleet/tires",           icon: Package },
     { name: "Utilisasi",       href: "/fleet/utilization",     icon: Navigation },

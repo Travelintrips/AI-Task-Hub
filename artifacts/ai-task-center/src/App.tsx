@@ -68,6 +68,12 @@ import MiniFormAnalyticsPage from "@/pages/mini-form-analytics";
 import ConversationTestsPage from "@/pages/conversation-tests";
 import QualityGatePage from "@/pages/quality-gate";
 import OnboardingPage from "@/pages/onboarding";
+import DriverHomePage from "@/pages/driver-home";
+import DriverProfilePage from "@/pages/driver-profile";
+import DriverDocumentsPage from "@/pages/driver-documents";
+import DriverTripsPage from "@/pages/driver-trips";
+import DriverHistoryPage from "@/pages/driver-history";
+import DriverAdminPage from "@/pages/driver-admin";
 
 const queryClient = new QueryClient();
 
@@ -147,6 +153,7 @@ function AppRouter() {
         <Route path="/quality-gate/report" component={QualityGatePage} />
         <Route path="/onboarding" component={OnboardingPage} />
         <Route path="/onboarding/:step" component={OnboardingPage} />
+        <Route path="/driver-admin" component={DriverAdminPage} />
         <Route component={NotFound} />
       </Switch>
     </AppLayout>
@@ -163,6 +170,11 @@ function Router() {
       <Route path="/vendor/register/:token" component={VendorRegisterPage} />
       <Route path="/vendor/status/:token" component={VendorStatusPage} />
       <Route path="/vendor/documents/:token" component={VendorDocumentsPage} />
+      <Route path="/driver/home/:token" component={DriverHomePage} />
+      <Route path="/driver/profile/:token" component={DriverProfilePage} />
+      <Route path="/driver/documents/:token" component={DriverDocumentsPage} />
+      <Route path="/driver/trips/:token" component={DriverTripsPage} />
+      <Route path="/driver/history/:token" component={DriverHistoryPage} />
       <Route path="/setup" component={Setup} />
       <Route>
         {() => <AppRouter />}

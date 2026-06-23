@@ -355,6 +355,85 @@ if (supabasePool) {
   .catch((err: unknown) => logger.warn({ err }, "Sprint 10A-3 startup migration warning (may already exist)"));
 }
 
+// ── Sprint 10A-4 startup migrations (idempotent, split per statement) ─────────
+if (supabasePool) {
+  const run10A4 = async () => {
+    await supabasePool!.query(`
+      CREATE TABLE IF NOT EXISTS driver_portal_tokens (
+        id          SERIAL PRIMARY KEY,
+        token       TEXT NOT NULL UNIQUE,
+        driver_id   INTEGER,
+        phone       TEXT NOT NULL,
+        expires_at  TIMESTAMPTZ,
+        is_revoked  BOOLEAN NOT NULL DEFAULT false,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS drv_portal_tokens_token_idx  ON driver_portal_tokens(token)`);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS drv_portal_tokens_phone_idx  ON driver_portal_tokens(phone)`);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS drv_portal_tokens_driver_idx ON driver_portal_tokens(driver_id)`);
+
+    await supabasePool!.query(`
+      CREATE TABLE IF NOT EXISTS driver_documents (
+        id                  SERIAL PRIMARY KEY,
+        driver_id           INTEGER NOT NULL,
+        document_type       TEXT NOT NULL,
+        file_name           TEXT NOT NULL,
+        file_url            TEXT,
+        object_path         TEXT,
+        is_current          BOOLEAN NOT NULL DEFAULT true,
+        is_verified         BOOLEAN NOT NULL DEFAULT false,
+        verification_notes  TEXT,
+        uploaded_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        verified_at         TIMESTAMPTZ,
+        expires_at          TIMESTAMPTZ
+      )
+    `);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS drv_docs_driver_idx  ON driver_documents(driver_id)`);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS drv_docs_type_idx    ON driver_documents(document_type)`);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS drv_docs_current_idx ON driver_documents(driver_id, is_current)`);
+
+    await supabasePool!.query(`
+      CREATE TABLE IF NOT EXISTS fleet_driver_performance (
+        id                  SERIAL PRIMARY KEY,
+        driver_id           INTEGER NOT NULL,
+        company_id          TEXT NOT NULL DEFAULT 'default',
+        period_month        TEXT NOT NULL,
+        period_start        DATE,
+        period_end          DATE,
+        total_trips         INTEGER NOT NULL DEFAULT 0,
+        total_distance_km   NUMERIC(10,2) NOT NULL DEFAULT 0,
+        avg_fuel_efficiency NUMERIC(6,2),
+        incidents_count     INTEGER NOT NULL DEFAULT 0,
+        on_time_deliveries  INTEGER NOT NULL DEFAULT 0,
+        overall_score       NUMERIC(5,2),
+        safety_score        NUMERIC(5,2),
+        punctuality_score   NUMERIC(5,2),
+        fuel_score          NUMERIC(5,2),
+        utilization_score   NUMERIC(5,2),
+        created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await supabasePool!.query(`ALTER TABLE fleet_driver_performance ADD COLUMN IF NOT EXISTS period_start DATE`);
+    await supabasePool!.query(`ALTER TABLE fleet_driver_performance ADD COLUMN IF NOT EXISTS period_end  DATE`);
+    await supabasePool!.query(`ALTER TABLE fleet_driver_performance ADD COLUMN IF NOT EXISTS safety_score       NUMERIC(5,2)`);
+    await supabasePool!.query(`ALTER TABLE fleet_driver_performance ADD COLUMN IF NOT EXISTS punctuality_score   NUMERIC(5,2)`);
+    await supabasePool!.query(`ALTER TABLE fleet_driver_performance ADD COLUMN IF NOT EXISTS fuel_score          NUMERIC(5,2)`);
+    await supabasePool!.query(`ALTER TABLE fleet_driver_performance ADD COLUMN IF NOT EXISTS utilization_score   NUMERIC(5,2)`);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS drv_perf_driver_idx  ON fleet_driver_performance(driver_id)`);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS drv_perf_company_idx ON fleet_driver_performance(company_id)`);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS drv_perf_period_idx  ON fleet_driver_performance(period_end)`);
+
+    await supabasePool!.query(`ALTER TABLE fleet_drivers ADD COLUMN IF NOT EXISTS emergency_contact TEXT`);
+    await supabasePool!.query(`ALTER TABLE fleet_drivers ADD COLUMN IF NOT EXISTS onboarding_status TEXT NOT NULL DEFAULT 'pending'`);
+    await supabasePool!.query(`ALTER TABLE fleet_drivers ADD COLUMN IF NOT EXISTS portal_phone      TEXT`);
+  };
+  run10A4()
+    .then(() => logger.info("Sprint 10A-4 startup migrations OK"))
+    .catch((err: unknown) => logger.warn({ err }, "Sprint 10A-4 startup migration warning"));
+}
+
 // ── Sprint 10A-1.1 startup schema validation ───────────────────────────────────
 // Lightweight check — never fails startup, just logs drift summary.
 import("./lib/schema-startup-check").then((m) => m.runSchemaStartupCheck()).catch(() => {});
