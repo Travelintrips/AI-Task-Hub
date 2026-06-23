@@ -201,4 +201,121 @@ router.get("/system/onboarding-status", requireAuth, async (req: Request, res: R
   }
 });
 
+// ── POST /api/system/ai-test ───────────────────────────────────────────────────
+// Simulation only — no task creation, no WhatsApp message sent
+
+router.post("/system/ai-test", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { message } = req.body as { message?: string };
+    if (!message || typeof message !== "string" || !message.trim()) {
+      res.status(400).json({ error: "message wajib diisi" });
+      return;
+    }
+    const msgLower = message.toLowerCase().trim();
+
+    // Step 1: keyword match against keyword_rules table
+    const kwResult = await db.execute(sql`
+      SELECT k.keyword, k.weight, i.intent_code, i.category, i.description
+      FROM keyword_rules k
+      JOIN intent_master i ON i.id = k.intent_id
+      WHERE ${msgLower} ILIKE '%' || k.keyword || '%'
+      ORDER BY k.weight DESC
+      LIMIT 5
+    `).catch(() => [] as unknown[]);
+    const kwRows = kwResult as unknown as Array<Record<string, unknown>>;
+
+    // Step 2: direct intent_code substring match as fallback
+    let detectedIntent: string | null = null;
+    let intentCode: string | null = null;
+    let category: string | null = null;
+    let intentDescription: string | null = null;
+    let confidence = 0;
+
+    if (kwRows.length > 0) {
+      detectedIntent = String(kwRows[0].description ?? kwRows[0].intent_code ?? "");
+      intentCode = String(kwRows[0].intent_code ?? "");
+      category = String(kwRows[0].category ?? "");
+      confidence = Math.min(95, 60 + (kwRows.length * 7));
+      intentDescription = String(kwRows[0].description ?? "");
+    } else {
+      // Fallback: scan intent_master categories by keyword
+      const fallbackMap: Array<{ words: string[]; code: string; cat: string; desc: string }> = [
+        { words: ["kasbon","uang muka","pinjam","advance"], code: "permintaan_kasbon", cat: "Finance", desc: "Permintaan Cash Advance" },
+        { words: ["trucking","truk","angkut","darat","pengiriman"], code: "trucking_inquiry", cat: "Logistik", desc: "Permintaan Trucking" },
+        { words: ["udara","air freight","pesawat","cargo"], code: "air_freight_inquiry", cat: "Logistik", desc: "Permintaan Air Freight" },
+        { words: ["laut","sea freight","kapal","fcl","lcl"], code: "sea_freight_inquiry", cat: "Logistik", desc: "Permintaan Sea Freight" },
+        { words: ["impor","import","masuk"], code: "import_inquiry", cat: "Logistik", desc: "Permintaan Import" },
+        { words: ["ekspor","export","keluar"], code: "export_inquiry", cat: "Logistik", desc: "Permintaan Export" },
+        { words: ["ppjk","bea cukai","kepabeanan","customs clearance"], code: "customs_clearance", cat: "Logistik", desc: "Layanan Bea Cukai" },
+        { words: ["vendor","supplier","mitra","rekanan"], code: "permintaan_vendor", cat: "Komersial", desc: "Pendaftaran Vendor" },
+        { words: ["rusak","barang rusak","damaged","pecah","cacat"], code: "damaged_goods_complaint", cat: "Komplain", desc: "Komplain Kerusakan Barang" },
+        { words: ["terlambat","delay","keterlambatan","lambat"], code: "delivery_delay_complaint", cat: "Komplain", desc: "Komplain Keterlambatan" },
+        { words: ["bayar","pembayaran","transfer","konfirmasi"], code: "konfirmasi_pembayaran", cat: "Keuangan", desc: "Konfirmasi Pembayaran" },
+        { words: ["tagihan","invoice","faktur","billing"], code: "pertanyaan_tagihan", cat: "Keuangan", desc: "Permintaan Invoice/Tagihan" },
+        { words: ["armada","kendaraan","fleet","truk repair","mobil","service kendaraan"], code: "fleet_repair", cat: "Operasional", desc: "Laporan Kerusakan Kendaraan" },
+        { words: ["bbm","bensin","solar","fuel","bahan bakar"], code: "fuel_expense", cat: "Operasional", desc: "Laporan BBM" },
+        { words: ["ban","tire","tyre"], code: "tire_issue", cat: "Operasional", desc: "Masalah Ban" },
+        { words: ["status","cek","track","lacak"], code: "cek_status_pengiriman", cat: "Operasional", desc: "Cek Status Pengiriman" },
+      ];
+      for (const fb of fallbackMap) {
+        if (fb.words.some(w => msgLower.includes(w))) {
+          intentCode = fb.code;
+          category = fb.cat;
+          intentDescription = fb.desc;
+          detectedIntent = fb.desc;
+          confidence = 55;
+          break;
+        }
+      }
+    }
+
+    // Step 3: look up data template for intake mode
+    let intakeMode: string | null = null;
+    let dataTemplateName: string | null = null;
+    let missingFields: string[] = [];
+
+    if (intentCode) {
+      const tmplResult = await db.execute(sql`
+        SELECT dt.name, dt.intake_mode,
+               array_agg(dtf.field_label) FILTER (WHERE dtf.is_required = true) AS required_fields
+        FROM data_templates dt
+        LEFT JOIN data_template_fields dtf ON dtf.template_id = dt.id
+        WHERE dt.intent_code = ${intentCode}
+        GROUP BY dt.id, dt.name, dt.intake_mode
+        LIMIT 1
+      `).catch(() => [] as unknown[]);
+      const tmplRows = tmplResult as unknown as Array<Record<string, unknown>>;
+      if (tmplRows.length > 0) {
+        dataTemplateName = String(tmplRows[0].name ?? "");
+        intakeMode = String(tmplRows[0].intake_mode ?? "conversation");
+        const rf = tmplRows[0].required_fields;
+        if (Array.isArray(rf)) missingFields = rf.map(String).filter(Boolean).slice(0, 5);
+      }
+    }
+
+    const wouldCreateTask = !!intentCode && confidence >= 50;
+    const wouldSendMiniForm = wouldCreateTask && intakeMode === "mini_form";
+
+    res.json({
+      simulation: true,
+      message: message.trim(),
+      detectedIntent,
+      intentCode,
+      category,
+      intentDescription,
+      confidence,
+      intakeMode: intakeMode ?? "none",
+      dataTemplateName,
+      missingFields,
+      wouldCreateTask,
+      wouldSendMiniForm,
+      note: "Mode simulasi — tidak ada task dibuat dan tidak ada WA terkirim",
+      processedAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    logger.error({ err }, "POST /system/ai-test failed");
+    res.status(500).json({ error: "Gagal menjalankan simulasi AI" });
+  }
+});
+
 export default router;

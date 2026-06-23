@@ -341,7 +341,10 @@ export default function Team() {
           ))
         ) : members?.length === 0 ? (
           <div className="col-span-full text-center py-12 text-muted-foreground bg-muted/20 rounded-lg border border-dashed">
-            Belum ada anggota tim. Klik "Tambah Anggota" untuk mulai.
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 mx-auto mb-3 opacity-30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            <p className="font-medium text-foreground/70">Belum ada anggota tim</p>
+            <p className="text-sm mt-1">Tambahkan supervisor atau staff agar AI dapat mengassign task secara otomatis.</p>
+            <p className="text-xs mt-2">Klik <strong>"Tambah Anggota"</strong> di pojok kanan atas untuk mulai.</p>
           </div>
         ) : (
           members?.map((member) => (

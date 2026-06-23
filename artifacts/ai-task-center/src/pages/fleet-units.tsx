@@ -214,7 +214,13 @@ export default function FleetUnits() {
               {isLoading ? (
                 <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Memuat data...</TableCell></TableRow>
               ) : units.length === 0 ? (
-                <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Belum ada kendaraan terdaftar</TableCell></TableRow>
+                <TableRow><TableCell colSpan={8} className="text-center py-12 text-muted-foreground">
+                  <div className="flex flex-col items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 opacity-25" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><rect x="1" y="3" width="15" height="13" rx="2"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+                    <p className="font-medium">Belum ada unit armada</p>
+                    <p className="text-sm">Tambahkan kendaraan agar Fleet Intelligence bisa menghitung biaya, risiko, dan utilisasi per unit.</p>
+                  </div>
+                </TableCell></TableRow>
               ) : units.map(unit => (
                 <TableRow key={unit.id} className="hover:bg-muted/30">
                   <TableCell>

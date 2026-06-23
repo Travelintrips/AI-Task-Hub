@@ -322,7 +322,7 @@ export default function Messages() {
             <p className="text-gray-400 text-sm mt-1">
               {search
                 ? "Coba ubah kata kunci pencarian"
-                : "Belum ada pesan WhatsApp masuk"}
+                : "Belum ada pesan WhatsApp masuk. Pastikan Fonnte webhook sudah dikonfigurasi di halaman Webhook Setup."}
             </p>
           </div>
         ) : (

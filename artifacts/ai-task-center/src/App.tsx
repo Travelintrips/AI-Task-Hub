@@ -63,6 +63,7 @@ import MiniFormConfigPage from "@/pages/mini-form-config";
 import MiniFormAnalyticsPage from "@/pages/mini-form-analytics";
 import ConversationTestsPage from "@/pages/conversation-tests";
 import QualityGatePage from "@/pages/quality-gate";
+import OnboardingPage from "@/pages/onboarding";
 
 const queryClient = new QueryClient();
 
@@ -139,6 +140,8 @@ function AppRouter() {
         <Route path="/fleet/utilization" component={FleetUtilizationPage} />
         <Route path="/conversation-tests" component={ConversationTestsPage} />
         <Route path="/quality-gate/report" component={QualityGatePage} />
+        <Route path="/onboarding" component={OnboardingPage} />
+        <Route path="/onboarding/:step" component={OnboardingPage} />
         <Route component={NotFound} />
       </Switch>
     </AppLayout>
