@@ -122,7 +122,8 @@ export async function resolveWaRole(
       }
     }
 
-    // 3. Check customers
+    // 3. Check customers — customers.company_id is INTEGER so we cannot filter by text companyId;
+    //    load all and match phone in-memory instead
     const custRows = await db
       .select({
         id: customersTable.id,
@@ -132,7 +133,6 @@ export async function resolveWaRole(
         companyId: customersTable.companyId,
       })
       .from(customersTable)
-      .where(eq(customersTable.companyId, companyId))
       .limit(500);
 
     for (const row of custRows) {

@@ -8,7 +8,7 @@
  *   HELP DRIVER                        — daftar perintah driver
  */
 
-import { eq, ilike, and, desc } from "drizzle-orm";
+import { eq, ilike, and, desc, sql } from "drizzle-orm";
 import {
   db, fleetUnitsTable, fleetFuelLogsTable, fleetMaintenanceRecordsTable,
   aiTasksTable, teamMembersTable, fleetDriversTable,
@@ -52,13 +52,15 @@ export async function handleDriverCommand(
       };
     }
 
+    // Normalize plate: strip spaces/dashes so "B7777ZZZ" matches "B 7777 ZZZ" in DB
+    const platNorm = plat.replace(/[\s\-]+/g, "").toUpperCase();
     const unit = await db
       .select()
       .from(fleetUnitsTable)
       .where(
         and(
           eq(fleetUnitsTable.companyId, companyId),
-          ilike(fleetUnitsTable.plateNumber, plat),
+          sql`REPLACE(LOWER(${fleetUnitsTable.plateNumber}), ' ', '') = LOWER(${platNorm})`,
         ),
       )
       .limit(1)
@@ -171,13 +173,14 @@ export async function handleDriverCommand(
       };
     }
 
+    const platNormR = plat.replace(/[\s\-]+/g, "").toUpperCase();
     const unit = await db
       .select()
       .from(fleetUnitsTable)
       .where(
         and(
           eq(fleetUnitsTable.companyId, companyId),
-          ilike(fleetUnitsTable.plateNumber, plat),
+          sql`REPLACE(LOWER(${fleetUnitsTable.plateNumber}), ' ', '') = LOWER(${platNormR})`,
         ),
       )
       .limit(1)
@@ -268,13 +271,14 @@ export async function handleDriverCommand(
       };
     }
 
+    const platNormP = plat.replace(/[\s\-]+/g, "").toUpperCase();
     const unit = await db
       .select()
       .from(fleetUnitsTable)
       .where(
         and(
           eq(fleetUnitsTable.companyId, companyId),
-          ilike(fleetUnitsTable.plateNumber, plat),
+          sql`REPLACE(LOWER(${fleetUnitsTable.plateNumber}), ' ', '') = LOWER(${platNormP})`,
         ),
       )
       .limit(1)

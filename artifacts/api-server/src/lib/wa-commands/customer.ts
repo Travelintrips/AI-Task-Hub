@@ -123,8 +123,15 @@ export async function handleCustomerCommand(
         : [];
     } catch { missingDocs = []; }
 
+    // Select only columns that exist in the actual DB (customer_id was added to Drizzle schema
+    // but never migrated to the DB — select explicit columns to avoid "column does not exist" error)
     const attachments = await db
-      .select()
+      .select({
+        id: taskAttachmentsTable.id,
+        fileName: taskAttachmentsTable.fileName,
+        fileType: taskAttachmentsTable.fileType,
+        documentType: taskAttachmentsTable.documentType,
+      })
       .from(taskAttachmentsTable)
       .where(eq(taskAttachmentsTable.taskId, task.id))
       .limit(20);

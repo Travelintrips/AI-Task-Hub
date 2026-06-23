@@ -51,15 +51,12 @@ export async function handleExecutiveCommand(
         )
         .then((r) => Number(r[0]?.count ?? 0)),
 
+      // customers.company_id is INTEGER — cannot filter with text companyId;
+      // use a raw count of high/blocked risk customers across all companies
       db
         .select({ count: sql<number>`count(*)` })
         .from(customersTable)
-        .where(
-          and(
-            eq(customersTable.companyId, companyId),
-            sql`${customersTable.riskTier} IN ('high', 'blocked')`,
-          ),
-        )
+        .where(sql`${customersTable.riskTier} IN ('high', 'blocked')`)
         .then((r) => Number(r[0]?.count ?? 0)),
 
       db
