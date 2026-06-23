@@ -1,0 +1,225 @@
+SPRINT 10A-6 — DATA GOVERNANCE & OBSERVABILITY
+
+Do not build new operational workflows.
+
+Do not change business processes.
+
+Goal:
+
+Provide visibility, governance, monitoring, freshness tracking,
+and failure detection across all intelligence modules.
+
+====================================================
+A. DATA GOVERNANCE CENTER
+=========================
+
+Create page:
+
+/data-governance
+
+Sections:
+
+1. Schema Health
+2. Data Freshness
+3. Scheduler Health
+4. Failed Jobs
+5. Drift Detection
+6. Data Quality Score
+
+====================================================
+B. SCHEMA GOVERNANCE
+====================
+
+Reuse:
+
+schema-drift-data.json
+
+Show:
+
+* missing tables
+* missing columns
+* type mismatches
+* critical mismatches
+
+Severity:
+
+Critical
+High
+Medium
+Low
+
+====================================================
+C. DATA FRESHNESS
+=================
+
+Track:
+
+Customer Memory
+Vendor Memory
+Purchasing Intelligence
+Fleet Intelligence
+Driver Memory
+Executive KPIs
+Executive Briefing
+
+For each:
+
+last refresh
+age
+fresh / stale
+
+Thresholds:
+
+0–24h = healthy
+1–3d = warning
+
+> 3d = stale
+
+====================================================
+D. SCHEDULER MONITORING
+=======================
+
+Monitor:
+
+executive-daily-briefing
+fleet-risk-refresh
+fleet-fuel-scan
+fleet-cost-compute
+fleet-driver-performance
+customer-memory-refresh
+vendor-memory-refresh
+purchasing-refresh
+
+Show:
+
+last run
+duration
+status
+next run
+
+====================================================
+E. FAILED JOB CENTER
+====================
+
+Create table:
+
+job_failures
+
+Fields:
+
+job_name
+error_message
+stack_preview
+occurred_at
+resolved
+
+Auto-log failures.
+
+====================================================
+F. DATA QUALITY SCORE
+=====================
+
+Score per module:
+
+Customer
+Vendor
+Purchasing
+Fleet
+Driver
+Executive
+
+Inputs:
+
+coverage
+freshness
+missing fields
+failed jobs
+drift
+
+Output:
+
+0–100
+
+====================================================
+G. EXECUTIVE HEALTH DASHBOARD
+=============================
+
+Widget inside:
+
+/executive-command
+
+Show:
+
+overall platform health
+
+Example:
+
+Platform Health
+92%
+
+Schema Drift
+26
+
+Failed Jobs
+0
+
+Stale Datasets
+2
+
+====================================================
+H. ALERTING
+===========
+
+Create alerts:
+
+schema drift critical
+scheduler missed run
+dataset stale
+job failure
+
+Visible:
+
+Executive Command Center
+Data Governance Center
+
+No WhatsApp yet.
+
+====================================================
+I. AUDIT TRAIL
+==============
+
+Track:
+
+refreshes
+scheduler executions
+manual refresh
+failed refreshes
+
+====================================================
+J. VALIDATION
+=============
+
+Test:
+
+1. schema drift detected
+2. stale dataset detected
+3. scheduler health visible
+4. failed job logged
+5. quality score calculated
+6. executive widget loads
+7. no RBAC leaks
+8. typecheck clean
+
+Output:
+
+health score
+quality score
+drift count
+failed jobs
+stale datasets
+
+GO / NO-GO
+
+# for Sprint 10B
+
+# END
