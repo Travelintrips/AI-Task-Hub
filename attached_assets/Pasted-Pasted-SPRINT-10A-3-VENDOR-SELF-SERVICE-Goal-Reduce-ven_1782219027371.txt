@@ -1,0 +1,196 @@
+Pasted-SPRINT-10A-3-VENDOR-SELF-SERVICE-Goal-Reduce-vendor-onb_1782217984468.txt
+SPRINT 10A-3 — VENDOR SELF-SERVICE
+
+Goal:
+Reduce vendor onboarding friction by allowing vendors to register, upload documents, update capabilities, and check status without internal staff manual input.
+
+Do not replace suppliers table.
+suppliers remains the vendor master source of truth.
+
+Use existing:
+- suppliers
+- vendor_memory
+- vendor_document_registry
+- document_validation_engine
+- mini form router
+- WhatsApp commands
+- Fonnte
+
+====================================================
+A. VENDOR PUBLIC PORTAL
+====================================================
+
+Create public routes:
+
+/vendor/register/:token
+/vendor/status/:token
+/vendor/documents/:token
+
+Token-based access using public_tokens.
+
+No login required.
+
+====================================================
+B. VENDOR REGISTRATION FLOW
+====================================================
+
+From WhatsApp:
+
+Vendor sends:
+DAFTAR VENDOR
+
+System replies:
+Vendor registration mini form link.
+
+Form fields:
+- company_name
+- pic_name
+- phone
+- email
+- service_type
+- coverage_area
+- vehicle_type / service_capacity
+- npwp
+- nib
+- notes
+
+On submit:
+- create or update suppliers
+- create vendor_memory_snapshot if possible
+- create ai_task for procurement review
+- status = pending_review
+- notify admin
+
+====================================================
+C. VENDOR DOCUMENT UPLOAD
+====================================================
+
+Vendor can upload:
+- NIB
+- NPWP
+- Company Profile
+- SIUP / License
+- Insurance
+- Vehicle documents if trucking vendor
+
+Each upload:
+- call DocumentValidationEngine
+- save audit
+- link to vendor_document_registry
+- show status:
+  valid / incomplete / invalid / needs_review
+
+====================================================
+D. VENDOR CAPABILITIES
+====================================================
+
+Vendor can self-update:
+- service categories
+- origin cities
+- destination cities
+- cargo types
+- vehicle types
+- cold chain capability
+- DG capability
+- live animal capability
+- max weight
+- operating days
+
+Use structured dropdown/multi-select, not free text.
+
+====================================================
+E. VENDOR STATUS PAGE
+====================================================
+
+Show vendor:
+- review status
+- document status
+- missing documents
+- capability completeness
+- risk tier if visible
+- next required action
+
+Do not show internal margin/profit data.
+
+====================================================
+F. ADMIN REVIEW
+====================================================
+
+Admin page should show:
+- new vendor submissions
+- document validation status
+- capability completeness
+- approve / reject
+- request revision
+
+Approval:
+- company_admin/supervisor only
+- vendor receives WhatsApp update
+
+====================================================
+G. WHATSAPP STATUS COMMANDS
+====================================================
+
+Enhance:
+
+STATUS VENDOR
+DOKUMEN VENDOR
+
+If vendor registered:
+return:
+- review status
+- missing documents
+- last update
+- portal link
+
+If not registered:
+send registration link.
+
+====================================================
+H. EXECUTIVE / ADOPTION METRICS
+====================================================
+
+Add metrics:
+- vendor self-service registrations
+- documents uploaded by vendors
+- average review time
+- missing document rate
+- vendor onboarding completion %
+
+====================================================
+I. SECURITY
+====================================================
+
+Token rules:
+- token expires
+- token bound to phone/vendor
+- token single-purpose
+- no margin data exposed
+- no other vendor data accessible
+
+====================================================
+J. VALIDATION
+====================================================
+
+Test:
+1. DAFTAR VENDOR sends registration link
+2. registration form creates supplier
+3. duplicate phone updates existing supplier
+4. document upload validates NIB/NPWP
+5. incomplete document returns missing fields
+6. vendor status page loads
+7. STATUS VENDOR returns correct status
+8. DOKUMEN VENDOR returns missing docs
+9. admin approve/reject works
+10. token cannot access another vendor
+11. expired token blocked
+12. vendor self-service metrics update
+
+Output:
+- files created
+- APIs created
+- frontend routes
+- WhatsApp replies
+- validation results
+- adoption score impact
+- GO/NO-GO for Sprint 10A-4
