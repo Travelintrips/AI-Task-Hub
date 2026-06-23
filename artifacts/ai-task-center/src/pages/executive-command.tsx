@@ -41,6 +41,7 @@ import {
   MessageSquare,
   ClipboardList,
   Award,
+  Database,
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { useState } from "react";
@@ -400,6 +401,97 @@ function sourceLabel(source: string) {
     fleet_scheduler_runs: "Scheduler",
   };
   return map[source] ?? source;
+}
+
+// ── Data Health Widget (Sprint 10A-1.1) ───────────────────────────────────────
+
+interface DataHealth {
+  status: "ok" | "warn" | "drift" | "unknown";
+  typeMismatches: number;
+  missingColumns: number;
+  missingTables: number;
+  criticalCompanyIdMismatches: { table: string; col: string; drizzle: string; actual: string }[];
+  generatedAt: string | null;
+}
+
+function DataHealthWidget() {
+  const q = useQuery<DataHealth>({
+    queryKey: ["data-health"],
+    queryFn: () => apiFetch("/api/executive/data-health"),
+    refetchInterval: 300_000, // refresh every 5 min
+    retry: false,
+  });
+  const d = q.data;
+  const statusColor = {
+    ok: "text-green-600 bg-green-50 border-green-200",
+    warn: "text-yellow-700 bg-yellow-50 border-yellow-200",
+    drift: "text-red-700 bg-red-50 border-red-200",
+    unknown: "text-gray-600 bg-gray-50 border-gray-200",
+  };
+  const statusLabel = {
+    ok: "✅ Schema OK",
+    warn: "⚠️ Peringatan",
+    drift: "🔴 Schema Drift",
+    unknown: "❓ Belum Diketahui",
+  };
+  return (
+    <Card className="mt-4 border shadow-sm">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-sm font-semibold flex items-center gap-2">
+          <Database className="h-4 w-4 text-indigo-600" />
+          Data Health — Schema Consistency
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {q.isLoading && <div className="text-sm text-muted-foreground">Memuat data health...</div>}
+        {q.isError && <div className="text-sm text-red-600">Gagal memuat data health (butuh login admin)</div>}
+        {d && (
+          <div className="space-y-3">
+            <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-sm font-medium ${statusColor[d.status]}`}>
+              {statusLabel[d.status]}
+            </div>
+            <div className="grid grid-cols-3 gap-3 text-center">
+              {[
+                { label: "Type Mismatch", value: d.typeMismatches, warn: d.typeMismatches > 0 },
+                { label: "Kolom Hilang", value: d.missingColumns, warn: d.missingColumns > 0 },
+                { label: "Tabel Hilang", value: d.missingTables, warn: d.missingTables > 0 },
+              ].map((item) => (
+                <div key={item.label} className={`rounded-lg p-3 border ${item.warn ? "border-orange-200 bg-orange-50" : "border-gray-100 bg-gray-50"}`}>
+                  <div className={`text-2xl font-bold ${item.warn ? "text-orange-700" : "text-gray-700"}`}>{item.value}</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">{item.label}</div>
+                </div>
+              ))}
+            </div>
+            {d.criticalCompanyIdMismatches.length > 0 && (
+              <div className="rounded-lg border border-red-200 bg-red-50 p-3 space-y-1">
+                <div className="text-xs font-semibold text-red-800 mb-1.5">🔴 Company ID Type Mismatch (kritis)</div>
+                {d.criticalCompanyIdMismatches.map((m) => (
+                  <div key={m.table} className="text-xs font-mono text-red-700">
+                    {m.table}.{m.col}: DB={m.actual} vs Drizzle={m.drizzle}
+                  </div>
+                ))}
+                <div className="text-xs text-red-600 mt-1.5">
+                  Gunakan <code className="bg-red-100 px-1 rounded">companyFilter()</code> — lihat <code>src/lib/company-id.ts</code>
+                </div>
+              </div>
+            )}
+            {d.generatedAt && (
+              <div className="text-xs text-muted-foreground">
+                Diperbarui: {new Date(d.generatedAt).toLocaleString("id-ID")}
+                {" · "}
+                <button
+                  onClick={() => q.refetch()}
+                  className="text-indigo-600 hover:underline"
+                >
+                  Refresh
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
 }
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
@@ -1811,6 +1903,9 @@ function WaAdoptionWidget() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Data Health Widget — Sprint 10A-1.1 */}
+      <DataHealthWidget />
 
       {/* Test console */}
       <Card className="mt-4">

@@ -1850,4 +1850,56 @@ router.get(
   },
 );
 
+// ── Sprint 10A-1.1 — Data Health / Schema Drift Summary ────────────────────────
+router.get(
+  "/data-health",
+  requireAuth,
+  requireRole("company_admin"),
+  async (_req: Request, res: Response) => {
+    try {
+      const { readFileSync, existsSync } = await import("fs");
+      const { join, dirname } = await import("path");
+      const { fileURLToPath } = await import("url");
+      const ROOT = join(dirname(fileURLToPath(import.meta.url)), "../../../../");
+      const DRIFT_FILE = join(ROOT, "docs/schema-drift-data.json");
+
+      if (!existsSync(DRIFT_FILE)) {
+        return res.json({
+          status: "unknown",
+          message: "Drift data belum dihasilkan. Jalankan scripts/schema-drift-check.mjs",
+          typeMismatches: 0,
+          missingColumns: 0,
+          missingTables: 0,
+          criticalCompanyIdMismatches: [],
+          generatedAt: null,
+        });
+      }
+
+      const data = JSON.parse(readFileSync(DRIFT_FILE, "utf8"));
+      const critical = (data.typeMismatch ?? []).filter(
+        (d: { col: string }) => d.col === "company_id",
+      );
+
+      return res.json({
+        status: critical.length > 0 ? "drift" : data.typeMismatch?.length > 0 ? "warn" : "ok",
+        typeMismatches: data.typeMismatch?.length ?? 0,
+        missingColumns: data.missing?.length ?? 0,
+        missingTables: data.tableMissing?.length ?? 0,
+        criticalCompanyIdMismatches: critical.map(
+          (d: { table: string; col: string; drizzle: string; actual: string }) => ({
+            table: d.table,
+            col: d.col,
+            drizzle: d.drizzle,
+            actual: d.actual,
+          }),
+        ),
+        generatedAt: data.generatedAt ?? null,
+      });
+    } catch (err) {
+      logger.error({ err }, "GET /executive/data-health failed");
+      return void res.status(500).json({ error: "Gagal memuat data health" });
+    }
+  },
+);
+
 export default router;

@@ -27,3 +27,4 @@
 - [Sprint 8E Service Coverage](sprint8e-coverage.md) — 24 services, 90% coverage; 48 intents, 503 keywords, 32 data templates, 303 fields, 21 doc templates, 83 doc fields; seed script idempotent via DELETE+INSERT.
 - [Sprint 9D Quality Gate](sprint9d-quality-gate.md) — 22/22 CERTIFIED GO; intent codes, valid routes, task array format, RBAC role expectations all documented.
 - [Sprint 10A-1 WA First Operations](sprint10a1-wa-commands.md) — command router intercepts processIncomingMessage before runAiDetection; `desc` is SQL reserved keyword (use `dsc`); WaRole has no "vendor" type; whatsappMessagesTable has no updatedAt.
+- [Sprint 10A-1.1 Data Standardization](sprint10a1-1-standardization.md) — company-id.ts + plate-number.ts helpers; customers/approval_rules/approval_requests/users have INTEGER company_id in DB; plateWhere() handles spaces+dashes+lowercase; schema-drift-check.mjs + startup check; ECC Data Health widget.

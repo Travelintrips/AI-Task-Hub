@@ -317,4 +317,8 @@ if (supabasePool) {
   .catch((err: unknown) => logger.warn({ err }, "Sprint 10A-1 startup migration warning (may already exist)"));
 }
 
+// ── Sprint 10A-1.1 startup schema validation ───────────────────────────────────
+// Lightweight check — never fails startup, just logs drift summary.
+import("./lib/schema-startup-check").then((m) => m.runSchemaStartupCheck()).catch(() => {});
+
 export default app;

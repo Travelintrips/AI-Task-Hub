@@ -1,0 +1,261 @@
+SPRINT 10A-1.1 — DATA STANDARDIZATION HARDENING
+
+IMPORTANT
+
+Do not build new business features.
+
+Do not change user workflow.
+
+Do not change UI behavior.
+
+Goal:
+
+Eliminate recurring data inconsistency issues discovered during:
+
+* Customer Memory
+* Vendor Memory
+* Fleet Intelligence
+* Executive Dashboard
+* WhatsApp First Operations
+
+Focus only on:
+
+1. Company ID standardization
+2. Plate number canonicalization
+3. Schema drift detection
+
+====================================================
+PHASE 1 — COMPANY ID AUDIT
+==========================
+
+Generate report:
+
+docs/company-id-audit-v2.md
+
+Scan:
+
+* Supabase tables
+* Drizzle schema
+* API routes
+
+Find:
+
+* INTEGER company_id
+* TEXT company_id
+* UUID company_id
+* nullable company_id
+
+Output:
+
+Table
+Column Type
+Expected Type
+Mismatch
+
+====================================================
+PHASE 2 — COMPANY ID STANDARDIZATION LAYER
+==========================================
+
+Create:
+
+src/lib/company-id.ts
+
+Functions:
+
+normalizeCompanyId()
+
+safeCompanyMatch()
+
+companyFilter()
+
+Rules:
+
+INTEGER
+TEXT
+UUID
+
+must be comparable safely.
+
+No route may directly compare:
+
+company_id = 'default'
+
+or
+
+company_id = user.companyId
+
+without helper.
+
+====================================================
+PHASE 3 — PATCH KNOWN HOTSPOTS
+==============================
+
+Replace direct company_id comparisons in:
+
+Customer Resolver
+Vendor Resolver
+Executive Dashboard
+Customer Memory
+Vendor Memory
+Fleet Dashboard
+WhatsApp Commands
+Conversation Intake
+Document Validation
+
+Use:
+
+companyFilter()
+
+instead.
+
+====================================================
+PHASE 4 — PLATE NUMBER CANONICALIZATION
+=======================================
+
+Create:
+
+src/lib/plate-number.ts
+
+Function:
+
+normalizePlateNumber()
+
+Examples:
+
+B7777ZZZ
+B 7777 ZZZ
+b-7777-zzz
+B.7777.ZZZ
+
+↓
+
+B7777ZZZ
+
+Rules:
+
+uppercase
+remove spaces
+remove dash
+remove punctuation
+
+====================================================
+PHASE 5 — PATCH FLEET MODULES
+=============================
+
+Replace all plate comparisons in:
+
+fleet-fuel
+fleet-tires
+fleet-utilization
+fleet-maintenance
+fleet-risk
+wa-driver-commands
+
+Use:
+
+normalizePlateNumber()
+
+before lookup.
+
+====================================================
+PHASE 6 — SCHEMA DRIFT SCANNER
+==============================
+
+Create:
+
+scripts/schema-drift-check.mjs
+
+Compare:
+
+Drizzle schema
+vs
+actual Supabase schema
+
+Detect:
+
+missing columns
+extra columns
+wrong type
+wrong nullable
+missing indexes
+
+Output:
+
+docs/schema-drift-report.md
+
+====================================================
+PHASE 7 — STARTUP WARNING
+=========================
+
+At startup:
+
+Run lightweight schema validation.
+
+Do not fail startup.
+
+Log:
+
+SCHEMA OK
+
+or
+
+SCHEMA DRIFT DETECTED
+
+with summary.
+
+====================================================
+PHASE 8 — EXECUTIVE COMMAND CENTER
+==================================
+
+Add small Data Health widget.
+
+Show:
+
+Company ID consistency
+Schema drift count
+Critical mismatches
+
+Read-only.
+
+====================================================
+PHASE 9 — VALIDATION
+====================
+
+Run tests:
+
+1. customer resolver
+2. vendor resolver
+3. executive dashboard
+4. WhatsApp STATUS
+5. WhatsApp DASHBOARD
+6. fuel lookup
+7. tire lookup
+8. utilization lookup
+9. plate with spaces
+10. plate with dash
+11. plate lowercase
+12. schema drift scanner
+
+Verify:
+
+no company_id mismatch failures
+
+no plate lookup failures
+
+====================================================
+OUTPUT
+======
+
+Provide:
+
+* company_id audit report
+* drift report
+* files created
+* files modified
+* mismatches found
+* mismatches fixed
+* readiness score
+
+GO / NO-GO
+
+for Sprint 10A-2 Guided Onboarding

@@ -6,9 +6,12 @@
  *
  * Priority (highest first):
  *   super_admin > owner > company_admin > supervisor > staff > driver > customer > unknown
+ *
+ * Sprint 10A-1.1 patch: customers.company_id is INTEGER in the actual DB,
+ * so we cannot filter by text companyId. We load all customers and match in-memory.
  */
 
-import { eq, or, ilike } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db, teamMembersTable, fleetDriversTable, customersTable } from "@workspace/db";
 import { logger } from "./logger";
 
@@ -65,10 +68,9 @@ export async function resolveWaRole(
   companyId = "default",
 ): Promise<ResolvedUser> {
   const variants = phoneVariants(phone);
-  const norm = normPhone(phone);
 
   try {
-    // 1. Check team_members (staff/admin/supervisor roles)
+    // 1. Check team_members (staff/admin/supervisor roles) — TEXT company_id, safe to filter
     const staffRows = await db
       .select({
         id: teamMembersTable.id,
@@ -96,7 +98,7 @@ export async function resolveWaRole(
       }
     }
 
-    // 2. Check fleet_drivers
+    // 2. Check fleet_drivers — TEXT company_id, safe to filter
     const driverRows = await db
       .select({
         id: fleetDriversTable.id,
@@ -122,8 +124,9 @@ export async function resolveWaRole(
       }
     }
 
-    // 3. Check customers — customers.company_id is INTEGER so we cannot filter by text companyId;
-    //    load all and match phone in-memory instead
+    // 3. Check customers — INTEGER company_id in actual DB (schema drift).
+    //    Cannot use Drizzle eq(companyId, "default") — would cause DB type error.
+    //    Load all and match in-memory instead.
     const custRows = await db
       .select({
         id: customersTable.id,
@@ -145,7 +148,7 @@ export async function resolveWaRole(
           role: "customer",
           name: row.picName ?? row.companyName ?? null,
           entityId: row.id,
-          companyId: row.companyId ?? companyId,
+          companyId: companyId, // use caller's companyId since customers.company_id is INTEGER
         };
       }
     }

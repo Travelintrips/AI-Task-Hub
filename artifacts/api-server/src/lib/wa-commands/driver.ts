@@ -8,13 +8,14 @@
  *   HELP DRIVER                        — daftar perintah driver
  */
 
-import { eq, ilike, and, desc, sql } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import {
   db, fleetUnitsTable, fleetFuelLogsTable, fleetMaintenanceRecordsTable,
   aiTasksTable, teamMembersTable, fleetDriversTable,
 } from "@workspace/db";
 import { sendFonnte } from "../fonnte";
 import { logger } from "../logger";
+import { plateWhere } from "../plate-number";
 import type { WaCommandContext, WaCommandResult } from "./types";
 
 export async function handleDriverCommand(
@@ -52,15 +53,13 @@ export async function handleDriverCommand(
       };
     }
 
-    // Normalize plate: strip spaces/dashes so "B7777ZZZ" matches "B 7777 ZZZ" in DB
-    const platNorm = plat.replace(/[\s\-]+/g, "").toUpperCase();
     const unit = await db
       .select()
       .from(fleetUnitsTable)
       .where(
         and(
           eq(fleetUnitsTable.companyId, companyId),
-          sql`REPLACE(LOWER(${fleetUnitsTable.plateNumber}), ' ', '') = LOWER(${platNorm})`,
+          plateWhere(fleetUnitsTable.plateNumber, plat),
         ),
       )
       .limit(1)
@@ -173,14 +172,13 @@ export async function handleDriverCommand(
       };
     }
 
-    const platNormR = plat.replace(/[\s\-]+/g, "").toUpperCase();
     const unit = await db
       .select()
       .from(fleetUnitsTable)
       .where(
         and(
           eq(fleetUnitsTable.companyId, companyId),
-          sql`REPLACE(LOWER(${fleetUnitsTable.plateNumber}), ' ', '') = LOWER(${platNormR})`,
+          plateWhere(fleetUnitsTable.plateNumber, plat),
         ),
       )
       .limit(1)
@@ -271,14 +269,13 @@ export async function handleDriverCommand(
       };
     }
 
-    const platNormP = plat.replace(/[\s\-]+/g, "").toUpperCase();
     const unit = await db
       .select()
       .from(fleetUnitsTable)
       .where(
         and(
           eq(fleetUnitsTable.companyId, companyId),
-          sql`REPLACE(LOWER(${fleetUnitsTable.plateNumber}), ' ', '') = LOWER(${platNormP})`,
+          plateWhere(fleetUnitsTable.plateNumber, plat),
         ),
       )
       .limit(1)
