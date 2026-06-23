@@ -1,0 +1,187 @@
+SPRINT 10B-1 — MULTI-COMPANY SCALING FOUNDATION
+
+Goal:
+
+Transform current system from single-company optimized
+to true multi-company enterprise platform.
+
+Do not rebuild existing modules.
+
+Reuse all existing:
+
+* AI Task Center
+* Fleet Intelligence
+* Purchasing Intelligence
+* Executive Command
+* Customer Memory
+* Vendor Memory
+* Driver Portal
+* Vendor Portal
+
+====================================================
+A. COMPANY ISOLATION AUDIT
+==========================
+
+Audit all tables.
+
+Classify:
+
+1. Properly isolated
+2. Partially isolated
+3. No company isolation
+
+Output:
+
+table
+company_id present?
+company filter enforced?
+risk level
+
+====================================================
+B. COMPANY GOVERNANCE CENTER
+============================
+
+Create:
+
+/company-governance
+
+Show:
+
+* companies
+* users
+* active modules
+* storage usage
+* task volume
+* fleet volume
+* customer volume
+
+====================================================
+C. COMPANY HEALTH SCORE
+=======================
+
+Per company:
+
+* onboarding score
+* data quality score
+* memory coverage
+* fleet readiness
+* purchasing readiness
+
+Output:
+
+0–100
+
+====================================================
+D. CROSS-COMPANY SAFETY
+=======================
+
+Audit:
+
+all API routes
+
+Verify:
+
+cannot access another company data
+
+Test:
+
+customer
+vendor
+fleet
+driver
+purchasing
+executive
+
+Generate report.
+
+====================================================
+E. COMPANY CONFIGURATION PROFILE
+================================
+
+Create standardized profile:
+
+* company_name
+* industry
+* phone
+* email
+* timezone
+* currency
+* language
+* whatsapp_provider
+
+Completion score.
+
+====================================================
+F. RESOURCE UTILIZATION
+=======================
+
+Track per company:
+
+* AI tasks
+* WhatsApp messages
+* storage
+* users
+* fleet units
+* vendors
+* customers
+
+====================================================
+G. EXECUTIVE MULTI-COMPANY VIEW
+===============================
+
+For super_admin only.
+
+Show:
+
+all companies
+
+KPIs:
+
+* revenue signals
+* fleet health
+* vendor readiness
+* customer readiness
+* AI adoption
+
+No cross-company visibility for normal admins.
+
+====================================================
+H. ALERTS
+=========
+
+Create alerts:
+
+* company onboarding low
+* data quality low
+* fleet risk high
+* vendor readiness low
+* stale datasets
+
+====================================================
+I. VALIDATION
+=============
+
+Test:
+
+1. company isolation
+2. RBAC
+3. governance page
+4. health score
+5. executive aggregation
+6. resource tracking
+7. alerts
+8. typecheck
+
+Output:
+
+* companies audited
+* isolation score
+* health score
+* violations found
+* readiness score
+
+GO / NO-GO
+
+# for Sprint 10B-2
+
+# END

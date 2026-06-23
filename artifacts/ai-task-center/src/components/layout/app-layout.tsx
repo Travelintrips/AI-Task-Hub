@@ -108,6 +108,9 @@ export function AppLayout({ children }: { children: ReactNode }) {
     ...(user?.role === "super_admin" || user?.role === "company_admin" || user?.role === "owner" || user?.role === "supervisor"
       ? [{ name: "Onboarding Setup", href: "/onboarding", icon: CheckSquare }]
       : []),
+    ...(user?.role === "super_admin" || user?.role === "company_admin"
+      ? [{ name: "Company Governance", href: "/company-governance", icon: Shield }]
+      : []),
   ];
 
   return (

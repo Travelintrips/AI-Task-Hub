@@ -63,6 +63,7 @@ import vendorsRouter from "./vendors";
 import vendorPortalRouter from "./vendor-portal";
 import driverPortalRouter from "./driver-portal";
 import systemRouter from "./system";
+import companyGovernanceRouter from "./company-governance";
 import { extractUser } from "../middleware/auth";
 
 const router: IRouter = Router();
@@ -150,5 +151,7 @@ router.use(vendorPortalRouter);
 // ── Sprint 10A-4 — Driver Self-Service Portal ──────────────────────────────────
 router.use(driverPortalRouter);
 router.use(systemRouter);
+// ── Sprint 10B-1 — Multi-Company Scaling Foundation ───────────────────────────
+router.use(companyGovernanceRouter);
 
 export default router;

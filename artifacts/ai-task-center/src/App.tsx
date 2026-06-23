@@ -74,6 +74,7 @@ import DriverDocumentsPage from "@/pages/driver-documents";
 import DriverTripsPage from "@/pages/driver-trips";
 import DriverHistoryPage from "@/pages/driver-history";
 import DriverAdminPage from "@/pages/driver-admin";
+import CompanyGovernancePage from "@/pages/company-governance";
 
 const queryClient = new QueryClient();
 
@@ -154,6 +155,7 @@ function AppRouter() {
         <Route path="/onboarding" component={OnboardingPage} />
         <Route path="/onboarding/:step" component={OnboardingPage} />
         <Route path="/driver-admin" component={DriverAdminPage} />
+        <Route path="/company-governance" component={CompanyGovernancePage} />
         <Route component={NotFound} />
       </Switch>
     </AppLayout>
