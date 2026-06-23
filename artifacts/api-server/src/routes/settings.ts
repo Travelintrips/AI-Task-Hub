@@ -44,6 +44,10 @@ router.get("/settings", requireAuth, async (req: Request, res: Response): Promis
         templateProgress: null,
         templateApproval: null,
         templateCompleted: null,
+        // Task 4: profile completion (no row yet = 0%)
+        profileCompletionPct: 0,
+        profileMissingFields: ["companyName", "companyPhone", "companyEmail", "industryType"],
+        profileFields: { companyName: false, companyPhone: false, companyEmail: false, industryType: false },
       });
       return;
     }
@@ -51,6 +55,17 @@ router.get("/settings", requireAuth, async (req: Request, res: Response): Promis
     const resolvedFonnte = row.fonnteToken ?? envFonnteToken;
     const resolvedWaToken = row.whatsappToken ?? envWaToken;
     const resolvedWaPhoneId = row.whatsappPhoneNumberId ?? envWaPhoneId;
+
+    // Task 4: compute company profile completion percentage
+    const profileFields = {
+      companyName: !!row.companyName,
+      companyPhone: !!row.companyPhone,
+      companyEmail: !!row.companyEmail,
+      industryType: !!row.industryType,
+    };
+    const profileDone = Object.values(profileFields).filter(Boolean).length;
+    const profileCompletionPct = Math.round((profileDone / 4) * 100);
+    const profileMissingFields = Object.entries(profileFields).filter(([, v]) => !v).map(([k]) => k);
 
     res.json({
       ...row,
@@ -60,6 +75,10 @@ router.get("/settings", requireAuth, async (req: Request, res: Response): Promis
       fonnteToken: resolvedFonnte ? `••••••••${resolvedFonnte.slice(-4)}` : null,
       whatsappToken: resolvedWaToken ? `••••••••${resolvedWaToken.slice(-4)}` : null,
       whatsappPhoneNumberId: resolvedWaPhoneId,
+      // Task 4: profile completion
+      profileCompletionPct,
+      profileMissingFields,
+      profileFields,
     });
   } catch (err) {
     logger.error({ err }, "GET /settings failed");

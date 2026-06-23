@@ -59,6 +59,8 @@ import readinessRouter from "./readiness";
 import conversationTestsRouter from "./conversation-tests";
 import qualityGateRouter from "./quality-gate";
 import waCommandsRouter from "./wa-commands";
+import vendorsRouter from "./vendors";
+import systemRouter from "./system";
 import { extractUser } from "../middleware/auth";
 
 const router: IRouter = Router();
@@ -139,5 +141,8 @@ router.use(conversationTestsRouter);
 router.use(qualityGateRouter);
 // ── Sprint 10A-1 — WhatsApp First Operations ──────────────────────────────────
 router.use(waCommandsRouter);
+// ── Sprint 10A-1.2 — Onboarding Readiness Hardening ───────────────────────────
+router.use(vendorsRouter);
+router.use(systemRouter);
 
 export default router;
