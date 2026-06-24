@@ -268,7 +268,12 @@ router.post("/public/vendor/register/:token", async (req: Request, res: Response
     })();
 
     const requiredDocs = getRequiredDocs(service_type);
-    const BASE_URL = process.env["BASE_URL"] ?? `https://${process.env["REPL_SLUG"] ?? "app"}.replit.app`;
+    const _domains = process.env["REPLIT_DOMAINS"] ?? "";
+    const _devDomain = process.env["REPLIT_DEV_DOMAIN"] ?? "";
+    const BASE_URL = process.env["BASE_URL"]
+      ?? (_domains ? `https://${_domains.split(",")[0]?.trim()}` : null)
+      ?? (_devDomain ? `https://${_devDomain}` : null)
+      ?? "http://localhost:5000";
     const statusToken = generateToken();
     const statusExpires = new Date(Date.now() + 30 * 24 * 3600 * 1000); // 30 days
     await db.execute(sql`

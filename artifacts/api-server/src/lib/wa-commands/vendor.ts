@@ -17,8 +17,19 @@ import { supabasePool } from "../supabase-db";
 import { logger } from "../logger";
 import type { WaCommandContext, WaCommandResult } from "./types";
 
-const BASE_URL = process.env["BASE_URL"]
-  ?? `https://${process.env["REPL_SLUG"] ?? "app"}.replit.app`;
+function getBaseUrl(): string {
+  if (process.env["BASE_URL"]) return process.env["BASE_URL"];
+  const domains = process.env["REPLIT_DOMAINS"] ?? "";
+  if (domains) {
+    const first = domains.split(",")[0]?.trim();
+    if (first) return `https://${first}`;
+  }
+  const devDomain = process.env["REPLIT_DEV_DOMAIN"] ?? "";
+  if (devDomain) return `https://${devDomain}`;
+  return "http://localhost:5000";
+}
+
+const BASE_URL = getBaseUrl();
 
 function generateToken(): string {
   const { randomBytes } = require("crypto") as typeof import("crypto");

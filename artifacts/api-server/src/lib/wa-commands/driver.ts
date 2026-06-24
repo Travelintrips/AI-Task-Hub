@@ -25,7 +25,15 @@ import { plateWhere } from "../plate-number";
 import type { WaCommandContext, WaCommandResult } from "./types";
 
 function baseUrl(): string {
-  return process.env["BASE_URL"] ?? `https://${process.env["REPL_SLUG"] ?? "app"}.replit.app`;
+  if (process.env["BASE_URL"]) return process.env["BASE_URL"];
+  const domains = process.env["REPLIT_DOMAINS"] ?? "";
+  if (domains) {
+    const first = domains.split(",")[0]?.trim();
+    if (first) return `https://${first}`;
+  }
+  const devDomain = process.env["REPLIT_DEV_DOMAIN"] ?? "";
+  if (devDomain) return `https://${devDomain}`;
+  return "http://localhost:5000";
 }
 
 /** Fire-and-forget: refresh driver memory snapshot after significant events */
