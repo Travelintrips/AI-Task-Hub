@@ -116,6 +116,25 @@ export const MINI_FORM_CONFIGS: Record<string, MiniFormConfig> = {
       { name: "notes",          label: "Catatan Tambahan",      type: "textarea", required: false },
     ],
   },
+
+  "field-booking": {
+    type: "field-booking",
+    title: "Form Pemesanan Lapangan",
+    description: "Isi data pemesanan lapangan olahraga Anda",
+    waMessageTemplate:
+      "Halo! Untuk mempercepat proses booking lapangan, mohon isi form berikut:\n\n{mini_form_url}\n\nSetelah form dikirim, tim kami akan segera mengkonfirmasi ketersediaan lapangan. Terima kasih!",
+    fields: [
+      { name: "booker_name",    label: "Nama Pemesan",          type: "text",     required: true,  placeholder: "Budi Santoso" },
+      { name: "phone",          label: "Nomor WhatsApp",        type: "text",     required: true,  placeholder: "08123456789" },
+      { name: "field_type",     label: "Jenis Lapangan",        type: "select",   required: true,  options: ["Futsal", "Badminton", "Basket", "Tenis", "Voli", "Sepak Bola", "Lainnya"] },
+      { name: "booking_date",   label: "Tanggal Main",          type: "date",     required: true },
+      { name: "start_time",     label: "Jam Mulai",             type: "select",   required: true,  options: ["07:00", "08:00", "09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00", "20:00", "21:00", "22:00"] },
+      { name: "duration",       label: "Durasi Sewa",           type: "select",   required: true,  options: ["1 jam", "1,5 jam", "2 jam", "3 jam", "Full Day"] },
+      { name: "players_count",  label: "Jumlah Pemain",         type: "number",   required: false, placeholder: "10" },
+      { name: "payment_method", label: "Metode Pembayaran",     type: "select",   required: true,  options: ["Transfer Bank", "Cash", "QRIS / E-Wallet"] },
+      { name: "notes",          label: "Catatan Tambahan",      type: "textarea", required: false, placeholder: "Butuh perlengkapan tambahan, dll." },
+    ],
+  },
 };
 
 export function getFormConfig(type: string): MiniFormConfig | null {
@@ -132,6 +151,13 @@ export function inferFormType(intentCode: string, category?: string | null): str
   if (code.includes("complaint") || code.includes("komplain") || code.includes("rusak") || cat.includes("komplain")) return "complaint";
   if (code.includes("fleet") || code.includes("repair") || code.includes("armada") || cat.includes("fleet")) return "fleet-repair";
   if (code.includes("kasbon") || code.includes("cash") || code.includes("advance") || cat.includes("kasbon")) return "cash-advance";
+  if (
+    code.includes("lapangan") || code.includes("booking") || code.includes("boking") ||
+    code.includes("field") || code.includes("futsal") || code.includes("badminton") ||
+    code.includes("basket") || code.includes("tenis") || code.includes("voli") ||
+    code.includes("sport") || code.includes("sewa lapangan") || code.includes("pesan lapangan") ||
+    cat.includes("sport") || cat.includes("lapangan") || cat.includes("booking")
+  ) return "field-booking";
 
   return "trucking"; // default
 }

@@ -325,6 +325,10 @@ function buildTaskTitle(
       return get("amount")
         ? `Pengajuan Kasbon — Rp ${Number(get("amount")).toLocaleString("id-ID")}`
         : `Pengajuan Kasbon — ${session.phone}`;
+    case "field-booking":
+      return get("field_type") && get("booking_date")
+        ? `Booking ${get("field_type")} — ${get("booking_date")}${get("start_time") ? " " + get("start_time") : ""} (${get("booker_name") || session.phone})`
+        : `Pemesanan Lapangan — ${session.phone}`;
     default:
       return `${session.intentName ?? session.intentCode} — ${session.phone}`;
   }
