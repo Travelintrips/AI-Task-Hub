@@ -276,6 +276,23 @@ router.post("/whatsapp/webhook", async (req, res): Promise<void> => {
 
     // Handle generic/3rd-party gateway format (including Fonnte)
     // Fonnte sends: sender, message, name, device
+    // Anti-echo-loop: skip outgoing messages echoed back by Fonnte.
+    // Fonnte echoes our sent messages — detectable because the body contains
+    // our own mini-form URL pattern or our standard greeting prefix.
+    const rawMessage =
+      (rawPayload?.message as string | undefined) ??
+      (rawPayload?.pesan as string | undefined) ??
+      (rawPayload?.text as string | undefined) ??
+      "";
+    if (
+      rawMessage.includes("/mini-form/") ||
+      rawMessage.startsWith("Halo! Untuk mempercepat proses") ||
+      rawMessage.startsWith("Baik, untuk mempercepat proses")
+    ) {
+      logger.debug({ rawMessage: rawMessage.slice(0, 80) }, "Fonnte echo detected — skipping outgoing message");
+      return;
+    }
+
     const from =
       (rawPayload?.from as string | undefined) ??
       (rawPayload?.sender as string | undefined) ??
@@ -287,6 +304,7 @@ router.post("/whatsapp/webhook", async (req, res): Promise<void> => {
         msg: rawPayload,
         senderName:
           (rawPayload?.name as string | undefined) ??
+          (rawPayload?.pushname as string | undefined) ??
           (rawPayload?.sender_name as string | undefined),
         companyId,
         rawPayload,

@@ -101,6 +101,24 @@ export async function routeIntentToFlow({
   const formType = miniFormType ?? inferFormType(intentCode, category);
   const formCfg = getFormConfig(formType);
 
+  // ── Anti-loop: reuse existing form_sent session within 30 minutes ──────────
+  const existingSession = await findFormSentSession(phone, companyId);
+  if (existingSession) {
+    const baseUrl = getPublicBaseUrl();
+    const existingFormUrl = `${baseUrl}/mini-form/${existingSession.miniFormType}/${existingSession.formToken}`;
+    logger.info(
+      { phone, intentCode, sessionId: existingSession.id, formUrl: existingFormUrl },
+      "MiniFormRouter: reusing existing form_sent session — not sending duplicate",
+    );
+    return {
+      flow: intakeMode,
+      sessionId: existingSession.id,
+      formToken: existingSession.formToken,
+      formUrl: existingFormUrl,
+      waSent: false,
+    };
+  }
+
   const token = generateSecureToken();
   const baseUrl = getPublicBaseUrl();
   const formUrl = `${baseUrl}/mini-form/${formType}/${token}`;
