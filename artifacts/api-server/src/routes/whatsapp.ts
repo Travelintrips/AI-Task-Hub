@@ -275,21 +275,24 @@ router.post("/whatsapp/webhook", async (req, res): Promise<void> => {
     }
 
     // Handle generic/3rd-party gateway format (including Fonnte)
-    // Fonnte sends: sender, message, name, device
-    // Anti-echo-loop: skip outgoing messages echoed back by Fonnte.
-    // Fonnte echoes our sent messages — detectable because the body contains
-    // our own mini-form URL pattern or our standard greeting prefix.
+    // Fonnte sends: sender, message, name, device, quick
+    //
+    // Anti-echo-loop: Fonnte marks outgoing message echoes with quick=true.
+    // Real incoming messages from customers have quick=false or quick absent.
+    // Skip quick=true payloads to prevent infinite response loops.
+    const isQuickEcho = rawPayload?.quick === true;
+    if (isQuickEcho) {
+      logger.debug("Fonnte quick=true echo detected — skipping outgoing message");
+      return;
+    }
+
+    // Secondary content filter: belt-and-suspenders for any missed echoes
     const rawMessage =
       (rawPayload?.message as string | undefined) ??
       (rawPayload?.pesan as string | undefined) ??
-      (rawPayload?.text as string | undefined) ??
       "";
-    if (
-      rawMessage.includes("/mini-form/") ||
-      rawMessage.startsWith("Halo! Untuk mempercepat proses") ||
-      rawMessage.startsWith("Baik, untuk mempercepat proses")
-    ) {
-      logger.debug({ rawMessage: rawMessage.slice(0, 80) }, "Fonnte echo detected — skipping outgoing message");
+    if (rawMessage.includes("/mini-form/")) {
+      logger.debug({ rawMessage: rawMessage.slice(0, 80) }, "mini-form URL echo detected — skipping");
       return;
     }
 
