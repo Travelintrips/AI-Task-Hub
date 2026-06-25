@@ -769,6 +769,19 @@ async function runAiDetection({
       if (route.flow === "mini_form" || route.flow === "hybrid") {
         // Form link already sent via Fonnte by routeIntentToFlow
         const modeLabel = route.flow === "hybrid" ? "Hybrid Form" : "Mini Form";
+
+        // Fallback: if form link failed to send, still reply to customer
+        if (!route.waSent) {
+          const fallbackReply =
+            result._resolution?.suggestedReply ??
+            `Halo! Kami menerima permintaan Anda untuk ${result.category ?? result.intent}. ` +
+            `Tim kami sedang memproses dan akan segera menghubungi Anda. Ada yang bisa kami bantu lagi?`;
+          await sendFonnte(from, fallbackReply).catch((e) =>
+            logger.warn({ e, from }, "fallback reply failed after mini-form send error"),
+          );
+          logger.warn({ from, intentCode: result.intent }, "mini-form waSent=false — fallback reply sent");
+        }
+
         await db
           .update(whatsappMessagesTable)
           .set({ aiProcessed: true, detectedIntent: `${route.flow}_sent:${result.intent}` })
@@ -777,7 +790,7 @@ async function runAiDetection({
         await createAdminNotification({
           type: "new_inquiry",
           title: `📋 ${modeLabel} Dikirim: ${result.intent}`,
-          body: `${effectiveName ?? from} diminta mengisi ${modeLabel} untuk ${result.category ?? result.intent}. ${route.waSent ? "Link berhasil dikirim via WA." : "Gagal kirim WA — cek FONNTE_TOKEN."}`,
+          body: `${effectiveName ?? from} diminta mengisi ${modeLabel} untuk ${result.category ?? result.intent}. ${route.waSent ? "Link berhasil dikirim via WA." : "Gagal kirim WA — fallback reply terkirim."}`,
           customerPhone: from,
           customerName: effectiveName,
           companyId,
@@ -805,19 +818,37 @@ async function runAiDetection({
       }
 
       // flow === "conversation" → existing IntakeEngine flow
-      const intakeResult = await startIntakeSession({
-        phone: from,
-        companyId,
-        message: bodyText,
-        attachmentUrl: attachmentUrl ?? undefined,
-        resolution: result._resolution,
-      });
+      let intakeResult;
+      try {
+        intakeResult = await startIntakeSession({
+          phone: from,
+          companyId,
+          message: bodyText,
+          attachmentUrl: attachmentUrl ?? undefined,
+          resolution: result._resolution,
+        });
+      } catch (intakeErr) {
+        logger.error({ intakeErr, from, intent: result.intent }, "startIntakeSession failed — sending fallback reply");
+        const fallbackReply =
+          result._resolution?.suggestedReply ??
+          `Halo! Kami menerima permintaan Anda mengenai ${result.category ?? result.intent}. ` +
+          `Tim kami akan segera menindaklanjuti. Ada yang bisa kami bantu lebih lanjut?`;
+        await sendFonnte(from, fallbackReply).catch(() => {});
+        return;
+      }
 
       // Send question to customer
       if (intakeResult.replyToUser) {
         await sendFonnte(from, intakeResult.replyToUser).catch((e) =>
           logger.warn({ e }, "Failed to send intake question via Fonnte"),
         );
+      } else {
+        // replyToUser is null/empty — send fallback so customer is not left hanging
+        const fallbackReply =
+          result._resolution?.suggestedReply ??
+          `Halo! Kami menerima permintaan Anda mengenai ${result.category ?? result.intent}. ` +
+          `Tim kami akan segera menindaklanjuti. Ada yang bisa kami bantu lebih lanjut?`;
+        await sendFonnte(from, fallbackReply).catch(() => {});
       }
 
       await db
@@ -896,6 +927,11 @@ async function runAiDetection({
     }
   } catch (err) {
     logger.error({ err, msgId: savedMsgId }, "AI detection failed for message");
+    // Always reply to customer — never leave them hanging
+    await sendFonnte(
+      from,
+      "Terima kasih atas pesan Anda! Tim kami sedang memproses dan akan segera menghubungi Anda. 🙏",
+    ).catch(() => {});
     try {
       await createAdminNotification({
         type: "waiting_review",
