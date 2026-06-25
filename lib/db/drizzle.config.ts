@@ -3,6 +3,7 @@ import path from "path";
 
 const rawUrl =
   process.env.SUPABASE_DATABASE_URL ||
+  process.env.SUPABASE_DATABASE_URL_DEV ||
   process.env.DATABASE_URL;
 
 if (!rawUrl) {

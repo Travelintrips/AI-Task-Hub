@@ -583,4 +583,20 @@ router.delete("/document-templates/:id/fields/:fieldId", requireAuth, requireRol
   }
 });
 
+// ─── POST /api/knowledge-base/cache/invalidate ────────────────────────────────
+// Membersihkan in-memory cache intent engine (TTL 5 menit) agar data baru
+// langsung efektif tanpa restart server.
+router.post("/knowledge-base/cache/invalidate", requireAuth, requireRole("company_admin"), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const companyId = coIdWrite(req);
+    const { invalidateIntentCache } = await import("../lib/intent-engine");
+    invalidateIntentCache(companyId);
+    logger.info({ companyId }, "POST /knowledge-base/cache/invalidate: intent cache cleared");
+    res.json({ success: true, message: "Intent cache cleared — new KB data will take effect immediately." });
+  } catch (err) {
+    logger.error({ err }, "POST /knowledge-base/cache/invalidate failed");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 export default router;
