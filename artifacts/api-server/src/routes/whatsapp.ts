@@ -880,8 +880,9 @@ async function runAiDetection({
       await updateCustomerContextAfterTask({ phone: from, companyId, taskId: taskOutput.taskId, intent: result.intent, name: effectiveName });
 
       // Admin notification based on priority / task action
-      await _notifyForTask({ taskOutput, result, from, effectiveName, companyId, suggestedReply: result._resolution?.suggestedReply ?? null });
-      await _notifyForTask({ taskOutput, result, from, effectiveName, companyId, suggestedReply: result.suggested_reply ?? null });
+      // Use _resolution.suggestedReply (enriched by intent-engine) first, fallback to raw AI reply
+      const bestSuggestedReply = result._resolution?.suggestedReply ?? result.suggested_reply ?? null;
+      await _notifyForTask({ taskOutput, result, from, effectiveName, companyId, suggestedReply: bestSuggestedReply });
 
     } else {
       await createAdminNotification({
