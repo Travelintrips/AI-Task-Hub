@@ -219,7 +219,8 @@ export default function MiniFormPage() {
   const allFields = [
     ...data.builtinFields.map(normalizeField),
     ...data.customFields.map(normalizeField),
-  ].filter((f, i, arr) => arr.findIndex((x) => x.name === f.name) === i); // dedupe
+  ].filter((f, i, arr) => arr.findIndex((x) => x.name === f.name) === i) // dedupe
+   .filter((f) => f.name.trim() !== "" && f.label.trim() !== ""); // remove empty/unnamed fields
 
   // Pre-fill from already collected fields
   const prefilled: Record<string, string> = {};
