@@ -95,8 +95,16 @@ function extractMessageContent(msg: Record<string, unknown>): {
 } {
   const type = (msg.type as string | undefined) ?? "unknown";
 
+  // Fonnte incoming format: no "type" field, text is in "message" key
+  if (type === "unknown" && typeof msg.message === "string" && msg.message) {
+    return { type: "text", text: msg.message, attachment: null };
+  }
+
   if (type === "text") {
-    const textBody = (msg.text as Record<string, unknown> | undefined)?.body as string | undefined;
+    // Meta format: text.body
+    const textBody =
+      (msg.text as Record<string, unknown> | undefined)?.body as string | undefined ??
+      (typeof msg.message === "string" ? msg.message : undefined);
     return { type: "text", text: textBody ?? null, attachment: null };
   }
 
@@ -266,16 +274,20 @@ router.post("/whatsapp/webhook", async (req, res): Promise<void> => {
       return;
     }
 
-    // Handle generic/3rd-party gateway format
+    // Handle generic/3rd-party gateway format (including Fonnte)
+    // Fonnte sends: sender, message, name, device
     const from =
       (rawPayload?.from as string | undefined) ??
+      (rawPayload?.sender as string | undefined) ??
       (rawPayload?.sender_phone as string | undefined) ??
       (rawPayload?.phone as string | undefined);
 
     if (from) {
       await processIncomingMessage({
         msg: rawPayload,
-        senderName: rawPayload?.sender_name as string | undefined,
+        senderName:
+          (rawPayload?.name as string | undefined) ??
+          (rawPayload?.sender_name as string | undefined),
         companyId,
         rawPayload,
       });
@@ -298,6 +310,7 @@ export async function processIncomingMessage({
 }): Promise<void> {
   const from =
     (msg?.from as string | undefined) ??
+    (msg?.sender as string | undefined) ??
     (msg?.sender_phone as string | undefined) ??
     (msg?.phone as string | undefined) ??
     "unknown";
