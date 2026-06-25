@@ -78,6 +78,7 @@ import CompanyGovernancePage from "@/pages/company-governance";
 import CompanyOnboardingFactoryPage from "@/pages/company-onboarding-factory";
 import HoldingDashboardPage from "@/pages/holding-dashboard";
 import AiOperationsPage from "@/pages/ai-operations";
+import NotificationReceiversPage from "@/pages/notification-receivers";
 
 const queryClient = new QueryClient();
 
@@ -162,6 +163,7 @@ function AppRouter() {
         <Route path="/company-onboarding" component={CompanyOnboardingFactoryPage} />
         <Route path="/holding-dashboard" component={HoldingDashboardPage} />
         <Route path="/ai-operations" component={AiOperationsPage} />
+        <Route path="/notification-receivers" component={NotificationReceiversPage} />
         <Route component={NotFound} />
       </Switch>
     </AppLayout>

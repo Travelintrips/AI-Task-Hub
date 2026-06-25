@@ -47,3 +47,5 @@ export * from "./document_validation";
 export * from "./conversation_tests";
 // ── Sprint 10A-1 — WhatsApp First Operations ────────────────────────────────
 export * from "./whatsapp_commands";
+// ── Notification Receivers ───────────────────────────────────────────────────
+export * from "./notification_receivers";

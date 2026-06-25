@@ -67,6 +67,7 @@ import companyGovernanceRouter from "./company-governance";
 import { companyOnboardingRouter } from "./company-onboarding";
 import holdingDashboardRouter from "./holding-dashboard";
 import aiOperationsRouter from "./ai-operations";
+import notificationReceiversRouter from "./notification-receivers";
 import { extractUser } from "../middleware/auth";
 
 const router: IRouter = Router();
@@ -162,5 +163,7 @@ router.use(companyOnboardingRouter);
 router.use(holdingDashboardRouter);
 // ── Sprint 10B-4 — AI Operations Center ────────────────────────────────────────
 router.use(aiOperationsRouter);
+// ── Notification Receivers ────────────────────────────────────────────────────
+router.use(notificationReceiversRouter);
 
 export default router;
