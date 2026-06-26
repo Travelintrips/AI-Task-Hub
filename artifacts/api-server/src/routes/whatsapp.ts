@@ -344,9 +344,10 @@ export async function processIncomingMessage({
 
   const bodyText = messageText ?? `[${messageType} message]`;
 
+  // 1. Save message to database (non-blocking — AI pipeline ALWAYS continues even on save failure)
+  let savedMsg: { id: number } = { id: 0 };
   try {
-    // 1. Save message to database
-    const [savedMsg] = await db
+    const [inserted] = await db
       .insert(whatsappMessagesTable)
       .values({
         companyId,
@@ -364,8 +365,13 @@ export async function processIncomingMessage({
         aiProcessed: false,
       })
       .returning();
-
+    savedMsg = inserted;
     logger.info({ msgId: savedMsg.id, from, type: messageType }, "WhatsApp message saved");
+  } catch (saveErr) {
+    logger.warn({ saveErr, from, companyId }, "Failed to save WhatsApp message — AI pipeline will continue");
+  }
+
+  try {
 
     // Emit SSE so messages page updates instantly
     emitSseEvent(
@@ -451,7 +457,7 @@ export async function processIncomingMessage({
       });
     });
   } catch (err) {
-    logger.error({ err, from, companyId }, "Failed to save WhatsApp message");
+    logger.error({ err, from, companyId }, "AI pipeline error in processIncomingMessage");
   }
 }
 

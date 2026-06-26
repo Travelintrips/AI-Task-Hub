@@ -469,34 +469,91 @@ if (supabasePool) {
 // These are created via raw SQL (not Drizzle push) so they survive env resets.
 if (supabasePool) {
   const runCoreMigrations = async () => {
-    // whatsapp_messages — needed for every incoming message to be saved
+    // ── whatsapp_messages ─────────────────────────────────────────────────────
+    // Step 1: CREATE (no-op if already exists)
     await supabasePool!.query(`
       CREATE TABLE IF NOT EXISTS whatsapp_messages (
-        id                SERIAL PRIMARY KEY,
-        company_id        TEXT NOT NULL DEFAULT 'default',
-        message_id        TEXT,
-        from_phone        TEXT NOT NULL,
-        to_phone          TEXT,
-        sender_name       TEXT,
-        message_type      TEXT NOT NULL DEFAULT 'text',
-        body_text         TEXT,
-        media_url         TEXT,
-        media_id          TEXT,
-        raw_payload       JSONB,
-        direction         TEXT NOT NULL DEFAULT 'inbound',
-        processed         BOOLEAN NOT NULL DEFAULT false,
-        ai_processed      BOOLEAN NOT NULL DEFAULT false,
-        detected_intent   TEXT,
-        created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        id              SERIAL PRIMARY KEY,
+        company_id      TEXT NOT NULL DEFAULT 'default',
+        wamid           TEXT,
+        "from"          TEXT NOT NULL DEFAULT 'unknown',
+        sender_phone    TEXT,
+        sender_name     TEXT,
+        body            TEXT NOT NULL DEFAULT '',
+        message_text    TEXT,
+        message_type    TEXT NOT NULL DEFAULT 'text',
+        direction       TEXT NOT NULL DEFAULT 'inbound',
+        attachment_url  TEXT,
+        raw_payload     JSONB,
+        "timestamp"     TEXT NOT NULL DEFAULT '',
+        processed       BOOLEAN NOT NULL DEFAULT false,
+        ai_processed    BOOLEAN NOT NULL DEFAULT false,
+        detected_intent TEXT,
+        task_id         INTEGER,
+        customer_id     INTEGER,
+        ai_confidence   REAL,
+        sentiment       TEXT,
+        created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `);
-    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS wa_msgs_company_idx  ON whatsapp_messages(company_id)`);
-    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS wa_msgs_from_idx     ON whatsapp_messages(from_phone)`);
-    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS wa_msgs_created_idx  ON whatsapp_messages(created_at DESC)`);
+    // Step 2: ADD missing columns for existing tables with old schema (must run BEFORE CREATE INDEX)
+    await supabasePool!.query(`ALTER TABLE whatsapp_messages ADD COLUMN IF NOT EXISTS wamid          TEXT`);
+    await supabasePool!.query(`ALTER TABLE whatsapp_messages ADD COLUMN IF NOT EXISTS "from"         TEXT NOT NULL DEFAULT 'unknown'`);
+    await supabasePool!.query(`ALTER TABLE whatsapp_messages ADD COLUMN IF NOT EXISTS sender_phone   TEXT`);
+    await supabasePool!.query(`ALTER TABLE whatsapp_messages ADD COLUMN IF NOT EXISTS body           TEXT NOT NULL DEFAULT ''`);
+    await supabasePool!.query(`ALTER TABLE whatsapp_messages ADD COLUMN IF NOT EXISTS message_text   TEXT`);
+    await supabasePool!.query(`ALTER TABLE whatsapp_messages ADD COLUMN IF NOT EXISTS attachment_url TEXT`);
+    await supabasePool!.query(`ALTER TABLE whatsapp_messages ADD COLUMN IF NOT EXISTS "timestamp"    TEXT NOT NULL DEFAULT ''`);
+    await supabasePool!.query(`ALTER TABLE whatsapp_messages ADD COLUMN IF NOT EXISTS task_id        INTEGER`);
+    await supabasePool!.query(`ALTER TABLE whatsapp_messages ADD COLUMN IF NOT EXISTS customer_id    INTEGER`);
+    await supabasePool!.query(`ALTER TABLE whatsapp_messages ADD COLUMN IF NOT EXISTS ai_confidence  REAL`);
+    await supabasePool!.query(`ALTER TABLE whatsapp_messages ADD COLUMN IF NOT EXISTS sentiment      TEXT`);
+    // Step 3: CREATE INDEX (only after columns exist)
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS wa_msgs_company_idx   ON whatsapp_messages(company_id)`);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS wa_msgs_from_idx      ON whatsapp_messages("from")`);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS wa_msgs_created_idx   ON whatsapp_messages(created_at DESC)`);
     await supabasePool!.query(`CREATE INDEX IF NOT EXISTS wa_msgs_processed_idx ON whatsapp_messages(processed)`);
-    await supabasePool!.query(`ALTER TABLE whatsapp_messages ADD COLUMN IF NOT EXISTS body_text       TEXT`);
-    await supabasePool!.query(`ALTER TABLE whatsapp_messages ADD COLUMN IF NOT EXISTS detected_intent TEXT`);
-    await supabasePool!.query(`ALTER TABLE whatsapp_messages ADD COLUMN IF NOT EXISTS ai_processed    BOOLEAN NOT NULL DEFAULT false`);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS wa_msgs_wamid_idx     ON whatsapp_messages(wamid)`);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS wa_msgs_task_id_idx   ON whatsapp_messages(task_id)`);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS wa_msgs_sender_phone_idx ON whatsapp_messages(sender_phone)`);
+
+    // ── customers — add missing Drizzle columns to existing table ──────────────
+    await supabasePool!.query(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS company_id       TEXT NOT NULL DEFAULT 'default'`);
+    await supabasePool!.query(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS customer_code    TEXT`);
+    await supabasePool!.query(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS company_name     TEXT NOT NULL DEFAULT ''`);
+    await supabasePool!.query(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS pic_name         TEXT`);
+    await supabasePool!.query(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS pic_phone        TEXT`);
+    await supabasePool!.query(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS whatsapp         TEXT`);
+    await supabasePool!.query(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS email            TEXT`);
+    await supabasePool!.query(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS npwp             TEXT`);
+    await supabasePool!.query(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS address          TEXT`);
+    await supabasePool!.query(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS notes            TEXT`);
+    await supabasePool!.query(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS industry         TEXT`);
+    await supabasePool!.query(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS tier             TEXT DEFAULT 'regular'`);
+    await supabasePool!.query(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS payment_terms    TEXT`);
+    await supabasePool!.query(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS total_tasks      INTEGER NOT NULL DEFAULT 0`);
+    await supabasePool!.query(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS total_documents  INTEGER NOT NULL DEFAULT 0`);
+    await supabasePool!.query(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS ai_summary       TEXT`);
+    await supabasePool!.query(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS last_task_at     TIMESTAMPTZ`);
+    await supabasePool!.query(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS preferred_channel   TEXT`);
+    await supabasePool!.query(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS preferred_language  TEXT`);
+    await supabasePool!.query(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS risk_score          INTEGER`);
+    await supabasePool!.query(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS risk_tier           TEXT`);
+    await supabasePool!.query(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS memory_updated_at   TIMESTAMPTZ`);
+    await supabasePool!.query(`ALTER TABLE customers ADD COLUMN IF NOT EXISTS updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()`);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS customers_company_idx      ON customers(company_id)`);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS customers_whatsapp_idx     ON customers(whatsapp)`);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS customers_company_name_idx ON customers(company_name)`);
+
+    // ── admin_notifications — add missing company_id column ────────────────────
+    await supabasePool!.query(`ALTER TABLE admin_notifications ADD COLUMN IF NOT EXISTS company_id    TEXT NOT NULL DEFAULT 'default'`);
+    await supabasePool!.query(`ALTER TABLE admin_notifications ADD COLUMN IF NOT EXISTS customer_phone TEXT`);
+    await supabasePool!.query(`ALTER TABLE admin_notifications ADD COLUMN IF NOT EXISTS customer_name  TEXT`);
+    await supabasePool!.query(`ALTER TABLE admin_notifications ADD COLUMN IF NOT EXISTS task_id        INTEGER`);
+    await supabasePool!.query(`ALTER TABLE admin_notifications ADD COLUMN IF NOT EXISTS is_read        BOOLEAN NOT NULL DEFAULT false`);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS admin_notif_company_idx      ON admin_notifications(company_id)`);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS admin_notif_is_read_idx      ON admin_notifications(is_read)`);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS admin_notif_company_read_idx ON admin_notifications(company_id, is_read)`);
 
     // ai_tasks — needed for task creation from WhatsApp intents
     await supabasePool!.query(`
