@@ -30,6 +30,19 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Pencil, Trash2, Phone, Tag, Users2 } from "lucide-react";
+import { getStoredToken } from "@/lib/auth-api";
+
+async function apiFetch(path: string, opts?: RequestInit) {
+  const token = getStoredToken();
+  return fetch(path, {
+    ...opts,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(opts?.headers ?? {}),
+    },
+  });
+}
 
 interface NotificationReceiver {
   id: number;
@@ -97,7 +110,7 @@ export default function NotificationReceiversPage() {
   const { data: receivers = [], isLoading } = useQuery<NotificationReceiver[]>({
     queryKey: ["/api/notification-receivers"],
     queryFn: async () => {
-      const res = await fetch("/api/notification-receivers");
+      const res = await apiFetch("/api/notification-receivers");
       if (!res.ok) throw new Error("Gagal memuat data");
       return res.json();
     },
@@ -105,9 +118,8 @@ export default function NotificationReceiversPage() {
 
   const createMutation = useMutation({
     mutationFn: async (body: Partial<typeof EMPTY_FORM>) => {
-      const res = await fetch("/api/notification-receivers", {
+      const res = await apiFetch("/api/notification-receivers", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
       if (!res.ok) {
@@ -129,9 +141,8 @@ export default function NotificationReceiversPage() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, body }: { id: number; body: Partial<typeof EMPTY_FORM> }) => {
-      const res = await fetch(`/api/notification-receivers/${id}`, {
+      const res = await apiFetch(`/api/notification-receivers/${id}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
       if (!res.ok) {
@@ -154,7 +165,7 @@ export default function NotificationReceiversPage() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
-      const res = await fetch(`/api/notification-receivers/${id}`, { method: "DELETE" });
+      const res = await apiFetch(`/api/notification-receivers/${id}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Gagal menghapus");
     },
     onSuccess: () => {
@@ -169,9 +180,8 @@ export default function NotificationReceiversPage() {
 
   const toggleActiveMutation = useMutation({
     mutationFn: async ({ id, isActive }: { id: number; isActive: boolean }) => {
-      const res = await fetch(`/api/notification-receivers/${id}`, {
+      const res = await apiFetch(`/api/notification-receivers/${id}`, {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ isActive }),
       });
       if (!res.ok) throw new Error("Gagal memperbarui");
