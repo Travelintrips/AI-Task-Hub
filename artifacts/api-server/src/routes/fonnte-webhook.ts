@@ -21,10 +21,56 @@
  */
 
 import { Router, type IRouter } from "express";
+import { db, companySettingsTable } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { processIncomingMessage } from "./whatsapp";
 
 const router: IRouter = Router();
+
+// Cache: device phone → companyId (avoid DB hit on every message)
+const deviceCompanyCache = new Map<string, { companyId: string; ts: number }>();
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+async function resolveCompanyIdFromDevice(devicePhone: string | null): Promise<string> {
+  if (!devicePhone) return "default";
+
+  // Check cache first
+  const cached = deviceCompanyCache.get(devicePhone);
+  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) return cached.companyId;
+
+  // Normalise for comparison: strip non-digits, ensure 62 prefix
+  const norm = normPhone(devicePhone) ?? devicePhone;
+
+  try {
+    // Look up all companies and match whatsappPhoneNumberId against the device
+    const rows = await db
+      .select({ companyId: companySettingsTable.companyId, waPhone: companySettingsTable.whatsappPhoneNumberId })
+      .from(companySettingsTable);
+
+    for (const row of rows) {
+      if (!row.waPhone) continue;
+      // waPhone may be comma-separated list of numbers
+      const phones = row.waPhone.split(",").map((p) => normPhone(p.trim()) ?? p.trim());
+      if (phones.includes(norm)) {
+        deviceCompanyCache.set(devicePhone, { companyId: row.companyId, ts: Date.now() });
+        logger.info({ device: norm, companyId: row.companyId }, "Fonnte: companyId resolved from device");
+        return row.companyId;
+      }
+    }
+  } catch (err) {
+    logger.warn({ err, device: norm }, "Fonnte: failed to resolve companyId from device — using 'default'");
+  }
+
+  // Fallback: also check env variable for quick resolution
+  const envPhones = (process.env.WHATSAPP_PHONE_NUMBER_ID ?? "")
+    .split(",")
+    .map((p) => normPhone(p.trim()) ?? p.trim());
+  if (envPhones.includes(norm) && envPhones[0]) {
+    // Env lists the phones but doesn't tell us companyId — return "default"
+  }
+
+  return "default";
+}
 
 // ─── GET /webhook/fonnte  ──────────────────────────────────────────────────
 // Verifikasi webhook dari dashboard Fonnte (jika diperlukan)
@@ -38,7 +84,11 @@ router.post("/webhook/fonnte", async (req, res): Promise<void> => {
   res.sendStatus(200);
 
   const rawPayload = req.body as Record<string, unknown>;
-  const companyId = (req.headers["x-company-id"] as string | undefined) ?? "default";
+
+  // Determine companyId: prefer explicit header, then device-lookup, then "default"
+  const headerCompanyId = req.headers["x-company-id"] as string | undefined;
+  const devicePhone = normPhone(rawPayload.device) ?? null;
+  const companyId = headerCompanyId ?? (await resolveCompanyIdFromDevice(devicePhone));
 
   try {
     // ── Normalize Fonnte payload ke format standar ─────────────────────────
