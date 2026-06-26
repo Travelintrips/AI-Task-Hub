@@ -13,7 +13,7 @@
  * Timeout: sessions expire after 24 hours of inactivity
  */
 
-import { eq, and, inArray, lte, isNotNull } from "drizzle-orm";
+import { eq, and, inArray, lte, isNotNull, desc } from "drizzle-orm";
 import {
   db,
   intakeSessionsTable,
@@ -64,84 +64,93 @@ async function loadRequiredFields(
   category: string | null,
   companyId: string,
 ): Promise<{ dataFields: FieldDef[]; docFields: string[] }> {
-  // Try to find data template by intent_code first, then by category
-  const dataTpl = await db
-    .select()
-    .from(dataTemplatesTable)
-    .where(
-      and(
-        eq(dataTemplatesTable.companyId, companyId),
-        eq(dataTemplatesTable.isActive, true),
-        eq(dataTemplatesTable.intentCode, intentCode),
-      ),
-    )
-    .limit(1)
-    .then((rows) => rows[0] ?? null);
+  try {
+    // Try to find data template by intent_code first, then by category
+    const dataTpl = await db
+      .select()
+      .from(dataTemplatesTable)
+      .where(
+        and(
+          eq(dataTemplatesTable.companyId, companyId),
+          eq(dataTemplatesTable.isActive, true),
+          eq(dataTemplatesTable.intentCode, intentCode),
+        ),
+      )
+      .limit(1)
+      .then((rows) => rows[0] ?? null);
 
-  const dataTplFallback = !dataTpl && category
-    ? await db
+    const dataTplFallback = !dataTpl && category
+      ? await db
+          .select()
+          .from(dataTemplatesTable)
+          .where(
+            and(
+              eq(dataTemplatesTable.companyId, companyId),
+              eq(dataTemplatesTable.isActive, true),
+              eq(dataTemplatesTable.category, category),
+            ),
+          )
+          .limit(1)
+          .then((rows) => rows[0] ?? null)
+      : null;
+
+    const activeTpl = dataTpl ?? dataTplFallback;
+
+    let dataFields: FieldDef[] = [];
+    if (activeTpl) {
+      const fields = await db
         .select()
-        .from(dataTemplatesTable)
+        .from(dataTemplateFieldsTable)
+        .where(eq(dataTemplateFieldsTable.templateId, activeTpl.id))
+        .orderBy(dataTemplateFieldsTable.sortOrder);
+
+      dataFields = fields.map((f) => ({
+        fieldName: f.fieldName,
+        fieldLabel: f.fieldLabel,
+        fieldType: f.fieldType,
+        isRequired: f.isRequired,
+        sortOrder: f.sortOrder,
+        helpText: f.helpText ?? null,
+      }));
+    }
+
+    // Document template
+    let docFields: string[] = [];
+    try {
+      const docTpl = await db
+        .select()
+        .from(documentTemplatesTable)
         .where(
           and(
-            eq(dataTemplatesTable.companyId, companyId),
-            eq(dataTemplatesTable.isActive, true),
-            eq(dataTemplatesTable.category, category),
+            eq(documentTemplatesTable.companyId, companyId),
+            eq(documentTemplatesTable.isActive, true),
+            eq(documentTemplatesTable.intentCode, intentCode),
           ),
         )
         .limit(1)
-        .then((rows) => rows[0] ?? null)
-    : null;
+        .then((rows) => rows[0] ?? null);
 
-  const activeTpl = dataTpl ?? dataTplFallback;
+      if (docTpl) {
+        const docs = await db
+          .select()
+          .from(documentTemplateFieldsTable)
+          .where(
+            and(
+              eq(documentTemplateFieldsTable.templateId, docTpl.id),
+              eq(documentTemplateFieldsTable.isRequired, true),
+            ),
+          );
+        docFields = docs.map((d) => d.documentName);
+      }
+    } catch (docErr) {
+      logger.warn({ docErr, intentCode }, "IntakeEngine: failed to load document template fields — using empty");
+    }
 
-  let dataFields: FieldDef[] = [];
-  if (activeTpl) {
-    const fields = await db
-      .select()
-      .from(dataTemplateFieldsTable)
-      .where(eq(dataTemplateFieldsTable.templateId, activeTpl.id))
-      .orderBy(dataTemplateFieldsTable.sortOrder);
-
-    dataFields = fields.map((f) => ({
-      fieldName: f.fieldName,
-      fieldLabel: f.fieldLabel,
-      fieldType: f.fieldType,
-      isRequired: f.isRequired,
-      sortOrder: f.sortOrder,
-      helpText: f.helpText ?? null,
-    }));
+    return { dataFields, docFields };
+  } catch (err) {
+    logger.warn({ err, intentCode, category }, "IntakeEngine: loadRequiredFields failed — returning empty (table may not exist)");
+    return { dataFields: [], docFields: [] };
   }
-
-  // Document template
-  const docTpl = await db
-    .select()
-    .from(documentTemplatesTable)
-    .where(
-      and(
-        eq(documentTemplatesTable.companyId, companyId),
-        eq(documentTemplatesTable.isActive, true),
-        eq(documentTemplatesTable.intentCode, intentCode),
-      ),
-    )
-    .limit(1)
-    .then((rows) => rows[0] ?? null);
-
-  let docFields: string[] = [];
-  if (docTpl) {
-    const docs = await db
-      .select()
-      .from(documentTemplateFieldsTable)
-      .where(
-        and(
-          eq(documentTemplateFieldsTable.templateId, docTpl.id),
-          eq(documentTemplateFieldsTable.isRequired, true),
-        ),
-      );
-    docFields = docs.map((d) => d.documentName);
-  }
-
-  return { dataFields, docFields };
 }
 
 // ─── AI field extraction ───────────────────────────────────────────────────────
@@ -288,7 +297,7 @@ export async function findActiveIntakeSession(
         inArray(intakeSessionsTable.status, ["collecting", "ready_for_task"]),
       ),
     )
-    .orderBy(intakeSessionsTable.updatedAt)
+    .orderBy(desc(intakeSessionsTable.updatedAt))
     .limit(1);
 
   const session = rows[0] ?? null;
@@ -575,6 +584,41 @@ export async function startIntakeSession({
   attachmentUrl?: string | null;
   resolution: IntentResolution;
 }): Promise<IntakeResult> {
+  // ── Deduplication: cancel any existing "collecting" sessions for this phone ──
+  // This prevents accumulation of stale sessions that would confuse findActiveIntakeSession.
+  try {
+    const existing = await db
+      .select({ id: intakeSessionsTable.id })
+      .from(intakeSessionsTable)
+      .where(
+        and(
+          eq(intakeSessionsTable.phone, phone),
+          eq(intakeSessionsTable.companyId, companyId),
+          inArray(intakeSessionsTable.status, ["collecting", "ready_for_task"]),
+        ),
+      );
+
+    if (existing.length > 0) {
+      const ids = existing.map((r) => r.id);
+      await db
+        .update(intakeSessionsTable)
+        .set({ status: "cancelled", updatedAt: new Date() })
+        .where(
+          and(
+            eq(intakeSessionsTable.phone, phone),
+            eq(intakeSessionsTable.companyId, companyId),
+            inArray(intakeSessionsTable.status, ["collecting", "ready_for_task"]),
+          ),
+        );
+      logger.info(
+        { phone, companyId, cancelledIds: ids, newIntent: resolution.intentCode },
+        "IntakeEngine: cancelled existing collecting sessions before starting new one",
+      );
+    }
+  } catch (cancelErr) {
+    logger.warn({ cancelErr, phone }, "IntakeEngine: failed to cancel existing sessions — continuing");
+  }
+
   // Create session
   const session = await createIntakeSession({
     phone,

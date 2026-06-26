@@ -464,6 +464,144 @@ if (supabasePool) {
     .catch((err: unknown) => logger.warn({ err }, "Sprint 10A-5 startup migration warning"));
 }
 
+// ── Core table startup migrations (idempotent) ─────────────────────────────────
+// Creates essential Drizzle-managed tables if they don't exist.
+// These are created via raw SQL (not Drizzle push) so they survive env resets.
+if (supabasePool) {
+  const runCoreMigrations = async () => {
+    // whatsapp_messages — needed for every incoming message to be saved
+    await supabasePool!.query(`
+      CREATE TABLE IF NOT EXISTS whatsapp_messages (
+        id                SERIAL PRIMARY KEY,
+        company_id        TEXT NOT NULL DEFAULT 'default',
+        message_id        TEXT,
+        from_phone        TEXT NOT NULL,
+        to_phone          TEXT,
+        sender_name       TEXT,
+        message_type      TEXT NOT NULL DEFAULT 'text',
+        body_text         TEXT,
+        media_url         TEXT,
+        media_id          TEXT,
+        raw_payload       JSONB,
+        direction         TEXT NOT NULL DEFAULT 'inbound',
+        processed         BOOLEAN NOT NULL DEFAULT false,
+        ai_processed      BOOLEAN NOT NULL DEFAULT false,
+        detected_intent   TEXT,
+        created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS wa_msgs_company_idx  ON whatsapp_messages(company_id)`);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS wa_msgs_from_idx     ON whatsapp_messages(from_phone)`);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS wa_msgs_created_idx  ON whatsapp_messages(created_at DESC)`);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS wa_msgs_processed_idx ON whatsapp_messages(processed)`);
+    await supabasePool!.query(`ALTER TABLE whatsapp_messages ADD COLUMN IF NOT EXISTS body_text       TEXT`);
+    await supabasePool!.query(`ALTER TABLE whatsapp_messages ADD COLUMN IF NOT EXISTS detected_intent TEXT`);
+    await supabasePool!.query(`ALTER TABLE whatsapp_messages ADD COLUMN IF NOT EXISTS ai_processed    BOOLEAN NOT NULL DEFAULT false`);
+
+    // ai_tasks — needed for task creation from WhatsApp intents
+    await supabasePool!.query(`
+      CREATE TABLE IF NOT EXISTS ai_tasks (
+        id                       SERIAL PRIMARY KEY,
+        company_id               TEXT NOT NULL DEFAULT 'default',
+        task_number              TEXT,
+        source                   TEXT NOT NULL DEFAULT 'manual',
+        customer_id              INTEGER,
+        customer_name            TEXT,
+        customer_phone           TEXT,
+        title                    TEXT NOT NULL,
+        description              TEXT,
+        category                 TEXT,
+        division                 TEXT,
+        priority                 TEXT NOT NULL DEFAULT 'medium',
+        status                   TEXT NOT NULL DEFAULT 'new_inquiry',
+        assigned_to              TEXT,
+        assigned_to_id           INTEGER,
+        assigned_role            TEXT,
+        assigned_division        TEXT,
+        assigned_vendor          TEXT,
+        driver_name              TEXT,
+        driver_phone             TEXT,
+        plate_number             TEXT,
+        quotation_amount         TEXT,
+        quotation_notes          TEXT,
+        due_date                 TIMESTAMPTZ,
+        sla_hours                INTEGER,
+        overdue_at               TIMESTAMPTZ,
+        completed_at             TIMESTAMPTZ,
+        sla_status               TEXT NOT NULL DEFAULT 'on_track',
+        last_customer_reply_at   TIMESTAMPTZ,
+        follow_up_count          INTEGER NOT NULL DEFAULT 0,
+        ai_summary               TEXT,
+        ai_intent                TEXT,
+        missing_data             TEXT,
+        required_action          TEXT,
+        admin_notes              TEXT,
+        ai_confidence_score      TEXT,
+        customer_sentiment       TEXT,
+        created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS ai_tasks_company_status_idx    ON ai_tasks(company_id, status)`);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS ai_tasks_customer_phone_idx    ON ai_tasks(customer_phone)`);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS ai_tasks_status_idx            ON ai_tasks(status)`);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS ai_tasks_category_idx          ON ai_tasks(category)`);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS ai_tasks_created_at_idx        ON ai_tasks(created_at DESC)`);
+
+    // data_template_fields — needed for intake template field loading
+    await supabasePool!.query(`
+      CREATE TABLE IF NOT EXISTS data_template_fields (
+        id           SERIAL PRIMARY KEY,
+        template_id  INTEGER NOT NULL,
+        field_name   TEXT NOT NULL,
+        field_label  TEXT NOT NULL,
+        field_type   TEXT NOT NULL DEFAULT 'text',
+        is_required  BOOLEAN NOT NULL DEFAULT true,
+        sort_order   INTEGER NOT NULL DEFAULT 0,
+        help_text    TEXT,
+        placeholder  TEXT,
+        options      JSONB,
+        created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS dtf_template_idx ON data_template_fields(template_id)`);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS dtf_sort_idx     ON data_template_fields(template_id, sort_order)`);
+
+    // document_templates & document_template_fields — needed for intake doc requirements
+    await supabasePool!.query(`
+      CREATE TABLE IF NOT EXISTS document_templates (
+        id           SERIAL PRIMARY KEY,
+        company_id   TEXT NOT NULL DEFAULT 'default',
+        name         TEXT NOT NULL,
+        intent_code  TEXT,
+        category     TEXT,
+        description  TEXT,
+        is_active    BOOLEAN NOT NULL DEFAULT true,
+        created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS doc_tpl_company_idx ON document_templates(company_id)`);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS doc_tpl_intent_idx  ON document_templates(intent_code)`);
+
+    await supabasePool!.query(`
+      CREATE TABLE IF NOT EXISTS document_template_fields (
+        id            SERIAL PRIMARY KEY,
+        template_id   INTEGER NOT NULL,
+        document_name TEXT NOT NULL,
+        document_type TEXT,
+        is_required   BOOLEAN NOT NULL DEFAULT true,
+        description   TEXT,
+        sort_order    INTEGER NOT NULL DEFAULT 0,
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS doc_tpl_fields_tpl_idx ON document_template_fields(template_id)`);
+  };
+  runCoreMigrations()
+    .then(() => logger.info("Core table migrations OK"))
+    .catch((err: unknown) => logger.warn({ err }, "Core table migration warning"));
+}
+
 // ── Sprint 10A-1.1 startup schema validation ───────────────────────────────────
 // Lightweight check — never fails startup, just logs drift summary.
 import("./lib/schema-startup-check").then((m) => m.runSchemaStartupCheck()).catch(() => {});

@@ -490,96 +490,135 @@ async function runAiDetection({
 
     if (activeSession) {
       logger.info(
-        { msgId: savedMsgId, sessionId: activeSession.id, intent: activeSession.intentCode },
+        { msgId: savedMsgId, sessionId: activeSession.id, intent: activeSession.intentCode, status: activeSession.status },
         "Active intake session found — continuing data collection",
       );
 
-      // Handle image attachment upload within intake session
-      const effectiveAttachmentUrl = attachmentUrl ?? null;
+      // ── Wrap entire active-session processing so errors NEVER fall through ──
+      // to the "no active session" new-intent flow, which would cause looping.
+      try {
+        // Handle image attachment upload within intake session
+        const effectiveAttachmentUrl = attachmentUrl ?? null;
 
-      // For image/sticker in intake session → treat as document upload
-      let effectiveText = bodyText;
-      if ((messageType === "image" || messageType === "document") && effectiveAttachmentUrl) {
-        effectiveText = bodyText.startsWith("[") ? `[Dokumen dikirim]` : bodyText;
+        // For image/sticker in intake session → treat as document upload
+        let effectiveText = bodyText;
+        if ((messageType === "image" || messageType === "document") && effectiveAttachmentUrl) {
+          effectiveText = bodyText.startsWith("[") ? `[Dokumen dikirim]` : bodyText;
 
-        // Sprint 9C: validate document in background, send WA reply for validation status
-        const fileNameFromUrl = effectiveAttachmentUrl.split("/").pop()?.split("?")[0] ?? `doc_${Date.now()}`;
-        const docType = resolveDocumentType(
-          messageType === "image" ? "image" : undefined,
-          fileNameFromUrl,
-        );
-        validateDocument({
-          companyId,
-          documentType: docType,
-          fileName: fileNameFromUrl,
-          fileUrl: effectiveAttachmentUrl,
-          intakeSessionId: activeSession.id,
-        }).then((valResult) => {
-          sendFonnte(from, valResult.waReply).catch((e) =>
-            logger.warn({ e }, "intake: failed to send document validation WA reply"),
+          // Sprint 9C: validate document in background, send WA reply for validation status
+          const fileNameFromUrl = effectiveAttachmentUrl.split("/").pop()?.split("?")[0] ?? `doc_${Date.now()}`;
+          const docType = resolveDocumentType(
+            messageType === "image" ? "image" : undefined,
+            fileNameFromUrl,
           );
-          logger.info(
-            { sessionId: activeSession.id, docType, status: valResult.validationStatus },
-            "Sprint 9C: document validated in intake session",
-          );
-        }).catch((err) => logger.warn({ err }, "Sprint 9C: document validation failed (intake)"));
-      }
+          validateDocument({
+            companyId,
+            documentType: docType,
+            fileName: fileNameFromUrl,
+            fileUrl: effectiveAttachmentUrl,
+            intakeSessionId: activeSession.id,
+          }).then((valResult) => {
+            sendFonnte(from, valResult.waReply).catch((e) =>
+              logger.warn({ e }, "intake: failed to send document validation WA reply"),
+            );
+            logger.info(
+              { sessionId: activeSession.id, docType, status: valResult.validationStatus },
+              "Sprint 9C: document validated in intake session",
+            );
+          }).catch((err) => logger.warn({ err }, "Sprint 9C: document validation failed (intake)"));
+        }
 
-      const intakeResult = await processIntakeMessage({
-        session: activeSession,
-        message: effectiveText,
-        attachmentUrl: effectiveAttachmentUrl,
-        companyId,
-      });
-
-      // Always send reply to customer
-      if (intakeResult.replyToUser) {
-        await sendFonnte(from, intakeResult.replyToUser).catch((e) =>
-          logger.warn({ e }, "intake: failed to send reply via Fonnte"),
-        );
-      }
-
-      await db
-        .update(whatsappMessagesTable)
-        .set({ aiProcessed: true, detectedIntent: `intake:${activeSession.intentCode}` })
-        .where(eq(whatsappMessagesTable.id, savedMsgId));
-
-      if (intakeResult.action === "ready_for_task") {
-        // All data collected — create the task now
-        logger.info({ sessionId: activeSession.id }, "Intake complete — creating task");
-
-        const result = await detectWhatsAppIntent(
-          `${activeSession.intentCode} - ${Object.entries(intakeResult.collectedFields).map(([k, v]) => `${k}: ${v}`).join(", ")}`,
-          { name: effectiveName, phone: from, companyId, previousIntents: parsedPrevIntents },
-          savedMsgId,
-        );
-
-        // Inject collected fields into the result context
-        const taskOutput = await createTaskFromWhatsAppMessage({
-          savedMsgId,
-          from,
-          senderName,
-          bodyText: `[Intake Complete] ${JSON.stringify(intakeResult.collectedFields)}`,
+        const intakeResult = await processIntakeMessage({
+          session: activeSession,
+          message: effectiveText,
+          attachmentUrl: effectiveAttachmentUrl,
           companyId,
-          result,
-          resolution: result._resolution,
         });
 
-        if (taskOutput) {
-          await markIntakeSubmitted(activeSession.id, taskOutput.taskId);
-          await updateCustomerContextAfterTask({ phone: from, companyId, taskId: taskOutput.taskId, intent: result.intent, name: effectiveName });
-          await createAdminNotification({
-            type: "new_inquiry",
-            title: `✅ Task Baru dari Intake: ${result.intent}`,
-            body: `Data lengkap dari ${effectiveName ?? from}. Task #${taskOutput.taskNumber ?? taskOutput.taskId} telah dibuat.`,
-            customerPhone: from,
-            customerName: effectiveName,
-            companyId,
-          });
-          logger.info({ taskId: taskOutput.taskId, sessionId: activeSession.id }, "Task created from completed intake");
+        logger.info(
+          { sessionId: activeSession.id, action: intakeResult.action, collected: Object.keys(intakeResult.collectedFields), missing: intakeResult.missingFields },
+          "IntakeEngine processIntakeMessage result",
+        );
+
+        // Always send reply to customer
+        if (intakeResult.replyToUser) {
+          await sendFonnte(from, intakeResult.replyToUser).catch((e) =>
+            logger.warn({ e }, "intake: failed to send reply via Fonnte"),
+          );
         }
-      } else if (intakeResult.action === "cancelled") {
-        logger.info({ sessionId: activeSession.id }, "Intake session cancelled by user");
+
+        await db
+          .update(whatsappMessagesTable)
+          .set({ aiProcessed: true, detectedIntent: `intake:${activeSession.intentCode}` })
+          .where(eq(whatsappMessagesTable.id, savedMsgId))
+          .catch((e) => logger.warn({ e }, "intake: failed to mark message aiProcessed"));
+
+        if (intakeResult.action === "ready_for_task") {
+          // All data collected — create the task now
+          logger.info({ sessionId: activeSession.id, fields: intakeResult.collectedFields }, "Intake complete — creating task");
+
+          try {
+            const result = await detectWhatsAppIntent(
+              `${activeSession.intentCode} - ${Object.entries(intakeResult.collectedFields).map(([k, v]) => `${k}: ${v}`).join(", ")}`,
+              { name: effectiveName, phone: from, companyId, previousIntents: parsedPrevIntents },
+              savedMsgId,
+            );
+
+            // Inject collected fields into the result context
+            const taskOutput = await createTaskFromWhatsAppMessage({
+              savedMsgId,
+              from,
+              senderName,
+              bodyText: `[Intake Complete] ${JSON.stringify(intakeResult.collectedFields)}`,
+              companyId,
+              result,
+              resolution: result._resolution,
+            });
+
+            if (taskOutput) {
+              await markIntakeSubmitted(activeSession.id, taskOutput.taskId);
+              await updateCustomerContextAfterTask({ phone: from, companyId, taskId: taskOutput.taskId, intent: result.intent, name: effectiveName });
+              await createAdminNotification({
+                type: "new_inquiry",
+                title: `✅ Task Baru dari Intake: ${result.intent}`,
+                body: `Data lengkap dari ${effectiveName ?? from}. Task #${taskOutput.taskNumber ?? taskOutput.taskId} telah dibuat.`,
+                customerPhone: from,
+                customerName: effectiveName,
+                companyId,
+              });
+              logger.info({ taskId: taskOutput.taskId, sessionId: activeSession.id }, "Task created from completed intake");
+            } else {
+              // Task creation returned null — mark session submitted anyway to prevent re-processing
+              await markIntakeSubmitted(activeSession.id, 0).catch(() => {});
+              logger.warn({ sessionId: activeSession.id }, "Intake: createTask returned null — session marked submitted to prevent loop");
+            }
+          } catch (taskErr) {
+            // Task creation failed (e.g. ai_tasks table missing) — mark session submitted to prevent loop
+            logger.error({ taskErr, sessionId: activeSession.id }, "Intake: task creation failed — marking session submitted to prevent re-processing loop");
+            await markIntakeSubmitted(activeSession.id, 0).catch(() => {});
+            await createAdminNotification({
+              type: "waiting_review",
+              title: "Error Membuat Task dari Intake",
+              body: `Data intake dari ${effectiveName ?? from} sudah lengkap tetapi task gagal dibuat. Perlu review manual.`,
+              customerPhone: from,
+              customerName: effectiveName,
+              companyId,
+            }).catch(() => {});
+          }
+        } else if (intakeResult.action === "cancelled") {
+          logger.info({ sessionId: activeSession.id }, "Intake session cancelled by user");
+        }
+      } catch (sessionErr) {
+        // processIntakeMessage or other session processing failed
+        // Send a recovery message to the user — do NOT fall through to new-intent flow
+        logger.error(
+          { sessionErr, sessionId: activeSession.id, from },
+          "Active intake session processing error — sending recovery reply",
+        );
+        await sendFonnte(
+          from,
+          "Maaf, ada gangguan sementara. Mohon ulangi pesan terakhir Anda. Tim kami siap membantu! 🙏",
+        ).catch(() => {});
       }
 
       return;
