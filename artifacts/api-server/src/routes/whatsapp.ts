@@ -302,6 +302,9 @@ router.post("/whatsapp/webhook", async (req, res): Promise<void> => {
       (rawPayload?.sender_phone as string | undefined) ??
       (rawPayload?.phone as string | undefined);
 
+    // Device yang menerima pesan — dipakai untuk memilih token Fonnte yang tepat saat balas
+    const fonnteDevice = (rawPayload?.device as string | undefined) ?? null;
+
     if (from) {
       await processIncomingMessage({
         msg: rawPayload,
@@ -311,6 +314,7 @@ router.post("/whatsapp/webhook", async (req, res): Promise<void> => {
           (rawPayload?.sender_name as string | undefined),
         companyId,
         rawPayload,
+        fonnteDevice,
       });
     }
   } catch (err) {
@@ -323,11 +327,13 @@ export async function processIncomingMessage({
   senderName,
   companyId,
   rawPayload,
+  fonnteDevice,
 }: {
   msg: Record<string, unknown>;
   senderName: string | undefined;
   companyId: string;
   rawPayload: Record<string, unknown>;
+  fonnteDevice?: string | null;
 }): Promise<void> {
   const from =
     (msg?.from as string | undefined) ??
