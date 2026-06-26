@@ -405,7 +405,7 @@ export default function NotificationReceiversPage() {
                 <SelectTrigger>
                   <SelectValue placeholder="Pilih kategori..." />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent position="popper" side="bottom" sideOffset={4} className="max-h-60 overflow-y-auto">
                   {PRESET_CATEGORIES.map((cat) => (
                     <SelectItem key={cat} value={cat}>{cat}</SelectItem>
                   ))}
