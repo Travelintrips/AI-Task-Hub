@@ -426,17 +426,24 @@ export async function processIncomingMessage({
       logger.error({ actErr }, "Failed to log activity for incoming message");
     }
 
-    // 4. Look up customer context (non-blocking)
-    const customerCtx = await getOrCreateCustomerContext({ phone: from, companyId, name: senderName });
+    // 4. Look up customer context (non-blocking — errors must not block AI)
+    let customerCtx: Awaited<ReturnType<typeof getOrCreateCustomerContext>> = null;
+    try {
+      customerCtx = await getOrCreateCustomerContext({ phone: from, companyId, name: senderName });
+    } catch (ctxErr) {
+      logger.warn({ ctxErr, from }, "getOrCreateCustomerContext failed — continuing without context");
+    }
 
-    // 5. Create admin notification for new WhatsApp inquiry
-    await createAdminNotification({
+    // 5. Create admin notification for new WhatsApp inquiry (non-blocking)
+    createAdminNotification({
       type: "new_inquiry",
       title: "Pesan WhatsApp Baru",
       body: `Pesan dari ${senderName ?? from}: "${bodyText.slice(0, 100)}${bodyText.length > 100 ? "…" : ""}"`,
       customerPhone: from,
       customerName: senderName ?? customerCtx?.picName ?? null,
       companyId,
+    }).catch((notifErr) => {
+      logger.warn({ notifErr, from }, "createAdminNotification failed — AI pipeline continues");
     });
 
     // 6. Trigger AI detection (non-blocking — errors are caught)
@@ -458,6 +465,11 @@ export async function processIncomingMessage({
     });
   } catch (err) {
     logger.error({ err, from, companyId }, "AI pipeline error in processIncomingMessage");
+    // Always reply to customer even when the pipeline setup fails
+    sendFonnte(
+      from,
+      "Terima kasih atas pesan Anda! Tim kami sedang memproses dan akan segera menghubungi Anda. 🙏",
+    ).catch(() => {});
   }
 }
 
