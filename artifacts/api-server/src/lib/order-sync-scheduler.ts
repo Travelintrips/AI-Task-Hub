@@ -8,9 +8,15 @@ const POLL_INTERVAL_MS = 30 * 1000; // cek order baru tiap 30 detik
 const PAGE_SIZE = 500; // ukuran halaman saat menarik order dari Supabase
 const COMPANY_ID = "default";
 
-const SUPA_URL = process.env.SUPABASE_URL ?? "";
+const SUPA_URL =
+  process.env.SUPABASE_URL ||
+  process.env.SUPABASE_URL_DEV ||
+  "";
 const SUPA_BASE = SUPA_URL ? `${SUPA_URL}/rest/v1` : "";
-const SUPA_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
+const SUPA_KEY =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.SUPABASE_SERVICE_ROLE_KEY_DEV ||
+  "";
 
 const supaHeaders = {
   apikey: SUPA_KEY,

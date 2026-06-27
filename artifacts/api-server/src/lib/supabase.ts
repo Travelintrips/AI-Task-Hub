@@ -4,8 +4,13 @@ import { logger } from "./logger";
 
 import { config } from "../config";
 
-const supabaseUrl = config.supabase.url;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const supabaseUrl =
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+    ? config.supabase.url
+    : config.supabase.urlDev;
+const supabaseServiceKey =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.SUPABASE_SERVICE_ROLE_KEY_DEV;
 
 if (!supabaseUrl || !supabaseServiceKey) {
   logger.warn("Supabase credentials not set — storage features will be unavailable");
