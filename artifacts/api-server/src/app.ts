@@ -1007,6 +1007,23 @@ if (supabasePool) {
     `);
     await supabasePool!.query(`CREATE INDEX IF NOT EXISTS documents_task_id_idx ON documents(task_id)`);
     await supabasePool!.query(`CREATE INDEX IF NOT EXISTS documents_status_idx  ON documents(status)`);
+
+    // ── notification_receivers ────────────────────────────────────────────────
+    await supabasePool!.query(`
+      CREATE TABLE IF NOT EXISTS notification_receivers (
+        id          SERIAL PRIMARY KEY,
+        company_id  TEXT NOT NULL DEFAULT 'default',
+        name        TEXT NOT NULL,
+        phone       TEXT NOT NULL,
+        category    TEXT NOT NULL,
+        description TEXT,
+        is_active   BOOLEAN NOT NULL DEFAULT true,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS notif_recv_company_idx  ON notification_receivers(company_id)`);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS notif_recv_category_idx ON notification_receivers(company_id, category)`);
   };
   runCoreMigrations()
     .then(() => logger.info("Core table migrations OK"))
