@@ -832,6 +832,7 @@ async function runAiDetection({
         collectedFields: {},
         missingFields: result.missing_data ?? [],
         requiredDocuments: [],
+        fonnteDevice,
       });
 
       if (route.flow === "mini_form" || route.flow === "hybrid") {

@@ -12,7 +12,7 @@
  *   else { ... mini form link already sent, log and return ... }
  */
 
-import { eq, and } from "drizzle-orm";
+import { eq, and, gt } from "drizzle-orm";
 import { db, intakeSessionsTable, dataTemplatesTable } from "@workspace/db";
 import { generateSecureToken } from "./tokens";
 import { getFormConfig, inferFormType } from "./mini-form-config";
@@ -55,6 +55,7 @@ export async function routeIntentToFlow({
   collectedFields = {},
   missingFields = [],
   requiredDocuments = [],
+  fonnteDevice,
 }: {
   phone: string;
   companyId: string;
@@ -65,6 +66,7 @@ export async function routeIntentToFlow({
   collectedFields?: Record<string, unknown>;
   missingFields?: string[];
   requiredDocuments?: string[];
+  fonnteDevice?: string | null;
 }): Promise<RouterResult> {
   // Look up intake_mode from data_templates (Supabase DB)
   let intakeMode: FlowMode = "conversation";
@@ -106,16 +108,24 @@ export async function routeIntentToFlow({
   if (existingSession) {
     const baseUrl = getPublicBaseUrl();
     const existingFormUrl = `${baseUrl}/mini-form/${existingSession.miniFormType}/${existingSession.formToken}`;
+
+    // Resend the existing form link (user may not have seen it or it went to wrong device)
+    const resendMsg = `🔗 Link form pemesanan Anda:\n\n${existingFormUrl}\n\nSilakan lengkapi form untuk melanjutkan proses booking. Jika ada pertanyaan, tim kami siap membantu! 🙏`;
+    const resent = await sendFonnte(phone, resendMsg, fonnteDevice).catch((e) => {
+      logger.warn({ e, phone }, "mini-form-router: resend form link failed");
+      return { success: false, error: String(e) };
+    });
+
     logger.info(
-      { phone, intentCode, sessionId: existingSession.id, formUrl: existingFormUrl },
-      "MiniFormRouter: reusing existing form_sent session — not sending duplicate",
+      { phone, intentCode, sessionId: existingSession.id, formUrl: existingFormUrl, resent: resent.success },
+      "MiniFormRouter: reusing existing form_sent session — resending link",
     );
     return {
       flow: intakeMode,
       sessionId: existingSession.id,
       formToken: existingSession.formToken,
       formUrl: existingFormUrl,
-      waSent: false,
+      waSent: resent.success,
     };
   }
 
@@ -159,8 +169,8 @@ export async function routeIntentToFlow({
 
   const waMessage = template.replace("{mini_form_url}", formUrl);
 
-  // Send WA link to customer
-  const sent = await sendFonnte(phone, waMessage).catch((e) => {
+  // Send WA link to customer — gunakan device yang sama dengan incoming message
+  const sent = await sendFonnte(phone, waMessage, fonnteDevice).catch((e) => {
     logger.warn({ e, phone }, "mini-form-router: sendFonnte failed");
     return { success: false, error: String(e) };
   });
@@ -194,6 +204,7 @@ export async function findFormSentSession(
   companyId: string,
 ): Promise<{ id: number; formToken: string; miniFormType: string } | null> {
   try {
+    const now = new Date();
     const [session] = await db
       .select()
       .from(intakeSessionsTable)
@@ -202,6 +213,8 @@ export async function findFormSentSession(
           eq(intakeSessionsTable.phone, phone),
           eq(intakeSessionsTable.companyId, companyId),
           eq(intakeSessionsTable.status, "form_sent"),
+          // Only reuse sessions that haven't expired yet
+          gt(intakeSessionsTable.expiresAt, now),
         ),
       )
       .limit(1);
