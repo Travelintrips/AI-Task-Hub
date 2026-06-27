@@ -2,9 +2,9 @@ import { defineConfig } from "drizzle-kit";
 import path from "path";
 
 const rawUrl =
+  process.env.DATABASE_URL ||
   process.env.SUPABASE_DATABASE_URL ||
-  process.env.SUPABASE_DATABASE_URL_DEV ||
-  process.env.DATABASE_URL;
+  process.env.SUPABASE_DATABASE_URL_DEV;
 
 if (!rawUrl) {
   throw new Error("DATABASE_URL must be set.");

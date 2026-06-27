@@ -49,3 +49,5 @@ export * from "./conversation_tests";
 export * from "./whatsapp_commands";
 // ── Notification Receivers ───────────────────────────────────────────────────
 export * from "./notification_receivers";
+// ── Suppliers ────────────────────────────────────────────────────────────────
+export * from "./suppliers";

@@ -5,9 +5,9 @@ import * as schema from "./schema";
 const { Pool } = pg;
 
 const connectionString =
+  process.env.DATABASE_URL ||
   process.env.SUPABASE_DATABASE_URL ||
-  process.env.SUPABASE_DATABASE_URL_DEV ||
-  process.env.DATABASE_URL;
+  process.env.SUPABASE_DATABASE_URL_DEV;
 
 if (!connectionString) {
   throw new Error("DATABASE_URL must be set.");

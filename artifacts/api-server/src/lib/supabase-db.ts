@@ -2,9 +2,9 @@ import pg from "pg";
 import { logger } from "./logger";
 
 const connectionString =
+  process.env.DATABASE_URL ??
   process.env.SUPABASE_DATABASE_URL ??
-  process.env.SUPABASE_DATABASE_URL_DEV ??
-  process.env.DATABASE_URL;
+  process.env.SUPABASE_DATABASE_URL_DEV;
 
 if (!connectionString) {
   logger.warn(
