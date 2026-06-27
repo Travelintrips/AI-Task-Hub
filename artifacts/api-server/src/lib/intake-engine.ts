@@ -190,11 +190,14 @@ Instruksi PENTING:
 4. Gunakan field_name sebagai key (bukan label).
 5. Jangan sertakan field dengan nilai null/kosong.
 
-Panduan khusus untuk Sport Center (booking_lapangan, daftar_membership, dll):
-- "lapangan futsal" / "futsal" / "lapangan bola" / "bola" / "badminton" / "tenis" / "basket" / "voli" → ekstrak sebagai nilai field "nama_lapangan" atau "jenis_lapangan"
-- "tanggal 28" / "tanggal 28 juni" / "besok" → ekstrak sebagai nilai field "tanggal" atau "tanggal_booking"
-- "3 jam" / "2 jam" / "90 menit" → ekstrak sebagai nilai field "durasi"
-- "jam 10" / "pukul 10.00" / "sore jam 3" → ekstrak sebagai nilai field "jam" atau "waktu_mulai"
+Panduan khusus untuk Sport Center (sport_center_booking, daftar_membership, dll):
+- "lapangan futsal" / "futsal" / "lapangan bola" / "bola" / "badminton" / "tenis" / "basket" / "voli" → ekstrak sebagai nilai field "field_name" (Nama Lapangan / Jenis Olahraga)
+- "tanggal 28" / "tanggal 28 juni" / "besok" / "minggu depan" → ekstrak sebagai nilai field "booking_date" (Tanggal Booking)
+- "3 jam" / "2 jam" / "90 menit" → hitung jam_selesai: jam_mulai + durasi, ekstrak sebagai "end_time"
+- "jam 10" / "pukul 10.00" / "sore jam 3" → ekstrak sebagai nilai field "start_time" (Jam Mulai)
+- nama orang yang disebutkan sebagai pemesan → ekstrak sebagai "booker_name"
+- nomor telepon / nomor HP → ekstrak sebagai "phone"
+PENTING: Gunakan HANYA field_name yang ada di daftar "Field yang diperlukan" di atas sebagai key JSON.
 
 Kembalikan HANYA JSON object, tanpa penjelasan, tanpa markdown.`;
 

@@ -467,13 +467,14 @@ ${hintBlock}
 3. needsDocumentAudit=true when customer mentions or sends a document (invoice, BL, packing list, bukti transfer, struk pembayaran, KTP, dll.).
 4. suggestedReply must be Bahasa Indonesia, friendly and professional. For sport center: cheerful and welcoming tone. For tenant: formal and professional.
 5. Return null for any field you cannot determine.
-6. missingDataKeys: machine-readable field keys the customer has NOT provided yet (e.g. tanggal_booking, nama_lapangan, durasi, nama_tenant).
+6. missingDataKeys: machine-readable field keys the customer has NOT provided yet. Use the exact field_name keys from the data template (e.g. field_name, booking_date, start_time, end_time, booker_name, phone for sport_center_booking; nama_tenant, business_category for daftar_tenant).
 7. missingDocuments: document names the customer has NOT provided yet.
 
 ## Sport Center Rules
-- For booking_lapangan: identify facility (badminton/futsal/tenis/basket/voli/bola/sepak bola), date, time, duration in missingDataKeys if absent.
-  - If customer says "lapangan futsal", "lapangan bola", "lapangan badminton" etc → field "nama_lapangan" or "jenis_lapangan" IS provided (extract it). Only mark as missing if truly unspecified.
-  - "lapangan futsal" = jenis_lapangan:"futsal". "lapangan bola"/"sepak bola" = jenis_lapangan:"sepak bola". Do NOT ask again if already stated.
+- For sport_center_booking: identify facility (field_name), booking_date, start_time, end_time, booker_name, phone in missingDataKeys if absent.
+  - If customer says "lapangan futsal", "lapangan bola", "lapangan badminton" etc → field "field_name" IS provided (value = "futsal"/"sepak bola"/etc). Only mark as missing if truly unspecified.
+  - "lapangan futsal" = field_name:"futsal". "lapangan bola"/"sepak bola" = field_name:"sepak bola". Do NOT ask again if already stated.
+  - "tanggal X" → booking_date is provided. "jam X" → start_time is provided. Do NOT mark as missing if stated.
 - For daftar_membership / perpanjang_membership: identify member name, phone, duration.
 - For konfirmasi_pembayaran_sport: always set needsDocumentAudit=true (need payment proof photo).
 
