@@ -99,26 +99,33 @@ router.post("/webhook/fonnte", async (req, res): Promise<void> => {
     const text    = toString(rawPayload.message) ?? toString(rawPayload.caption);
     const fileUrl = toString(rawPayload.file) ?? toString(rawPayload.url);
 
+    // ── DEBUG: Log raw payload selalu (untuk diagnosa) ────────────────────
+    logger.info({
+      raw_sender: rawPayload.sender,
+      raw_device: rawPayload.device,
+      raw_name: rawPayload.name,
+      raw_type: rawPayload.type,
+      raw_quick: rawPayload.quick,
+      raw_message: String(rawPayload.message ?? "").substring(0, 80),
+      normalized_sender: sender,
+      normalized_device: device,
+    }, "Fonnte webhook: raw payload received");
+
     if (!sender) {
       logger.warn({ rawPayload }, "Fonnte webhook: no sender phone — skipping");
       return;
     }
 
     // ── Filter pesan keluar (echo dari Fonnte) ─────────────────────────────
-    // Fonnte men-trigger webhook untuk SEMUA pesan di device, termasuk pesan
-    // yang kita kirim keluar (outgoing). Pesan outgoing ditandai dengan:
-    //   - quick: true  → pesan yang dikirim via API (bukan dari pengguna WA)
-    //   - name: null   → tidak ada nama pengirim (bukan kontak masuk)
-    // Kedua kondisi ini cukup untuk membedakan echo dari pesan customer asli.
     const isOutgoingEcho = rawPayload.quick === true;
     if (isOutgoingEcho) {
-      logger.debug({ sender, device }, "Fonnte webhook: outgoing echo (quick=true) — skipping");
+      logger.info({ sender, device, quick: rawPayload.quick }, "Fonnte webhook: outgoing echo (quick=true) — skipping");
       return;
     }
 
     // Fallback: jika sender sama dengan device, juga skip
     if (device && sender === device) {
-      logger.debug({ sender, device }, "Fonnte webhook: sender=device echo — skipping");
+      logger.info({ sender, device }, "Fonnte webhook: sender=device echo — skipping");
       return;
     }
 
