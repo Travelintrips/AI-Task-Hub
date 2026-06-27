@@ -34,6 +34,14 @@ const INTENT_THRESHOLDS: Record<string, number> = {
   freight:          80,
   warehouse:        75,
   general_inquiry:  60,
+  // Sport Center
+  booking_lapangan:        67,
+  daftar_membership:       80,
+  perpanjang_membership:   80,
+  konfirmasi_pembayaran_sport: 100,
+  // Tenant
+  daftar_tenant:           80,
+  info_sewa_tenant:        60,
 };
 
 export function getCompletionThreshold(intentCode: string): number {

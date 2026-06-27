@@ -168,15 +168,14 @@ async function extractFieldsFromMessage(
     .map((f) => `- ${f.fieldName} (${f.fieldLabel}, type: ${f.fieldType})`)
     .join("\n");
 
-  const prompt = `Kamu adalah asisten AI untuk perusahaan logistik Indonesia.
-Tugasmu: ekstrak informasi dari pesan pelanggan dan kembalikan JSON berisi field yang berhasil diekstrak.
+  const prompt = `Kamu adalah asisten AI yang membantu mengekstrak informasi dari pesan pelanggan.
 
-Intent: ${intentCode}
+Intent pelanggan: ${intentCode}
 
 Field yang diperlukan:
 ${fieldList}
 
-Data yang sudah terkumpul sebelumnya (jangan hapus):
+Data yang sudah terkumpul sebelumnya (WAJIB disertakan kembali di output):
 ${JSON.stringify(existingCollected, null, 2)}
 
 Riwayat percakapan:
@@ -184,12 +183,18 @@ ${sessionHistory}
 
 Pesan terbaru pelanggan: "${message}"
 
-Instruksi:
+Instruksi PENTING:
 1. Ekstrak nilai baru dari pesan terbaru.
-2. Gabungkan dengan data yang sudah ada (existing collected). Jangan timpa data yang sudah ada kecuali ada nilai baru yang lebih spesifik.
-3. Kembalikan HANYA JSON object dengan semua field yang sudah terkumpul (existing + baru). Tidak perlu field yang belum tersedia.
+2. SELALU gabungkan dengan data yang sudah ada. Jangan hapus atau timpa data yang sudah ada.
+3. Kembalikan JSON dengan SEMUA field yang sudah terkumpul (existing + baru).
 4. Gunakan field_name sebagai key (bukan label).
-5. Nilai null berarti belum ada informasinya — jangan sertakan di output.
+5. Jangan sertakan field dengan nilai null/kosong.
+
+Panduan khusus untuk Sport Center (booking_lapangan, daftar_membership, dll):
+- "lapangan futsal" / "futsal" / "lapangan bola" / "bola" / "badminton" / "tenis" / "basket" / "voli" → ekstrak sebagai nilai field "nama_lapangan" atau "jenis_lapangan"
+- "tanggal 28" / "tanggal 28 juni" / "besok" → ekstrak sebagai nilai field "tanggal" atau "tanggal_booking"
+- "3 jam" / "2 jam" / "90 menit" → ekstrak sebagai nilai field "durasi"
+- "jam 10" / "pukul 10.00" / "sore jam 3" → ekstrak sebagai nilai field "jam" atau "waktu_mulai"
 
 Kembalikan HANYA JSON object, tanpa penjelasan, tanpa markdown.`;
 
@@ -234,22 +239,24 @@ async function generateNextQuestion(
   // Ask max 2 missing fields at once to keep conversation natural
   const toAsk = missingFields.slice(0, 2);
 
-  const prompt = `Kamu adalah customer service profesional dari perusahaan logistik/jasa pengiriman Indonesia.
+  const prompt = `Kamu adalah customer service profesional dari perusahaan manajemen sport center & properti Indonesia.
 Intent pelanggan: ${intentCode}
 
-Data yang sudah terkumpul:
+Data yang sudah terkumpul (JANGAN tanyakan lagi):
 ${JSON.stringify(collectedFields, null, 2)}
 
-Field yang masih perlu ditanyakan (tanyakan 1-2 saja yang paling penting):
+Field yang MASIH PERLU ditanyakan:
 ${toAsk.map((f) => `- ${f.fieldLabel} (${f.helpText ?? ""})`).join("\n")}
 
-Buat SATU pertanyaan natural dalam Bahasa Indonesia, singkat, ramah, dan profesional.
-- Jika ada 2 field, bisa tanyakan keduanya dalam satu kalimat
+Buat SATU pertanyaan lanjutan dalam Bahasa Indonesia, singkat, ramah, dan profesional.
+- INI ADALAH PERTANYAAN LANJUTAN, bukan pembuka percakapan. JANGAN gunakan salam seperti "Halo!", "Selamat pagi", "Terima kasih telah menghubungi kami", dll.
+- Langsung tanyakan field yang masih kurang
+- Jika ada 2 field, tanyakan keduanya dalam satu kalimat
 - Jangan tanyakan field yang sudah ada di data terkumpul
-- Gunakan bahasa sehari-hari, bukan kaku
-- Maksimal 3 kalimat
+- Gunakan bahasa sehari-hari, tidak kaku
+- Maksimal 2 kalimat
 
-Kembalikan HANYA teks pertanyaannya, tanpa penjelasan tambahan.`;
+Kembalikan HANYA teks pertanyaannya, tanpa salam, tanpa penjelasan tambahan.`;
 
   try {
     const resp = await openai.chat.completions.create({

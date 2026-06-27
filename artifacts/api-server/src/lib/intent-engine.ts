@@ -446,7 +446,7 @@ function buildPrompt(
 
   return `You are an AI assistant for an operations platform in Indonesia that serves THREE business verticals:
 1. **Logistik & Freight Forwarding** — pengiriman barang, trucking, customs clearance, importir/eksportir
-2. **Sport Center** — booking lapangan olahraga (badminton, futsal, tenis, basket, voli), membership gym/sport, jadwal fasilitas
+2. **Sport Center** — booking lapangan olahraga (badminton, futsal, tenis, basket, voli, bola/sepak bola, panahan), membership gym/sport, jadwal fasilitas
 3. **Sewa Tenant / Kios** — penyewaan kios, ruko, atau tenant di dalam venue sport center
 
 Analyse the incoming WhatsApp message and return ONLY a valid JSON object — no markdown, no explanation, no code fences.
@@ -471,7 +471,9 @@ ${hintBlock}
 7. missingDocuments: document names the customer has NOT provided yet.
 
 ## Sport Center Rules
-- For booking_lapangan: identify facility (badminton/futsal/tenis/basket/voli), date, time, duration in missingDataKeys if absent.
+- For booking_lapangan: identify facility (badminton/futsal/tenis/basket/voli/bola/sepak bola), date, time, duration in missingDataKeys if absent.
+  - If customer says "lapangan futsal", "lapangan bola", "lapangan badminton" etc → field "nama_lapangan" or "jenis_lapangan" IS provided (extract it). Only mark as missing if truly unspecified.
+  - "lapangan futsal" = jenis_lapangan:"futsal". "lapangan bola"/"sepak bola" = jenis_lapangan:"sepak bola". Do NOT ask again if already stated.
 - For daftar_membership / perpanjang_membership: identify member name, phone, duration.
 - For konfirmasi_pembayaran_sport: always set needsDocumentAudit=true (need payment proof photo).
 
