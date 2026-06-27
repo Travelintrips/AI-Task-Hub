@@ -159,6 +159,7 @@ router.post("/webhook/fonnte", async (req, res): Promise<void> => {
       senderName: name ?? undefined,
       companyId,
       rawPayload,
+      fonnteDevice: device ?? undefined,
     });
   } catch (err) {
     logger.error({ err, companyId }, "Unhandled error in Fonnte webhook");

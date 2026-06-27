@@ -465,6 +465,7 @@ export async function processIncomingMessage({
         mediaId: attachment?.mediaId ?? null,
         customerCtxName: customerCtx?.picName ?? senderName ?? null,
         previousIntents: null,
+        fonnteDevice: fonnteDevice ?? null,
       }).catch((err) => {
         logger.error({ err, msgId: savedMsg.id }, "AI detection background task failed");
       });
@@ -475,6 +476,7 @@ export async function processIncomingMessage({
     sendFonnte(
       from,
       "Terima kasih atas pesan Anda! Tim kami sedang memproses dan akan segera menghubungi Anda. 🙏",
+      fonnteDevice ?? null,
     ).catch(() => {});
   }
 }
@@ -490,6 +492,7 @@ async function runAiDetection({
   mediaId,
   customerCtxName,
   previousIntents,
+  fonnteDevice,
 }: {
   savedMsgId: number;
   from: string;
@@ -501,6 +504,7 @@ async function runAiDetection({
   mediaId?: string | null;
   customerCtxName?: string | null;
   previousIntents?: string | null;
+  fonnteDevice?: string | null;
 }): Promise<void> {
   const effectiveName = senderName ?? customerCtxName ?? null;
   let parsedPrevIntents: string[] = [];
@@ -542,7 +546,7 @@ async function runAiDetection({
             fileUrl: effectiveAttachmentUrl,
             intakeSessionId: activeSession.id,
           }).then((valResult) => {
-            sendFonnte(from, valResult.waReply).catch((e) =>
+            sendFonnte(from, valResult.waReply, fonnteDevice).catch((e) =>
               logger.warn({ e }, "intake: failed to send document validation WA reply"),
             );
             logger.info(
@@ -566,7 +570,7 @@ async function runAiDetection({
 
         // Always send reply to customer
         if (intakeResult.replyToUser) {
-          await sendFonnte(from, intakeResult.replyToUser).catch((e) =>
+          await sendFonnte(from, intakeResult.replyToUser, fonnteDevice).catch((e) =>
             logger.warn({ e }, "intake: failed to send reply via Fonnte"),
           );
         }
@@ -642,6 +646,7 @@ async function runAiDetection({
         await sendFonnte(
           from,
           "Maaf, ada gangguan sementara. Mohon ulangi pesan terakhir Anda. Tim kami siap membantu! 🙏",
+          fonnteDevice,
         ).catch(() => {});
       }
 
@@ -699,7 +704,7 @@ async function runAiDetection({
           });
 
           if (intakeResult.replyToUser) {
-            await sendFonnte(from, intakeResult.replyToUser).catch((e) =>
+            await sendFonnte(from, intakeResult.replyToUser, fonnteDevice).catch((e) =>
               logger.warn({ e }, "Failed to send intake reply via Fonnte"),
             );
           }
@@ -714,7 +719,7 @@ async function runAiDetection({
             if (taskOutput) {
               await markIntakeSubmitted(intakeResult.session.id, taskOutput.taskId);
               await updateCustomerContextAfterTask({ phone: from, companyId, taskId: taskOutput.taskId, intent: result.intent, name: effectiveName });
-              await _notifyForTask({ taskOutput, result, from, effectiveName, companyId, suggestedReply: null });
+              await _notifyForTask({ taskOutput, result, from, effectiveName, companyId, suggestedReply: null, fonnteDevice });
             }
           } else {
             await createAdminNotification({
@@ -730,7 +735,7 @@ async function runAiDetection({
           const taskOutput = await createTaskFromWhatsAppMessage({ savedMsgId, from, senderName, bodyText: transcript, companyId, result, resolution: result._resolution });
           if (taskOutput) {
             await updateCustomerContextAfterTask({ phone: from, companyId, taskId: taskOutput.taskId, intent: result.intent, name: effectiveName });
-            await _notifyForTask({ taskOutput, result, from, effectiveName, companyId, suggestedReply: result._resolution?.suggestedReply ?? null });
+            await _notifyForTask({ taskOutput, result, from, effectiveName, companyId, suggestedReply: result._resolution?.suggestedReply ?? null, fonnteDevice });
           }
 
           await db
@@ -777,7 +782,7 @@ async function runAiDetection({
           fileName: fileNameFromUrl2,
           fileUrl: attachmentUrl,
         }).then((valResult) => {
-          sendFonnte(from, valResult.waReply).catch((e) =>
+          sendFonnte(from, valResult.waReply, fonnteDevice).catch((e) =>
             logger.warn({ e }, "WA: failed to send document validation reply"),
           );
           logger.info(
@@ -839,7 +844,7 @@ async function runAiDetection({
             result._resolution?.suggestedReply ??
             `Halo! Kami menerima permintaan Anda untuk ${result.category ?? result.intent}. ` +
             `Tim kami sedang memproses dan akan segera menghubungi Anda. Ada yang bisa kami bantu lagi?`;
-          await sendFonnte(from, fallbackReply).catch((e) =>
+          await sendFonnte(from, fallbackReply, fonnteDevice).catch((e) =>
             logger.warn({ e, from }, "fallback reply failed after mini-form send error"),
           );
           logger.warn({ from, intentCode: result.intent }, "mini-form waSent=false — fallback reply sent");
@@ -896,13 +901,13 @@ async function runAiDetection({
           result._resolution?.suggestedReply ??
           `Halo! Kami menerima permintaan Anda mengenai ${result.category ?? result.intent}. ` +
           `Tim kami akan segera menindaklanjuti. Ada yang bisa kami bantu lebih lanjut?`;
-        await sendFonnte(from, fallbackReply).catch(() => {});
+        await sendFonnte(from, fallbackReply, fonnteDevice).catch(() => {});
         return;
       }
 
       // Send question to customer
       if (intakeResult.replyToUser) {
-        await sendFonnte(from, intakeResult.replyToUser).catch((e) =>
+        await sendFonnte(from, intakeResult.replyToUser, fonnteDevice).catch((e) =>
           logger.warn({ e }, "Failed to send intake question via Fonnte"),
         );
       } else {
@@ -911,7 +916,7 @@ async function runAiDetection({
           result._resolution?.suggestedReply ??
           `Halo! Kami menerima permintaan Anda mengenai ${result.category ?? result.intent}. ` +
           `Tim kami akan segera menindaklanjuti. Ada yang bisa kami bantu lebih lanjut?`;
-        await sendFonnte(from, fallbackReply).catch(() => {});
+        await sendFonnte(from, fallbackReply, fonnteDevice).catch(() => {});
       }
 
       await db
@@ -927,7 +932,7 @@ async function runAiDetection({
         if (taskOutput) {
           await markIntakeSubmitted(intakeResult.session.id, taskOutput.taskId);
           await updateCustomerContextAfterTask({ phone: from, companyId, taskId: taskOutput.taskId, intent: result.intent, name: effectiveName });
-          await _notifyForTask({ taskOutput, result, from, effectiveName, companyId, suggestedReply: null });
+          await _notifyForTask({ taskOutput, result, from, effectiveName, companyId, suggestedReply: null, fonnteDevice });
         }
       } else {
         // Notify admin: intake started, no task yet
@@ -976,7 +981,7 @@ async function runAiDetection({
       // Admin notification based on priority / task action
       // Use _resolution.suggestedReply (enriched by intent-engine) first, fallback to raw AI reply
       const bestSuggestedReply = result._resolution?.suggestedReply ?? result.suggested_reply ?? null;
-      await _notifyForTask({ taskOutput, result, from, effectiveName, companyId, suggestedReply: bestSuggestedReply });
+      await _notifyForTask({ taskOutput, result, from, effectiveName, companyId, suggestedReply: bestSuggestedReply, fonnteDevice });
 
     } else {
       await createAdminNotification({
@@ -994,6 +999,7 @@ async function runAiDetection({
     await sendFonnte(
       from,
       "Terima kasih atas pesan Anda! Tim kami sedang memproses dan akan segera menghubungi Anda. 🙏",
+      fonnteDevice,
     ).catch(() => {});
     try {
       await createAdminNotification({
@@ -1016,6 +1022,7 @@ async function _notifyForTask({
   effectiveName,
   companyId,
   suggestedReply,
+  fonnteDevice,
 }: {
   taskOutput: { action: string; taskId: number; title: string; taskNumber: string | null };
   result: { priority: string; category: string };
@@ -1023,6 +1030,7 @@ async function _notifyForTask({
   effectiveName: string | null;
   companyId: string;
   suggestedReply?: string | null;
+  fonnteDevice?: string | null;
 }) {
   const customerLabel = effectiveName ?? from;
   const taskLabel = taskOutput.taskNumber ? `[${taskOutput.taskNumber}]` : "";
@@ -1054,7 +1062,7 @@ async function _notifyForTask({
     const replyMsg = suggestedReply?.trim()
       || `Pesan Anda sudah kami catat pada tiket ${taskLabel}. Tim kami akan segera merespons.`;
     try {
-      const sent = await sendFonnte(from, replyMsg);
+      const sent = await sendFonnte(from, replyMsg, fonnteDevice);
       await db.insert(whatsappNotificationsTable).values({
         taskId:            taskOutput.taskId,
         companyId,

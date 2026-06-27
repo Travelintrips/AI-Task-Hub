@@ -14,12 +14,21 @@ export interface TaskNotifContext {
   companyId: string;
   /** AI-generated reply — if present, sent as the main message to customer */
   suggestedReply?: string | null;
+  /** Nomor device Fonnte yang menerima pesan asli — pastikan balasan keluar lewat device yang sama */
+  fonnteDevice?: string | null;
 }
 
 // ─── Staff phones dari env ─────────────────────────────────────────────────────
 
 function getStaffPhones(): string[] {
-  const raw = process.env.WHATSAPP_PHONE_NUMBER_ID ?? "";
+  // STAFF_NOTIFY_PHONES = nomor pribadi admin/staff yang menerima notifikasi WA baru
+  // WHATSAPP_PHONE_NUMBER_ID = nomor device Fonnte (pengirim), BUKAN target notifikasi
+  // Selalu set STAFF_NOTIFY_PHONES di env untuk menghindari notifikasi ke device sendiri
+  const raw =
+    process.env.STAFF_NOTIFY_PHONES ??
+    process.env.WHATSAPP_PHONE_NUMBER_ID ??
+    "";
+  if (!raw) return [];
   return raw
     .split(",")
     .map((p) => p.trim())
@@ -154,8 +163,9 @@ async function sendAndLog(opts: {
   companyId: string;
   recipientType: "customer" | "staff";
   templateName: string;
+  fonnteDevice?: string | null;
 }): Promise<void> {
-  const result = await sendFonnte(opts.phone, opts.message);
+  const result = await sendFonnte(opts.phone, opts.message, opts.fonnteDevice);
 
   await db
     .insert(whatsappNotificationsTable)
@@ -191,6 +201,7 @@ export async function notifyTaskCreated(ctx: TaskNotifContext): Promise<void> {
         companyId:    ctx.companyId,
         recipientType: "customer",
         templateName: "task_created_customer",
+        fonnteDevice: ctx.fonnteDevice,
       }),
     );
   }
