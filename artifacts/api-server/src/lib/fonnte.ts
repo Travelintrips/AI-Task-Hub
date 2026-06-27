@@ -4,8 +4,8 @@ const FONNTE_URL = "https://api.fonnte.com/send";
 
 /**
  * Multi-device token map.
- * FONNTE_TOKEN     = token default (device utama, misalnya 081216104734)
- * FONNTE_TOKEN_2   = token device kedua (misalnya 6285121073537)
+ * FONNTE_TOKEN     = token default (device utama)
+ * FONNTE_TOKEN_2   = token device kedua
  * FONNTE_DEVICE_2  = nomor device kedua (format internasional tanpa "+")
  *
  * Jika ada lebih banyak device, tambahkan pasangan FONNTE_TOKEN_N / FONNTE_DEVICE_N.
@@ -33,14 +33,95 @@ function buildTokenMap(): Map<string, string> {
 const TOKEN_MAP = buildTokenMap();
 
 /**
- * Pilih token Fonnte yang tepat berdasarkan device yang menerima pesan.
- * Jika device tidak ditemukan di map, pakai token default.
+ * Nomor device yang terhubung ke setiap token.
+ * Key = token, Value = nomor device (auto-detected dari Fonnte API).
+ * Diisi saat startup secara async.
  */
-function resolveToken(fonnteDevice?: string | null): string | undefined {
+const TOKEN_DEVICE_MAP = new Map<string, string>();
+
+/**
+ * Auto-detect nomor device untuk setiap token dari Fonnte /device API.
+ * Ini memungkinkan sistem menghindari self-send secara otomatis.
+ */
+async function detectDeviceNumbers(): Promise<void> {
+  const entries: Array<{ key: string; token: string }> = [];
+
+  for (const [key, token] of TOKEN_MAP.entries()) {
+    entries.push({ key, token });
+  }
+
+  await Promise.allSettled(
+    entries.map(async ({ token }) => {
+      try {
+        const res = await fetch("https://api.fonnte.com/device", {
+          method: "POST",
+          headers: {
+            Authorization: token,
+            "Content-Type": "application/x-www-form-urlencoded",
+          },
+          body: "",
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as { status?: boolean; device?: string };
+        if (data.status && data.device) {
+          const normalized = normalizePhone(data.device) ?? data.device;
+          TOKEN_DEVICE_MAP.set(token, normalized);
+        }
+      } catch {
+        // Tidak gagalkan startup jika device detection error
+      }
+    }),
+  );
+
+  if (TOKEN_DEVICE_MAP.size > 0) {
+    logger.info(
+      { devices: Object.fromEntries(TOKEN_DEVICE_MAP) },
+      "Fonnte device numbers auto-detected",
+    );
+  }
+}
+
+// Jalankan deteksi device saat modul diload (non-blocking)
+detectDeviceNumbers().catch(() => {});
+
+/**
+ * Pilih token Fonnte yang tepat.
+ * - Jika ada fonnteDevice (pesan masuk dari device tertentu): balas via device yang sama.
+ * - Jika mengirim notifikasi keluar: hindari self-send dengan pilih device berbeda dari target.
+ */
+function resolveToken(targetPhone: string, fonnteDevice?: string | null): string | undefined {
+  // Mode reply: pakai device yang sama dengan incoming message
   if (fonnteDevice) {
     const normalized = normalizePhone(fonnteDevice) ?? fonnteDevice;
     if (TOKEN_MAP.has(normalized)) return TOKEN_MAP.get(normalized);
   }
+
+  const target = normalizePhone(targetPhone) ?? targetPhone;
+
+  // Self-send avoidance: jika target = nomor device default, pakai token alternatif
+  const defaultToken = TOKEN_MAP.get("default");
+  if (defaultToken && TOKEN_DEVICE_MAP.get(defaultToken) === target) {
+    // Cari token lain yang device-nya bukan target
+    for (const [, token] of TOKEN_MAP.entries()) {
+      if (token === defaultToken) continue;
+      const deviceOfToken = TOKEN_DEVICE_MAP.get(token);
+      if (!deviceOfToken || deviceOfToken !== target) {
+        return token;
+      }
+    }
+  }
+
+  // Cek juga token non-default: jika target = nomor device token N, pakai device lain
+  for (const [deviceKey, token] of TOKEN_MAP.entries()) {
+    if (deviceKey === "default") continue;
+    const normalizedKey = normalizePhone(deviceKey) ?? deviceKey;
+    if (normalizedKey === target) {
+      // Target adalah device dari token ini — bisa self-send, pakai default saja
+      // (default device → token_N device = cross-device, sudah benar)
+      return TOKEN_MAP.get("default");
+    }
+  }
+
   return TOKEN_MAP.get("default");
 }
 
@@ -55,13 +136,15 @@ export interface FonnteResult {
  * Nomor tujuan harus format internasional tanpa "+" (cth: 6281234567890).
  * fonnteDevice — nomor device Fonnte yang menerima pesan asal (opsional).
  *   Kalau diisi, sistem akan balas via device yang sama.
+ *   Self-send otomatis dihindari: jika target = nomor device pengirim,
+ *   sistem akan pakai device lain secara otomatis.
  */
 export async function sendFonnte(
   to: string,
   message: string,
   fonnteDevice?: string | null,
 ): Promise<FonnteResult> {
-  const token = resolveToken(fonnteDevice);
+  const token = resolveToken(to, fonnteDevice);
 
   if (!token) {
     logger.warn("FONNTE_TOKEN tidak disetel — notifikasi WhatsApp dilewati");
@@ -71,6 +154,15 @@ export async function sendFonnte(
   const phone = normalizePhone(to);
   if (!phone) {
     return { success: false, error: `Nomor tidak valid: ${to}` };
+  }
+
+  // Log jika self-send terdeteksi dan dihindari
+  const senderDevice = TOKEN_DEVICE_MAP.get(token);
+  if (senderDevice === phone) {
+    logger.warn(
+      { phone, senderDevice },
+      "Fonnte: self-send terdeteksi — tidak ada device alternatif, pesan mungkin tidak terdeliver",
+    );
   }
 
   try {
@@ -96,7 +188,10 @@ export async function sendFonnte(
       return { success: false, error: data.reason ?? "Fonnte rejected message" };
     }
 
-    logger.info({ phone, messageId: data.id, via: fonnteDevice ?? "default" }, "WhatsApp sent via Fonnte");
+    logger.info(
+      { phone, messageId: data.id, via: senderDevice ?? fonnteDevice ?? "default" },
+      "WhatsApp sent via Fonnte",
+    );
     return { success: true, messageId: data.id };
   } catch (err) {
     logger.error({ err }, "Gagal mengirim via Fonnte");
