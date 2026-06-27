@@ -16,11 +16,13 @@ import {
   dataTemplatesTable,
   dataTemplateFieldsTable,
   aiTasksTable,
+  notificationReceiversTable,
 } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { createAdminNotification } from "../lib/admin-notifications";
 import { MINI_FORM_CONFIGS, getFormConfig } from "../lib/mini-form-config";
 import type { MiniFormFieldDef } from "../lib/mini-form-config";
+import { sendFonnte } from "../lib/fonnte";
 
 const router: IRouter = Router();
 
@@ -262,6 +264,50 @@ router.post("/public/mini-form/:type/:token", async (req, res): Promise<void> =>
         taskId,
         companyId: session.companyId,
       });
+
+      // ── Kirim WA ke Penerima Notifikasi yang aktif sesuai kategori ─────────
+      try {
+        const sessionCategory = session.category ?? formCfg.title;
+        const receivers = await db
+          .select()
+          .from(notificationReceiversTable)
+          .where(
+            and(
+              eq(notificationReceiversTable.companyId, session.companyId),
+              eq(notificationReceiversTable.isActive, true),
+              eq(notificationReceiversTable.category, sessionCategory),
+            ),
+          );
+
+        if (receivers.length > 0) {
+          const fieldSummaryWa = Object.entries(merged)
+            .slice(0, 10)
+            .map(([k, v]) => `• ${k}: ${String(v)}`)
+            .join("\n");
+
+          const notifMsg =
+            `📋 *Pesanan Baru — ${formCfg.title}*\n` +
+            `No. Task: *${taskNumber}*\n` +
+            `Pelanggan: ${session.phone}\n\n` +
+            `*Detail Pesanan:*\n${fieldSummaryWa}\n\n` +
+            `Silakan tindak lanjuti di AI Task Center.`;
+
+          await Promise.allSettled(
+            receivers.map((r) =>
+              sendFonnte(r.phone, notifMsg).catch((e) =>
+                logger.warn({ e, phone: r.phone }, "intake-form: WA to receiver failed"),
+              ),
+            ),
+          );
+
+          logger.info(
+            { companyId: session.companyId, taskId, category: sessionCategory, receiverCount: receivers.length },
+            "intake-form: WA notifications sent to receivers",
+          );
+        }
+      } catch (notifErr) {
+        logger.warn({ notifErr }, "intake-form: failed to send WA to notification receivers (non-fatal)");
+      }
     }
 
     await db
