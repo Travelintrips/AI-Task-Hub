@@ -669,6 +669,344 @@ if (supabasePool) {
       )
     `);
     await supabasePool!.query(`CREATE INDEX IF NOT EXISTS doc_tpl_fields_tpl_idx ON document_template_fields(template_id)`);
+
+    // ── whatsapp_notifications ────────────────────────────────────────────────
+    await supabasePool!.query(`
+      CREATE TABLE IF NOT EXISTS whatsapp_notifications (
+        id                  SERIAL PRIMARY KEY,
+        task_id             INTEGER,
+        company_id          TEXT NOT NULL DEFAULT 'default',
+        recipient_phone     TEXT NOT NULL,
+        recipient_type      TEXT NOT NULL DEFAULT 'customer',
+        template_name       TEXT,
+        message_text        TEXT NOT NULL,
+        status              TEXT NOT NULL DEFAULT 'pending',
+        external_message_id TEXT,
+        error_message       TEXT,
+        sent_at             TIMESTAMPTZ,
+        created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS wa_notif_task_id_idx    ON whatsapp_notifications(task_id)`);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS wa_notif_company_idx    ON whatsapp_notifications(company_id)`);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS wa_notif_status_idx     ON whatsapp_notifications(status)`);
+
+    // ── team_members ──────────────────────────────────────────────────────────
+    await supabasePool!.query(`
+      CREATE TABLE IF NOT EXISTS team_members (
+        id                SERIAL PRIMARY KEY,
+        company_id        TEXT NOT NULL DEFAULT 'default',
+        name              TEXT NOT NULL,
+        role              TEXT NOT NULL,
+        division          TEXT,
+        is_vendor         TEXT DEFAULT 'false',
+        is_active         BOOLEAN NOT NULL DEFAULT true,
+        phone             TEXT,
+        email             TEXT,
+        avatar_url        TEXT,
+        skills            TEXT,
+        max_active_tasks  INTEGER,
+        current_task_count INTEGER NOT NULL DEFAULT 0,
+        created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS team_members_company_idx  ON team_members(company_id)`);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS team_members_division_idx ON team_members(division)`);
+
+    // ── tasks (legacy) ────────────────────────────────────────────────────────
+    await supabasePool!.query(`
+      CREATE TABLE IF NOT EXISTS tasks (
+        id              SERIAL PRIMARY KEY,
+        title           TEXT NOT NULL,
+        description     TEXT,
+        status          TEXT NOT NULL DEFAULT 'pending',
+        priority        TEXT NOT NULL DEFAULT 'medium',
+        assignee_id     INTEGER,
+        assigned_role   TEXT,
+        assigned_division TEXT,
+        assigned_vendor TEXT,
+        customer_name   TEXT,
+        source_message_id INTEGER,
+        due_date        TEXT,
+        tags            TEXT[] NOT NULL DEFAULT '{}',
+        created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    // ── task_attachments ──────────────────────────────────────────────────────
+    await supabasePool!.query(`
+      CREATE TABLE IF NOT EXISTS task_attachments (
+        id              SERIAL PRIMARY KEY,
+        task_id         INTEGER NOT NULL,
+        file_name       TEXT NOT NULL,
+        file_url        TEXT,
+        object_path     TEXT,
+        mime_type       TEXT,
+        file_size       INTEGER,
+        file_type       TEXT,
+        document_type   TEXT,
+        ocr_status      TEXT DEFAULT 'pending',
+        extracted_text  TEXT,
+        extracted_fields JSONB,
+        uploaded_by     TEXT,
+        created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS task_attach_task_id_idx  ON task_attachments(task_id)`);
+
+    // ── document_audits ───────────────────────────────────────────────────────
+    await supabasePool!.query(`
+      CREATE TABLE IF NOT EXISTS document_audits (
+        id                  SERIAL PRIMARY KEY,
+        task_id             INTEGER NOT NULL,
+        audit_status        TEXT NOT NULL DEFAULT 'pending',
+        complete_fields     TEXT[] NOT NULL DEFAULT '{}',
+        missing_fields      TEXT[] NOT NULL DEFAULT '{}',
+        mismatch_fields     TEXT[] NOT NULL DEFAULT '{}',
+        unclear_fields      TEXT[] NOT NULL DEFAULT '{}',
+        recommendation      TEXT,
+        next_action         TEXT,
+        audit_detail        JSONB,
+        cross_doc_detail    JSONB,
+        cross_doc_warnings  TEXT[] NOT NULL DEFAULT '{}',
+        created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS doc_audits_task_id_idx ON document_audits(task_id)`);
+
+    // ── task_comments ─────────────────────────────────────────────────────────
+    await supabasePool!.query(`
+      CREATE TABLE IF NOT EXISTS task_comments (
+        id            SERIAL PRIMARY KEY,
+        task_id       INTEGER NOT NULL,
+        sender_type   TEXT NOT NULL DEFAULT 'agent',
+        sender_name   TEXT,
+        comment       TEXT NOT NULL,
+        attachment_url TEXT,
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS task_comments_task_id_idx ON task_comments(task_id)`);
+
+    // ── task_assignments ──────────────────────────────────────────────────────
+    await supabasePool!.query(`
+      CREATE TABLE IF NOT EXISTS task_assignments (
+        id                SERIAL PRIMARY KEY,
+        task_id           INTEGER NOT NULL,
+        assigned_to       TEXT,
+        assigned_role     TEXT,
+        assigned_division TEXT,
+        assigned_vendor   TEXT,
+        assigned_by       TEXT,
+        status            TEXT NOT NULL DEFAULT 'active',
+        created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS task_assign_task_id_idx ON task_assignments(task_id)`);
+
+    // ── public_tokens ─────────────────────────────────────────────────────────
+    await supabasePool!.query(`
+      CREATE TABLE IF NOT EXISTS public_tokens (
+        id          SERIAL PRIMARY KEY,
+        token       TEXT NOT NULL UNIQUE,
+        task_id     INTEGER NOT NULL,
+        token_type  TEXT NOT NULL,
+        created_by  TEXT,
+        expires_at  TIMESTAMPTZ,
+        used_at     TIMESTAMPTZ,
+        is_revoked  BOOLEAN NOT NULL DEFAULT false,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS public_tokens_token_idx   ON public_tokens(token)`);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS public_tokens_task_id_idx ON public_tokens(task_id)`);
+
+    // ── task_timeline ─────────────────────────────────────────────────────────
+    await supabasePool!.query(`
+      CREATE TABLE IF NOT EXISTS task_timeline (
+        id          SERIAL PRIMARY KEY,
+        task_id     INTEGER NOT NULL,
+        event_type  TEXT NOT NULL,
+        title       TEXT NOT NULL,
+        description TEXT,
+        actor       TEXT,
+        actor_type  TEXT NOT NULL DEFAULT 'system',
+        metadata    JSONB,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS task_timeline_task_id_idx ON task_timeline(task_id)`);
+
+    // ── customer_contexts ─────────────────────────────────────────────────────
+    await supabasePool!.query(`
+      CREATE TABLE IF NOT EXISTS customer_contexts (
+        id                  SERIAL PRIMARY KEY,
+        company_id          TEXT NOT NULL DEFAULT 'default',
+        phone               TEXT NOT NULL,
+        name                TEXT,
+        company_name        TEXT,
+        frequent_service    TEXT,
+        special_notes       TEXT,
+        previous_intents    TEXT,
+        total_tasks         INTEGER NOT NULL DEFAULT 0,
+        last_active_task_id INTEGER,
+        last_seen_at        TIMESTAMPTZ,
+        created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS customer_ctx_phone_idx ON customer_contexts(phone, company_id)`);
+
+    // ── operational_checklists ────────────────────────────────────────────────
+    await supabasePool!.query(`
+      CREATE TABLE IF NOT EXISTS operational_checklists (
+        id          SERIAL PRIMARY KEY,
+        task_id     INTEGER NOT NULL,
+        task_type   TEXT NOT NULL DEFAULT 'ai_task',
+        company_id  TEXT NOT NULL DEFAULT 'default',
+        item_name   TEXT NOT NULL,
+        is_done     BOOLEAN NOT NULL DEFAULT false,
+        done_at     TIMESTAMPTZ,
+        done_by     TEXT,
+        notes       TEXT,
+        sort_order  INTEGER NOT NULL DEFAULT 0,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS checklists_task_idx    ON operational_checklists(task_id, task_type)`);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS checklists_company_idx ON operational_checklists(company_id)`);
+
+    // ── shipment_trackings ────────────────────────────────────────────────────
+    await supabasePool!.query(`
+      CREATE TABLE IF NOT EXISTS shipment_trackings (
+        id                SERIAL PRIMARY KEY,
+        task_id           INTEGER NOT NULL,
+        company_id        TEXT NOT NULL DEFAULT 'default',
+        tracking_type     TEXT NOT NULL DEFAULT 'container',
+        tracking_number   TEXT,
+        carrier_name      TEXT,
+        vessel_name       TEXT,
+        voyage_number     TEXT,
+        port_of_loading   TEXT,
+        port_of_discharge TEXT,
+        etd               TIMESTAMPTZ,
+        eta               TIMESTAMPTZ,
+        atd               TIMESTAMPTZ,
+        ata               TIMESTAMPTZ,
+        current_status    TEXT,
+        current_location  TEXT,
+        last_updated_at   TIMESTAMPTZ,
+        raw_data          TEXT,
+        created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS shipment_task_idx            ON shipment_trackings(task_id)`);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS shipment_tracking_number_idx ON shipment_trackings(tracking_number)`);
+
+    // ── shipment_events ───────────────────────────────────────────────────────
+    await supabasePool!.query(`
+      CREATE TABLE IF NOT EXISTS shipment_events (
+        id                SERIAL PRIMARY KEY,
+        tracking_id       INTEGER NOT NULL,
+        task_id           INTEGER NOT NULL,
+        event_time        TIMESTAMPTZ NOT NULL,
+        event_code        TEXT,
+        event_description TEXT NOT NULL,
+        location          TEXT,
+        created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS shipment_events_tracking_idx ON shipment_events(tracking_id)`);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS shipment_events_task_idx     ON shipment_events(task_id)`);
+
+    // ── follow_up_logs ────────────────────────────────────────────────────────
+    await supabasePool!.query(`
+      CREATE TABLE IF NOT EXISTS follow_up_logs (
+        id               SERIAL PRIMARY KEY,
+        task_id          INTEGER NOT NULL,
+        company_id       TEXT NOT NULL DEFAULT 'default',
+        customer_phone   TEXT,
+        customer_name    TEXT,
+        follow_up_number INTEGER NOT NULL DEFAULT 1,
+        message          TEXT NOT NULL,
+        channel          TEXT NOT NULL DEFAULT 'whatsapp',
+        is_success       BOOLEAN NOT NULL DEFAULT false,
+        error_message    TEXT,
+        sent_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS follow_up_task_idx    ON follow_up_logs(task_id)`);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS follow_up_company_idx ON follow_up_logs(company_id)`);
+
+    // ── dispatcher_logs ───────────────────────────────────────────────────────
+    await supabasePool!.query(`
+      CREATE TABLE IF NOT EXISTS dispatcher_logs (
+        id                      SERIAL PRIMARY KEY,
+        company_id              TEXT NOT NULL DEFAULT 'default',
+        task_id                 INTEGER NOT NULL,
+        task_number             TEXT,
+        task_title              TEXT,
+        task_category           TEXT,
+        task_priority           TEXT,
+        task_sla_status         TEXT,
+        suggested_member_id     INTEGER,
+        suggested_member_name   TEXT,
+        suggested_member_role   TEXT,
+        suggested_member_division TEXT,
+        assigned_member_name    TEXT,
+        was_overridden          BOOLEAN DEFAULT false,
+        override_reason         TEXT,
+        total_score             REAL,
+        workload_score          REAL,
+        skill_score             REAL,
+        urgency_score           REAL,
+        availability_score      REAL,
+        explanation             TEXT,
+        all_candidates_json     TEXT,
+        dispatched_by           TEXT,
+        dispatched_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS dispatcher_logs_task_idx ON dispatcher_logs(task_id)`);
+
+    // ── activity ──────────────────────────────────────────────────────────────
+    await supabasePool!.query(`
+      CREATE TABLE IF NOT EXISTS activity (
+        id          SERIAL PRIMARY KEY,
+        type        TEXT NOT NULL,
+        description TEXT NOT NULL,
+        entity_id   INTEGER,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS activity_created_idx ON activity(created_at DESC)`);
+
+    // ── documents ─────────────────────────────────────────────────────────────
+    await supabasePool!.query(`
+      CREATE TABLE IF NOT EXISTS documents (
+        id            SERIAL PRIMARY KEY,
+        filename      TEXT NOT NULL,
+        file_url      TEXT,
+        storage_path  TEXT,
+        mime_type     TEXT,
+        file_size     INTEGER,
+        status        TEXT NOT NULL DEFAULT 'pending',
+        audit_summary TEXT,
+        audit_issues  TEXT[] NOT NULL DEFAULT '{}',
+        audit_score   INTEGER,
+        task_id       INTEGER,
+        uploaded_by   TEXT,
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS documents_task_id_idx ON documents(task_id)`);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS documents_status_idx  ON documents(status)`);
   };
   runCoreMigrations()
     .then(() => logger.info("Core table migrations OK"))
