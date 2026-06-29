@@ -1,0 +1,304 @@
+{
+  "auditDate": "2026-06-29",
+  "scope": "Hybrid Flow Validation — Sport Center, Logistics, PPJK, Customs",
+  "summary": {
+    "totalFields": 42,
+    "valid": 18,
+    "missing": 10,
+    "mismatch": 14,
+    "criticalIssues": 5
+  },
+
+  "flowSimulations": [
+    {
+      "category": "Sport Center",
+      "intentCode": "sport_center_booking",
+      "intakeMode_current": "mini_form",
+      "intakeMode_expected": "hybrid",
+      "conversation": [
+        {
+          "turn": 1,
+          "user": "Hallo",
+          "ai_response": "Halo! Selamat datang di Sport Center kami. Ada yang bisa kami bantu hari ini? 😊",
+          "system": "general_inquiry → conversation mode, no form sent"
+        },
+        {
+          "turn": 2,
+          "user": "Saya ingin memesan lapangan tenis",
+          "ai_response": "Boleh tahu kapan rencananya dan berapa durasi jamnya?",
+          "system": "sport_center_booking detected. ACTUAL: mini_form link langsung dikirim (IntakeEngine tidak jalan). EXPECTED: hybrid → tanya dulu, lalu kirim form.",
+          "bug": "Mode mini_form mengirim form langsung di turn ini tanpa bertanya kapan/durasi terlebih dahulu."
+        },
+        {
+          "turn": 3,
+          "user": "Tanggal 30, durasi 3 jam",
+          "ai_response": "ACTUAL: Tidak ada response karena session sudah selesai (form sudah dikirim di turn 2). EXPECTED: Tampilkan jadwal yang tersedia → tanya konfirmasi → kirim form.",
+          "system": "DEAD END — mini_form mode tidak support multi-turn setelah form dikirim",
+          "bug": "Tidak ada step 'cek jadwal yang sudah ada' — tidak ada endpoint yang dipanggil untuk availability check dalam WA conversation flow."
+        },
+        {
+          "turn": 4,
+          "user": "(user isi form yang dikirim)",
+          "formSent": {
+            "type": "field-booking",
+            "url": "https://{domain}/mini-form/field-booking?token={token}",
+            "fields": ["booker_name", "phone", "field_type", "booking_date", "start_time", "duration", "payment_method", "notes"]
+          },
+          "system": "Form berhasil dikirim, tapi field keys di form BERBEDA dengan field keys di data_template_fields di DB."
+        }
+      ]
+    },
+    {
+      "category": "Logistics / Trucking",
+      "intentCode": "trucking_request",
+      "intakeMode_current": "conversation",
+      "intakeMode_expected": "hybrid",
+      "conversation": [
+        {
+          "turn": 1,
+          "user": "Saya butuh truck ke Surabaya, muatan 2 ton",
+          "ai_response": "Baik, kami siapkan. Boleh tahu alamat pickup dan tanggal pengirimannya?",
+          "system": "IntentEngine deteksi trucking_request. intake_mode = conversation → IntakeEngine start session."
+        },
+        {
+          "turn": 2,
+          "user": "Pickup di Cibitung, tanggal 5 Juli",
+          "ai_response": "Jenis muatan apa dan apakah ada spesifikasi kendaraan yang diperlukan?",
+          "system": "IntakeEngine mengumpulkan field: origin=Cibitung, shipping_date=5 Juli. Tapi field keys di DB template mungkin berbeda."
+        },
+        {
+          "turn": 3,
+          "user": "(semua data lengkap)",
+          "ai_response": "Semua informasi sudah lengkap. Tim kami akan segera menindaklanjuti.",
+          "system": "EXPECTED: Kirim mini form trucking untuk konfirmasi formal. ACTUAL: Tidak ada form yang dikirim — intake_mode conversation tidak trigger mini form.",
+          "bug": "trucking_request intake_mode=conversation → tidak pernah kirim form trucking, padahal mini-form-config punya 'trucking' form yang siap."
+        }
+      ]
+    },
+    {
+      "category": "PPJK / Freight Import",
+      "intentCode": "import_inquiry",
+      "intakeMode_current": "conversation",
+      "intakeMode_expected": "hybrid",
+      "conversation": [
+        {
+          "turn": 1,
+          "user": "Mau import barang dari China, butuh jasa PPJK",
+          "ai_response": "Baik, kami bantu proses impornya. Boleh tahu jenis komoditi dan estimasi volume/beratnya?",
+          "system": "import_inquiry detected. intake_mode=conversation."
+        },
+        {
+          "turn": 2,
+          "user": "Komoditi elektronik, 500kg, 3 CBM",
+          "ai_response": "Sudah punya HS Code-nya? Dan dari pelabuhan mana barangnya berangkat?",
+          "system": "Field extraction jalan. Tapi tidak ada mini form freight yang dikirim."
+        },
+        {
+          "turn": 3,
+          "user": "(semua data diisi via chat)",
+          "system": "EXPECTED: Kirim form freight/PPJK untuk capture dokumen (CI, packing list, HS code). ACTUAL: Hanya conversation, tidak ada form dikirim.",
+          "bug": "PPJK tidak punya form type tersendiri. inferFormType() untuk import_inquiry → fallback ke 'trucking' (SALAH). Seharusnya 'freight'."
+        }
+      ]
+    },
+    {
+      "category": "Customs Clearance",
+      "intentCode": "customs_clearance",
+      "intakeMode_current": "conversation",
+      "intakeMode_expected": "mini_form",
+      "conversation": [
+        {
+          "turn": 1,
+          "user": "Barang saya tertahan di pabean, butuh bantuan customs clearance",
+          "ai_response": "Kami bantu proses customs clearance-nya. Boleh saya tahu nomor AWB/BL dan jenis dokumennya?",
+          "system": "customs_clearance detected. intake_mode=conversation."
+        },
+        {
+          "turn": 2,
+          "user": "BL: SHKG12345, dokumennya sudah ada semua",
+          "ai_response": "Baik, bisa upload Commercial Invoice, Packing List, dan HS Code-nya?",
+          "system": "ACTUAL: Dokumen diminta via chat, tidak ada structured form. EXPECTED: Kirim mini form dengan field upload dokumen.",
+          "bug": "customs_clearance tidak punya mini_form_type → dokumen tidak bisa diupload terstruktur via form. Tidak ada customs-specific form di mini-form-config."
+        }
+      ]
+    }
+  ],
+
+  "fieldCheck": [
+    {
+      "category": "Sport Center",
+      "intentCode": "sport_center_booking",
+      "source": "IntentEngine prompt (missingDataKeys)",
+      "fields": [
+        { "fieldName": "field_name",    "meaning": "Jenis lapangan",   "status": "MISMATCH", "issue": "IntentEngine menggunakan 'field_name', DB template menggunakan 'jenis_lapangan', mini-form menggunakan 'field_type' — 3 nama berbeda untuk konsep yang sama" },
+        { "fieldName": "booker_name",   "meaning": "Nama pemesan",     "status": "MISMATCH", "issue": "IntentEngine: 'booker_name', DB template: 'nama_pemesan'. IntakeEngine extractFields() akan simpan key 'booker_name' tapi DB field bernama 'nama_pemesan' → completeness check gagal" },
+        { "fieldName": "phone",         "meaning": "Nomor HP",         "status": "MISMATCH", "issue": "IntentEngine: 'phone', DB template: 'no_hp'. Sama seperti di atas." },
+        { "fieldName": "booking_date",  "meaning": "Tanggal booking",  "status": "VALID",    "issue": null },
+        { "fieldName": "start_time",    "meaning": "Jam mulai",        "status": "MISMATCH", "issue": "IntentEngine: 'start_time', DB template: 'jam_booking'. Beda nama." },
+        { "fieldName": "end_time",      "meaning": "Jam selesai",      "status": "MISSING",  "issue": "IntentEngine prompt meminta 'end_time' di missingDataKeys, tapi TIDAK ADA di data_template_fields DB dan TIDAK ADA di mini-form-config 'field-booking'." },
+        { "fieldName": "duration",      "meaning": "Durasi sewa",      "status": "MISMATCH", "issue": "IntakeEngine prompt: 'durasi' (Bahasa Indonesia), mini-form: 'duration' (English). DB: 'durasi'. IntentEngine tidak mention duration secara eksplisit." },
+        { "fieldName": "payment_method","meaning": "Metode pembayaran","status": "MISSING",  "issue": "Ada di DB ('metode_pembayaran') dan mini-form ('payment_method'), tapi IntentEngine TIDAK memasukkan ke missingDataKeys → tidak pernah ditanyakan via conversation." },
+        { "fieldName": "promo",         "meaning": "Kode promo",       "status": "MISSING",  "issue": "Disebutkan di prompt pengguna (kategori Sport Center) tapi TIDAK ADA di IntentEngine, DB template, maupun mini-form-config." },
+        { "fieldName": "catatan",       "meaning": "Catatan tambahan", "status": "MISMATCH", "issue": "DB: 'catatan', mini-form: 'notes'. IntentEngine tidak mention." }
+      ]
+    },
+    {
+      "category": "Logistics / Trucking",
+      "intentCode": "trucking_request",
+      "source": "mini-form-config 'trucking' + data_template fields",
+      "fields": [
+        { "fieldName": "pickup_address",   "meaning": "Alamat pickup",    "status": "VALID",   "issue": null },
+        { "fieldName": "delivery_address", "meaning": "Alamat tujuan",    "status": "VALID",   "issue": null },
+        { "fieldName": "cargo_type",       "meaning": "Jenis muatan",     "status": "VALID",   "issue": null },
+        { "fieldName": "cargo_weight",     "meaning": "Berat muatan",     "status": "VALID",   "issue": null },
+        { "fieldName": "pickup_date",      "meaning": "Tanggal pickup",   "status": "MISMATCH","issue": "IntentEngine menggunakan 'requested_date' atau 'shipping_date', mini-form menggunakan 'pickup_date'. Nama berbeda." },
+        { "fieldName": "contact_person",   "meaning": "Nama kontak",      "status": "MISSING", "issue": "Ada di mini-form 'trucking' tapi intake_mode=conversation → form tidak pernah dikirim → field tidak ter-capture terstruktur." },
+        { "fieldName": "vehicle_type",     "meaning": "Jenis kendaraan",  "status": "MISMATCH","issue": "Ada di mini-form tapi tidak ada di DB data_template_fields untuk trucking_request." },
+        { "fieldName": "cargo_volume",     "meaning": "Volume muatan",    "status": "MISSING", "issue": "Ada di mini-form tapi tidak ada di IntentEngine missingDataKeys dan tidak di DB template." }
+      ]
+    },
+    {
+      "category": "PPJK / Freight Import",
+      "intentCode": "import_inquiry",
+      "source": "mini-form-config 'freight' + seed-kb-supabase",
+      "fields": [
+        { "fieldName": "origin_country",      "meaning": "Negara asal",         "status": "VALID",   "issue": null },
+        { "fieldName": "destination_country", "meaning": "Negara tujuan",       "status": "VALID",   "issue": null },
+        { "fieldName": "commodity",           "meaning": "Jenis komoditi",      "status": "VALID",   "issue": null },
+        { "fieldName": "hs_code",             "meaning": "HS Code",             "status": "MISMATCH","issue": "Ada di freight mini-form, tapi inferFormType() untuk 'import_inquiry' → fallback ke 'trucking' (bukan 'freight') → form salah dikirim." },
+        { "fieldName": "gross_weight",        "meaning": "Berat bruto",         "status": "MISMATCH","issue": "Di IMPORT_REQUIRED_FIELDS (whatsapp-ai.ts) ada, tapi di freight mini-form nama berbeda: 'gross_weight' vs tidak ada di conversation collection." },
+        { "fieldName": "shipment_mode",       "meaning": "Moda pengiriman",     "status": "MISSING", "issue": "Ada di freight mini-form tapi intake_mode=conversation → tidak pernah tampil ke user terstruktur." },
+        { "fieldName": "commercial_invoice",  "meaning": "CI (file upload)",    "status": "MISSING", "issue": "Ada di freight mini-form sebagai upload field, tapi karena intake_mode=conversation, user tidak mendapat form upload. Dokumen hanya bisa diminta via chat." },
+        { "fieldName": "packing_list",        "meaning": "Packing list (file)", "status": "MISSING", "issue": "Sama dengan commercial_invoice — tidak bisa diupload karena tidak ada mini form yang dikirim." }
+      ]
+    },
+    {
+      "category": "Customs Clearance",
+      "intentCode": "customs_clearance",
+      "source": "IntentEngine + seed-kb-supabase",
+      "fields": [
+        { "fieldName": "bl_number",        "meaning": "Nomor BL/AWB",      "status": "MISSING", "issue": "Tidak ada di mini-form-config. Tidak ada customs form type di MINI_FORM_CONFIGS." },
+        { "fieldName": "hs_code",          "meaning": "HS Code",           "status": "MISSING", "issue": "Hanya diambil via conversation, tidak ada structured form." },
+        { "fieldName": "invoice",          "meaning": "Commercial Invoice", "status": "MISSING", "issue": "Tidak bisa diupload — tidak ada customs mini form dengan field upload." },
+        { "fieldName": "packing_list",     "meaning": "Packing List",      "status": "MISSING", "issue": "Sama seperti di atas." },
+        { "fieldName": "quantity",         "meaning": "Jumlah/kuantitas",  "status": "MISSING", "issue": "Disebutkan di prompt pengguna tapi tidak ada di schema manapun." },
+        { "fieldName": "consignee",        "meaning": "Nama consignee",    "status": "MISSING", "issue": "Disebutkan di prompt pengguna tapi tidak ada di schema manapun." }
+      ]
+    }
+  ],
+
+  "criticalIssues": [
+    {
+      "id": "CI-001",
+      "severity": "HIGH",
+      "title": "Sport Center: 3-way field name mismatch",
+      "description": "IntentEngine prompt, data_template_fields (DB), dan mini-form-config menggunakan nama field yang berbeda untuk konsep yang sama. Akibatnya: collected fields dari conversation tidak pernah match dengan required fields di DB → completeness check selalu gagal → user terus ditanyai data yang sudah diberikan.",
+      "affectedFields": ["field_name vs jenis_lapangan vs field_type", "booker_name vs nama_pemesan", "phone vs no_hp", "start_time vs jam_booking", "duration vs durasi"]
+    },
+    {
+      "id": "CI-002",
+      "severity": "HIGH",
+      "title": "sport_center_booking intake_mode=mini_form seharusnya hybrid",
+      "description": "Dengan intake_mode='mini_form', form langsung dikirim tanpa melalui conversation dulu. Skenario: user bilang 'pesan lapangan tenis' → form langsung dikirim tanpa AI bertanya kapan dan durasi. Flow yang diinginkan (tanya dulu, tampilkan jadwal, baru kirim form) membutuhkan mode 'hybrid'.",
+      "fix": "Ubah intake_mode sport_center_booking dari 'mini_form' menjadi 'hybrid' di data_templates"
+    },
+    {
+      "id": "CI-003",
+      "severity": "HIGH",
+      "title": "inferFormType() salah mapping untuk import_inquiry dan customs_clearance",
+      "description": "Fungsi inferFormType() di mini-form-config.ts tidak punya case untuk 'import_inquiry' atau 'customs_clearance'. Keduanya jatuh ke default 'trucking' → form trucking dikirim untuk request import/customs, semua field-nya salah.",
+      "fix": "Tambahkan case: code.includes('import') || code.includes('freight') → return 'freight'; code.includes('customs') || code.includes('clearance') → return 'customs'"
+    },
+    {
+      "id": "CI-004",
+      "severity": "MEDIUM",
+      "title": "end_time tidak ada di DB template maupun mini form",
+      "description": "IntentEngine prompt meminta AI mengisi 'end_time' di missingDataKeys, tapi field ini tidak ada di data_template_fields dan tidak ada di mini-form-config 'field-booking'. Field ini tidak bisa dikumpulkan secara terstruktur.",
+      "fix": "Hapus 'end_time' dari IntentEngine prompt sport center rules, atau tambahkan field 'jam_selesai' ke DB template dan mini-form. Cukup capture 'durasi' lalu hitung end_time di backend."
+    },
+    {
+      "id": "CI-005",
+      "severity": "MEDIUM",
+      "title": "Tidak ada customs mini form di MINI_FORM_CONFIGS",
+      "description": "customs_clearance adalah kategori high-priority yang butuh banyak dokumen (CI, packing list, HS code, BL). Tapi tidak ada form type 'customs' di mini-form-config.ts → user tidak bisa upload dokumen terstruktur → semua dokumen harus dikirim manual via chat.",
+      "fix": "Tambahkan form type 'customs' ke MINI_FORM_CONFIGS dengan field: bl_number, hs_code, consignee_name, quantity, commercial_invoice (file), packing_list (file)"
+    }
+  ],
+
+  "recommendations": [
+    {
+      "priority": "P1",
+      "area": "intake_mode",
+      "target": "data_templates table — sport_center_booking",
+      "action": "UPDATE data_templates SET intake_mode='hybrid' WHERE intent_code='sport_center_booking'",
+      "rationale": "Hybrid mode memungkinkan AI bertanya kapan/durasi dulu, tampilkan jadwal, baru kirim mini form. Mode 'mini_form' saat ini skip semua conversation step."
+    },
+    {
+      "priority": "P1",
+      "area": "field_name_standardization",
+      "target": "data_template_fields DB + intake-engine.ts prompt",
+      "action": "Standarisasi field keys Sport Center ke: booker_name, phone, field_type, booking_date, start_time, duration, payment_method, notes. Update DB fields agar konsisten dengan nama yang sama di IntentEngine prompt dan mini-form-config.",
+      "fieldMapping": {
+        "standardize_to": {
+          "booker_name": "Gantikan 'nama_pemesan' di DB",
+          "phone": "Gantikan 'no_hp' di DB",
+          "field_type": "Gantikan 'jenis_lapangan' di DB dan 'field_name' di IntentEngine prompt",
+          "booking_date": "Sudah konsisten — pertahankan",
+          "start_time": "Gantikan 'jam_booking' di DB",
+          "duration": "Gantikan 'durasi' di DB",
+          "payment_method": "Gantikan 'metode_pembayaran' di DB",
+          "notes": "Gantikan 'catatan' di DB"
+        }
+      }
+    },
+    {
+      "priority": "P1",
+      "area": "inferFormType",
+      "target": "artifacts/api-server/src/lib/mini-form-config.ts — fungsi inferFormType()",
+      "action": "Tambahkan mapping untuk import dan customs SEBELUM default fallback",
+      "codeChange": "if (code.includes('import') || code.includes('ppjk') || code.includes('freight') || cat.includes('freight') || cat.includes('logistik')) return 'freight'; if (code.includes('customs') || code.includes('clearance') || code.includes('bea_cukai') || cat.includes('customs')) return 'customs';"
+    },
+    {
+      "priority": "P1",
+      "area": "intake_mode_logistics",
+      "target": "data_templates — trucking_request, import_inquiry",
+      "action": "UPDATE data_templates SET intake_mode='hybrid', mini_form_type='trucking' WHERE intent_code='trucking_request'; UPDATE data_templates SET intake_mode='hybrid', mini_form_type='freight' WHERE intent_code='import_inquiry';",
+      "rationale": "Conversation dulu untuk kumpulkan data awal, lalu kirim form untuk konfirmasi + dokumen upload."
+    },
+    {
+      "priority": "P2",
+      "area": "new_form_type_customs",
+      "target": "artifacts/api-server/src/lib/mini-form-config.ts — MINI_FORM_CONFIGS",
+      "action": "Tambahkan form type 'customs' ke MINI_FORM_CONFIGS dengan fields: bl_number (text, required), hs_code (text, required), consignee_name (text, required), quantity (text, required), commercial_invoice (file, required), packing_list (file, required), customs_notes (textarea, optional)",
+      "rationale": "Customs clearance butuh structured form untuk dokumen upload — tidak bisa hanya via conversation."
+    },
+    {
+      "priority": "P2",
+      "area": "end_time_removal",
+      "target": "artifacts/api-server/src/lib/intent-engine.ts — buildPrompt() sport center rules",
+      "action": "Hapus 'end_time' dari missingDataKeys list di sport center rules. Cukup collect 'duration' lalu hitung end_time = start_time + duration di backend saat task dibuat.",
+      "rationale": "end_time tidak ada di DB template dan mini form — menyebabkan AI terus meminta field yang tidak bisa dikumpulkan."
+    },
+    {
+      "priority": "P2",
+      "area": "payment_method_in_intent_engine",
+      "target": "artifacts/api-server/src/lib/intent-engine.ts — sport center rules",
+      "action": "Tambahkan 'payment_method' ke list field keys yang di-check di missingDataKeys untuk sport_center_booking, agar conversation flow juga tanya metode pembayaran sebelum kirim form.",
+      "rationale": "payment_method adalah required field di mini form, tapi IntentEngine tidak pernah tanyakan → user harus isi di form padahal AI harusnya sudah kumpulkan."
+    },
+    {
+      "priority": "P3",
+      "area": "availability_check_step",
+      "target": "Whatsapp flow (whatsapp.ts) + intake-engine.ts",
+      "action": "Tambahkan step di hybrid mode: setelah field_type + booking_date + start_time terkumpul, auto-query slot availability via /api/bookings/availability dan inject hasilnya sebagai context ke suggestedReply AI — sehingga AI bisa bilang 'Slot jam 09:00 tersedia' atau 'Slot jam 09:00 sudah terisi, mau jam berapa?'",
+      "rationale": "Skenario di prompt pengguna membutuhkan AI menampilkan jadwal tersedia sebelum konfirmasi. Saat ini tidak ada availability check di WA flow."
+    },
+    {
+      "priority": "P3",
+      "area": "promo_field",
+      "target": "data_template_fields + mini-form-config 'field-booking'",
+      "action": "Tambahkan optional field 'promo_code' (text, required=false) ke DB template fields dan mini-form-config field-booking jika fitur promo memang aktif.",
+      "rationale": "Prompt pengguna menyebut promo sebagai salah satu field Sport Center tapi tidak ada di schema manapun."
+    }
+  ]
+}
