@@ -9,7 +9,7 @@
  */
 
 import { Router, type IRouter } from "express";
-import { eq, and } from "drizzle-orm";
+import { eq, and, or } from "drizzle-orm";
 import {
   db,
   intakeSessionsTable,
@@ -17,6 +17,7 @@ import {
   dataTemplateFieldsTable,
   aiTasksTable,
   notificationReceiversTable,
+  intentMasterTable,
 } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { createAdminNotification } from "../lib/admin-notifications";
@@ -204,14 +205,14 @@ router.post("/public/mini-form/:type/:token", async (req, res): Promise<void> =>
       .filter((f: MiniFormFieldDef) => f.required && f.type !== "file")
       .map((f: MiniFormFieldDef) => f.name);
 
-    const prevMissing = (session.missingFields as string[]) ?? [];
+    const prevMissing = Array.isArray(session.missingFields) ? (session.missingFields as string[]) : [];
     const allRequired = Array.from(new Set([...requiredBuiltinNames, ...prevMissing]));
     const stillMissing = allRequired.filter(
       (f) => !merged[f] || String(merged[f]).trim() === "",
     );
 
     // Merge uploaded docs
-    const prevDocs = (session.uploadedDocuments as string[]) ?? [];
+    const prevDocs = Array.isArray(session.uploadedDocuments) ? (session.uploadedDocuments as string[]) : [];
     const newDocs = body.uploadedDocuments ?? [];
     const mergedDocs = Array.from(new Set([...prevDocs, ...newDocs]));
 
@@ -267,7 +268,29 @@ router.post("/public/mini-form/:type/:token", async (req, res): Promise<void> =>
 
       // ── Kirim WA ke Penerima Notifikasi yang aktif sesuai kategori ─────────
       try {
-        const sessionCategory = session.category ?? formCfg.title;
+        // Lookup kategori dari intent_master berdasarkan intentCode (lebih akurat dari session.category)
+        // karena session.category bisa salah (misalnya "General Inquiry" padahal seharusnya "Sport Center")
+        let resolvedCategory: string | null = null;
+        try {
+          const [intentRow] = await db
+            .select({ category: intentMasterTable.category })
+            .from(intentMasterTable)
+            .where(eq(intentMasterTable.intentCode, session.intentCode))
+            .limit(1);
+          resolvedCategory = intentRow?.category ?? null;
+        } catch {
+          // fallback below
+        }
+
+        // Fallback chain: intent_master → session.category → formCfg.title
+        const effectiveCategory = resolvedCategory ?? session.category ?? formCfg.title;
+
+        logger.info(
+          { intentCode: session.intentCode, resolvedCategory, sessionCategory: session.category, effectiveCategory },
+          "intake-form: resolving notification receiver category",
+        );
+
+        // Cari penerima aktif yang match kategori (OR fallback ke category dari session)
         const receivers = await db
           .select()
           .from(notificationReceiversTable)
@@ -275,14 +298,34 @@ router.post("/public/mini-form/:type/:token", async (req, res): Promise<void> =>
             and(
               eq(notificationReceiversTable.companyId, session.companyId),
               eq(notificationReceiversTable.isActive, true),
-              eq(notificationReceiversTable.category, sessionCategory),
+              resolvedCategory && session.category && resolvedCategory !== session.category
+                ? or(
+                    eq(notificationReceiversTable.category, resolvedCategory),
+                    eq(notificationReceiversTable.category, session.category),
+                  )
+                : eq(notificationReceiversTable.category, effectiveCategory),
             ),
           );
 
         if (receivers.length > 0) {
+          const fieldLabelMap: Record<string, string> = {
+            booker_name: "Nama Pemesan",
+            phone: "No. HP",
+            field_name: "Jenis Lapangan",
+            booking_date: "Tanggal Main",
+            start_time: "Jam Mulai",
+            end_time: "Jam Selesai",
+            durasi: "Durasi Sewa",
+            payment_method: "Metode Pembayaran",
+            notes: "Catatan",
+          };
+
           const fieldSummaryWa = Object.entries(merged)
             .slice(0, 10)
-            .map(([k, v]) => `• ${k}: ${String(v)}`)
+            .map(([k, v]) => {
+              const label = fieldLabelMap[k] ?? k;
+              return `• ${label}: ${String(v)}`;
+            })
             .join("\n");
 
           const notifMsg =
@@ -301,8 +344,13 @@ router.post("/public/mini-form/:type/:token", async (req, res): Promise<void> =>
           );
 
           logger.info(
-            { companyId: session.companyId, taskId, category: sessionCategory, receiverCount: receivers.length },
+            { companyId: session.companyId, taskId, effectiveCategory, receiverCount: receivers.length },
             "intake-form: WA notifications sent to receivers",
+          );
+        } else {
+          logger.warn(
+            { companyId: session.companyId, effectiveCategory },
+            "intake-form: no active notification receivers found for category",
           );
         }
       } catch (notifErr) {
