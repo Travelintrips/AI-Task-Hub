@@ -7,6 +7,7 @@ import {
   taskAttachmentsTable,
   auditLogsTable,
   whatsappNotificationsTable,
+  intakeSessionsTable,
 } from "@workspace/db";
 import { detectWhatsAppIntent } from "../lib/whatsapp-ai";
 import { createTaskFromWhatsAppMessage } from "../lib/task-service";
@@ -26,6 +27,8 @@ import {
   markIntakeSubmitted,
 } from "../lib/intake-engine";
 import { routeIntentToFlow } from "../lib/mini-form-router";
+import { getFormConfig } from "../lib/mini-form-config";
+import { generateSecureToken } from "../lib/tokens";
 
 const router: IRouter = Router();
 
@@ -581,7 +584,43 @@ async function runAiDetection({
           .where(eq(whatsappMessagesTable.id, savedMsgId))
           .catch((e) => logger.warn({ e }, "intake: failed to mark message aiProcessed"));
 
-        if (intakeResult.action === "ready_for_task") {
+        if (intakeResult.action === "send_form") {
+          // Hybrid mode: conversation complete, now send the form
+          const formType = intakeResult.formType!;
+          const token = generateSecureToken();
+          const domains = process.env.REPLIT_DOMAINS ?? "";
+          const devDomain = process.env.REPLIT_DEV_DOMAIN ?? "";
+          const baseUrl = domains ? `https://${domains.split(",")[0]?.trim()}` : devDomain ? `https://${devDomain}` : "http://localhost:5000";
+          const formUrl = `${baseUrl}/mini-form/${formType}/${token}`;
+
+          // Store form token on session
+          await db.update(intakeSessionsTable)
+            .set({ formToken: token, formSentAt: new Date(), updatedAt: new Date() })
+            .where(eq(intakeSessionsTable.id, intakeResult.session.id))
+            .catch(e => logger.warn({ e }, "hybrid: failed to store formToken on session"));
+
+          // Build and send WA message with form link
+          const formCfg = getFormConfig(formType);
+          const waTemplate = formCfg?.waMessageTemplate ??
+            "Terima kasih! Data Anda sudah lengkap. Silakan konfirmasi melalui form berikut:\n\n{mini_form_url}\n\nTim kami akan segera menindaklanjuti. 🙏";
+          const waMsg = waTemplate.replace("{mini_form_url}", formUrl);
+
+          await sendFonnte(from, waMsg, fonnteDevice).catch(e =>
+            logger.warn({ e, from }, "hybrid: failed to send form link via Fonnte"),
+          );
+
+          await createAdminNotification({
+            type: "new_inquiry",
+            title: `📋 Hybrid Form Dikirim: ${activeSession.intentCode}`,
+            body: `${effectiveName ?? from} selesai tanya-jawab. Form ${formType} telah dikirim untuk konfirmasi.`,
+            customerPhone: from,
+            customerName: effectiveName,
+            companyId,
+          });
+
+          logger.info({ sessionId: activeSession.id, formType, formUrl }, "Hybrid: form link sent after conversation");
+
+        } else if (intakeResult.action === "ready_for_task") {
           // All data collected — create the task now
           logger.info({ sessionId: activeSession.id, fields: intakeResult.collectedFields }, "Intake complete — creating task");
 
@@ -822,6 +861,8 @@ async function runAiDetection({
       );
 
       // ── Sprint 9B: Route to correct flow (conversation / hybrid / mini_form) ─
+      // deferFormSend=true: hybrid mode will NOT send form immediately.
+      // Instead we start conversation first and send form when fields are complete.
       const route = await routeIntentToFlow({
         phone: from,
         companyId,
@@ -833,13 +874,11 @@ async function runAiDetection({
         missingFields: result.missing_data ?? [],
         requiredDocuments: [],
         fonnteDevice,
+        deferFormSend: true,
       });
 
-      if (route.flow === "mini_form" || route.flow === "hybrid") {
-        // Form link already sent via Fonnte by routeIntentToFlow
-        const modeLabel = route.flow === "hybrid" ? "Hybrid Form" : "Mini Form";
-
-        // Fallback: if form link failed to send, still reply to customer
+      if (route.flow === "mini_form") {
+        // mini_form: form link already sent immediately by routeIntentToFlow
         if (!route.waSent) {
           const fallbackReply =
             result._resolution?.suggestedReply ??
@@ -848,45 +887,29 @@ async function runAiDetection({
           await sendFonnte(from, fallbackReply, fonnteDevice).catch((e) =>
             logger.warn({ e, from }, "fallback reply failed after mini-form send error"),
           );
-          logger.warn({ from, intentCode: result.intent }, "mini-form waSent=false — fallback reply sent");
         }
-
         await db
           .update(whatsappMessagesTable)
-          .set({ aiProcessed: true, detectedIntent: `${route.flow}_sent:${result.intent}` })
+          .set({ aiProcessed: true, detectedIntent: `mini_form_sent:${result.intent}` })
           .where(eq(whatsappMessagesTable.id, savedMsgId));
-
         await createAdminNotification({
           type: "new_inquiry",
-          title: `📋 ${modeLabel} Dikirim: ${result.intent}`,
-          body: `${effectiveName ?? from} diminta mengisi ${modeLabel} untuk ${result.category ?? result.intent}. ${route.waSent ? "Link berhasil dikirim via WA." : "Gagal kirim WA — fallback reply terkirim."}`,
+          title: `📋 Mini Form Dikirim: ${result.intent}`,
+          body: `${effectiveName ?? from} diminta mengisi form untuk ${result.category ?? result.intent}.`,
           customerPhone: from,
           customerName: effectiveName,
           companyId,
         });
-
-        // For hybrid: also start conversation intake in parallel so agent can follow-up
-        if (route.flow === "hybrid" && result._resolution) {
-          const intakeResult = await startIntakeSession({
-            phone: from,
-            companyId,
-            message: bodyText,
-            attachmentUrl: attachmentUrl ?? undefined,
-            resolution: result._resolution,
-          }).catch((e) => {
-            logger.warn({ e }, "hybrid: failed to start parallel conversation intake");
-            return null;
-          });
-          if (intakeResult?.replyToUser) {
-            // Hybrid: don't send duplicate WA — form link is sufficient
-            logger.info({ sessionId: intakeResult.session.id }, "hybrid: parallel intake session created");
-          }
-        }
-
         return;
       }
 
-      // flow === "conversation" → existing IntakeEngine flow
+      // ── "hybrid" or "conversation": start intake (ask questions first) ────────
+      // For hybrid: miniFormType is passed so engine sends form when fields complete
+      const hybridFormType = route.flow === "hybrid" ? (route.formType ?? null) : null;
+      if (hybridFormType) {
+        logger.info({ from, intentCode: result.intent, hybridFormType }, "Hybrid mode: starting conversation first, form deferred");
+      }
+
       let intakeResult;
       try {
         intakeResult = await startIntakeSession({
@@ -895,6 +918,7 @@ async function runAiDetection({
           message: bodyText,
           attachmentUrl: attachmentUrl ?? undefined,
           resolution: result._resolution,
+          miniFormType: hybridFormType,
         });
       } catch (intakeErr) {
         logger.error({ intakeErr, from, intent: result.intent }, "startIntakeSession failed — sending fallback reply");

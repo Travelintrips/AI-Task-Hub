@@ -41,12 +41,14 @@ export interface FieldDef {
 }
 
 export interface IntakeResult {
-  action: "continue_collecting" | "ready_for_task" | "cancelled" | "expired";
+  action: "continue_collecting" | "ready_for_task" | "cancelled" | "expired" | "send_form";
   session: IntakeSession;
   replyToUser: string;
   collectedFields: Record<string, unknown>;
   missingFields: string[];
   requiredDocuments: string[];
+  /** Populated when action === "send_form" — the mini form type to send */
+  formType?: string;
 }
 
 // ─── Cancellation detection ────────────────────────────────────────────────────
@@ -334,6 +336,7 @@ export async function createIntakeSession({
   category,
   initialMessage,
   resolution,
+  miniFormType,
 }: {
   phone: string;
   companyId: string;
@@ -342,6 +345,8 @@ export async function createIntakeSession({
   category?: string | null;
   initialMessage: string;
   resolution: IntentResolution;
+  /** For hybrid mode: the form type to send when fields are complete */
+  miniFormType?: string | null;
 }): Promise<IntakeSession> {
   const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
 
@@ -354,6 +359,7 @@ export async function createIntakeSession({
       intentName: intentName ?? null,
       category: category ?? null,
       status: "collecting",
+      miniFormType: miniFormType ?? null,
       requiredFields: resolution.missingDataKeys,
       collectedFields: {},
       missingFields: resolution.missingDataKeys,
@@ -509,10 +515,15 @@ export async function processIntakeMessage({
       });
     } catch { /* non-fatal */ }
 
+    // Hybrid mode: session has miniFormType → send form now instead of creating task
+    const pendingFormType = session.miniFormType && session.status !== "form_sent"
+      ? session.miniFormType
+      : null;
+
     const [updated] = await db
       .update(intakeSessionsTable)
       .set({
-        status:           "ready_for_task",
+        status:           pendingFormType ? "form_sent" : "ready_for_task",
         collectedFields:  newCollected,
         missingFields:    [],
         requiredFields:   requiredFieldNames,
@@ -526,6 +537,18 @@ export async function processIntakeMessage({
       })
       .where(eq(intakeSessionsTable.id, session.id))
       .returning();
+
+    if (pendingFormType) {
+      return {
+        action: "send_form",
+        session: updated!,
+        replyToUser: "",
+        collectedFields: newCollected,
+        missingFields: [],
+        requiredDocuments: stillMissingDocs,
+        formType: pendingFormType,
+      };
+    }
 
     const completionMsg = await generateCompletionMessage(session.intentCode, newCollected);
 
@@ -587,12 +610,15 @@ export async function startIntakeSession({
   message,
   attachmentUrl,
   resolution,
+  miniFormType,
 }: {
   phone: string;
   companyId: string;
   message: string;
   attachmentUrl?: string | null;
   resolution: IntentResolution;
+  /** For hybrid mode: store form type so engine sends form when fields complete */
+  miniFormType?: string | null;
 }): Promise<IntakeResult> {
   // ── Deduplication: cancel any existing "collecting" sessions for this phone ──
   // This prevents accumulation of stale sessions that would confuse findActiveIntakeSession.
@@ -638,6 +664,7 @@ export async function startIntakeSession({
     category: resolution.category,
     initialMessage: message,
     resolution,
+    miniFormType: miniFormType ?? null,
   });
 
   // Process the initial message immediately

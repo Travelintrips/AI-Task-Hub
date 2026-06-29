@@ -28,6 +28,8 @@ export interface RouterResult {
   formToken: string | null;
   formUrl: string | null;
   waSent: boolean;
+  /** Populated for hybrid mode when deferFormSend=true — the form type to send later */
+  formType?: string;
 }
 
 // ── Domain helpers ──────────────────────────────────────────────────────────────
@@ -56,6 +58,7 @@ export async function routeIntentToFlow({
   missingFields = [],
   requiredDocuments = [],
   fonnteDevice,
+  deferFormSend = false,
 }: {
   phone: string;
   companyId: string;
@@ -67,6 +70,12 @@ export async function routeIntentToFlow({
   missingFields?: string[];
   requiredDocuments?: string[];
   fonnteDevice?: string | null;
+  /**
+   * When true, hybrid mode will NOT send the form immediately.
+   * Instead it returns {flow:"hybrid", formType} for the caller to send
+   * the form later (after conversation collects required fields).
+   */
+  deferFormSend?: boolean;
 }): Promise<RouterResult> {
   // Look up intake_mode from data_templates (Supabase DB)
   let intakeMode: FlowMode = "conversation";
@@ -103,8 +112,15 @@ export async function routeIntentToFlow({
   const formType = miniFormType ?? inferFormType(intentCode, category);
   const formCfg = getFormConfig(formType);
 
+  // Hybrid + deferFormSend: caller wants to ask questions first, send form later.
+  // Return formType so caller can store it on the intake session.
+  if (intakeMode === "hybrid" && deferFormSend) {
+    logger.info({ phone, intentCode, formType }, "MiniFormRouter: hybrid deferred — returning formType for intake-first flow");
+    return { flow: "hybrid", sessionId: null, formToken: null, formUrl: null, waSent: false, formType };
+  }
+
   // ── Anti-loop: reuse existing form_sent session within 30 minutes ──────────
-  const existingSession = await findFormSentSession(phone, companyId);
+  const existingSession = await findFormSentSession(phone, companyId, intentCode);
   if (existingSession) {
     const baseUrl = getPublicBaseUrl();
     const existingFormUrl = `${baseUrl}/mini-form/${existingSession.miniFormType}/${existingSession.formToken}`;
@@ -202,6 +218,7 @@ export async function routeIntentToFlow({
 export async function findFormSentSession(
   phone: string,
   companyId: string,
+  intentCode?: string,
 ): Promise<{ id: number; formToken: string; miniFormType: string } | null> {
   try {
     const now = new Date();
@@ -213,6 +230,8 @@ export async function findFormSentSession(
           eq(intakeSessionsTable.phone, phone),
           eq(intakeSessionsTable.companyId, companyId),
           eq(intakeSessionsTable.status, "form_sent"),
+          // Only reuse sessions for the SAME intent to prevent wrong form type resend
+          intentCode ? eq(intakeSessionsTable.intentCode, intentCode) : undefined,
           // Only reuse sessions that haven't expired yet
           gt(intakeSessionsTable.expiresAt, now),
         ),
