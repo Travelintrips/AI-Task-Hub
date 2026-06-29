@@ -172,7 +172,7 @@ export default function MiniFormPage() {
   const isPreview = !!templateId || type === "preview";
   const [values, setValues] = useState<Record<string, string>>({});
   const [touched, setTouched] = useState<Set<string>>(new Set());
-  const [submitResult, setSubmitResult] = useState<{ ok: boolean; message: string; isComplete: boolean } | null>(null);
+  const [submitResult, setSubmitResult] = useState<{ ok: boolean; message: string; isComplete: boolean; missingFields?: string[] } | null>(null);
 
   const apiPath = isPreview
     ? `/public/mini-form/preview/${templateId ?? token}`
@@ -318,10 +318,27 @@ export default function MiniFormPage() {
             })}
           </div>
 
-          {/* Error banner */}
+          {/* Error banner — tampilkan field mana yang masih kosong */}
           {submitResult && !submitResult.isComplete && (
-            <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 text-sm text-orange-700">
-              {submitResult.message}
+            <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 text-sm text-orange-700 space-y-2">
+              <p className="font-medium">{submitResult.message}</p>
+              {submitResult.missingFields && submitResult.missingFields.length > 0 && (
+                <div>
+                  <p className="text-xs text-orange-600 mb-1">Field yang belum diisi:</p>
+                  <ul className="space-y-1">
+                    {submitResult.missingFields.map((fname) => {
+                      const fieldDef = allFields.find((f) => f.name === fname);
+                      const label = fieldDef?.label ?? fname;
+                      return (
+                        <li key={fname} className="flex items-center gap-1.5 text-xs font-medium">
+                          <span className="text-red-500">●</span>
+                          <span>{label}</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
             </div>
           )}
 

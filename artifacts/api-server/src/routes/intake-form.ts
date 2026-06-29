@@ -312,6 +312,8 @@ router.post("/public/mini-form/:type/:token", async (req, res): Promise<void> =>
             booker_name: "Nama Pemesan",
             phone: "No. HP",
             field_name: "Jenis Lapangan",
+            field_type: "Jenis Lapangan",
+            duration: "Durasi Sewa",
             booking_date: "Tanggal Main",
             start_time: "Jam Mulai",
             end_time: "Jam Selesai",
