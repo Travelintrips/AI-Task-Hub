@@ -140,6 +140,14 @@ router.get("/public/mini-form/:type/:token", async (req, res): Promise<void> => 
           .orderBy(dataTemplateFieldsTable.sortOrder)
       : [];
 
+    // Auto-inject phone from session so it's always pre-filled.
+    // The AI pipeline may list "phone" in missingFields even though it's not a
+    // visible form field — we know the sender's number, so populate it here.
+    const collectedFields = {
+      phone: session.phone,
+      ...((session.collectedFields as Record<string, unknown>) ?? {}),
+    };
+
     res.json({
       status: session.status,
       intentCode: session.intentCode,
@@ -149,7 +157,7 @@ router.get("/public/mini-form/:type/:token", async (req, res): Promise<void> => 
       formDescription: formCfg.description,
       builtinFields: formCfg.fields,
       customFields,
-      collectedFields: session.collectedFields ?? {},
+      collectedFields,
       missingFields: session.missingFields ?? [],
       requiredDocuments: session.requiredDocuments ?? [],
       uploadedDocuments: session.uploadedDocuments ?? [],
@@ -194,8 +202,10 @@ router.post("/public/mini-form/:type/:token", async (req, res): Promise<void> =>
       res.status(410).json({ error: "Sesi ini sudah tidak aktif" }); return;
     }
 
-    // Merge: existing collected fields + new submitted fields
+    // Merge: session phone (always known) + existing collected fields + new submitted fields.
+    // Phone is auto-provided from the WA sender — never leave it missing.
     const merged: Record<string, unknown> = {
+      phone: session.phone,
       ...((session.collectedFields as Record<string, unknown>) ?? {}),
       ...body.fields,
     };
