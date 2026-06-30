@@ -63,7 +63,7 @@ export function isCancellation(message: string): boolean {
 // Pesan-pesan ini menandakan user memulai ulang percakapan.
 // Sesi aktif yang ada harus di-cancel agar user bisa mulai dari awal.
 
-const GREETING_PATTERNS = /^(hallo|halo|hai|hi|hey|hei|hello|selamat pagi|selamat siang|selamat sore|selamat malam|pagi|siang|sore|malam|terima kasih|makasih|trims|ok|oke|iya|ya|thanks|tq|thx|noted|siap)\s*[!.]*$/i;
+const GREETING_PATTERNS = /^(halo|hallo|helo|hai|haii|hi|hey|hei|hello|selamat pagi|selamat siang|selamat sore|selamat malam|pagi|siang|sore|malam|assalamualaikum|assalamu'?alaikum|salamualaikum|waalaikumsalam|test|ping|terima kasih|makasih|trims|ok|oke|iya|ya|thanks|tq|thx|noted|siap)\s*[!.?]*$/i;
 
 export function isGreeting(message: string): boolean {
   return GREETING_PATTERNS.test(message.trim());

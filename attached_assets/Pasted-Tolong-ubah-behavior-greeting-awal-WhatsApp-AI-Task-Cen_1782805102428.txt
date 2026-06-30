@@ -1,0 +1,61 @@
+Tolong ubah behavior greeting awal WhatsApp AI Task Center tanpa mengubah struktur, database, routing, flow intent, mini form, task creation, atau logic yang sudah ada.
+
+Tujuan:
+Jika customer/user mengirim pesan greeting umum seperti:
+- halo
+- hallo
+- hi
+- hai
+- selamat pagi
+- selamat siang
+- selamat sore
+- selamat malam
+- assalamualaikum
+- test
+- ping
+
+Maka AI harus membalas dengan pesan utama berikut sebagai opening conversation:
+
+Halo! 👋 Selamat datang, ada yang bisa kami bantu?
+
+Silakan ceritakan kebutuhan Anda, misalnya:
+• 🚚 Pengiriman / Trucking / Sea & Air Freight
+• 📋 Layanan PPJK / Bea Cukai / Customs
+• 🏟️ Booking Lapangan Olahraga
+• 💰 Kasbon / Pembayaran
+• ❓ Pertanyaan lainnya
+
+Tim kami siap membantu! 🙏
+
+Aturan penting:
+1. Jangan ubah struktur project yang sudah ada.
+2. Jangan ubah schema database.
+3. Jangan ubah flow mini form yang sudah berjalan.
+4. Jangan ubah intent engine yang sudah ada, kecuali hanya menambahkan handling greeting.
+5. Jangan membuat endpoint baru jika tidak diperlukan.
+6. Jangan membuat bot looping.
+7. Greeting hanya dijawab dengan pesan opening di atas.
+8. Setelah user membalas kebutuhan sebenarnya, baru lanjutkan intent detection seperti biasa.
+9. Jika pesan user bukan greeting, jangan pakai pesan opening ini; lanjutkan flow intent normal.
+10. Pastikan greeting detection case-insensitive dan trim spasi.
+11. Tambahkan fallback agar variasi typo ringan seperti "hallo", "helo", "haii" tetap dianggap greeting.
+12. Setelah perubahan, jalankan test minimal:
+   - "Halo"
+   - "hallo"
+   - "selamat siang"
+   - "saya mau booking lapangan"
+   - "saya mau urus ppjk"
+   - "saya mau kirim barang"
+
+Expected result:
+- Untuk greeting, balasan harus persis opening message.
+- Untuk booking, PPJK, dan pengiriman, sistem tetap masuk ke flow intent lama.
+- Tidak ada perubahan struktur besar.
+- Tidak ada regresi pada mini form dan task creation.
+
+Implementasikan dengan pendekatan paling aman:
+- cari handler WhatsApp inbound message
+- cari intent detection / AI router
+- tambahkan pre-check greeting sebelum intent detection
+- jika greeting true, return opening message
+- jika false, lanjutkan logic lama.
