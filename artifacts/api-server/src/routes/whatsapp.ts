@@ -18,7 +18,7 @@ import { logger } from "../lib/logger";
 import { getOrCreateCustomerContext, updateCustomerContextAfterTask } from "../lib/customer-context";
 import { createAdminNotification } from "../lib/admin-notifications";
 import { emitSseEvent } from "../lib/sse";
-import { sendFonnte } from "../lib/fonnte";
+import { sendFonnte, getOwnDeviceNumbers, normalizePhone } from "../lib/fonnte";
 import { validateDocument } from "../lib/document-validation-engine";
 import {
   findActiveIntakeSession,
@@ -305,6 +305,18 @@ router.post("/whatsapp/webhook", async (req, res): Promise<void> => {
       (rawPayload?.sender as string | undefined) ??
       (rawPayload?.sender_phone as string | undefined) ??
       (rawPayload?.phone as string | undefined);
+
+    // Tertiary filter: skip messages FROM our own Fonnte device numbers.
+    // Fonnte sometimes echoes outgoing messages without quick=true (cross-device echoes).
+    // If the sender IS one of our admin devices, it's always an echo — never a real customer.
+    if (from) {
+      const normalizedFrom = normalizePhone(from) ?? from;
+      const ownDevices = getOwnDeviceNumbers();
+      if (ownDevices.size > 0 && ownDevices.has(normalizedFrom)) {
+        logger.debug({ from: normalizedFrom }, "Fonnte self-device echo (no quick flag) — skipping");
+        return;
+      }
+    }
 
     // Device yang menerima pesan — dipakai untuk memilih token Fonnte yang tepat saat balas
     const fonnteDevice = (rawPayload?.device as string | undefined) ?? null;

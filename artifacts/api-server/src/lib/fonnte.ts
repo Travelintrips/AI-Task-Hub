@@ -125,6 +125,30 @@ function resolveToken(targetPhone: string, fonnteDevice?: string | null): string
   return TOKEN_MAP.get("default");
 }
 
+/**
+ * Returns the set of our own Fonnte device phone numbers (auto-detected at startup).
+ * Used to filter out self-send echoes where Fonnte omits the quick=true flag.
+ */
+export function getOwnDeviceNumbers(): Set<string> {
+  const devices = new Set<string>();
+
+  // From auto-detected TOKEN_DEVICE_MAP (most reliable)
+  for (const phone of TOKEN_DEVICE_MAP.values()) {
+    devices.add(phone);
+  }
+
+  // Fallback: from FONNTE_DEVICE_N env vars (in case detection hasn't run yet)
+  for (let i = 2; i <= 10; i++) {
+    const device = process.env[`FONNTE_DEVICE_${i}`];
+    if (device) {
+      const normalized = normalizePhone(device) ?? device;
+      devices.add(normalized);
+    }
+  }
+
+  return devices;
+}
+
 export interface FonnteResult {
   success: boolean;
   messageId?: string;
