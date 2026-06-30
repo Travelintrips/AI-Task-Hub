@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import {
   db,
   whatsappMessagesTable,
@@ -520,24 +520,50 @@ async function runAiDetection({
     // instead of detecting a new intent.
     const activeSession = await findActiveIntakeSession(from, companyId);
 
-    // ── Greeting reset: if user sends a greeting while in an active session,
-    // silently cancel the session and fall through to normal intent detection.
-    // This prevents "hallo"/"terima kasih" from being captured as intake answers.
-    if (activeSession && isGreeting(bodyText)) {
-      logger.info(
-        { sessionId: activeSession.id, intent: activeSession.intentCode, msg: bodyText },
-        "Greeting detected on active session — resetting session to allow fresh intent detection",
-      );
+    // ── Step 0a: Greeting gate — intercept BEFORE any session or AI detection.
+    // When user sends a simple greeting, cancel all active sessions and respond
+    // directly with a canned message. Do NOT fall through to AI detection,
+    // which could re-detect the old intent and create a new stuck session.
+    if (isGreeting(bodyText)) {
+      logger.info({ from, msg: bodyText }, "Greeting detected — cancelling sessions, sending canned reply, skipping AI");
       try {
         await db
           .update(intakeSessionsTable)
           .set({ status: "cancelled", updatedAt: new Date() })
-          .where(eq(intakeSessionsTable.id, activeSession.id));
+          .where(
+            and(
+              eq(intakeSessionsTable.phone, from),
+              eq(intakeSessionsTable.companyId, companyId),
+              inArray(intakeSessionsTable.status, ["collecting", "ready_for_task"]),
+            ),
+          );
       } catch (resetErr) {
-        logger.warn({ resetErr }, "Failed to cancel session on greeting reset — continuing anyway");
+        logger.warn({ resetErr }, "greeting: failed to cancel active sessions");
       }
-      // Fall through to normal AI detection below (activeSession effectively null)
-    } else if (activeSession) {
+      const greetingReply =
+        `Halo! 👋 Selamat datang, ada yang bisa kami bantu?\n\n` +
+        `Silakan ceritakan kebutuhan Anda, misalnya:\n` +
+        `• 🚚 Pengiriman / Trucking / Sea & Air Freight\n` +
+        `• 📋 Layanan PPJK / Bea Cukai / Customs\n` +
+        `• 🏟️ Booking Lapangan Olahraga\n` +
+        `• 💰 Kasbon / Pembayaran\n` +
+        `• ❓ Pertanyaan lainnya\n\n` +
+        `Tim kami siap membantu! 🙏`;
+      await sendFonnte(from, greetingReply, fonnteDevice).catch((e) =>
+        logger.warn({ e }, "greeting: failed to send canned reply"),
+      );
+      await db
+        .update(whatsappMessagesTable)
+        .set({ aiProcessed: true, detectedIntent: "general_inquiry" })
+        .where(eq(whatsappMessagesTable.id, savedMsgId))
+        .catch((e) => logger.warn({ e }, "greeting: failed to mark aiProcessed"));
+      return;
+    }
+
+    // ── Step 0b: Check for active intake session ───────────────────────────────
+    // If customer is mid-conversation collecting data, continue that session
+    // instead of detecting a new intent.
+    if (activeSession) {
       logger.info(
         { msgId: savedMsgId, sessionId: activeSession.id, intent: activeSession.intentCode, status: activeSession.status },
         "Active intake session found — continuing data collection",
