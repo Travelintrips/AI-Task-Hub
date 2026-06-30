@@ -25,6 +25,7 @@ import {
   processIntakeMessage,
   startIntakeSession,
   markIntakeSubmitted,
+  isGreeting,
 } from "../lib/intake-engine";
 import { routeIntentToFlow } from "../lib/mini-form-router";
 import { getFormConfig } from "../lib/mini-form-config";
@@ -519,7 +520,24 @@ async function runAiDetection({
     // instead of detecting a new intent.
     const activeSession = await findActiveIntakeSession(from, companyId);
 
-    if (activeSession) {
+    // ── Greeting reset: if user sends a greeting while in an active session,
+    // silently cancel the session and fall through to normal intent detection.
+    // This prevents "hallo"/"terima kasih" from being captured as intake answers.
+    if (activeSession && isGreeting(bodyText)) {
+      logger.info(
+        { sessionId: activeSession.id, intent: activeSession.intentCode, msg: bodyText },
+        "Greeting detected on active session — resetting session to allow fresh intent detection",
+      );
+      try {
+        await db
+          .update(intakeSessionsTable)
+          .set({ status: "cancelled", updatedAt: new Date() })
+          .where(eq(intakeSessionsTable.id, activeSession.id));
+      } catch (resetErr) {
+        logger.warn({ resetErr }, "Failed to cancel session on greeting reset — continuing anyway");
+      }
+      // Fall through to normal AI detection below (activeSession effectively null)
+    } else if (activeSession) {
       logger.info(
         { msgId: savedMsgId, sessionId: activeSession.id, intent: activeSession.intentCode, status: activeSession.status },
         "Active intake session found — continuing data collection",
