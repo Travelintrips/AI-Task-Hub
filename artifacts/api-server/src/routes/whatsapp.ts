@@ -31,6 +31,7 @@ import {
 import { routeIntentToFlow } from "../lib/mini-form-router";
 import { getFormConfig } from "../lib/mini-form-config";
 import { generateSecureToken } from "../lib/tokens";
+import { isSportCenterBookingIntent } from "../lib/sport-center-availability";
 
 const router: IRouter = Router();
 
@@ -536,7 +537,10 @@ async function runAiDetection({
     // ── Step 0a-pre: Closing phrase gate — "terima kasih", "ok", "siap", etc.
     // These are conversation-enders, not new requests. Respond with a simple
     // acknowledgment and return. Do NOT cancel sessions or show the full menu.
-    if (isClosingPhrase(bodyText)) {
+    // IMPORTANT: Skip this gate when there is an active intake session — phrases
+    // like "ya", "oke", "iya" are intake confirmations (e.g. sport center availability),
+    // not conversation-enders.
+    if (isClosingPhrase(bodyText) && !activeSession) {
       logger.info({ from, msg: bodyText }, "Closing phrase detected — sending simple ack, skipping AI");
       const closingReply = `Sama-sama! 😊 Jika ada kebutuhan lain, jangan ragu untuk menghubungi kami ya.`;
       await sendFonnte(from, closingReply, fonnteDevice).catch((e) =>
@@ -924,9 +928,64 @@ async function runAiDetection({
       previousIntents: parsedPrevIntents,
     }, savedMsgId);
 
+    // ── Sport Center booking: ALWAYS conversation-first (never send form immediately) ──
+    // Even if hasMissingFields=false or intake_mode="mini_form" in DB, we must:
+    //   1. Ask: lapangan apa, tanggal berapa, jam berapa?
+    //   2. Check availability via sport-center-availability gate
+    //   3. Show slot result + ask user to confirm with "ya"
+    //   4. Ask booker name + phone
+    //   5. THEN send the mini-form link
+    const isGeneralInquiry = result.intent === "general_inquiry";
+    if (!isGeneralInquiry && result._resolution && isSportCenterBookingIntent(result.intent)) {
+      logger.info({ from, intent: result.intent }, "Sport Center booking detected — forcing conversation-first flow");
+
+      let scIntakeResult;
+      try {
+        scIntakeResult = await startIntakeSession({
+          phone: from,
+          companyId,
+          message: bodyText,
+          attachmentUrl: attachmentUrl ?? undefined,
+          resolution: result._resolution,
+          miniFormType: "field_booking",
+        });
+      } catch (scErr) {
+        logger.error({ scErr, from }, "Sport Center: startIntakeSession failed — sending fallback question");
+        await sendFonnte(
+          from,
+          `🏟️ Mau booking lapangan olahraga ya!\n\nLapangan apa yang ingin Anda booking, dan tanggal serta jam berapa? 😊\n\n_(Contoh: "Badminton, 5 Juli jam 10:00")_`,
+          fonnteDevice,
+        ).catch(() => {});
+        return;
+      }
+
+      const scReply = scIntakeResult.replyToUser ||
+        `🏟️ Mau booking lapangan olahraga ya!\n\nLapangan apa yang ingin Anda booking, dan tanggal serta jam berapa? 😊\n\n_(Contoh: "Badminton, 5 Juli jam 10:00")_`;
+
+      await sendFonnte(from, scReply, fonnteDevice).catch((e) =>
+        logger.warn({ e }, "sport-center intake: failed to send opening question"),
+      );
+
+      await db
+        .update(whatsappMessagesTable)
+        .set({ aiProcessed: true, detectedIntent: `intake_started:${result.intent}` })
+        .where(eq(whatsappMessagesTable.id, savedMsgId))
+        .catch(() => {});
+
+      await createAdminNotification({
+        type: "new_inquiry",
+        title: `🏟️ Sport Center Intake: ${result.intent}`,
+        body: `${effectiveName ?? from} mulai booking lapangan. Menunggu detail lapangan, tanggal, dan jam.`,
+        customerPhone: from,
+        customerName: effectiveName,
+        companyId,
+      }).catch(() => {});
+
+      return;
+    }
+
     // ── Intake gate: start session if required fields are missing ──────────────
     const hasMissingFields = (result.missing_data?.length ?? 0) > 0;
-    const isGeneralInquiry = result.intent === "general_inquiry";
 
     if (hasMissingFields && !isGeneralInquiry && result._resolution) {
       logger.info(
