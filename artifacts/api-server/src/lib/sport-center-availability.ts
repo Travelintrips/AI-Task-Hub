@@ -83,6 +83,15 @@ export function normalizeDateString(dateStr: string): string | null {
     const year = wordFmt[3] ?? String(new Date().getFullYear());
     return `${year}-${MONTHS[wordFmt[2]!]}-${String(wordFmt[1]).padStart(2, "0")}`;
   }
+  // "tanggal 5" or just "5" → assume current month
+  const dayOnlyFmt = dateStr.trim().toLowerCase().match(/^(?:tanggal\s+)?(\d{1,2})$/);
+  if (dayOnlyFmt) {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, "0");
+    const day = String(dayOnlyFmt[1]).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
   return null;
 }
 

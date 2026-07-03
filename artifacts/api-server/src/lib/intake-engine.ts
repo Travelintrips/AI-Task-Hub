@@ -417,39 +417,64 @@ async function runSportCenterAvailabilityGate({
 
   const currentAvailStatus = newCollected._avail_status as string | undefined;
 
-  // ── Case 0: Nothing collected yet → ask for field + date + time all at once ──
-  // This replaces the generic generateNextQuestion for the very first Sport Center message,
-  // ensuring user is prompted for all 3 required slot fields in one go.
-  const hasAnySlotInfo = !!(fieldType || bookingDate || startTime);
-  const prevLastQuestion = existingCollected._last_question_type as string | undefined;
-  if (!hasAnySlotInfo && !prevAvailStatus && prevLastQuestion !== "slot_opening") {
-    const openingQ =
-      `🏟️ Lapangan apa yang ingin Anda booking, dan tanggal serta jam berapa?\n\n` +
-      `_(Contoh: "Badminton, 5 Juli jam 10:00")_`;
+  // ── Case 0: Slot info incomplete → ask for what's still missing all at once ──
+  // Fires when booking_date OR start_time is missing (regardless of fieldType).
+  // This ensures the very first sport center message always triggers a structured
+  // question rather than GPT's generic generateNextQuestion.
+  const missingSlot = !bookingDate || !startTime;
+  if (missingSlot && !prevAvailStatus) {
+    // Build a tailored question depending on what's already known
+    let openingQ: string;
+    if (!fieldType && !bookingDate && !startTime) {
+      openingQ =
+        `🏟️ Lapangan apa yang ingin Anda booking, dan tanggal serta jam berapa?\n\n` +
+        `_(Contoh: "Badminton, 5 Juli jam 10:00")_`;
+    } else if (fieldType && (!bookingDate || !startTime)) {
+      const missingParts: string[] = [];
+      if (!bookingDate) missingParts.push("tanggal");
+      if (!startTime)   missingParts.push("jam mulai");
+      openingQ =
+        `Untuk booking lapangan *${fieldType}*, mohon berikan ${missingParts.join(" dan ")}nya.\n\n` +
+        `_(Contoh: "5 Juli jam 10:00")_`;
+    } else {
+      openingQ =
+        `🏟️ Lapangan apa yang ingin Anda booking, dan tanggal serta jam berapa?\n\n` +
+        `_(Contoh: "Badminton, 5 Juli jam 10:00")_`;
+    }
 
-    newCollected._last_question_type = "slot_opening";
+    try {
+      const [updated] = await db
+        .update(intakeSessionsTable)
+        .set({
+          collectedFields:  newCollected,
+          lastQuestion:     openingQ,
+          lastMessage:      message,
+          lastMessageAt:    now,
+          updatedAt:        now,
+          expiresAt:        new Date(Date.now() + 24 * 60 * 60 * 1000),
+        })
+        .where(eq(intakeSessionsTable.id, session.id))
+        .returning();
 
-    const [updated] = await db
-      .update(intakeSessionsTable)
-      .set({
-        collectedFields:  newCollected,
-        lastQuestion:     openingQ,
-        lastMessage:      message,
-        lastMessageAt:    now,
-        updatedAt:        now,
-        expiresAt:        new Date(Date.now() + 24 * 60 * 60 * 1000),
-      })
-      .where(eq(intakeSessionsTable.id, session.id))
-      .returning();
-
-    return {
-      action:            "continue_collecting",
-      session:           updated!,
-      replyToUser:       openingQ,
-      collectedFields:   newCollected,
-      missingFields:     completeness.missingFieldNames,
-      requiredDocuments: stillMissingDocs,
-    };
+      return {
+        action:            "continue_collecting",
+        session:           updated!,
+        replyToUser:       openingQ,
+        collectedFields:   newCollected,
+        missingFields:     completeness.missingFieldNames,
+        requiredDocuments: stillMissingDocs,
+      };
+    } catch (dbErr) {
+      logger.error({ dbErr, sessionId: session.id }, "SportCenterGate Case0: DB update failed — returning hardcoded question");
+      return {
+        action:            "continue_collecting",
+        session,
+        replyToUser:       openingQ,
+        collectedFields:   newCollected,
+        missingFields:     completeness.missingFieldNames,
+        requiredDocuments: stillMissingDocs,
+      };
+    }
   }
 
   // ── Case A: Have field + date + time but haven't checked yet → check now ──
