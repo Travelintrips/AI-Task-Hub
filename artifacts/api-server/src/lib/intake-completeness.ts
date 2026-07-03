@@ -73,8 +73,10 @@ export function calculateCompleteness(
     };
   }
 
+  // "phone" is always known from the WA sender — never report it as missing.
   const missingFieldNames = requiredFields.filter(
     (fname) => {
+      if (fname === "phone") return false;
       const val = collectedFields[fname];
       return val === null || val === undefined || val === "";
     },

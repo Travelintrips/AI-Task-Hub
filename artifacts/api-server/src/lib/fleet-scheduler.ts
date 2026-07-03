@@ -20,12 +20,20 @@ const DEFAULT_COMPANY_ID = process.env["COMPANY_ID"] ?? "default";
 
 // ── Time helpers ──────────────────────────────────────────────────────────────
 
+// Max safe value for setTimeout (2^31-1 ms ≈ 24.8 days).
+// Exceeding this causes Node.js to silently set delay=1, creating a spin-loop.
+const MAX_TIMEOUT_MS = 2_147_483_647;
+
+function safeDelay(ms: number): number {
+  return Math.min(Math.max(ms, 60_000), MAX_TIMEOUT_MS);
+}
+
 function msUntilNextTime(hour: number, minute = 0): number {
   const now = new Date();
   const target = new Date(now);
   target.setHours(hour, minute, 0, 0);
   if (target <= now) target.setDate(target.getDate() + 1);
-  return target.getTime() - now.getTime();
+  return safeDelay(target.getTime() - now.getTime());
 }
 
 function msUntilNextMonday(hour = 6, minute = 0): number {
@@ -36,13 +44,13 @@ function msUntilNextMonday(hour = 6, minute = 0): number {
   target.setDate(now.getDate() + daysUntilMonday);
   target.setHours(hour, minute, 0, 0);
   if (target <= now) target.setDate(target.getDate() + 7);
-  return target.getTime() - now.getTime();
+  return safeDelay(target.getTime() - now.getTime());
 }
 
 function msUntilNextMonthStart(hour = 6, minute = 0): number {
   const now = new Date();
   const target = new Date(now.getFullYear(), now.getMonth() + 1, 1, hour, minute, 0, 0);
-  return Math.max(target.getTime() - now.getTime(), 60000);
+  return safeDelay(target.getTime() - now.getTime());
 }
 
 async function logRun(

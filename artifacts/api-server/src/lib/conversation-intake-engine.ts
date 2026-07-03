@@ -311,6 +311,8 @@ export class ConversationIntakeEngine {
     const required = (session.requiredFields as string[]) ?? [];
     const collected = (session.collectedFields as Record<string, unknown>) ?? {};
     return required.filter((f) => {
+      // "phone" is always known from the WA sender — never treat it as missing.
+      if (f === "phone") return false;
       const v = collected[f];
       return v === null || v === undefined || v === "";
     });

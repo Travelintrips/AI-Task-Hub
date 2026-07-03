@@ -765,9 +765,11 @@ export async function resolveIntent({
 
     // If AI told us what's missing, intersect with template required fields.
     // If AI was silent, assume all required fields are missing.
-    const missingDataKeys = aiMissingKeys.length > 0
+    // "phone" is always known from the WA sender — never include it as missing.
+    const missingDataKeys = (aiMissingKeys.length > 0
       ? aiMissingKeys.filter((k) => reqFieldNames.includes(k))
-      : reqFieldNames;
+      : reqFieldNames
+    ).filter((k) => k !== "phone");
 
     // ── 9. Required documents + missing docs ───────────────────────────────────
     const requiredDocuments = (docTemplate?.fields ?? []).map((f) => ({
