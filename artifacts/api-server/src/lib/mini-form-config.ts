@@ -39,6 +39,7 @@ export const MINI_FORM_CONFIGS: Record<string, MiniFormConfig> = {
       { name: "vehicle_type",     label: "Jenis Kendaraan",     type: "select",   required: false, options: ["CDD", "CDE", "Fuso", "Trailer", "Engkel", "Pickup"] },
       { name: "pickup_date",      label: "Tanggal Pickup",      type: "date",     required: true },
       { name: "contact_person",   label: "Nama Kontak",         type: "text",     required: true,  placeholder: "Budi Santoso" },
+      { name: "phone",            label: "Nomor HP / WhatsApp", type: "text",     required: true,  placeholder: "08123456789" },
       { name: "notes",            label: "Catatan Tambahan",    type: "textarea", required: false, placeholder: "Muatan fragile, perlu wrap tambahan" },
     ],
   },
