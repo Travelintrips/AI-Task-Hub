@@ -35,6 +35,29 @@ import { isSportCenterBookingIntent } from "../lib/sport-center-availability";
 
 const router: IRouter = Router();
 
+// ─── Per-phone processing queue ─────────────────────────────────────────────────
+// Guards against race conditions when two messages from the same customer arrive
+// in quick succession: without this, both messages can run runAiDetection
+// concurrently, each seeing "no active intake session" (since the first hasn't
+// finished creating/saving its session yet), causing duplicate/conflicting
+// sessions and confusing or missing replies (e.g. sport center booking flow).
+const phoneQueues = new Map<string, Promise<void>>();
+
+function enqueueForPhone(phone: string, task: () => Promise<void>): void {
+  const prev = phoneQueues.get(phone) ?? Promise.resolve();
+  const next = prev
+    .catch(() => {}) // isolate failures between queued tasks
+    .then(() => task())
+    .catch((err) => {
+      logger.error({ err, phone }, "runAiDetection queued task failed");
+    })
+    .finally(() => {
+      // Clean up the map entry once this was the last queued task for the phone
+      if (phoneQueues.get(phone) === next) phoneQueues.delete(phone);
+    });
+  phoneQueues.set(phone, next);
+}
+
 // ─── POST /whatsapp/send ───────────────────────────────────────────────────────
 
 router.post("/whatsapp/send", async (req, res): Promise<void> => {
@@ -464,8 +487,9 @@ export async function processIncomingMessage({
       logger.warn({ notifErr, from }, "createAdminNotification failed — AI pipeline continues");
     });
 
-    // 6. Trigger AI detection (non-blocking — errors are caught)
-    setImmediate(() => {
+    // 6. Trigger AI detection (non-blocking, but serialized per phone number to
+    // avoid race conditions between quick successive messages — see phoneQueues)
+    enqueueForPhone(from, () =>
       runAiDetection({
         savedMsgId: savedMsg.id,
         from,
@@ -478,10 +502,8 @@ export async function processIncomingMessage({
         customerCtxName: customerCtx?.picName ?? senderName ?? null,
         previousIntents: null,
         fonnteDevice: fonnteDevice ?? null,
-      }).catch((err) => {
-        logger.error({ err, msgId: savedMsg.id }, "AI detection background task failed");
-      });
-    });
+      }),
+    );
   } catch (err) {
     logger.error({ err, from, companyId }, "AI pipeline error in processIncomingMessage");
     // Always reply to customer even when the pipeline setup fails
