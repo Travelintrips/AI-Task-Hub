@@ -308,17 +308,11 @@ router.post("/whatsapp/webhook", async (req, res): Promise<void> => {
       (rawPayload?.sender_phone as string | undefined) ??
       (rawPayload?.phone as string | undefined);
 
-    // Tertiary filter: skip messages FROM our own Fonnte device numbers.
-    // Fonnte sometimes echoes outgoing messages without quick=true (cross-device echoes).
-    // If the sender IS one of our admin devices, it's always an echo — never a real customer.
-    if (from) {
-      const normalizedFrom = normalizePhone(from) ?? from;
-      const ownDevices = getOwnDeviceNumbers();
-      if (ownDevices.size > 0 && ownDevices.has(normalizedFrom)) {
-        logger.debug({ from: normalizedFrom }, "Fonnte self-device echo (no quick flag) — skipping");
-        return;
-      }
-    }
+    // NOTE: Tertiary device-number filter was REMOVED.
+    // It incorrectly blocked real messages from users/admins whose WhatsApp
+    // number happens to be registered as a Fonnte device (e.g. the owner testing
+    // from their own number). The quick=true filter above is the correct and
+    // sufficient mechanism to prevent echo loops.
 
     // Device yang menerima pesan — dipakai untuk memilih token Fonnte yang tepat saat balas
     const fonnteDevice = (rawPayload?.device as string | undefined) ?? null;
