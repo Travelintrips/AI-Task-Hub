@@ -28,6 +28,12 @@ import { openai } from "./openai";
 import { logger } from "./logger";
 import type { IntentResolution } from "./intent-engine";
 import { calculateCompleteness, getCompletionThreshold } from "./intake-completeness";
+import {
+  isSportCenterBookingIntent,
+  isAvailabilityConfirmation,
+  checkSportCenterAvailability,
+  extractDurationHours,
+} from "./sport-center-availability";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -360,6 +366,174 @@ async function generateCompletionMessage(
   return `✅ Terima kasih! Data Anda sudah lengkap.\n\n*Ringkasan permintaan:*\n${fieldSummary}\n\nTim kami akan segera menghubungi Anda. Mohon tunggu konfirmasi dari kami ya! 🙏`;
 }
 
+// ─── Sport Center availability gate ───────────────────────────────────────────
+// Returns an IntakeResult to send back if the gate needs to intercept,
+// or null if the gate is satisfied and the normal flow should continue.
+
+async function runSportCenterAvailabilityGate({
+  session,
+  message,
+  newCollected,
+  existingCollected,
+  requiredFieldNames,
+  completeness,
+  stillMissingDocs,
+  companyId,
+  now,
+  dataFields,
+}: {
+  session: IntakeSession;
+  message: string;
+  newCollected: Record<string, unknown>;
+  existingCollected: Record<string, unknown>;
+  requiredFieldNames: string[];
+  completeness: ReturnType<typeof calculateCompleteness>;
+  stillMissingDocs: string[];
+  companyId: string;
+  now: Date;
+  dataFields: FieldDef[];
+}): Promise<IntakeResult | null> {
+  const fieldType  = String(newCollected.field_type ?? newCollected.field_name  ?? "").trim();
+  const bookingDate = String(newCollected.booking_date ?? "").trim();
+  const startTime   = String(newCollected.start_time   ?? "").trim();
+
+  const prevAvailStatus    = existingCollected._avail_status    as string | undefined;
+  const prevAvailConfirmed = existingCollected._avail_confirmed as boolean | undefined;
+
+  // Detect if user changed date/time since the last check or confirmation
+  const dateChanged = !!existingCollected.booking_date && newCollected.booking_date !== existingCollected.booking_date;
+  const timeChanged = !!existingCollected.start_time   && newCollected.start_time   !== existingCollected.start_time;
+  const slotChanged = dateChanged || timeChanged;
+
+  if (slotChanged) {
+    // Slot changed → clear ALL previous availability state so we re-check fresh
+    delete newCollected._avail_status;
+    delete newCollected._avail_checked;
+    delete newCollected._avail_confirmed;   // ← also reset even if was previously confirmed
+  }
+
+  // If already confirmed (and slot hasn't changed) → gate passes
+  if (prevAvailConfirmed && !slotChanged) return null;
+
+  const currentAvailStatus = newCollected._avail_status as string | undefined;
+
+  // ── Case A: Have field + date + time but haven't checked yet → check now ──
+  if (fieldType && bookingDate && startTime && !currentAvailStatus) {
+    logger.info({ companyId, fieldType, bookingDate, startTime }, "IntakeEngine: running sport center availability check");
+    const durationHours = extractDurationHours(newCollected);
+    const avail = await checkSportCenterAvailability({ fieldType, bookingDate, startTime, durationHours, companyId });
+
+    newCollected._avail_status  = avail.isAvailable ? "available" : "unavailable";
+    newCollected._avail_checked = true;
+
+    const [updated] = await db
+      .update(intakeSessionsTable)
+      .set({
+        collectedFields:   newCollected,
+        missingFields:     completeness.missingFieldNames,
+        requiredFields:    requiredFieldNames,
+        completionPct:     String(completeness.completionPct),
+        lastQuestion:      avail.message,
+        lastMessage:       message,
+        lastMessageAt:     now,
+        updatedAt:         now,
+        expiresAt:         new Date(Date.now() + 24 * 60 * 60 * 1000),
+      })
+      .where(eq(intakeSessionsTable.id, session.id))
+      .returning();
+
+    return {
+      action:            "continue_collecting",
+      session:           updated!,
+      replyToUser:       avail.message,
+      collectedFields:   newCollected,
+      missingFields:     completeness.missingFieldNames,
+      requiredDocuments: stillMissingDocs,
+    };
+  }
+
+  // ── Case B: Slot available, waiting for user confirmation ─────────────────
+  if (currentAvailStatus === "available") {
+    if (isAvailabilityConfirmation(message)) {
+      // User confirmed → mark and fall through to normal flow
+      newCollected._avail_confirmed = true;
+      return null;
+    }
+
+    // User replied with something other than confirmation — might be new date/time
+    // (already handled above if date/time changed); if no change, ask again.
+    if (!dateChanged && !timeChanged) {
+      const askAgain =
+        `Apakah Anda ingin booking lapangan *${fieldType}* di jadwal tersebut?\n` +
+        `Balas *"ya"* untuk konfirmasi, atau berikan tanggal/jam lain yang Anda inginkan.`;
+
+      const [updated] = await db
+        .update(intakeSessionsTable)
+        .set({
+          collectedFields:   newCollected,
+          lastQuestion:      askAgain,
+          lastMessage:       message,
+          lastMessageAt:     now,
+          updatedAt:         now,
+          expiresAt:         new Date(Date.now() + 24 * 60 * 60 * 1000),
+        })
+        .where(eq(intakeSessionsTable.id, session.id))
+        .returning();
+
+      return {
+        action:            "continue_collecting",
+        session:           updated!,
+        replyToUser:       askAgain,
+        collectedFields:   newCollected,
+        missingFields:     completeness.missingFieldNames,
+        requiredDocuments: stillMissingDocs,
+      };
+    }
+    // Date/time changed → fall through (Case A will fire on the next iteration
+    // because we deleted _avail_status above)
+    return null;
+  }
+
+  // ── Case C: Slot unavailable, and user hasn't changed date/time yet ───────
+  if (currentAvailStatus === "unavailable" && !dateChanged && !timeChanged) {
+    // Prompt user to pick another slot — but only if they didn't already give new info
+    const hasNewDate = !existingCollected.booking_date && bookingDate;
+    const hasNewTime = !existingCollected.start_time && startTime;
+    if (hasNewDate || hasNewTime) {
+      // New slot info just arrived — clear status and let Case A re-check
+      delete newCollected._avail_status;
+      return null;
+    }
+    // No new info — just remind them to pick another slot
+    const reminder =
+      `Jadwal tersebut sudah terisi. Silakan berikan tanggal dan jam lain yang Anda inginkan.`;
+
+    const [updated] = await db
+      .update(intakeSessionsTable)
+      .set({
+        collectedFields:   newCollected,
+        lastMessage:       message,
+        lastMessageAt:     now,
+        updatedAt:         now,
+        expiresAt:         new Date(Date.now() + 24 * 60 * 60 * 1000),
+      })
+      .where(eq(intakeSessionsTable.id, session.id))
+      .returning();
+
+    return {
+      action:            "continue_collecting",
+      session:           updated!,
+      replyToUser:       reminder,
+      collectedFields:   newCollected,
+      missingFields:     completeness.missingFieldNames,
+      requiredDocuments: stillMissingDocs,
+    };
+  }
+
+  // Gate not applicable (e.g. missing field+date+time) → normal flow collects them
+  return null;
+}
+
 // ─── Find active session ───────────────────────────────────────────────────────
 
 export async function findActiveIntakeSession(
@@ -563,6 +737,29 @@ export async function processIntakeMessage({
   } catch { /* non-fatal */ }
 
   const now = new Date();
+
+  // ── 6-SPORT: Sport Center availability gate ────────────────────────────────
+  // Runs for booking_lapangan / sport_center_booking intents BEFORE the
+  // isComplete check.  Intercepts the flow to:
+  //   A. Check availability once date + time + field_type are known
+  //   B. Show available/unavailable result + ask for confirmation
+  //   C. Let flow continue only after user confirms
+  if (isSportCenterBookingIntent(session.intentCode)) {
+    const gateResult = await runSportCenterAvailabilityGate({
+      session,
+      message,
+      newCollected,
+      existingCollected,
+      requiredFieldNames,
+      completeness,
+      stillMissingDocs,
+      companyId,
+      now,
+      dataFields,
+    });
+    if (gateResult !== null) return gateResult;
+    // null → gate satisfied (confirmed or not applicable) → fall through
+  }
 
   // 6a. If no template fields defined at all → treat as complete immediately
   if (!hasTemplateFields || isComplete) {

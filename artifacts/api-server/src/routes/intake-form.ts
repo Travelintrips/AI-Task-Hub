@@ -42,6 +42,7 @@ import { createAdminNotification } from "../lib/admin-notifications";
 import { MINI_FORM_CONFIGS, getFormConfig } from "../lib/mini-form-config";
 import type { MiniFormFieldDef } from "../lib/mini-form-config";
 import { sendFonnte } from "../lib/fonnte";
+import { saveSportCenterBooking, extractDurationHours } from "../lib/sport-center-availability";
 
 const router: IRouter = Router();
 
@@ -317,6 +318,24 @@ router.post("/public/mini-form/:type/:token", async (req, res): Promise<void> =>
         .returning();
 
       taskId = newTask!.id;
+
+      // ── Sport Center: save booking record for future availability checks ──
+      if (type === "field-booking" || session.intentCode.toLowerCase().includes("booking_lapangan") || session.intentCode.toLowerCase().includes("sport_center")) {
+        const endTime = String(merged.end_time ?? "").trim() || undefined;
+        await saveSportCenterBooking({
+          companyId: session.companyId,
+          aiTaskId: taskId,
+          intakeSessionId: session.id,
+          fieldType: String(merged.field_type ?? merged.field_name ?? "Umum"),
+          bookingDate: String(merged.booking_date ?? ""),
+          startTime: String(merged.start_time ?? ""),
+          endTime: endTime ?? null,
+          durationHours: extractDurationHours(merged),
+          bookerName: String(merged.booker_name ?? "").trim() || null,
+          phone: session.phone,
+          notes: String(merged.notes ?? "").trim() || null,
+        }).catch((e) => logger.warn({ e }, "intake-form: saveSportCenterBooking failed (non-fatal)"));
+      }
 
       await createAdminNotification({
         type: "new_inquiry",

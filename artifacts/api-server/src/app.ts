@@ -1024,6 +1024,30 @@ if (supabasePool) {
     `);
     await supabasePool!.query(`CREATE INDEX IF NOT EXISTS notif_recv_company_idx  ON notification_receivers(company_id)`);
     await supabasePool!.query(`CREATE INDEX IF NOT EXISTS notif_recv_category_idx ON notification_receivers(company_id, category)`);
+
+    // ── sport_center_bookings ─────────────────────────────────────────────────
+    // Stores confirmed field bookings so availability can be checked before form.
+    await supabasePool!.query(`
+      CREATE TABLE IF NOT EXISTS sport_center_bookings (
+        id                 SERIAL PRIMARY KEY,
+        company_id         TEXT NOT NULL DEFAULT 'default',
+        ai_task_id         INTEGER,
+        intake_session_id  INTEGER,
+        field_type         TEXT NOT NULL DEFAULT 'Umum',
+        booking_date       DATE NOT NULL,
+        start_time         TEXT NOT NULL,
+        end_time           TEXT,
+        duration_hours     NUMERIC(4,2),
+        booker_name        TEXT,
+        phone              TEXT,
+        status             TEXT NOT NULL DEFAULT 'pending',
+        notes              TEXT,
+        created_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at         TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS sc_bookings_date_idx  ON sport_center_bookings(company_id, booking_date)`);
+    await supabasePool!.query(`CREATE INDEX IF NOT EXISTS sc_bookings_field_idx ON sport_center_bookings(company_id, field_type, booking_date)`);
   };
   runCoreMigrations()
     .then(() => logger.info("Core table migrations OK"))
