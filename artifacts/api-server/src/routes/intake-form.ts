@@ -141,12 +141,14 @@ router.get("/public/mini-form/:type/:token", async (req, res): Promise<void> => 
       : [];
 
     // Auto-inject phone from session so it's always pre-filled.
-    // The AI pipeline may list "phone" in missingFields even though it's not a
-    // visible form field — we know the sender's number, so populate it here.
+    // session.phone comes LAST so collectedFields {phone:null} cannot override the known WA number.
     const collectedFields = {
-      phone: session.phone,
       ...((session.collectedFields as Record<string, unknown>) ?? {}),
+      ...(session.phone ? { phone: session.phone } : {}),
     };
+
+    // Never show "phone" as a missing field — we always know it from the WA session.
+    const missingFields = ((session.missingFields ?? []) as string[]).filter((f) => f !== "phone");
 
     res.json({
       status: session.status,
@@ -158,7 +160,7 @@ router.get("/public/mini-form/:type/:token", async (req, res): Promise<void> => 
       builtinFields: formCfg.fields,
       customFields,
       collectedFields,
-      missingFields: session.missingFields ?? [],
+      missingFields,
       requiredDocuments: session.requiredDocuments ?? [],
       uploadedDocuments: session.uploadedDocuments ?? [],
     });
@@ -202,12 +204,13 @@ router.post("/public/mini-form/:type/:token", async (req, res): Promise<void> =>
       res.status(410).json({ error: "Sesi ini sudah tidak aktif" }); return;
     }
 
-    // Merge: session phone (always known) + existing collected fields + new submitted fields.
-    // Phone is auto-provided from the WA sender — never leave it missing.
+    // Merge: existing collected fields + new submitted fields + session phone last (always wins).
+    // session.phone comes LAST so collectedFields {phone:null} or body.fields {phone:""} cannot override it.
     const merged: Record<string, unknown> = {
-      phone: session.phone,
       ...((session.collectedFields as Record<string, unknown>) ?? {}),
       ...body.fields,
+      // Always override phone with the authoritative WA sender number from the session.
+      ...(session.phone ? { phone: session.phone } : {}),
     };
 
     // Calculate missing required fields from builtin + missing list
@@ -215,8 +218,11 @@ router.post("/public/mini-form/:type/:token", async (req, res): Promise<void> =>
       .filter((f: MiniFormFieldDef) => f.required && f.type !== "file")
       .map((f: MiniFormFieldDef) => f.name);
 
-    const prevMissing = Array.isArray(session.missingFields) ? (session.missingFields as string[]) : [];
-    const allRequired = Array.from(new Set([...requiredBuiltinNames, ...prevMissing]));
+    // "phone" is always provided by the WA session — remove it from the required list.
+    const prevMissing = (Array.isArray(session.missingFields) ? (session.missingFields as string[]) : [])
+      .filter((f) => f !== "phone");
+    const allRequired = Array.from(new Set([...requiredBuiltinNames, ...prevMissing]))
+      .filter((f) => f !== "phone");
     const stillMissing = allRequired.filter(
       (f) => !merged[f] || String(merged[f]).trim() === "",
     );
