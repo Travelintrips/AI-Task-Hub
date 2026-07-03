@@ -56,36 +56,39 @@ interface NotificationReceiver {
   updatedAt: string;
 }
 
+// Kategori yang ditampilkan di dropdown "Tambah Nomor".
+// Nama di sini adalah yang disimpan ke DB — sistem akan otomatis mencocokkan alias-nya.
+// Contoh: "Trucking" = alias dari "Logistik", "PPJK" = alias dari "Customs".
 const PRESET_CATEGORIES = [
-  "Sport Center",
-  "Trucking",
-  "Logistik",
-  "PPJK",
-  "Customs",
-  "Pengadaan",
-  "Fleet",
+  "Sport Center",      // Booking lapangan olahraga
+  "Trucking",          // Pengiriman / Logistik darat (alias: Logistik)
+  "PPJK",             // Bea cukai / customs (alias: Customs)
+  "Finance",           // Kasbon / keuangan / pembayaran
+  "Fleet",             // Armada / kendaraan
+  "Tenant",            // Properti / sewa
+  "Pengadaan",         // Purchasing / vendor
+  "Umum",              // General inquiry / pertanyaan umum
   "Vendor",
   "Driver",
   "Customer",
-  "Finance",
   "HR",
-  "Umum",
 ];
 
 const CATEGORY_COLORS: Record<string, string> = {
   "Sport Center": "bg-green-100 text-green-800",
-  "Trucking": "bg-blue-100 text-blue-800",
-  "Logistik": "bg-orange-100 text-orange-800",
-  "PPJK": "bg-cyan-100 text-cyan-800",
-  "Customs": "bg-amber-100 text-amber-800",
-  "Pengadaan": "bg-purple-100 text-purple-800",
-  "Fleet": "bg-sky-100 text-sky-800",
-  "Vendor": "bg-yellow-100 text-yellow-800",
-  "Driver": "bg-red-100 text-red-800",
-  "Customer": "bg-pink-100 text-pink-800",
-  "Finance": "bg-teal-100 text-teal-800",
-  "HR": "bg-indigo-100 text-indigo-800",
-  "Umum": "bg-gray-100 text-gray-700",
+  "Trucking":     "bg-blue-100 text-blue-800",
+  "Logistik":     "bg-blue-100 text-blue-800",
+  "PPJK":         "bg-cyan-100 text-cyan-800",
+  "Customs":      "bg-cyan-100 text-cyan-800",
+  "Finance":      "bg-teal-100 text-teal-800",
+  "Fleet":        "bg-sky-100 text-sky-800",
+  "Tenant":       "bg-violet-100 text-violet-800",
+  "Pengadaan":    "bg-purple-100 text-purple-800",
+  "Umum":         "bg-gray-100 text-gray-700",
+  "Vendor":       "bg-yellow-100 text-yellow-800",
+  "Driver":       "bg-red-100 text-red-800",
+  "Customer":     "bg-pink-100 text-pink-800",
+  "HR":           "bg-indigo-100 text-indigo-800",
 };
 
 function getCategoryColor(category: string) {

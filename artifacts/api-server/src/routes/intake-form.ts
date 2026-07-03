@@ -9,7 +9,25 @@
  */
 
 import { Router, type IRouter } from "express";
-import { eq, and, or } from "drizzle-orm";
+import { eq, and, or, inArray } from "drizzle-orm";
+
+// ── Kategori alias — mapping dari nama internal sistem → nama yang dipakai di Penerima Notifikasi
+// Ini memungkinkan admin menambahkan penerima dengan nama yang lebih familiar (misal "Trucking")
+// meskipun sistem secara internal menggunakan nama berbeda (misal "Logistik").
+const CATEGORY_ALIASES: Record<string, string[]> = {
+  "Logistik":     ["Logistik", "Trucking", "Freight", "Pengiriman", "Sea Freight", "Air Freight"],
+  "Customs":      ["Customs", "PPJK", "Bea Cukai", "PPJK/Customs"],
+  "Finance":      ["Finance", "Kasbon", "Keuangan", "Pembayaran"],
+  "Fleet":        ["Fleet", "Armada", "Kendaraan", "Fleet Management"],
+  "Tenant":       ["Tenant", "Properti", "Sewa Properti"],
+  "Sport Center": ["Sport Center", "Lapangan", "Olahraga", "Booking Lapangan"],
+  "Umum":         ["Umum", "General", "General Inquiry", "Pertanyaan"],
+};
+
+/** Kembalikan semua alias untuk sebuah kategori (termasuk kategori itu sendiri) */
+function getCategoryAliases(category: string): string[] {
+  return CATEGORY_ALIASES[category] ?? [category];
+}
 import {
   db,
   intakeSessionsTable,
@@ -333,7 +351,15 @@ router.post("/public/mini-form/:type/:token", async (req, res): Promise<void> =>
           "intake-form: resolving notification receiver category",
         );
 
-        // Cari penerima aktif yang match kategori (OR fallback ke category dari session)
+        // Kumpulkan semua alias kategori yang perlu dicek
+        // Misal: intent "Logistik" → cari penerima dengan kategori "Logistik" ATAU "Trucking" ATAU "Freight" dll.
+        const aliasSet = new Set<string>();
+        if (resolvedCategory) getCategoryAliases(resolvedCategory).forEach(a => aliasSet.add(a));
+        if (session.category) getCategoryAliases(session.category).forEach(a => aliasSet.add(a));
+        if (aliasSet.size === 0) getCategoryAliases(effectiveCategory).forEach(a => aliasSet.add(a));
+        const categoryList = Array.from(aliasSet);
+
+        // Cari penerima aktif yang match salah satu alias kategori
         const receivers = await db
           .select()
           .from(notificationReceiversTable)
@@ -341,12 +367,9 @@ router.post("/public/mini-form/:type/:token", async (req, res): Promise<void> =>
             and(
               eq(notificationReceiversTable.companyId, session.companyId),
               eq(notificationReceiversTable.isActive, true),
-              resolvedCategory && session.category && resolvedCategory !== session.category
-                ? or(
-                    eq(notificationReceiversTable.category, resolvedCategory),
-                    eq(notificationReceiversTable.category, session.category),
-                  )
-                : eq(notificationReceiversTable.category, effectiveCategory),
+              categoryList.length === 1
+                ? eq(notificationReceiversTable.category, categoryList[0]!)
+                : inArray(notificationReceiversTable.category, categoryList),
             ),
           );
 
