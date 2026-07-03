@@ -213,6 +213,11 @@ router.post("/public/mini-form/:type/:token", async (req, res): Promise<void> =>
       ...(session.phone ? { phone: session.phone } : {}),
     };
 
+    // Auto-alias field_name ↔ field_type — the AI session uses "field_name" but the
+    // field-booking form config uses "field_type" for the same "Jenis Lapangan" field.
+    if (!merged.field_name && merged.field_type) merged.field_name = merged.field_type;
+    if (!merged.field_type && merged.field_name) merged.field_type = merged.field_name;
+
     // Auto-compute end_time from start_time + duration so users never have to fill it manually.
     // This covers field-booking and any form where the AI asks for end_time but the form only shows start + duration.
     if (!merged.end_time && merged.start_time && merged.duration) {
