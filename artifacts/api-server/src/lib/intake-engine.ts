@@ -63,10 +63,18 @@ export function isCancellation(message: string): boolean {
 // Pesan-pesan ini menandakan user memulai ulang percakapan.
 // Sesi aktif yang ada harus di-cancel agar user bisa mulai dari awal.
 
-const GREETING_PATTERNS = /^(halo|hallo|helo|hai|haii|hi|hey|hei|hello|selamat pagi|selamat siang|selamat sore|selamat malam|pagi|siang|sore|malam|assalamualaikum|assalamu'?alaikum|salamualaikum|waalaikumsalam|test|ping|terima kasih|makasih|trims|ok|oke|iya|ya|thanks|tq|thx|noted|siap)\s*[!.?]*$/i;
+// Opener greetings: trigger session reset + full welcome menu
+const GREETING_OPENER_PATTERNS = /^(halo|hallo|helo|hai|haii|hi|hey|hei|hello|selamat pagi|selamat siang|selamat sore|selamat malam|pagi|siang|sore|malam|assalamualaikum|assalamu'?alaikum|salamualaikum|waalaikumsalam|test|ping)\s*[!.?]*$/i;
+
+// Closing phrases: user wrapping up — send simple ack, no session reset, no menu
+const CLOSING_PHRASE_PATTERNS = /^(terima kasih|terimakasih|makasih|trims|ok|oke|iya|ya|thanks|tq|thx|noted|siap|baik|oke siap|ok siap)\s*[!.?]*$/i;
 
 export function isGreeting(message: string): boolean {
-  return GREETING_PATTERNS.test(message.trim());
+  return GREETING_OPENER_PATTERNS.test(message.trim());
+}
+
+export function isClosingPhrase(message: string): boolean {
+  return CLOSING_PHRASE_PATTERNS.test(message.trim());
 }
 
 // ─── Load template fields from DB ─────────────────────────────────────────────
@@ -290,13 +298,63 @@ Kembalikan HANYA teks pertanyaannya, tanpa salam, tanpa penjelasan tambahan.`;
 
 // ─── Generate completion summary ───────────────────────────────────────────────
 
+// Hardcoded fallback labels for common fields when dataFields is not available
+const FIELD_LABEL_FALLBACK: Record<string, string> = {
+  // Trucking / Freight
+  pickup_address:      "Alamat Pickup",
+  delivery_address:    "Alamat Tujuan",
+  cargo_type:          "Jenis Muatan",
+  cargo_weight:        "Berat Muatan (kg)",
+  cargo_volume:        "Volume (m³)",
+  vehicle_type:        "Jenis Kendaraan",
+  pickup_date:         "Tanggal Pickup",
+  contact_person:      "Nama Kontak",
+  phone:               "No. HP / WhatsApp",
+  notes:               "Catatan Tambahan",
+  // Sport Center
+  booker_name:         "Nama Pemesan",
+  field_type:          "Jenis Lapangan",
+  field_name:          "Jenis Lapangan",
+  booking_date:        "Tanggal Main",
+  start_time:          "Jam Mulai",
+  end_time:            "Jam Selesai",
+  duration:            "Durasi Sewa",
+  durasi:              "Durasi Sewa",
+  payment_method:      "Metode Pembayaran",
+  // Freight
+  origin_country:      "Negara Asal",
+  destination_country: "Negara Tujuan",
+  commodity:           "Jenis Komoditi",
+  gross_weight:        "Berat Kotor (kg)",
+  volume:              "Volume (m³/CBM)",
+  // Kasbon / Fleet
+  amount:              "Jumlah",
+  purpose:             "Keperluan",
+  needed_date:         "Tanggal Dibutuhkan",
+  plate_number:        "Nomor Plat",
+  description:         "Keterangan",
+};
+
 async function generateCompletionMessage(
   intentCode: string,
   collectedFields: Record<string, unknown>,
+  dataFields?: FieldDef[],
 ): Promise<string> {
+  // Build label map: DB template fields take priority, fallback map as backup
+  const labelMap: Record<string, string> = { ...FIELD_LABEL_FALLBACK };
+  if (dataFields && dataFields.length > 0) {
+    for (const f of dataFields) {
+      labelMap[f.fieldName] = f.fieldLabel;
+    }
+  }
+
+  // Skip internal/system fields from the summary
+  const SKIP_KEYS = new Set(["phone", "companyId", "sessionId"]);
+
   const fieldSummary = Object.entries(collectedFields)
+    .filter(([k]) => !SKIP_KEYS.has(k))
     .slice(0, 8)
-    .map(([k, v]) => `• ${k}: ${String(v)}`)
+    .map(([k, v]) => `• ${labelMap[k] ?? k}: ${String(v)}`)
     .join("\n");
 
   return `✅ Terima kasih! Data Anda sudah lengkap.\n\n*Ringkasan permintaan:*\n${fieldSummary}\n\nTim kami akan segera menghubungi Anda. Mohon tunggu konfirmasi dari kami ya! 🙏`;
@@ -560,7 +618,7 @@ export async function processIntakeMessage({
       };
     }
 
-    const completionMsg = await generateCompletionMessage(session.intentCode, newCollected);
+    const completionMsg = await generateCompletionMessage(session.intentCode, newCollected, dataFields);
 
     return {
       action: "ready_for_task",

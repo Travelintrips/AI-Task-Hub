@@ -26,6 +26,7 @@ import {
   startIntakeSession,
   markIntakeSubmitted,
   isGreeting,
+  isClosingPhrase,
 } from "../lib/intake-engine";
 import { routeIntentToFlow } from "../lib/mini-form-router";
 import { getFormConfig } from "../lib/mini-form-config";
@@ -531,6 +532,23 @@ async function runAiDetection({
     // If customer is mid-conversation collecting data, continue that session
     // instead of detecting a new intent.
     const activeSession = await findActiveIntakeSession(from, companyId);
+
+    // ── Step 0a-pre: Closing phrase gate — "terima kasih", "ok", "siap", etc.
+    // These are conversation-enders, not new requests. Respond with a simple
+    // acknowledgment and return. Do NOT cancel sessions or show the full menu.
+    if (isClosingPhrase(bodyText)) {
+      logger.info({ from, msg: bodyText }, "Closing phrase detected — sending simple ack, skipping AI");
+      const closingReply = `Sama-sama! 😊 Jika ada kebutuhan lain, jangan ragu untuk menghubungi kami ya.`;
+      await sendFonnte(from, closingReply, fonnteDevice).catch((e) =>
+        logger.warn({ e }, "closing: failed to send ack reply"),
+      );
+      await db
+        .update(whatsappMessagesTable)
+        .set({ aiProcessed: true, detectedIntent: "general_inquiry" })
+        .where(eq(whatsappMessagesTable.id, savedMsgId))
+        .catch((e) => logger.warn({ e }, "closing: failed to mark aiProcessed"));
+      return;
+    }
 
     // ── Step 0a: Greeting gate — intercept BEFORE any session or AI detection.
     // When user sends a simple greeting, cancel all active sessions and respond
