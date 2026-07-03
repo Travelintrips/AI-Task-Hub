@@ -213,16 +213,38 @@ router.post("/public/mini-form/:type/:token", async (req, res): Promise<void> =>
       ...(session.phone ? { phone: session.phone } : {}),
     };
 
+    // Auto-compute end_time from start_time + duration so users never have to fill it manually.
+    // This covers field-booking and any form where the AI asks for end_time but the form only shows start + duration.
+    if (!merged.end_time && merged.start_time && merged.duration) {
+      const durationMap: Record<string, number> = {
+        "1 jam": 60, "1,5 jam": 90, "1.5 jam": 90,
+        "2 jam": 120, "3 jam": 180, "4 jam": 240,
+        "90 menit": 90, "60 menit": 60, "45 menit": 45,
+      };
+      const startStr = String(merged.start_time); // e.g. "11:00"
+      const durationStr = String(merged.duration);
+      const addMinutes = durationMap[durationStr.toLowerCase()];
+      if (addMinutes && /^\d{1,2}:\d{2}$/.test(startStr)) {
+        const [h, m] = startStr.split(":").map(Number);
+        const totalMin = (h ?? 0) * 60 + (m ?? 0) + addMinutes;
+        const endH = Math.floor(totalMin / 60) % 24;
+        const endM = totalMin % 60;
+        merged.end_time = `${String(endH).padStart(2, "0")}:${String(endM).padStart(2, "0")}`;
+      }
+    }
+
     // Calculate missing required fields from builtin + missing list
     const requiredBuiltinNames = formCfg.fields
       .filter((f: MiniFormFieldDef) => f.required && f.type !== "file")
       .map((f: MiniFormFieldDef) => f.name);
 
     // "phone" is always provided by the WA session — remove it from the required list.
+    // "end_time" is always auto-computed from start_time + duration — never require user input for it.
+    const ALWAYS_EXCLUDE = new Set(["phone", "end_time"]);
     const prevMissing = (Array.isArray(session.missingFields) ? (session.missingFields as string[]) : [])
-      .filter((f) => f !== "phone");
+      .filter((f) => !ALWAYS_EXCLUDE.has(f));
     const allRequired = Array.from(new Set([...requiredBuiltinNames, ...prevMissing]))
-      .filter((f) => f !== "phone");
+      .filter((f) => !ALWAYS_EXCLUDE.has(f));
     const stillMissing = allRequired.filter(
       (f) => !merged[f] || String(merged[f]).trim() === "",
     );
