@@ -429,20 +429,35 @@ async function runSportCenterAvailabilityGate({
   ]);
   const isGenericFieldType = !fieldType || GENERIC_FIELD_TYPES.has(fieldType.toLowerCase().trim());
 
+  // ── Numbered menu for lapangan selection ──────────────────────────────────
+  const FIELD_MENU_OPTIONS: Record<string, string> = {
+    "1": "Badminton",
+    "2": "Futsal",
+    "3": "Tennis",
+    "4": "Basketball",
+    "5": "Voli",
+    "6": "Squash",
+  };
+  const FIELD_MENU_TEXT =
+    `🏟️ Pilih lapangan yang ingin Anda booking:\n\n` +
+    `1️⃣ Badminton\n` +
+    `2️⃣ Futsal\n` +
+    `3️⃣ Tennis\n` +
+    `4️⃣ Basketball\n` +
+    `5️⃣ Voli\n` +
+    `6️⃣ Squash\n\n` +
+    `Balas dengan *nomor* atau *nama lapangan* yang Anda pilih.`;
+
   const missingSlot = !bookingDate || !startTime;
   if (missingSlot && !prevAvailStatus) {
     // Build a tailored question depending on what's already known
     let openingQ: string;
     if (isGenericFieldType && !bookingDate && !startTime) {
-      // No specific field, no date, no time → ask everything at once
-      openingQ =
-        `🏟️ Lapangan apa yang ingin Anda booking, dan tanggal serta jam berapa?\n\n` +
-        `_(Contoh: "Badminton, 5 Juli jam 10:00")_`;
+      // No specific field, no date, no time → show menu first
+      openingQ = FIELD_MENU_TEXT;
     } else if (isGenericFieldType && (bookingDate || startTime)) {
-      // Has date/time but field is still generic → ask which specific lapangan
-      openingQ =
-        `🏟️ Lapangan mana yang ingin Anda booking?\n\n` +
-        `_(Contoh: Badminton, Futsal, Tennis, Basketball, dll.)_`;
+      // Has date/time but field is still generic → show menu
+      openingQ = FIELD_MENU_TEXT;
     } else if (!isGenericFieldType && (!bookingDate || !startTime)) {
       // Has specific field type but missing date/time
       const missingParts: string[] = [];
@@ -765,8 +780,21 @@ export async function processIntakeMessage({
     ? `Pertanyaan sebelumnya: "${session.lastQuestion}"`
     : "";
 
+  // ── Pre-process: map numbered menu reply → lapangan name for sport center ──
+  // If the last question was the lapangan menu and user replied with "1"–"6",
+  // convert it to the actual field name so GPT can extract correctly.
+  const FIELD_MENU_MAP: Record<string, string> = {
+    "1": "Badminton", "2": "Futsal", "3": "Tennis",
+    "4": "Basketball", "5": "Voli", "6": "Squash",
+  };
+  const isMenuQuestion = session.lastQuestion?.includes("Pilih lapangan yang ingin Anda booking") ?? false;
+  const trimmedMsg = message.trim();
+  const mappedMessage = (isMenuQuestion && FIELD_MENU_MAP[trimmedMsg])
+    ? FIELD_MENU_MAP[trimmedMsg]!
+    : message;
+
   const newCollected = await extractFieldsFromMessage(
-    message,
+    mappedMessage,
     dataFields,
     existingCollected,
     session.intentCode,
