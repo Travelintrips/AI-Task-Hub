@@ -797,10 +797,22 @@ export async function processIntakeMessage({
   };
   const isMenuQuestion = session.lastQuestion?.includes("Pilih lapangan yang ingin Anda booking") ?? false;
   const trimmedMsg = message.trim();
-  const menuLapangan = isMenuQuestion ? (FIELD_MENU_MAP[trimmedMsg] ?? null) : null;
+
+  // Belt-and-suspenders: even if lastQuestion doesn't match the menu text
+  // (e.g. due to encoding issues or session state drift), treat a single digit
+  // "1"–"6" as a menu selection when: (a) sport_center_booking session AND
+  // (b) no field_type has been collected yet.
+  const isDigitMenuReply =
+    !isMenuQuestion &&
+    isSportCenterBookingIntent(session.intentCode) &&
+    /^[1-6]$/.test(trimmedMsg) &&
+    !existingCollected.field_type &&
+    !existingCollected.field_name;
+
+  const menuLapangan = (isMenuQuestion || isDigitMenuReply) ? (FIELD_MENU_MAP[trimmedMsg] ?? null) : null;
 
   // Also try to match by name directly (e.g. user types "Futsal" instead of "2")
-  const namedLapangan = isMenuQuestion && !menuLapangan
+  const namedLapangan = (isMenuQuestion || isDigitMenuReply) && !menuLapangan
     ? Object.values(FIELD_MENU_MAP).find(
         (v) => v.toLowerCase() === trimmedMsg.toLowerCase(),
       ) ?? null

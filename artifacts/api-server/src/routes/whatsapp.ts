@@ -371,12 +371,18 @@ export async function processIncomingMessage({
   rawPayload: Record<string, unknown>;
   fonnteDevice?: string | null;
 }): Promise<void> {
-  const from =
+  // Normalize phone number: Fonnte can send numbers with @s.whatsapp.net or @c.us suffix
+  // which would break session lookup (stored phone never has the suffix).
+  const rawFrom =
     (msg?.from as string | undefined) ??
     (msg?.sender as string | undefined) ??
     (msg?.sender_phone as string | undefined) ??
     (msg?.phone as string | undefined) ??
     "unknown";
+  // For group JIDs (ends @g.us) keep as-is; for individual phones, strip WA suffixes and normalize.
+  const from = rawFrom === "unknown"
+    ? "unknown"
+    : (normalizePhone(rawFrom) ?? rawFrom);
 
   // When message comes from a WA group, reply to the group JID (not the member's private number)
   const replyTo = (msg?.group_jid as string | undefined) ?? from;
@@ -1000,6 +1006,39 @@ async function runAiDetection({
     const isGeneralInquiry = result.intent === "general_inquiry";
     if (!isGeneralInquiry && result._resolution && isSportCenterBookingIntent(result.intent)) {
       logger.info({ from, intent: result.intent }, "Sport Center booking detected — forcing conversation-first flow");
+
+      // Safety guard: re-check for an active session here. The initial check at
+      // Step 0 (line ~559) might have returned null due to a race condition or
+      // transient DB error. If a session now exists, route the message through
+      // it instead of creating a new one (which would cancel the old session).
+      const existingSessionGuard = await findActiveIntakeSession(from, companyId).catch(() => null);
+      if (existingSessionGuard) {
+        logger.info(
+          { from, sessionId: existingSessionGuard.id },
+          "Sport Center path: active session found on re-check — routing to processIntakeMessage instead",
+        );
+        const guardResult = await processIntakeMessage({
+          session: existingSessionGuard,
+          message: bodyText,
+          attachmentUrl: attachmentUrl ?? undefined,
+          companyId,
+        }).catch((err) => {
+          logger.error({ err, from }, "Sport Center guard: processIntakeMessage failed");
+          return null;
+        });
+        if (guardResult?.preReply) {
+          await sendFonnte(replyTo, guardResult.preReply, fonnteDevice).catch(() => {});
+        }
+        if (guardResult?.replyToUser) {
+          await sendFonnte(replyTo, guardResult.replyToUser, fonnteDevice).catch(() => {});
+        }
+        await db
+          .update(whatsappMessagesTable)
+          .set({ aiProcessed: true, detectedIntent: `intake:${existingSessionGuard.intentCode}` })
+          .where(eq(whatsappMessagesTable.id, savedMsgId))
+          .catch(() => {});
+        return;
+      }
 
       let scIntakeResult;
       try {
