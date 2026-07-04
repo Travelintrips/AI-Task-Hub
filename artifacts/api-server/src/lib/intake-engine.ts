@@ -429,8 +429,9 @@ async function runSportCenterAvailabilityGate({
 
   // Generic/non-specific field type names that should be treated as "not yet specified"
   const GENERIC_FIELD_TYPES = new Set([
-    "lapangan olahraga", "olahraga", "lapangan", "sport", "gym",
+    "lapangan olahraga", "olahraga", "lapangan", "sport",
     "lapangan sport", "sport center", "fasilitas", "field",
+    // NOTE: "gym" intentionally removed — GYM is now a specific bookable field (option 6)
   ]);
   const isGenericFieldType = !fieldType || GENERIC_FIELD_TYPES.has(fieldType.toLowerCase().trim());
 
@@ -807,6 +808,20 @@ export async function processIntakeMessage({
     session.intentCode,
     sessionHistory,
   );
+
+  // ── Anti-hallucination guard: menu reply only carries field_type ──────────
+  // When user just replied to the lapangan menu (e.g. typed "3" → mapped to
+  // "Tennis"), GPT may hallucinate booking_date/start_time from thin air.
+  // Strip any date/time that wasn't already in existingCollected so the gate
+  // always asks for date+time after field selection.
+  if (isMenuQuestion && FIELD_MENU_MAP[trimmedMsg]) {
+    const DATE_TIME_FIELDS = ["booking_date", "start_time", "end_time", "duration", "durasi"];
+    for (const f of DATE_TIME_FIELDS) {
+      if (!existingCollected[f]) {
+        delete newCollected[f];
+      }
+    }
+  }
 
   // 5. Determine what's still missing
   const requiredFieldNames = dataFields
