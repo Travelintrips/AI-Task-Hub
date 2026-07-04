@@ -963,7 +963,7 @@ async function runAiDetection({
           message: bodyText,
           attachmentUrl: attachmentUrl ?? undefined,
           resolution: result._resolution,
-          miniFormType: "field_booking",
+          miniFormType: "field-booking",
         });
       } catch (scErr) {
         logger.error({ scErr, from }, "Sport Center: startIntakeSession failed — sending fallback question");

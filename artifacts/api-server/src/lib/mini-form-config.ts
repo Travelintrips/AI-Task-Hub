@@ -138,7 +138,9 @@ export const MINI_FORM_CONFIGS: Record<string, MiniFormConfig> = {
 };
 
 export function getFormConfig(type: string): MiniFormConfig | null {
-  return MINI_FORM_CONFIGS[type] ?? null;
+  // Normalize: treat underscore and hyphen as equivalent (e.g. field_booking = field-booking)
+  const normalized = type.replace(/_/g, "-");
+  return MINI_FORM_CONFIGS[normalized] ?? MINI_FORM_CONFIGS[type] ?? null;
 }
 
 /** Determine form type from intent code */
