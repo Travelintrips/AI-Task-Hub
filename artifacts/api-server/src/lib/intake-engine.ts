@@ -850,23 +850,44 @@ export async function processIntakeMessage({
     "1": "Badminton", "2": "Futsal", "3": "Tennis",
     "4": "Basketball", "5": "Voli", "6": "GYM",
   };
+
+  // Keywords that mark a field_type as already-specific (user has chosen a real lapangan).
+  // Uses substring/contains matching so "lapangan futsal", "main futsal", etc. are caught.
+  const SPECIFIC_LAPANGAN_KEYWORDS = ["badminton", "futsal", "tennis", "basketball", "voli", "gym"];
+  const existingFieldTypeLower = String(existingCollected.field_type ?? "").toLowerCase().trim();
+  const existingFieldNameLower = String(existingCollected.field_name ?? "").toLowerCase().trim();
+  // A field is specific only if it contains one of the known lapangan keywords.
+  // Generic values ("lapangan", "lapangan olahraga", "olahraga", "", etc.) are NOT specific.
+  const lapanganAlreadySpecific =
+    SPECIFIC_LAPANGAN_KEYWORDS.some((kw) => existingFieldTypeLower.includes(kw)) ||
+    SPECIFIC_LAPANGAN_KEYWORDS.some((kw) => existingFieldNameLower.includes(kw));
+
+  // Restrict digit interception further: only intercept when the session has NOT yet
+  // run an availability check (i.e. _avail_status is absent). Once availability is
+  // checked/confirmed, numeric answers belong to a different part of the flow.
+  const availAlreadyChecked = !!existingCollected._avail_status || !!existingCollected._avail_confirmed;
+
   const isMenuQuestion = session.lastQuestion?.includes("Pilih lapangan") ?? false;
   const trimmedMsg = message.trim();
 
   // Belt-and-suspenders: even if lastQuestion doesn't match the menu text
-  // (e.g. due to encoding issues or session state drift), treat a single digit
-  // "1"–"6" as a menu selection when: (a) sport_center_booking session AND
-  // (b) no field_type has been collected yet.
+  // (e.g. due to encoding issues, session state drift, or AI extracted a generic
+  // field_type like "lapangan" from the initial message), treat a single digit
+  // "1"–"6" as a menu selection when:
+  //   (a) sport_center_booking session
+  //   (b) lapangan choice is not yet specific (absent OR still generic)
+  //   (c) availability not yet checked (so we're still in the selection phase)
   const isDigitMenuReply =
     !isMenuQuestion &&
     isSportCenterBookingIntent(session.intentCode) &&
     /^[1-6]$/.test(trimmedMsg) &&
-    !existingCollected.field_type &&
-    !existingCollected.field_name;
+    !lapanganAlreadySpecific &&
+    !availAlreadyChecked;
 
   const menuLapangan = (isMenuQuestion || isDigitMenuReply) ? (FIELD_MENU_MAP[trimmedMsg] ?? null) : null;
 
   // Also try to match by name directly (e.g. user types "Futsal" instead of "2")
+  // Also applies when isMenuQuestion=true even for named values
   const namedLapangan = (isMenuQuestion || isDigitMenuReply) && !menuLapangan
     ? Object.values(FIELD_MENU_MAP).find(
         (v) => v.toLowerCase() === trimmedMsg.toLowerCase(),

@@ -37,3 +37,4 @@
 - [Sprint 10B-3 Holding Dashboard](sprint10b3-holding-dashboard.md) — 6 endpoints /api/holding/*; default export router; all queries use supabaseQuery (not db.execute); customers.company_id cast via ::text; RBAC super_admin only; no DB migrations needed (reads existing tables).
 - [Fonnte Echo Loop](fonnte-echo-loop.md) — Fonnte echoes ALL sent messages (quick=true); filter on quick===true + fix double _notifyForTask call; see file for 4 root causes.
 - [Sport Center Availability](sport-center-availability.md) — booking_lapangan gets availability gate (field+date+time → check DB → confirm "ya" → form); sport_center_bookings table; gate resets on slot change.
+- [Sport Center menu loop fix](sport-center-menu-loop.md) — digit 1-6 not recognized as menu reply when AI extracted generic field_type; fixed via keyword-contains check + avail-check guard.
