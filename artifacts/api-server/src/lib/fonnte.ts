@@ -230,7 +230,7 @@ export async function sendFonnte(
  *  Untuk group JID Fonnte (mengandung "@g.us"), dikembalikan apa adanya tanpa modifikasi. */
 export function normalizePhone(raw: string): string | null {
   // Group JID — pass through as-is, Fonnte menerima format ini langsung
-  if (raw.includes("@g.us")) return raw;
+  if (/^\d+@g\.us$/.test(raw)) return raw;
   let num = raw.replace(/\D/g, "");
   if (!num) return null;
   if (num.startsWith("0")) num = "62" + num.slice(1);

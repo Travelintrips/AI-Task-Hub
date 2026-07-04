@@ -45,7 +45,7 @@ function getGroupTargets(): string[] {
   return raw
     .split(",")
     .map((g) => g.trim())
-    .filter((g) => g.includes("@g.us"));
+    .filter((g) => /^\d+@g\.us$/.test(g));
 }
 
 // ─── Template pesan ────────────────────────────────────────────────────────────
