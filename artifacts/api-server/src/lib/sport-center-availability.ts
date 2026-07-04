@@ -282,13 +282,20 @@ function buildAvailableMessage(
   fieldType: string,
   dateIndo: string,
   startTime: string,
-  endTime: string,
+  _endTime: string,
 ): string {
+  // Normalise startTime: strip leading words like "jam", "pukul", "pk" so we
+  // always display the plain HH:MM the user typed (e.g. "12:00" not "jam 12:00").
+  const displayTime = startTime.trim()
+    .replace(/^(pukul|jam|pk|at)\s+/i, "")
+    .replace(/[.,]/g, ":")
+    .replace(/^(\d{1,2})$/, "$1:00"); // "12" → "12:00"
+
   return (
     `✅ *Jadwal Tersedia!*\n\n` +
     `🏟️ Lapangan : *${fieldType}*\n` +
     `📅 Tanggal  : *${dateIndo}*\n` +
-    `⏰ Jam       : *${startTime} – ${endTime}*\n\n` +
+    `⏰ Jam      : *${displayTime}*\n\n` +
     `Apakah Anda ingin booking di jadwal ini?\n` +
     `Balas *"ya"* untuk konfirmasi, lalu kami kirimkan form lengkapnya. 🙏`
   );

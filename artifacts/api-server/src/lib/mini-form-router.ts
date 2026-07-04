@@ -109,7 +109,8 @@ export async function routeIntentToFlow({
   }
 
   // mini_form or hybrid → generate token + create session + send WA link
-  const formType = miniFormType ?? inferFormType(intentCode, category);
+  // Normalize: DB may store "field_booking" (underscore); URLs always use hyphen form.
+  const formType = (miniFormType ?? inferFormType(intentCode, category)).replace(/_/g, "-");
   const formCfg = getFormConfig(formType);
 
   // Hybrid + deferFormSend: caller wants to ask questions first, send form later.
@@ -123,7 +124,9 @@ export async function routeIntentToFlow({
   const existingSession = await findFormSentSession(phone, companyId, intentCode);
   if (existingSession) {
     const baseUrl = getPublicBaseUrl();
-    const existingFormUrl = `${baseUrl}/mini-form/${existingSession.miniFormType}/${existingSession.formToken}`;
+    // Normalize stored miniFormType (DB may have underscore form e.g. "field_booking")
+    const existingFormType = existingSession.miniFormType.replace(/_/g, "-");
+    const existingFormUrl = `${baseUrl}/mini-form/${existingFormType}/${existingSession.formToken}`;
 
     // Resend the existing form link (user may not have seen it or it went to wrong device)
     const resendMsg = `🔗 Link form pemesanan Anda:\n\n${existingFormUrl}\n\nSilakan lengkapi form untuk melanjutkan proses booking. Jika ada pertanyaan, tim kami siap membantu! 🙏`;
