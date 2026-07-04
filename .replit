@@ -71,6 +71,8 @@ OPENAI_BASE_URL = "https://api.openai.com/v1"
 OPENAI_MODEL = "gpt-4o"
 FONNTE_DEVICE_3 = "6287808785098"
 FONNTE_TOKEN_3 = "IoGQPB!5S#7VCSz5AcXw"
+FONNTE_DEVICE_1 = "6281216104734"
+FONNTE_TOKEN_1 = "jEz4NKMr17NBTFv7PZgr"
 
 [userenv.production]
 VITE_SUPABASE_URL = "https://nzdweipzckfszczzqtuw.supabase.co"
