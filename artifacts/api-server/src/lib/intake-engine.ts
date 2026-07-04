@@ -790,37 +790,62 @@ export async function processIntakeMessage({
 
   // ── Pre-process: map numbered menu reply → lapangan name for sport center ──
   // If the last question was the lapangan menu and user replied with "1"–"6",
-  // convert it to the actual field name so GPT can extract correctly.
+  // inject directly WITHOUT calling OpenAI to avoid loop when key is invalid.
   const FIELD_MENU_MAP: Record<string, string> = {
     "1": "Badminton", "2": "Futsal", "3": "Tennis",
     "4": "Basketball", "5": "Voli", "6": "GYM",
   };
   const isMenuQuestion = session.lastQuestion?.includes("Pilih lapangan yang ingin Anda booking") ?? false;
   const trimmedMsg = message.trim();
-  const mappedMessage = (isMenuQuestion && FIELD_MENU_MAP[trimmedMsg])
-    ? FIELD_MENU_MAP[trimmedMsg]!
-    : message;
+  const menuLapangan = isMenuQuestion ? (FIELD_MENU_MAP[trimmedMsg] ?? null) : null;
 
-  const newCollected = await extractFieldsFromMessage(
-    mappedMessage,
-    dataFields,
-    existingCollected,
-    session.intentCode,
-    sessionHistory,
-  );
+  // Also try to match by name directly (e.g. user types "Futsal" instead of "2")
+  const namedLapangan = isMenuQuestion && !menuLapangan
+    ? Object.values(FIELD_MENU_MAP).find(
+        (v) => v.toLowerCase() === trimmedMsg.toLowerCase(),
+      ) ?? null
+    : null;
 
-  // ── Anti-hallucination guard: menu reply only carries field_type ──────────
-  // When user just replied to the lapangan menu (e.g. typed "3" → mapped to
-  // "Tennis"), GPT may hallucinate booking_date/start_time from thin air.
-  // Strip any date/time that wasn't already in existingCollected so the gate
-  // always asks for date+time after field selection.
-  if (isMenuQuestion && FIELD_MENU_MAP[trimmedMsg]) {
-    const DATE_TIME_FIELDS = ["booking_date", "start_time", "end_time", "duration", "durasi"];
+  let newCollected: Record<string, unknown>;
+
+  if (menuLapangan || namedLapangan) {
+    // ── Direct injection — no OpenAI needed ──────────────────────────────
+    // Detect the actual lapangan field key from dataFields so we work with
+    // any template (field_type, field_name, jenis_lapangan, etc.).
+    // Fallback aliases cover the hardcoded FIELD_LABEL_FALLBACK entries.
+    const LAPANGAN_KEY_ALIASES = new Set(["field_type", "field_name", "jenis_lapangan", "lapangan", "nama_lapangan"]);
+    const lapanganFieldKey = dataFields.find(
+      (f) => LAPANGAN_KEY_ALIASES.has(f.fieldName.toLowerCase()),
+    )?.fieldName ?? "field_type"; // safe fallback
+
+    const lapanganValue = menuLapangan ?? namedLapangan!;
+    newCollected = {
+      ...existingCollected,
+      [lapanganFieldKey]: lapanganValue,
+      // Always also set field_type + field_name as aliases so the availability
+      // gate (which reads newCollected.field_type ?? newCollected.field_name)
+      // can always find the value regardless of template key used.
+      field_type: lapanganValue,
+      field_name: lapanganValue,
+    };
+    // Strip date/time if not already collected (anti-hallucination guard)
+    const DATE_TIME_FIELDS = ["booking_date", "start_time", "end_time", "duration", "durasi", "tanggal_booking", "jam_booking"];
     for (const f of DATE_TIME_FIELDS) {
       if (!existingCollected[f]) {
         delete newCollected[f];
       }
     }
+    logger.info({ lapangan: lapanganValue, key: lapanganFieldKey, from: session.phone }, "IntakeEngine: menu reply resolved directly — bypassing OpenAI");
+  } else {
+    // Normal path: call OpenAI to extract fields from free-text message
+    const mappedMessage = message;
+    newCollected = await extractFieldsFromMessage(
+      mappedMessage,
+      dataFields,
+      existingCollected,
+      session.intentCode,
+      sessionHistory,
+    );
   }
 
   // 5. Determine what's still missing
