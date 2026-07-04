@@ -445,7 +445,7 @@ async function runSportCenterAvailabilityGate({
     "6": "GYM",
   };
   const FIELD_MENU_TEXT =
-    `🏟️ Pilih lapangan yang ingin Anda booking:\n\n` +
+    `🏟️ Pilih lapangan/Fasilitas yang ingin Anda booking:\n\n` +
     `1️⃣ Badminton\n` +
     `2️⃣ Futsal\n` +
     `3️⃣ Tennis\n` +
@@ -795,7 +795,7 @@ export async function processIntakeMessage({
     "1": "Badminton", "2": "Futsal", "3": "Tennis",
     "4": "Basketball", "5": "Voli", "6": "GYM",
   };
-  const isMenuQuestion = session.lastQuestion?.includes("Pilih lapangan yang ingin Anda booking") ?? false;
+  const isMenuQuestion = session.lastQuestion?.includes("Pilih lapangan") ?? false;
   const trimmedMsg = message.trim();
 
   // Belt-and-suspenders: even if lastQuestion doesn't match the menu text
