@@ -27,6 +27,7 @@ import {
   markIntakeSubmitted,
   isGreeting,
   isClosingPhrase,
+  isCancellation,
 } from "../lib/intake-engine";
 import { routeIntentToFlow } from "../lib/mini-form-router";
 import { getFormConfig } from "../lib/mini-form-config";
@@ -574,6 +575,37 @@ async function runAiDetection({
         .set({ aiProcessed: true, detectedIntent: "general_inquiry" })
         .where(eq(whatsappMessagesTable.id, savedMsgId))
         .catch((e) => logger.warn({ e }, "closing: failed to mark aiProcessed"));
+      return;
+    }
+
+    // ── Step 0a-pre2: Cancellation gate — "batal", "tidak jadi", "cancel", dll.
+    // Harus dicek SEBELUM AI detection agar tidak jatuh ke fallback generic.
+    // Jika ada active session: cancel session lalu balas. Jika tidak ada: balas langsung.
+    if (isCancellation(bodyText)) {
+      logger.info({ from, msg: bodyText }, "Cancellation phrase detected — cancelling session & sending ack");
+      try {
+        await db
+          .update(intakeSessionsTable)
+          .set({ status: "cancelled", updatedAt: new Date() })
+          .where(
+            and(
+              eq(intakeSessionsTable.phone, from),
+              eq(intakeSessionsTable.companyId, companyId),
+              inArray(intakeSessionsTable.status, ["collecting", "ready_for_task"]),
+            ),
+          );
+      } catch (e) {
+        logger.warn({ e }, "cancellation: failed to cancel active sessions");
+      }
+      const cancelReply = `Baik, permintaan Anda telah dibatalkan. 🙏 Jika ada kebutuhan lain, silakan hubungi kami kembali ya.`;
+      await sendFonnte(replyTo, cancelReply, fonnteDevice).catch((e) =>
+        logger.warn({ e }, "cancellation: failed to send ack reply"),
+      );
+      await db
+        .update(whatsappMessagesTable)
+        .set({ aiProcessed: true, detectedIntent: "cancellation" })
+        .where(eq(whatsappMessagesTable.id, savedMsgId))
+        .catch((e) => logger.warn({ e }, "cancellation: failed to mark aiProcessed"));
       return;
     }
 

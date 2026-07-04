@@ -692,7 +692,70 @@ export async function resolveIntent({
       llmLatencyMs = Date.now() - llmStart;
       raw = resp.choices[0]?.message?.content?.trim() ?? null;
     } catch (aiErr) {
-      logger.error({ aiErr }, "IntentEngine: OpenAI call failed — fallback");
+      logger.error({ aiErr }, "IntentEngine: OpenAI call failed — trying keyword-only routing");
+
+      // ── Keyword-only routing when AI unavailable ───────────────────────────
+      // Jika ada keyword match yang jelas (score >= 0.3), gunakan itu
+      // daripada langsung fallback ke generic "Terima kasih..."
+      if (hints.length > 0 && (hints[0]?.score ?? 0) >= 0.3) {
+        const kwIntent = intents.find((i) => i.intentCode === hints[0].intentCode) ?? null;
+        if (kwIntent) {
+          logger.info(
+            { intentCode: kwIntent.intentCode, score: hints[0].score },
+            "IntentEngine: keyword-only routing (no AI)",
+          );
+          const kwCategory = kwIntent.category ?? "Umum";
+          const [kwDataTpl, kwDocTpl] = await Promise.all([
+            loadDataTemplate(companyId, kwIntent.intentCode, kwCategory).catch(() => null),
+            loadDocTemplate(companyId, kwIntent.intentCode, kwCategory).catch(() => null),
+          ]);
+          const kwPriority = (["low","medium","high","urgent"].includes(kwIntent.suggestedPriority ?? "") ? kwIntent.suggestedPriority : "medium") as IntentResolution["priority"];
+          const kwDocFields = kwDocTpl?.fields ?? [];
+          const kwRes: IntentResolution = {
+            intentCode:           kwIntent.intentCode,
+            intentName:           kwIntent.intentName,
+            matchedIntentId:      kwIntent.id,
+            fallbackUsed:         false,
+            category:             kwCategory,
+            division:             kwIntent.suggestedDivision ?? null,
+            priority:             kwPriority,
+            slaHours:             kwIntent.slaHours ?? 24,
+            routingCode:          kwIntent.intentCode,
+            needsApproval:        false,
+            approvalType:         null,
+            customerName:         customerName ?? null,
+            customerPhone:        customerPhone ?? null,
+            commodity:            null,
+            origin:               null,
+            destination:          null,
+            shipmentType:         null,
+            requestedDate:        null,
+            requiredDataFields:   kwDataTpl?.fields ?? [],
+            missingDataKeys:      kwDataTpl?.fields.map((f) => f.fieldName) ?? [],
+            matchedDataTemplateId: kwDataTpl?.id ?? null,
+            requiredDocuments:    kwDocFields.map((d) => ({
+              documentName: d.fieldLabel ?? d.fieldName,
+              documentType: null,
+              isRequired: d.isRequired ?? true,
+              sortOrder: d.sortOrder ?? 0,
+            })),
+            missingDocuments:     kwDocFields.map((d) => d.fieldLabel ?? d.fieldName),
+            matchedDocTemplateId: kwDocTpl?.id ?? null,
+            matchedServices:      [],
+            needsQuotation:       false,
+            needsDocumentAudit:   false,
+            needsAdminReview:     false,
+            confidenceScore:      "low",
+            keywordScore:         hints[0].score,
+            customerSentiment:    "neutral",
+            suggestedReply:       `Halo! Kami menerima permintaan Anda. Mohon ceritakan lebih lanjut kebutuhan Anda agar tim kami dapat membantu dengan tepat. 🙏`,
+            suggestedTeam:        "Customer Service",
+          };
+          await logDecision(companyId, messageId, messageText.length, kwRes);
+          return kwRes;
+        }
+      }
+
       await logDecision(companyId, messageId, messageText.length, fallback);
       return fallback;
     }
