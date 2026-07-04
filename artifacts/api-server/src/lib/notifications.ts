@@ -35,6 +35,19 @@ function getStaffPhones(): string[] {
     .filter(Boolean);
 }
 
+// ─── WA Group targets dari env ─────────────────────────────────────────────────
+// STAFF_NOTIFY_GROUPS = daftar group JID Fonnte (@g.us), pisahkan dengan koma
+// Contoh: 120363427607305800@g.us,120363500000000000@g.us
+
+function getGroupTargets(): string[] {
+  const raw = process.env.STAFF_NOTIFY_GROUPS ?? "";
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((g) => g.trim())
+    .filter((g) => g.includes("@g.us"));
+}
+
 // ─── Template pesan ────────────────────────────────────────────────────────────
 
 function templateTaskCreated(ctx: TaskNotifContext): string {
@@ -219,6 +232,20 @@ export async function notifyTaskCreated(ctx: TaskNotifContext): Promise<void> {
     );
   }
 
+  // Kirim ke WA group
+  for (const group of getGroupTargets()) {
+    sends.push(
+      sendAndLog({
+        phone:        group,
+        message:      staffMsg,
+        taskId:       ctx.taskId,
+        companyId:    ctx.companyId,
+        recipientType: "staff",
+        templateName: "task_created_group",
+      }),
+    );
+  }
+
   await Promise.allSettled(sends);
 }
 
@@ -296,6 +323,20 @@ export async function notifyTaskCompleted(
     );
   }
 
+  // Kirim ke WA group
+  for (const group of getGroupTargets()) {
+    sends.push(
+      sendAndLog({
+        phone:        group,
+        message:      staffMsg,
+        taskId:       ctx.taskId,
+        companyId:    ctx.companyId,
+        recipientType: "staff",
+        templateName: "task_completed_group",
+      }),
+    );
+  }
+
   await Promise.allSettled(sends);
 }
 
@@ -331,6 +372,20 @@ export async function notifyStatusChanged(ctx: TaskNotifContext, oldStatus: stri
         companyId:    ctx.companyId,
         recipientType: "staff",
         templateName: "status_changed_staff",
+      }),
+    );
+  }
+
+  // Kirim ke WA group
+  for (const group of getGroupTargets()) {
+    sends.push(
+      sendAndLog({
+        phone:        group,
+        message:      staffMsg,
+        taskId:       ctx.taskId,
+        companyId:    ctx.companyId,
+        recipientType: "staff",
+        templateName: "status_changed_group",
       }),
     );
   }
@@ -371,6 +426,20 @@ export async function notifyTaskAssigned(
         companyId:    ctx.companyId,
         recipientType: "customer",
         templateName: "task_assigned_customer",
+      }),
+    );
+  }
+
+  // Kirim ke WA group
+  for (const group of getGroupTargets()) {
+    sends.push(
+      sendAndLog({
+        phone:        group,
+        message,
+        taskId:       ctx.taskId,
+        companyId:    ctx.companyId,
+        recipientType: "staff",
+        templateName: "task_assigned_group",
       }),
     );
   }

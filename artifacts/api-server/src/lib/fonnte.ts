@@ -96,6 +96,9 @@ function resolveToken(targetPhone: string, fonnteDevice?: string | null): string
     if (TOKEN_MAP.has(normalized)) return TOKEN_MAP.get(normalized);
   }
 
+  // Group JID (@g.us) — tidak ada self-send risk, langsung pakai default token
+  if (targetPhone.includes("@g.us")) return TOKEN_MAP.get("default");
+
   const target = normalizePhone(targetPhone) ?? targetPhone;
 
   // Self-send avoidance: jika target = nomor device default, pakai token alternatif
@@ -223,8 +226,11 @@ export async function sendFonnte(
   }
 }
 
-/** Normalisasi ke format internasional: hapus "+", pastikan awalan 62 jika nomor Indonesia */
+/** Normalisasi ke format internasional: hapus "+", pastikan awalan 62 jika nomor Indonesia.
+ *  Untuk group JID Fonnte (mengandung "@g.us"), dikembalikan apa adanya tanpa modifikasi. */
 export function normalizePhone(raw: string): string | null {
+  // Group JID — pass through as-is, Fonnte menerima format ini langsung
+  if (raw.includes("@g.us")) return raw;
   let num = raw.replace(/\D/g, "");
   if (!num) return null;
   if (num.startsWith("0")) num = "62" + num.slice(1);
