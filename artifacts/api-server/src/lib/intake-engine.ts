@@ -88,6 +88,61 @@ export function isClosingPhrase(message: string): boolean {
   return CLOSING_PHRASE_PATTERNS.test(message.trim());
 }
 
+// ─── Sport Center: regex date/time extractor (no-OpenAI fallback) ─────────────
+// Extracts Indonesian date and time from free-text without calling OpenAI.
+// Used as a reliable fallback when extractFieldsFromMessage (OpenAI) fails.
+
+const MONTHS_ID: Record<string, string> = {
+  jan: "01", januari: "01",
+  feb: "02", februari: "02",
+  mar: "03", maret: "03",
+  apr: "04", april: "04",
+  mei: "05", may: "05",
+  jun: "06", juni: "06",
+  jul: "07", juli: "07",
+  agu: "08", agustus: "08",
+  sep: "09", september: "09",
+  okt: "10", oktober: "10",
+  nov: "11", november: "11",
+  des: "12", desember: "12",
+};
+
+function extractDateTimeRegex(msg: string): { date: string | null; time: string | null } {
+  const text = msg.toLowerCase().trim();
+
+  // ── Time: "jam 16:00", "jam 16", "pukul 16.30", standalone "16:00" ──
+  let time: string | null = null;
+  // Explicit keyword match first
+  const timeKeyword = text.match(/(?:jam|pukul)\s*(\d{1,2})[:.](\d{2})/);
+  const timeKeywordHour = !timeKeyword && text.match(/(?:jam|pukul)\s*(\d{1,2})(?!\d)/);
+  // Standalone HH:MM
+  const timeStandalone = !timeKeyword && !timeKeywordHour && text.match(/\b(\d{1,2})[:.](00|15|30|45)\b/);
+
+  const rawH = timeKeyword?.[1] ?? timeKeywordHour?.[1] ?? timeStandalone?.[1] ?? null;
+  const rawM = timeKeyword?.[2] ?? timeStandalone?.[2] ?? "00";
+  if (rawH !== null) {
+    const hNum = parseInt(rawH, 10);
+    if (hNum >= 0 && hNum <= 23) {
+      time = `${String(hNum).padStart(2, "0")}:${rawM.padStart(2, "0")}`;
+    }
+  }
+
+  // ── Date: "6 juli", "tanggal 6 juli", "6 juli 2026" ──
+  let date: string | null = null;
+  const dateMatch = text.match(
+    /(?:tanggal\s+)?(\d{1,2})\s+(jan(?:uari)?|feb(?:ruari)?|mar(?:et)?|apr(?:il)?|mei|jun(?:i)?|jul(?:i)?|agu(?:stus)?|sep(?:tember)?|okt(?:ober)?|nov(?:ember)?|des(?:ember)?)\s*(\d{4})?/i,
+  );
+  if (dateMatch) {
+    const day = dateMatch[1].padStart(2, "0");
+    const monthKey = dateMatch[2].toLowerCase();
+    const month = MONTHS_ID[monthKey] ?? null;
+    const year = dateMatch[3] ?? String(new Date().getFullYear());
+    if (month) date = `${year}-${month}-${day}`;
+  }
+
+  return { date, time };
+}
+
 // ─── Load template fields from DB ─────────────────────────────────────────────
 
 async function loadRequiredFields(
@@ -850,14 +905,43 @@ export async function processIntakeMessage({
     logger.info({ lapangan: lapanganValue, key: lapanganFieldKey, from: session.phone }, "IntakeEngine: menu reply resolved directly — bypassing OpenAI");
   } else {
     // Normal path: call OpenAI to extract fields from free-text message
-    const mappedMessage = message;
     newCollected = await extractFieldsFromMessage(
-      mappedMessage,
+      message,
       dataFields,
       existingCollected,
       session.intentCode,
       sessionHistory,
     );
+
+    // ── Regex fallback for Sport Center date/time ─────────────────────────
+    // OpenAI sometimes fails to map "6 juli jam 16:00" → booking_date/start_time
+    // (wrong key name, timeout, or context issue). This regex extraction runs
+    // ONLY when the session is clearly waiting for date/time info and OpenAI
+    // did not populate those fields, so it never overwrites a valid AI response.
+    if (isSportCenterBookingIntent(session.intentCode)) {
+      const awaitingDateTime =
+        !!session.lastQuestion &&
+        (session.lastQuestion.includes("tanggal") ||
+          session.lastQuestion.includes("jam") ||
+          session.lastQuestion.includes("mulai"));
+      if (awaitingDateTime) {
+        const { date: regexDate, time: regexTime } = extractDateTimeRegex(message);
+        if (regexDate && !newCollected.booking_date) {
+          newCollected = { ...newCollected, booking_date: regexDate };
+          logger.info(
+            { date: regexDate, phone: session.phone },
+            "IntakeEngine: booking_date extracted via regex fallback (OpenAI missed it)",
+          );
+        }
+        if (regexTime && !newCollected.start_time) {
+          newCollected = { ...newCollected, start_time: regexTime };
+          logger.info(
+            { time: regexTime, phone: session.phone },
+            "IntakeEngine: start_time extracted via regex fallback (OpenAI missed it)",
+          );
+        }
+      }
+    }
   }
 
   // 5. Determine what's still missing

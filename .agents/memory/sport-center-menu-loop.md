@@ -33,4 +33,13 @@ After showing the "Pilih lapangan" numbered menu, bot sends the SAME menu again 
 ## Supabase connection
 Confirmed: `SUPABASE_DATABASE_URL_DEV` is set, pool connects successfully at startup. All sessions stored correctly in `conversation_intake_sessions` table with `company_id = "default"`.
 
-**Why**: The `quick=true` echo filter works correctly. The loop is caused by session lookup failure (phone format), not by echo loop.
+**Why**: The `quick=true` echo filter works correctly. The loop is caused by two separate issues: (1) session lookup failure (phone format), (2) OpenAI failing to extract booking_date/start_time from Indonesian date strings like "6 juli jam 16:00" — regex fallback solves #2 reliably.
+
+## Second loop: date/time not extracted
+
+When user provides "6 juli jam 16:00" after selecting a field:
+- `extractFieldsFromMessage` calls OpenAI with 7 required fields
+- OpenAI fails to return `booking_date`/`start_time` (wrong key name or silent error)
+- Gate sees `missingSlot = true` → repeats date/time question
+
+**Fix**: `extractDateTimeRegex(msg)` function added to `intake-engine.ts` — pure regex, no network call. Fires as fallback ONLY when: (a) sport_center_booking session, (b) `lastQuestion` contains "tanggal"/"jam"/"mulai", (c) OpenAI didn't populate the field. Supports formats: "6 juli jam 16:00", "pukul 14.00", "tanggal 10 agustus jam 09.30", etc.
