@@ -665,7 +665,14 @@ async function runAiDetection({
           "IntakeEngine processIntakeMessage result",
         );
 
-        // Always send reply to customer
+        // Always send reply to customer.
+        // If preReply is set (e.g. "please wait while we check availability"),
+        // send it first, then send the main reply.
+        if (intakeResult.preReply) {
+          await sendFonnte(from, intakeResult.preReply, fonnteDevice).catch((e) =>
+            logger.warn({ e }, "intake: failed to send preReply via Fonnte"),
+          );
+        }
         if (intakeResult.replyToUser) {
           await sendFonnte(from, intakeResult.replyToUser, fonnteDevice).catch((e) =>
             logger.warn({ e }, "intake: failed to send reply via Fonnte"),

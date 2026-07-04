@@ -55,6 +55,11 @@ export interface IntakeResult {
   requiredDocuments: string[];
   /** Populated when action === "send_form" — the mini form type to send */
   formType?: string;
+  /**
+   * Optional message to send BEFORE replyToUser (e.g. "please wait while we check").
+   * whatsapp.ts sends this first, then sends replyToUser after the async check completes.
+   */
+  preReply?: string;
 }
 
 // ─── Cancellation detection ────────────────────────────────────────────────────
@@ -436,7 +441,7 @@ async function runSportCenterAvailabilityGate({
     "3": "Tennis",
     "4": "Basketball",
     "5": "Voli",
-    "6": "Squash",
+    "6": "GYM",
   };
   const FIELD_MENU_TEXT =
     `🏟️ Pilih lapangan yang ingin Anda booking:\n\n` +
@@ -445,7 +450,7 @@ async function runSportCenterAvailabilityGate({
     `3️⃣ Tennis\n` +
     `4️⃣ Basketball\n` +
     `5️⃣ Voli\n` +
-    `6️⃣ Squash\n\n` +
+    `6️⃣ GYM\n\n` +
     `Balas dengan *nomor* atau *nama lapangan* yang Anda pilih.`;
 
   const missingSlot = !bookingDate || !startTime;
@@ -536,6 +541,8 @@ async function runSportCenterAvailabilityGate({
     return {
       action:            "continue_collecting",
       session:           updated!,
+      // preReply is sent FIRST by whatsapp.ts, then replyToUser is sent after the check.
+      preReply:          "Mohon ditunggu, kami cek dulu ketersediaan jadwalnya ya... 🔍",
       replyToUser:       avail.message,
       collectedFields:   newCollected,
       missingFields:     completeness.missingFieldNames,
@@ -785,7 +792,7 @@ export async function processIntakeMessage({
   // convert it to the actual field name so GPT can extract correctly.
   const FIELD_MENU_MAP: Record<string, string> = {
     "1": "Badminton", "2": "Futsal", "3": "Tennis",
-    "4": "Basketball", "5": "Voli", "6": "Squash",
+    "4": "Basketball", "5": "Voli", "6": "GYM",
   };
   const isMenuQuestion = session.lastQuestion?.includes("Pilih lapangan yang ingin Anda booking") ?? false;
   const trimmedMsg = message.trim();
