@@ -92,7 +92,15 @@ router.post("/webhook/fonnte", async (req, res): Promise<void> => {
 
   try {
     // ── Normalize Fonnte payload ke format standar ─────────────────────────
-    const sender  = normPhone(rawPayload.sender  ?? rawPayload.member);
+    // Jika sender mengandung @g.us = pesan dari grup WhatsApp.
+    // Dalam kasus ini, gunakan field `member` sebagai nomor pengirim asli.
+    const rawSender = toString(rawPayload.sender);
+    const isGroupMsg = rawSender?.includes("@g.us") ?? false;
+    const senderRaw = isGroupMsg
+      ? (rawPayload.member ?? rawPayload.sender)   // member = nomor HP asli
+      : (rawPayload.sender ?? rawPayload.member);
+
+    const sender  = normPhone(senderRaw);
     const device  = normPhone(rawPayload.device);  // nomor WA bisnis (perangkat kita)
     const name    = toString(rawPayload.name);
     const msgType = toMsgType(rawPayload.type);
@@ -107,6 +115,7 @@ router.post("/webhook/fonnte", async (req, res): Promise<void> => {
       raw_type: rawPayload.type,
       raw_quick: rawPayload.quick,
       raw_message: String(rawPayload.message ?? "").substring(0, 80),
+      is_group: isGroupMsg,
       normalized_sender: sender,
       normalized_device: device,
     }, "Fonnte webhook: raw payload received");
