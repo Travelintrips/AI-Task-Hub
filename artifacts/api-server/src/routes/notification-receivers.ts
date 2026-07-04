@@ -77,7 +77,11 @@ router.post(
         return;
       }
 
-      const normalizedPhone = phone.trim().replace(/\D/g, "").replace(/^0/, "62");
+      // Group JID (ends with @g.us) → simpan apa adanya; nomor biasa → normalisasi ke format 62xxx
+      const trimmed = phone.trim();
+      const normalizedPhone = trimmed.endsWith("@g.us")
+        ? trimmed
+        : trimmed.replace(/\D/g, "").replace(/^0/, "62");
 
       const [row] = await db
         .insert(notificationReceiversTable)
@@ -124,7 +128,9 @@ router.put(
       };
 
       const normalizedPhone = phone
-        ? phone.trim().replace(/\D/g, "").replace(/^0/, "62")
+        ? phone.trim().endsWith("@g.us")
+          ? phone.trim()
+          : phone.trim().replace(/\D/g, "").replace(/^0/, "62")
         : undefined;
 
       const [row] = await db

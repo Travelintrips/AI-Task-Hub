@@ -29,7 +29,7 @@ import {
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Pencil, Trash2, Phone, Tag, Users2 } from "lucide-react";
+import { Plus, Pencil, Trash2, Phone, Tag, Users2, Users } from "lucide-react";
 import { getStoredToken } from "@/lib/auth-api";
 
 async function apiFetch(path: string, opts?: RequestInit) {
@@ -98,11 +98,21 @@ function getCategoryColor(category: string) {
 const EMPTY_FORM = {
   name: "",
   phone: "",
+  phoneType: "wa" as "wa" | "group",
   category: "",
   customCategory: "",
   description: "",
   isActive: true,
 };
+
+function isGroupJid(phone: string) {
+  return /^\d+@g\.us$/.test(phone);
+}
+
+function formatPhoneDisplay(phone: string) {
+  if (isGroupJid(phone)) return phone;
+  return phone.replace(/^62/, "62").replace(/(\d{2})(\d{3,4})(\d{4})(\d+)/, "$1-$2-$3-$4");
+}
 
 export default function NotificationReceiversPage() {
   const { toast } = useToast();
@@ -208,9 +218,11 @@ export default function NotificationReceiversPage() {
   function openEdit(item: NotificationReceiver) {
     setEditingItem(item);
     const isPreset = PRESET_CATEGORIES.includes(item.category);
+    const groupJid = isGroupJid(item.phone);
     setForm({
       name: item.name,
       phone: item.phone,
+      phoneType: groupJid ? "group" : "wa",
       category: isPreset ? item.category : "custom",
       customCategory: isPreset ? "" : item.category,
       description: item.description ?? "",
@@ -223,7 +235,12 @@ export default function NotificationReceiversPage() {
     const resolvedCategory = form.category === "custom" ? form.customCategory.trim() : form.category;
 
     if (!form.name.trim() || !form.phone.trim() || !resolvedCategory) {
-      toast({ title: "Form tidak lengkap", description: "Nama, nomor HP, dan kategori wajib diisi", variant: "destructive" });
+      toast({ title: "Form tidak lengkap", description: "Nama, nomor, dan kategori wajib diisi", variant: "destructive" });
+      return;
+    }
+
+    if (form.phoneType === "group" && !isGroupJid(form.phone.trim())) {
+      toast({ title: "Format grup tidak valid", description: "Nomor grup harus dalam format: 1234567890@g.us", variant: "destructive" });
       return;
     }
 
@@ -340,9 +357,16 @@ export default function NotificationReceiversPage() {
                       <TableRow key={item.id} className={!item.isActive ? "opacity-50" : ""}>
                         <TableCell className="font-medium">{item.name}</TableCell>
                         <TableCell>
-                          <code className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono">
-                            +{item.phone.replace(/^62/, "62").replace(/(\d{2})(\d{3,4})(\d{4})(\d+)/, "$1-$2-$3-$4")}
-                          </code>
+                          <div className="flex items-center gap-1.5">
+                            {isGroupJid(item.phone) ? (
+                              <Users className="h-3.5 w-3.5 text-blue-500 shrink-0" />
+                            ) : (
+                              <Phone className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                            )}
+                            <code className="text-xs bg-muted px-1.5 py-0.5 rounded font-mono">
+                              {isGroupJid(item.phone) ? item.phone : `+${formatPhoneDisplay(item.phone)}`}
+                            </code>
+                          </div>
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
                           {item.description ?? <span className="italic">—</span>}
@@ -397,13 +421,62 @@ export default function NotificationReceiversPage() {
             </div>
 
             <div className="space-y-1.5">
-              <Label>Nomor WhatsApp <span className="text-destructive">*</span></Label>
-              <Input
-                placeholder="cth: 08123456789 atau 628123456789"
-                value={form.phone}
-                onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-              />
-              <p className="text-xs text-muted-foreground">Nomor akan diformat otomatis ke format 62xxx</p>
+              <Label>Tipe Penerima <span className="text-destructive">*</span></Label>
+              <div className="flex rounded-md border overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setForm((f) => ({ ...f, phoneType: "wa", phone: "" }))}
+                  className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-sm font-medium transition-colors ${
+                    form.phoneType === "wa"
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-background text-muted-foreground hover:bg-muted"
+                  }`}
+                >
+                  <Phone className="h-3.5 w-3.5" />
+                  Nomor WA
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setForm((f) => ({ ...f, phoneType: "group", phone: "" }))}
+                  className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-sm font-medium transition-colors border-l ${
+                    form.phoneType === "group"
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-background text-muted-foreground hover:bg-muted"
+                  }`}
+                >
+                  <Users className="h-3.5 w-3.5" />
+                  Grup WA
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label>
+                {form.phoneType === "group" ? "ID Grup WhatsApp" : "Nomor WhatsApp"}{" "}
+                <span className="text-destructive">*</span>
+              </Label>
+              {form.phoneType === "group" ? (
+                <>
+                  <Input
+                    placeholder="cth: 120363428216180040@g.us"
+                    value={form.phone}
+                    onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+                    className="font-mono text-sm"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Format: <code className="bg-muted px-1 rounded">angka@g.us</code> — salin dari log Fonnte atau pengaturan grup
+                  </p>
+                </>
+              ) : (
+                <>
+                  <Input
+                    placeholder="cth: 08123456789 atau 628123456789"
+                    value={form.phone}
+                    onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
+                  />
+                  <p className="text-xs text-muted-foreground">Nomor akan diformat otomatis ke format 62xxx</p>
+                </>
+              )}
             </div>
 
             <div className="space-y-1.5">
