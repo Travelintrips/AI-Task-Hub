@@ -141,6 +141,8 @@ router.post("/webhook/fonnte", async (req, res): Promise<void> => {
       // Standard fields used by processIncomingMessage
       from: sender,
       sender_phone: sender,
+      // Preserve group JID so whatsapp.ts can reply to the GROUP, not the member
+      ...(isGroupMsg ? { group_jid: rawSender } : {}),
       type: msgType,
       timestamp: Math.floor(Date.now() / 1000).toString(),
       // Embed content in the standard structure

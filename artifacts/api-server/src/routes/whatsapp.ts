@@ -377,6 +377,9 @@ export async function processIncomingMessage({
     (msg?.phone as string | undefined) ??
     "unknown";
 
+  // When message comes from a WA group, reply to the group JID (not the member's private number)
+  const replyTo = (msg?.group_jid as string | undefined) ?? from;
+
   const timestamp =
     (msg?.timestamp as string | undefined) ??
     Math.floor(Date.now() / 1000).toString();
@@ -493,6 +496,7 @@ export async function processIncomingMessage({
       runAiDetection({
         savedMsgId: savedMsg.id,
         from,
+        replyTo,
         senderName,
         bodyText,
         messageType,
@@ -508,7 +512,7 @@ export async function processIncomingMessage({
     logger.error({ err, from, companyId }, "AI pipeline error in processIncomingMessage");
     // Always reply to customer even when the pipeline setup fails
     sendFonnte(
-      from,
+      replyTo,
       "Terima kasih atas pesan Anda! Tim kami sedang memproses dan akan segera menghubungi Anda. 🙏",
       fonnteDevice ?? null,
     ).catch(() => {});
@@ -518,6 +522,7 @@ export async function processIncomingMessage({
 async function runAiDetection({
   savedMsgId,
   from,
+  replyTo,
   senderName,
   bodyText,
   messageType,
@@ -530,6 +535,8 @@ async function runAiDetection({
 }: {
   savedMsgId: number;
   from: string;
+  /** Target untuk sendFonnte — group JID jika pesan dari grup, else sama dengan from */
+  replyTo: string;
   senderName: string | undefined;
   bodyText: string;
   messageType: string;
@@ -559,7 +566,7 @@ async function runAiDetection({
     if (isClosingPhrase(bodyText) && !activeSession) {
       logger.info({ from, msg: bodyText }, "Closing phrase detected — sending simple ack, skipping AI");
       const closingReply = `Sama-sama! 😊 Jika ada kebutuhan lain, jangan ragu untuk menghubungi kami ya.`;
-      await sendFonnte(from, closingReply, fonnteDevice).catch((e) =>
+      await sendFonnte(replyTo, closingReply, fonnteDevice).catch((e) =>
         logger.warn({ e }, "closing: failed to send ack reply"),
       );
       await db
@@ -599,7 +606,7 @@ async function runAiDetection({
         `• 💰 Kasbon / Pembayaran\n` +
         `• ❓ Pertanyaan lainnya\n\n` +
         `Tim kami siap membantu! 🙏`;
-      await sendFonnte(from, greetingReply, fonnteDevice).catch((e) =>
+      await sendFonnte(replyTo, greetingReply, fonnteDevice).catch((e) =>
         logger.warn({ e }, "greeting: failed to send canned reply"),
       );
       await db
@@ -643,7 +650,7 @@ async function runAiDetection({
             fileUrl: effectiveAttachmentUrl,
             intakeSessionId: activeSession.id,
           }).then((valResult) => {
-            sendFonnte(from, valResult.waReply, fonnteDevice).catch((e) =>
+            sendFonnte(replyTo, valResult.waReply, fonnteDevice).catch((e) =>
               logger.warn({ e }, "intake: failed to send document validation WA reply"),
             );
             logger.info(
@@ -669,12 +676,12 @@ async function runAiDetection({
         // If preReply is set (e.g. "please wait while we check availability"),
         // send it first, then send the main reply.
         if (intakeResult.preReply) {
-          await sendFonnte(from, intakeResult.preReply, fonnteDevice).catch((e) =>
+          await sendFonnte(replyTo, intakeResult.preReply, fonnteDevice).catch((e) =>
             logger.warn({ e }, "intake: failed to send preReply via Fonnte"),
           );
         }
         if (intakeResult.replyToUser) {
-          await sendFonnte(from, intakeResult.replyToUser, fonnteDevice).catch((e) =>
+          await sendFonnte(replyTo, intakeResult.replyToUser, fonnteDevice).catch((e) =>
             logger.warn({ e }, "intake: failed to send reply via Fonnte"),
           );
         }
@@ -706,7 +713,7 @@ async function runAiDetection({
             "Terima kasih! Data Anda sudah lengkap. Silakan konfirmasi melalui form berikut:\n\n{mini_form_url}\n\nTim kami akan segera menindaklanjuti. 🙏";
           const waMsg = waTemplate.replace("{mini_form_url}", formUrl);
 
-          await sendFonnte(from, waMsg, fonnteDevice).catch(e =>
+          await sendFonnte(replyTo, waMsg, fonnteDevice).catch(e =>
             logger.warn({ e, from }, "hybrid: failed to send form link via Fonnte"),
           );
 
@@ -784,7 +791,7 @@ async function runAiDetection({
           "Active intake session processing error — sending recovery reply",
         );
         await sendFonnte(
-          from,
+          replyTo,
           "Maaf, ada gangguan sementara. Mohon ulangi pesan terakhir Anda. Tim kami siap membantu! 🙏",
           fonnteDevice,
         ).catch(() => {});
@@ -844,7 +851,7 @@ async function runAiDetection({
           });
 
           if (intakeResult.replyToUser) {
-            await sendFonnte(from, intakeResult.replyToUser, fonnteDevice).catch((e) =>
+            await sendFonnte(replyTo, intakeResult.replyToUser, fonnteDevice).catch((e) =>
               logger.warn({ e }, "Failed to send intake reply via Fonnte"),
             );
           }
@@ -859,7 +866,7 @@ async function runAiDetection({
             if (taskOutput) {
               await markIntakeSubmitted(intakeResult.session.id, taskOutput.taskId);
               await updateCustomerContextAfterTask({ phone: from, companyId, taskId: taskOutput.taskId, intent: result.intent, name: effectiveName });
-              await _notifyForTask({ taskOutput, result, from, effectiveName, companyId, suggestedReply: null, fonnteDevice });
+              await _notifyForTask({ taskOutput, result, from, replyTo, effectiveName, companyId, suggestedReply: null, fonnteDevice });
             }
           } else {
             await createAdminNotification({
@@ -875,7 +882,7 @@ async function runAiDetection({
           const taskOutput = await createTaskFromWhatsAppMessage({ savedMsgId, from, senderName, bodyText: transcript, companyId, result, resolution: result._resolution });
           if (taskOutput) {
             await updateCustomerContextAfterTask({ phone: from, companyId, taskId: taskOutput.taskId, intent: result.intent, name: effectiveName });
-            await _notifyForTask({ taskOutput, result, from, effectiveName, companyId, suggestedReply: result._resolution?.suggestedReply ?? null, fonnteDevice });
+            await _notifyForTask({ taskOutput, result, from, replyTo, effectiveName, companyId, suggestedReply: result._resolution?.suggestedReply ?? null, fonnteDevice });
           }
 
           await db
@@ -922,7 +929,7 @@ async function runAiDetection({
           fileName: fileNameFromUrl2,
           fileUrl: attachmentUrl,
         }).then((valResult) => {
-          sendFonnte(from, valResult.waReply, fonnteDevice).catch((e) =>
+          sendFonnte(replyTo, valResult.waReply, fonnteDevice).catch((e) =>
             logger.warn({ e }, "WA: failed to send document validation reply"),
           );
           logger.info(
@@ -975,7 +982,7 @@ async function runAiDetection({
       } catch (scErr) {
         logger.error({ scErr, from }, "Sport Center: startIntakeSession failed — sending fallback question");
         await sendFonnte(
-          from,
+          replyTo,
           `🏟️ Mau booking lapangan olahraga ya!\n\nLapangan apa yang ingin Anda booking, dan tanggal serta jam berapa? 😊\n\n_(Contoh: "Badminton, 5 Juli jam 10:00")_`,
           fonnteDevice,
         ).catch(() => {});
@@ -985,7 +992,7 @@ async function runAiDetection({
       const scReply = scIntakeResult.replyToUser ||
         `🏟️ Mau booking lapangan olahraga ya!\n\nLapangan apa yang ingin Anda booking, dan tanggal serta jam berapa? 😊\n\n_(Contoh: "Badminton, 5 Juli jam 10:00")_`;
 
-      await sendFonnte(from, scReply, fonnteDevice).catch((e) =>
+      await sendFonnte(replyTo, scReply, fonnteDevice).catch((e) =>
         logger.warn({ e }, "sport-center intake: failed to send opening question"),
       );
 
@@ -1040,7 +1047,7 @@ async function runAiDetection({
             result._resolution?.suggestedReply ??
             `Halo! Kami menerima permintaan Anda untuk ${result.category ?? result.intent}. ` +
             `Tim kami sedang memproses dan akan segera menghubungi Anda. Ada yang bisa kami bantu lagi?`;
-          await sendFonnte(from, fallbackReply, fonnteDevice).catch((e) =>
+          await sendFonnte(replyTo, fallbackReply, fonnteDevice).catch((e) =>
             logger.warn({ e, from }, "fallback reply failed after mini-form send error"),
           );
         }
@@ -1082,13 +1089,13 @@ async function runAiDetection({
           result._resolution?.suggestedReply ??
           `Halo! Kami menerima permintaan Anda mengenai ${result.category ?? result.intent}. ` +
           `Tim kami akan segera menindaklanjuti. Ada yang bisa kami bantu lebih lanjut?`;
-        await sendFonnte(from, fallbackReply, fonnteDevice).catch(() => {});
+        await sendFonnte(replyTo, fallbackReply, fonnteDevice).catch(() => {});
         return;
       }
 
       // Send question to customer
       if (intakeResult.replyToUser) {
-        await sendFonnte(from, intakeResult.replyToUser, fonnteDevice).catch((e) =>
+        await sendFonnte(replyTo, intakeResult.replyToUser, fonnteDevice).catch((e) =>
           logger.warn({ e }, "Failed to send intake question via Fonnte"),
         );
       } else {
@@ -1097,7 +1104,7 @@ async function runAiDetection({
           result._resolution?.suggestedReply ??
           `Halo! Kami menerima permintaan Anda mengenai ${result.category ?? result.intent}. ` +
           `Tim kami akan segera menindaklanjuti. Ada yang bisa kami bantu lebih lanjut?`;
-        await sendFonnte(from, fallbackReply, fonnteDevice).catch(() => {});
+        await sendFonnte(replyTo, fallbackReply, fonnteDevice).catch(() => {});
       }
 
       await db
@@ -1113,7 +1120,7 @@ async function runAiDetection({
         if (taskOutput) {
           await markIntakeSubmitted(intakeResult.session.id, taskOutput.taskId);
           await updateCustomerContextAfterTask({ phone: from, companyId, taskId: taskOutput.taskId, intent: result.intent, name: effectiveName });
-          await _notifyForTask({ taskOutput, result, from, effectiveName, companyId, suggestedReply: null, fonnteDevice });
+          await _notifyForTask({ taskOutput, result, from, replyTo, effectiveName, companyId, suggestedReply: null, fonnteDevice });
         }
       } else {
         // Notify admin: intake started, no task yet
@@ -1162,7 +1169,7 @@ async function runAiDetection({
       // Admin notification based on priority / task action
       // Use _resolution.suggestedReply (enriched by intent-engine) first, fallback to raw AI reply
       const bestSuggestedReply = result._resolution?.suggestedReply ?? result.suggested_reply ?? null;
-      await _notifyForTask({ taskOutput, result, from, effectiveName, companyId, suggestedReply: bestSuggestedReply, fonnteDevice });
+      await _notifyForTask({ taskOutput, result, from, replyTo, effectiveName, companyId, suggestedReply: bestSuggestedReply, fonnteDevice });
 
     } else {
       await createAdminNotification({
@@ -1178,7 +1185,7 @@ async function runAiDetection({
     logger.error({ err, msgId: savedMsgId }, "AI detection failed for message");
     // Always reply to customer — never leave them hanging
     await sendFonnte(
-      from,
+      replyTo,
       "Terima kasih atas pesan Anda! Tim kami sedang memproses dan akan segera menghubungi Anda. 🙏",
       fonnteDevice,
     ).catch(() => {});
@@ -1200,6 +1207,7 @@ async function _notifyForTask({
   taskOutput,
   result,
   from,
+  replyTo,
   effectiveName,
   companyId,
   suggestedReply,
@@ -1208,6 +1216,8 @@ async function _notifyForTask({
   taskOutput: { action: string; taskId: number; title: string; taskNumber: string | null };
   result: { priority: string; category: string };
   from: string;
+  /** Target untuk sendFonnte — group JID jika pesan dari grup, else sama dengan from */
+  replyTo: string;
   effectiveName: string | null;
   companyId: string;
   suggestedReply?: string | null;
@@ -1243,7 +1253,7 @@ async function _notifyForTask({
     const replyMsg = suggestedReply?.trim()
       || `Pesan Anda sudah kami catat pada tiket ${taskLabel}. Tim kami akan segera merespons.`;
     try {
-      const sent = await sendFonnte(from, replyMsg, fonnteDevice);
+      const sent = await sendFonnte(replyTo, replyMsg, fonnteDevice);
       await db.insert(whatsappNotificationsTable).values({
         taskId:            taskOutput.taskId,
         companyId,
