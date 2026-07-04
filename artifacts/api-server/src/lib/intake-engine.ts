@@ -421,15 +421,30 @@ async function runSportCenterAvailabilityGate({
   // Fires when booking_date OR start_time is missing (regardless of fieldType).
   // This ensures the very first sport center message always triggers a structured
   // question rather than GPT's generic generateNextQuestion.
+
+  // Generic/non-specific field type names that should be treated as "not yet specified"
+  const GENERIC_FIELD_TYPES = new Set([
+    "lapangan olahraga", "olahraga", "lapangan", "sport", "gym",
+    "lapangan sport", "sport center", "fasilitas", "field",
+  ]);
+  const isGenericFieldType = !fieldType || GENERIC_FIELD_TYPES.has(fieldType.toLowerCase().trim());
+
   const missingSlot = !bookingDate || !startTime;
   if (missingSlot && !prevAvailStatus) {
     // Build a tailored question depending on what's already known
     let openingQ: string;
-    if (!fieldType && !bookingDate && !startTime) {
+    if (isGenericFieldType && !bookingDate && !startTime) {
+      // No specific field, no date, no time → ask everything at once
       openingQ =
         `🏟️ Lapangan apa yang ingin Anda booking, dan tanggal serta jam berapa?\n\n` +
         `_(Contoh: "Badminton, 5 Juli jam 10:00")_`;
-    } else if (fieldType && (!bookingDate || !startTime)) {
+    } else if (isGenericFieldType && (bookingDate || startTime)) {
+      // Has date/time but field is still generic → ask which specific lapangan
+      openingQ =
+        `🏟️ Lapangan mana yang ingin Anda booking?\n\n` +
+        `_(Contoh: Badminton, Futsal, Tennis, Basketball, dll.)_`;
+    } else if (!isGenericFieldType && (!bookingDate || !startTime)) {
+      // Has specific field type but missing date/time
       const missingParts: string[] = [];
       if (!bookingDate) missingParts.push("tanggal");
       if (!startTime)   missingParts.push("jam mulai");
@@ -478,7 +493,8 @@ async function runSportCenterAvailabilityGate({
   }
 
   // ── Case A: Have field + date + time but haven't checked yet → check now ──
-  if (fieldType && bookingDate && startTime && !currentAvailStatus) {
+  // Skip if fieldType is still generic (user hasn't specified which lapangan)
+  if (!isGenericFieldType && fieldType && bookingDate && startTime && !currentAvailStatus) {
     logger.info({ companyId, fieldType, bookingDate, startTime }, "IntakeEngine: running sport center availability check");
     const durationHours = extractDurationHours(newCollected);
     const avail = await checkSportCenterAvailability({ fieldType, bookingDate, startTime, durationHours, companyId });
