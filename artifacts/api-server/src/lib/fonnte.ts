@@ -85,6 +85,18 @@ async function detectDeviceNumbers(): Promise<void> {
 detectDeviceNumbers().catch(() => {});
 
 /**
+ * Ambil token terbaik yang tersedia: default → token pertama di map → undefined.
+ * Dipakai sebagai fallback ketika tidak ada device spesifik yang cocok.
+ */
+function bestAvailableToken(): string | undefined {
+  const def = TOKEN_MAP.get("default");
+  if (def) return def;
+  // Jika tidak ada default, pakai token pertama yang ada (misal hanya FONNTE_TOKEN_2)
+  for (const [, token] of TOKEN_MAP.entries()) return token;
+  return undefined;
+}
+
+/**
  * Pilih token Fonnte yang tepat.
  * - Jika ada fonnteDevice (pesan masuk dari device tertentu): balas via device yang sama.
  * - Jika mengirim notifikasi keluar: hindari self-send dengan pilih device berbeda dari target.
@@ -93,11 +105,16 @@ function resolveToken(targetPhone: string, fonnteDevice?: string | null): string
   // Mode reply: pakai device yang sama dengan incoming message
   if (fonnteDevice) {
     const normalized = normalizePhone(fonnteDevice) ?? fonnteDevice;
+    // 1. Cari di TOKEN_MAP by device phone key (dari FONNTE_DEVICE_N)
     if (TOKEN_MAP.has(normalized)) return TOKEN_MAP.get(normalized);
+    // 2. Reverse-lookup via TOKEN_DEVICE_MAP (auto-detected saat startup)
+    for (const [token, devicePhone] of TOKEN_DEVICE_MAP.entries()) {
+      if (devicePhone === normalized) return token;
+    }
   }
 
-  // Group JID (@g.us) — tidak ada self-send risk, langsung pakai default token
-  if (targetPhone.includes("@g.us")) return TOKEN_MAP.get("default");
+  // Group JID (@g.us) — tidak ada self-send risk, pakai token terbaik yang tersedia
+  if (targetPhone.includes("@g.us")) return bestAvailableToken();
 
   const target = normalizePhone(targetPhone) ?? targetPhone;
 
@@ -119,13 +136,13 @@ function resolveToken(targetPhone: string, fonnteDevice?: string | null): string
     if (deviceKey === "default") continue;
     const normalizedKey = normalizePhone(deviceKey) ?? deviceKey;
     if (normalizedKey === target) {
-      // Target adalah device dari token ini — bisa self-send, pakai default saja
-      // (default device → token_N device = cross-device, sudah benar)
-      return TOKEN_MAP.get("default");
+      // Target adalah device dari token ini — bisa self-send, pakai token lain
+      // (cari token non-self, fallback ke token terbaik yang tersedia)
+      return bestAvailableToken();
     }
   }
 
-  return TOKEN_MAP.get("default");
+  return bestAvailableToken();
 }
 
 /**
