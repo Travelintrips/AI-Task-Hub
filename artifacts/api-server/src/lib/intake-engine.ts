@@ -529,22 +529,27 @@ async function runSportCenterAvailabilityGate({
       openingQ = FIELD_MENU_TEXT;
     } else if (!isGenericFieldType && (!bookingDate || !startTime)) {
       // Has specific field type but missing date/time.
-      const hasName = isValidBookerName(newCollected.booker_name as string | undefined);
-      // Treat empty string the same as absent (empty string is falsy via ??, but "" is not null/undefined)
-      const hasDurationEarly = !!(
-        String(newCollected.duration ?? "").trim() ||
-        String(newCollected.durasi ?? "").trim()
-      );
-      const missingParts: string[] = [];
-      if (!bookingDate || !startTime) missingParts.push("Tanggal dan jam mulai");
-      if (!hasDurationEarly) missingParts.push("Durasi");
-      if (!hasName) missingParts.push("Nama pemesan");
+      // Price list per field type (Rp per hour, up to 5 hours)
+      const PRICE_PER_HOUR: Record<string, number> = {
+        futsal:     350_000,
+        badminton:   75_000,
+        tennis:     100_000,
+        basketball: 150_000,
+        voli:       100_000,
+        gym:         50_000,
+      };
+      const pricePerHour = PRICE_PER_HOUR[fieldType.toLowerCase().trim()];
+      const priceBlock = pricePerHour
+        ? `\n\n💰 *Harga Sewa ${fieldType}:*\n` +
+          [1, 2, 3, 4, 5]
+            .map((h) => `• ${h} Jam  : Rp ${(pricePerHour * h).toLocaleString("id-ID")}`)
+            .join("\n")
+        : "";
       openingQ =
         `Untuk booking lapangan *${fieldType}*, mohon berikan:\n` +
-        `Tanggal      :\n` +
-        `Jam Mulai    :\n` +
-        `Durasi       :\n` +
-        `Nama Pemesan :`;
+        `Tanggal dan jam mulai, Durasi, Nama pemesan\n` +
+        `_(Contoh: "5 Juli jam 10:00 Durasi 2 Jam dan Nama Ahmad")_` +
+        priceBlock;
     } else {
       openingQ =
         `🏟️ Lapangan apa yang ingin Anda booking, dan tanggal serta jam berapa?\n\n` +
