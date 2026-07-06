@@ -528,12 +528,18 @@ async function runSportCenterAvailabilityGate({
     } else if (!isGenericFieldType && (!bookingDate || !startTime)) {
       // Has specific field type but missing date/time.
       const hasName = isValidBookerName(newCollected.booker_name as string | undefined);
+      // Treat empty string the same as absent (empty string is falsy via ??, but "" is not null/undefined)
+      const hasDurationEarly = !!(
+        String(newCollected.duration ?? "").trim() ||
+        String(newCollected.durasi ?? "").trim()
+      );
       const missingParts: string[] = [];
-      if (!bookingDate || !startTime) missingParts.push("Tanggal & jam mulai");
-      if (!hasName) missingParts.push("Nama");
+      if (!bookingDate || !startTime) missingParts.push("Tanggal dan jam mulai");
+      if (!hasDurationEarly) missingParts.push("Durasi");
+      if (!hasName) missingParts.push("Nama pemesan");
       openingQ =
         `Untuk booking lapangan *${fieldType}*, mohon berikan:\n` +
-        `${missingParts.join(" & ")} (contoh: "5 Juli jam 10:00 Robby")`;
+        `${missingParts.join(", ")} (contoh: "5 Juli jam 10:00 Durasi 2 Jam dan Nama Ahmad")`;
     } else {
       openingQ =
         `🏟️ Lapangan apa yang ingin Anda booking, dan tanggal serta jam berapa?\n\n` +
@@ -1163,11 +1169,14 @@ export async function processIntakeMessage({
       }
 
       // Booker name regex: "nama Robby", "nama pemesan: Robby", "atas nama Robby"
+      // Captures one or more words after "nama", stopping before field-keyword
+      // boundaries (jam, tanggal, durasi, etc.) so "nama Ahmad jam 10" → "Ahmad",
+      // "nama Budi Santoso durasi 2 jam" → "Budi Santoso".
       if ((awaitingDateTime || awaitingName) && !newCollected.booker_name) {
         const nameMatch = message.match(
-          /(?:nama(?:\s+pemesan)?|pemesan|atas\s+nama)\s*[:\-]?\s*([A-Za-z][A-Za-z\s]{1,40}?)(?:\s*(?:,|$|jam|tanggal|\d))/i,
+          /(?:nama(?:\s+pemesan)?|pemesan|atas\s+nama)\s*[:\-]?\s*([A-Za-z][A-Za-z.'-]*(?:\s+(?!(?:jam|tanggal|durasi|waktu|menit|hari|bulan)\b)[A-Za-z][A-Za-z.'-]*)*)/i,
         );
-        if (nameMatch?.[1] && isValidBookerName(nameMatch[1])) {
+        if (nameMatch?.[1] && isValidBookerName(nameMatch[1].trim())) {
           newCollected = { ...newCollected, booker_name: nameMatch[1]!.trim() };
           logger.info({ booker_name: newCollected.booker_name, phone: session.phone }, "IntakeEngine: booker_name via regex fallback");
         } else if (
