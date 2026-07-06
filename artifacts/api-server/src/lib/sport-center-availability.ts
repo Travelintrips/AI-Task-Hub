@@ -336,8 +336,7 @@ function buildAvailableMessage(
     `⏰ Jam      : *${displayTime}*\n` +
     `⏱️ Durasi   : *${durationLabel}*\n` +
     namePart +
-    `\nApakah Anda ingin booking di jadwal ini?\n` +
-    `Balas *"ya"* untuk konfirmasi, lalu kami kirimkan form lengkapnya. 🙏`
+    `\nKami akan meneruskan pemesanan anda ke Team mohon di tunggu. 🙏`
   );
 }
 

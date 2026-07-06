@@ -36,6 +36,8 @@ import {
   timeToMinutes,
   minutesToTime,
   isValidBookerName,
+  formatDateIndo,
+  normalizeDateString,
 } from "./sport-center-availability";
 import { sendFonnte } from "./fonnte";
 
@@ -719,6 +721,69 @@ async function runSportCenterAvailabilityGate({
     newCollected._avail_status  = avail.isAvailable ? "available" : "unavailable";
     newCollected._avail_checked = true;
 
+    if (avail.isAvailable) {
+      // Auto-confirm: no "ya" needed — mark confirmed, auto-complete, notify group, create task immediately
+      newCollected._avail_confirmed = true;
+
+      // Auto-compute end_time from start_time + duration
+      if (newCollected.start_time && !newCollected.end_time) {
+        const startMins = timeToMinutes(String(newCollected.start_time));
+        if (startMins >= 0) {
+          newCollected.end_time = minutesToTime(startMins + Math.round(durationHours * 60));
+        }
+      }
+
+      // Ensure phone is captured from session
+      if (!newCollected.phone) newCollected.phone = session.phone;
+
+      // Build group notification message
+      const dateLabel = formatDateIndo(normalizeDateString(bookingDate) ?? bookingDate);
+      const displayTime = String(newCollected.start_time ?? startTime)
+        .replace(/^(pukul|jam|pk|at)\s+/i, "").replace(/[.,]/g, ":").replace(/^(\d{1,2})$/, "$1:00");
+      const durLabel = Number.isInteger(durationHours) ? `${durationHours} Jam` : `${durationHours} Jam`;
+      const nameLine = bookerName ? `👤 Nama Pemesan : *${bookerName}*\n` : "";
+      const groupMsg =
+        `📋 *Pemesanan Lapangan Masuk*\n\n` +
+        `🏟️ Lapangan    : *${fieldType}*\n` +
+        `📅 Tanggal     : *${dateLabel}*\n` +
+        `⏰ Jam Mulai   : *${displayTime}*\n` +
+        `⏱️ Durasi      : *${durLabel}*\n` +
+        nameLine +
+        `📱 No. WhatsApp : *${session.phone}*`;
+
+      const SPORT_CENTER_GROUP = "120363428216180040@g.us";
+      sendFonnte(SPORT_CENTER_GROUP, groupMsg, null)
+        .catch((e) => logger.warn({ e }, "IntakeEngine: failed to send group booking notification"));
+
+      // Persist session as ready_for_task — whatsapp.ts will create the AI task immediately
+      const [updatedAvail] = await db
+        .update(intakeSessionsTable)
+        .set({
+          status:          "ready_for_task",
+          collectedFields: newCollected,
+          missingFields:   [],
+          requiredFields:  requiredFieldNames,
+          completionPct:   "100",
+          lastQuestion:    avail.message,
+          lastMessage:     message,
+          lastMessageAt:   now,
+          updatedAt:       now,
+          expiresAt:       new Date(Date.now() + 24 * 60 * 60 * 1000),
+        })
+        .where(eq(intakeSessionsTable.id, session.id))
+        .returning();
+
+      return {
+        action:            "ready_for_task",
+        session:           updatedAvail!,
+        replyToUser:       avail.message,
+        collectedFields:   newCollected,
+        missingFields:     [],
+        requiredDocuments: stillMissingDocs,
+      };
+    }
+
+    // Unavailable — show the unavailable message and wait for new slot
     const [updated] = await db
       .update(intakeSessionsTable)
       .set({
@@ -745,60 +810,22 @@ async function runSportCenterAvailabilityGate({
     };
   }
 
-  // ── Case B: Slot available, waiting for user confirmation ─────────────────
+  // ── Case B: Slot was available (old session without auto-confirm) ──────────
+  // Auto-confirm immediately — no "ya" needed anymore.
   if (currentAvailStatus === "available") {
-    if (isAvailabilityConfirmation(message)) {
-      // User confirmed → mark confirmed, auto-compute end_time, fall through
+    if (!dateChanged && !timeChanged) {
+      // Mark confirmed, auto-compute end_time, fall through to task creation
       newCollected._avail_confirmed = true;
-
-      // Auto-compute end_time from start_time + duration so the bot never needs
-      // to ask "Jam Selesai" separately after confirmation.
       if (newCollected.start_time && !newCollected.end_time) {
         const dh = extractDurationHours(newCollected);
         const startMins = timeToMinutes(String(newCollected.start_time));
         if (startMins >= 0) {
           newCollected.end_time = minutesToTime(startMins + Math.round(dh * 60));
-          logger.info(
-            { start_time: newCollected.start_time, duration: dh, end_time: newCollected.end_time },
-            "IntakeEngine: end_time auto-computed from start_time + duration",
-          );
         }
       }
-
       return null;
     }
-
-    // User replied with something other than confirmation — might be new date/time
-    // (already handled above if date/time changed); if no change, ask again.
-    if (!dateChanged && !timeChanged) {
-      const askAgain =
-        `Apakah Anda ingin booking lapangan *${fieldType}* di jadwal tersebut?\n` +
-        `Balas *"ya"* untuk konfirmasi, atau berikan tanggal/jam lain yang Anda inginkan.`;
-
-      const [updated] = await db
-        .update(intakeSessionsTable)
-        .set({
-          collectedFields:   newCollected,
-          lastQuestion:      askAgain,
-          lastMessage:       message,
-          lastMessageAt:     now,
-          updatedAt:         now,
-          expiresAt:         new Date(Date.now() + 24 * 60 * 60 * 1000),
-        })
-        .where(eq(intakeSessionsTable.id, session.id))
-        .returning();
-
-      return {
-        action:            "continue_collecting",
-        session:           updated!,
-        replyToUser:       askAgain,
-        collectedFields:   newCollected,
-        missingFields:     completeness.missingFieldNames,
-        requiredDocuments: stillMissingDocs,
-      };
-    }
-    // Date/time changed → fall through (Case A will fire on the next iteration
-    // because we deleted _avail_status above)
+    // Date/time changed → clear status so Case A re-checks availability
     return null;
   }
 
