@@ -40,7 +40,7 @@ export function isAvailabilityConfirmation(message: string): boolean {
 // ── Date/time helpers ─────────────────────────────────────────────────────────
 
 /** Parse "HH:MM" / "HH.MM" / "pukul HH:MM" / "jam HH" → minutes since midnight */
-function timeToMinutes(time: string): number {
+export function timeToMinutes(time: string): number {
   // Strip prefix words like "pukul", "jam", "pk"
   const cleaned = time.trim().toLowerCase()
     .replace(/^(pukul|jam|pk|at)\s+/, "")
@@ -54,7 +54,7 @@ function timeToMinutes(time: string): number {
 }
 
 /** Minutes → "HH:MM" */
-function minutesToTime(mins: number): string {
+export function minutesToTime(mins: number): string {
   const h = Math.floor(mins / 60) % 24;
   const mm = mins % 60;
   return `${String(h).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;

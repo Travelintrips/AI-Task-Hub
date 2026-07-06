@@ -33,6 +33,8 @@ import {
   isAvailabilityConfirmation,
   checkSportCenterAvailability,
   extractDurationHours,
+  timeToMinutes,
+  minutesToTime,
 } from "./sport-center-availability";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
@@ -520,13 +522,17 @@ async function runSportCenterAvailabilityGate({
       // Has date/time but field is still generic → show menu
       openingQ = FIELD_MENU_TEXT;
     } else if (!isGenericFieldType && (!bookingDate || !startTime)) {
-      // Has specific field type but missing date/time
-      const missingParts: string[] = [];
-      if (!bookingDate) missingParts.push("tanggal");
-      if (!startTime)   missingParts.push("jam mulai");
+      // Has specific field type but missing date/time — also ask for duration + name upfront
       openingQ =
-        `Untuk booking lapangan *${fieldType}*, mohon berikan ${missingParts.join(" dan ")}nya.\n\n` +
-        `_(Contoh: "5 Juli jam 10:00")_`;
+        `Untuk booking lapangan *${fieldType}*, mohon berikan:\n` +
+        `📅 *Tanggal & jam mulai* (contoh: "5 Juli jam 10:00")\n\n` +
+        `Pilih *durasi*:\n` +
+        `1️⃣ 1 Jam\n` +
+        `2️⃣ 2 Jam\n` +
+        `3️⃣ 3 Jam\n` +
+        `4️⃣ 4 Jam\n` +
+        `5️⃣ 5 Jam\n\n` +
+        `✏️ Dan *nama pemesan* Anda.`;
     } else {
       openingQ =
         `🏟️ Lapangan apa yang ingin Anda booking, dan tanggal serta jam berapa?\n\n` +
@@ -609,8 +615,23 @@ async function runSportCenterAvailabilityGate({
   // ── Case B: Slot available, waiting for user confirmation ─────────────────
   if (currentAvailStatus === "available") {
     if (isAvailabilityConfirmation(message)) {
-      // User confirmed → mark and fall through to normal flow
+      // User confirmed → mark confirmed, auto-compute end_time, fall through
       newCollected._avail_confirmed = true;
+
+      // Auto-compute end_time from start_time + duration so the bot never needs
+      // to ask "Jam Selesai" separately after confirmation.
+      if (newCollected.start_time && !newCollected.end_time) {
+        const dh = extractDurationHours(newCollected);
+        const startMins = timeToMinutes(String(newCollected.start_time));
+        if (startMins >= 0) {
+          newCollected.end_time = minutesToTime(startMins + Math.round(dh * 60));
+          logger.info(
+            { start_time: newCollected.start_time, duration: dh, end_time: newCollected.end_time },
+            "IntakeEngine: end_time auto-computed from start_time + duration",
+          );
+        }
+      }
+
       return null;
     }
 
@@ -868,6 +889,7 @@ export async function processIntakeMessage({
   const availAlreadyChecked = !!existingCollected._avail_status || !!existingCollected._avail_confirmed;
 
   const isMenuQuestion = session.lastQuestion?.includes("Pilih lapangan") ?? false;
+  const isDurationQuestion = session.lastQuestion?.toLowerCase().includes("durasi") ?? false;
   const trimmedMsg = message.trim();
 
   // Belt-and-suspenders: even if lastQuestion doesn't match the menu text
@@ -879,10 +901,22 @@ export async function processIntakeMessage({
   //   (c) availability not yet checked (so we're still in the selection phase)
   const isDigitMenuReply =
     !isMenuQuestion &&
+    !isDurationQuestion &&
     isSportCenterBookingIntent(session.intentCode) &&
     /^[1-6]$/.test(trimmedMsg) &&
     !lapanganAlreadySpecific &&
     !availAlreadyChecked;
+
+  // Duration digit reply: user picks "1"–"5" from the duration menu shown in the
+  // combined date+duration+name prompt (after lapangan is already specific).
+  const DURATION_MENU_MAP: Record<string, string> = {
+    "1": "1 jam", "2": "2 jam", "3": "3 jam", "4": "4 jam", "5": "5 jam",
+  };
+  const isDurationDigitReply =
+    isDurationQuestion &&
+    lapanganAlreadySpecific &&
+    !availAlreadyChecked &&
+    /^[1-5]$/.test(trimmedMsg);
 
   const menuLapangan = (isMenuQuestion || isDigitMenuReply) ? (FIELD_MENU_MAP[trimmedMsg] ?? null) : null;
 
@@ -896,7 +930,14 @@ export async function processIntakeMessage({
 
   let newCollected: Record<string, unknown>;
 
-  if (menuLapangan || namedLapangan) {
+  if (isDurationDigitReply) {
+    // ── Duration digit selected from the numbered menu ──────────────────
+    newCollected = {
+      ...existingCollected,
+      duration: DURATION_MENU_MAP[trimmedMsg]!,
+    };
+    logger.info({ duration: DURATION_MENU_MAP[trimmedMsg], from: session.phone }, "IntakeEngine: duration digit reply resolved directly");
+  } else if (menuLapangan || namedLapangan) {
     // ── Direct injection — no OpenAI needed ──────────────────────────────
     // Detect the actual lapangan field key from dataFields so we work with
     // any template (field_type, field_name, jenis_lapangan, etc.).
@@ -934,32 +975,59 @@ export async function processIntakeMessage({
       sessionHistory,
     );
 
-    // ── Regex fallback for Sport Center date/time ─────────────────────────
-    // OpenAI sometimes fails to map "6 juli jam 16:00" → booking_date/start_time
-    // (wrong key name, timeout, or context issue). This regex extraction runs
-    // ONLY when the session is clearly waiting for date/time info and OpenAI
-    // did not populate those fields, so it never overwrites a valid AI response.
+    // ── Regex fallbacks for Sport Center fields ───────────────────────────
+    // OpenAI sometimes fails to extract fields (wrong key, timeout, context).
+    // These run ONLY when the session is waiting for that type of info and
+    // OpenAI did not populate the field — never overwrites a valid AI response.
     if (isSportCenterBookingIntent(session.intentCode)) {
+      const lastQ = session.lastQuestion ?? "";
       const awaitingDateTime =
-        !!session.lastQuestion &&
-        (session.lastQuestion.includes("tanggal") ||
-          session.lastQuestion.includes("jam") ||
-          session.lastQuestion.includes("mulai"));
+        lastQ.includes("tanggal") || lastQ.includes("jam") || lastQ.includes("mulai");
+      const awaitingDuration = lastQ.includes("durasi");
+      const awaitingName = lastQ.includes("nama");
+
       if (awaitingDateTime) {
         const { date: regexDate, time: regexTime } = extractDateTimeRegex(message);
         if (regexDate && !newCollected.booking_date) {
           newCollected = { ...newCollected, booking_date: regexDate };
-          logger.info(
-            { date: regexDate, phone: session.phone },
-            "IntakeEngine: booking_date extracted via regex fallback (OpenAI missed it)",
-          );
+          logger.info({ date: regexDate, phone: session.phone }, "IntakeEngine: booking_date via regex fallback");
         }
         if (regexTime && !newCollected.start_time) {
           newCollected = { ...newCollected, start_time: regexTime };
-          logger.info(
-            { time: regexTime, phone: session.phone },
-            "IntakeEngine: start_time extracted via regex fallback (OpenAI missed it)",
-          );
+          logger.info({ time: regexTime, phone: session.phone }, "IntakeEngine: start_time via regex fallback");
+        }
+      }
+
+      // Duration regex: "2 jam", "3jam", "90 menit", "120 menit", or isolated digit
+      // when the last question contained a duration menu.
+      if ((awaitingDateTime || awaitingDuration) && !newCollected.duration && !newCollected.durasi) {
+        const MENIT_TO_JAM: Record<string, number> = {
+          "30": 0.5, "45": 0.75, "60": 1, "90": 1.5, "120": 2, "150": 2.5, "180": 3, "240": 4, "300": 5,
+        };
+        const durJamMatch = message.match(/(\d+(?:[.,]\d+)?)\s*jam/i);
+        const durMenitMatch = !durJamMatch && message.match(/(\d+)\s*menit/i);
+        if (durJamMatch) {
+          newCollected = { ...newCollected, duration: `${durJamMatch[1]!.replace(",", ".")} jam` };
+          logger.info({ duration: newCollected.duration, phone: session.phone }, "IntakeEngine: duration (jam) via regex fallback");
+        } else if (durMenitMatch) {
+          const jam = MENIT_TO_JAM[durMenitMatch[1]!] ?? Math.round(parseInt(durMenitMatch[1]!, 10) / 60 * 2) / 2;
+          newCollected = { ...newCollected, duration: `${jam} jam` };
+          logger.info({ duration: newCollected.duration, phone: session.phone }, "IntakeEngine: duration (menit→jam) via regex fallback");
+        } else if (awaitingDuration && /^[1-5]$/.test(message.trim())) {
+          // Single digit — last resort when isDurationDigitReply check was bypassed
+          newCollected = { ...newCollected, duration: `${message.trim()} jam` };
+          logger.info({ duration: newCollected.duration, phone: session.phone }, "IntakeEngine: duration digit via regex fallback");
+        }
+      }
+
+      // Booker name regex: "nama Robby", "nama pemesan: Robby", "atas nama Robby"
+      if ((awaitingDateTime || awaitingName) && !newCollected.booker_name) {
+        const nameMatch = message.match(
+          /(?:nama(?:\s+pemesan)?|pemesan|atas\s+nama)\s*[:\-]?\s*([A-Za-z][A-Za-z\s]{1,40}?)(?:\s*(?:,|$|jam|tanggal|\d))/i,
+        );
+        if (nameMatch?.[1]) {
+          newCollected = { ...newCollected, booker_name: nameMatch[1]!.trim() };
+          logger.info({ booker_name: newCollected.booker_name, phone: session.phone }, "IntakeEngine: booker_name via regex fallback");
         }
       }
     }
