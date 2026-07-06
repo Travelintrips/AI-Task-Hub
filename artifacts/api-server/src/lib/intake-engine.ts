@@ -35,6 +35,7 @@ import {
   extractDurationHours,
   timeToMinutes,
   minutesToTime,
+  isValidBookerName,
 } from "./sport-center-availability";
 import { sendFonnte } from "./fonnte";
 
@@ -526,7 +527,7 @@ async function runSportCenterAvailabilityGate({
       openingQ = FIELD_MENU_TEXT;
     } else if (!isGenericFieldType && (!bookingDate || !startTime)) {
       // Has specific field type but missing date/time.
-      const hasName = !!(newCollected.booker_name);
+      const hasName = isValidBookerName(newCollected.booker_name as string | undefined);
       const missingParts: string[] = [];
       if (!bookingDate || !startTime) missingParts.push("Tanggal & jam mulai");
       if (!hasName) missingParts.push("Nama");
@@ -618,9 +619,55 @@ async function runSportCenterAvailabilityGate({
     }
   }
 
-  // ── Case A: Have field + date + time + durasi → check availability ───────────
+  // ── Case 0.7: Has field + date + time + durasi but no VALID booker name ─────
+  // Guards against garbage extraction (digits, confirmation words, symbols)
+  // silently reaching the confirmation message with a missing/wrong name.
+  const hasValidName = isValidBookerName(newCollected.booker_name as string | undefined);
+  if (!isGenericFieldType && bookingDate && startTime && hasDuration && !hasValidName && !currentAvailStatus) {
+    const hadAttempt = !!newCollected.booker_name && !hasValidName;
+    if (hadAttempt) delete newCollected.booker_name;
+
+    const namaQ = hadAttempt
+      ? `Mohon maaf, nama yang Anda berikan sepertinya kurang tepat. Mohon berikan *nama pemesan* (huruf saja, tanpa angka/simbol), contoh: "Robby" atau "Budi Santoso".`
+      : `Atas nama siapa booking lapangan *${fieldType}* ini? Mohon berikan *nama pemesan*.`;
+
+    try {
+      const [updated] = await db
+        .update(intakeSessionsTable)
+        .set({
+          collectedFields: newCollected,
+          lastQuestion:    namaQ,
+          lastMessage:     message,
+          lastMessageAt:   now,
+          updatedAt:       now,
+          expiresAt:       new Date(Date.now() + 24 * 60 * 60 * 1000),
+        })
+        .where(eq(intakeSessionsTable.id, session.id))
+        .returning();
+      return {
+        action:            "continue_collecting",
+        session:           updated!,
+        replyToUser:       namaQ,
+        collectedFields:   newCollected,
+        missingFields:     completeness.missingFieldNames,
+        requiredDocuments: stillMissingDocs,
+      };
+    } catch (dbErr) {
+      logger.error({ dbErr }, "SportCenterGate Case0.7: DB update failed");
+      return {
+        action:            "continue_collecting",
+        session,
+        replyToUser:       namaQ,
+        collectedFields:   newCollected,
+        missingFields:     completeness.missingFieldNames,
+        requiredDocuments: stillMissingDocs,
+      };
+    }
+  }
+
+  // ── Case A: Have field + date + time + durasi + valid name → check availability
   // Skip if fieldType is still generic (user hasn't specified which lapangan)
-  if (!isGenericFieldType && fieldType && bookingDate && startTime && hasDuration && !currentAvailStatus) {
+  if (!isGenericFieldType && fieldType && bookingDate && startTime && hasDuration && hasValidName && !currentAvailStatus) {
     logger.info({ companyId, fieldType, bookingDate, startTime }, "IntakeEngine: running sport center availability check");
 
     // Send the "please wait" message FIRST and actually await its delivery
@@ -1030,6 +1077,22 @@ export async function processIntakeMessage({
       sessionHistory,
     );
 
+    // Discard a booker_name extracted by OpenAI if it doesn't look like a
+    // plausible name (stray digit, confirmation word, symbols, etc.) — the
+    // regex fallback below or a re-ask will recover it instead of silently
+    // carrying garbage into the confirmation message.
+    if (
+      isSportCenterBookingIntent(session.intentCode) &&
+      newCollected.booker_name &&
+      !isValidBookerName(String(newCollected.booker_name))
+    ) {
+      logger.warn(
+        { rejected: newCollected.booker_name, phone: session.phone },
+        "IntakeEngine: OpenAI booker_name rejected by validation",
+      );
+      delete newCollected.booker_name;
+    }
+
     // ── Regex fallbacks for Sport Center fields ───────────────────────────
     // OpenAI sometimes fails to extract fields (wrong key, timeout, context).
     // These run ONLY when the session is waiting for that type of info and
@@ -1080,9 +1143,19 @@ export async function processIntakeMessage({
         const nameMatch = message.match(
           /(?:nama(?:\s+pemesan)?|pemesan|atas\s+nama)\s*[:\-]?\s*([A-Za-z][A-Za-z\s]{1,40}?)(?:\s*(?:,|$|jam|tanggal|\d))/i,
         );
-        if (nameMatch?.[1]) {
+        if (nameMatch?.[1] && isValidBookerName(nameMatch[1])) {
           newCollected = { ...newCollected, booker_name: nameMatch[1]!.trim() };
           logger.info({ booker_name: newCollected.booker_name, phone: session.phone }, "IntakeEngine: booker_name via regex fallback");
+        } else if (
+          awaitingName &&
+          !nameMatch &&
+          isValidBookerName(message.trim()) &&
+          message.trim().split(/\s+/).length <= 4
+        ) {
+          // User was asked specifically for a name and replied with a bare
+          // name (no "nama ..." prefix), e.g. just "Robby" or "Budi Santoso".
+          newCollected = { ...newCollected, booker_name: message.trim() };
+          logger.info({ booker_name: newCollected.booker_name, phone: session.phone }, "IntakeEngine: booker_name via bare-reply fallback");
         }
       }
     }

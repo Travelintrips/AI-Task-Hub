@@ -120,6 +120,32 @@ export function extractDurationHours(fields: Record<string, unknown>): number {
   return 1; // default 1 hour
 }
 
+// ── Booker name validation ──────────────────────────────────────────────────────
+
+const NAME_BLACKLIST = new Set([
+  "ya", "iya", "tidak", "gak", "ga", "oke", "ok", "baik", "siap", "setuju",
+  "benar", "betul", "lanjut", "bisa", "boleh", "yap", "yep", "yes", "no",
+  "confirm", "fix", "pas", "cocok", "deal", "batal", "cancel",
+]);
+
+/**
+ * Validates a booker name is a plausible human name, not a stray digit,
+ * confirmation word, or garbage extracted by mistake.
+ * - Letters/spaces/dots/apostrophes/hyphens only (supports common Indonesian names)
+ * - No digits or other symbols
+ * - 2–50 chars
+ * - Not a generic filler/confirmation word
+ */
+export function isValidBookerName(name: string | undefined | null): boolean {
+  if (!name) return false;
+  const trimmed = name.trim();
+  if (trimmed.length < 2 || trimmed.length > 50) return false;
+  if (/\d/.test(trimmed)) return false;
+  if (!/^[A-Za-z\u00C0-\u017F][A-Za-z\u00C0-\u017F.'\- ]*$/.test(trimmed)) return false;
+  if (NAME_BLACKLIST.has(trimmed.toLowerCase())) return false;
+  return true;
+}
+
 // ── Operating hours ────────────────────────────────────────────────────────────
 
 const OPEN_HOUR = 7;   // 07:00
