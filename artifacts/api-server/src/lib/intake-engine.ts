@@ -530,13 +530,12 @@ async function runSportCenterAvailabilityGate({
       const hasName     = !!(newCollected.booker_name);
 
       const missingParts: string[] = [];
-      if (!bookingDate || !startTime) missingParts.push("Tanggal dan jam mulai");
-      if (!hasDuration) missingParts.push("Durasi");
-      if (!hasName) missingParts.push("Nama pemesan");
+      if (!bookingDate || !startTime) missingParts.push("Tanggal & jam mulai");
+      if (!hasName) missingParts.push("Nama");
 
       openingQ =
         `Untuk booking lapangan *${fieldType}*, mohon berikan:\n` +
-        `${missingParts.join(", ")} (contoh: "5 Juli jam 10:00 Durasi 2 Jam dan Nama Ahmad")`;
+        `${missingParts.join(" & ")} (contoh: "5 Juli jam 10:00 Robby")`;
     } else {
       openingQ =
         `🏟️ Lapangan apa yang ingin Anda booking, dan tanggal serta jam berapa?\n\n` +
