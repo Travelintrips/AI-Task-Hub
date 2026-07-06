@@ -15,9 +15,7 @@ if (!connectionString) {
 
 export const pool = new Pool({
   connectionString,
-  ssl: connectionString.includes("supabase.co")
-    ? { rejectUnauthorized: false }
-    : false,
+  ssl: false,
 });
 
 export const db = drizzle(pool, { schema });

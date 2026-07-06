@@ -20,9 +20,7 @@ export const supabasePool = connectionString
       max: 5,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 5000,
-      ssl: connectionString.includes("supabase.co")
-        ? { rejectUnauthorized: false }
-        : false,
+      ssl: false,
     })
   : null;
 
