@@ -188,8 +188,11 @@ function extractDateTimeRegex(msg: string): { date: string | null; time: string 
   }
 
   // ── Date: "tanggal 8", "tanggl 8", "tgl 8" (day-only → use current month) ──
+  // NOTE: only exclude a directly-following digit (e.g. avoid grabbing "1" out
+  // of "18"). Do NOT exclude "space + word" — messages like "tanggal 8 jam 18"
+  // are common and the day-only date must still be captured in that case.
   if (!date) {
-    const dayOnlyMatch = text.match(/(?:tan(?:ggal?|gl)\s+)(\d{1,2})(?!\s+\w|\d)/i);
+    const dayOnlyMatch = text.match(/(?:tan(?:ggal?|gl)\s+)(\d{1,2})(?!\d)/i);
     if (dayOnlyMatch) {
       const day = parseInt(dayOnlyMatch[1]!, 10);
       if (day >= 1 && day <= 31) {
@@ -1288,7 +1291,7 @@ export async function processIntakeMessage({
     // These run ONLY when the session is waiting for that type of info and
     // OpenAI did not populate the field — never overwrites a valid AI response.
     if (isSportCenterBookingIntent(session.intentCode)) {
-      const lastQ = session.lastQuestion ?? "";
+      const lastQ = (session.lastQuestion ?? "").toLowerCase();
       const awaitingDateTime =
         lastQ.includes("tanggal") || lastQ.includes("jam") || lastQ.includes("mulai");
       const awaitingDuration = lastQ.includes("durasi");
@@ -1315,8 +1318,24 @@ export async function processIntakeMessage({
         const MENIT_TO_JAM: Record<string, number> = {
           "30": 0.5, "45": 0.75, "60": 1, "90": 1.5, "120": 2, "150": 2.5, "180": 3, "240": 4, "300": 5,
         };
-        const durJamMatch = message.match(/(\d+(?:[.,]\d+)?)\s*jam/i);
-        const durMenitMatch = !durJamMatch && message.match(/(\d+)\s*menit/i);
+        // Prefer an explicit "durasi X jam" / "selama X jam" phrase — this avoids
+        // false positives like "tanggal 8 jam 18 durasi 3 jam" where a naive
+        // "<number> jam" match would grab the "8" from the date instead of the
+        // actual "3" duration.
+        const durasiKeywordMatch = message.match(/(?:durasi|selama)\s*[:\-]?\s*(\d+(?:[.,]\d+)?)\s*jam/i);
+        const durasiMenitKeywordMatch = !durasiKeywordMatch && message.match(/(?:durasi|selama)\s*[:\-]?\s*(\d+)\s*menit/i);
+        // Generic fallback: bare "<n> jam" not immediately preceded by a date word
+        // (e.g. "tanggal 8 jam 18" is date+time, not duration) and not immediately
+        // followed by another number (which would mean it's actually a time like
+        // "jam 18" continuing into a range).
+        const genericJamMatch = !durasiKeywordMatch && !durasiMenitKeywordMatch
+          ? message.match(/(?<!tan(?:ggal?|gl)\s)(\d+(?:[.,]\d+)?)\s*jam(?!\s*\d)/i)
+          : null;
+        const genericMenitMatch = !durasiKeywordMatch && !durasiMenitKeywordMatch && !genericJamMatch
+          ? message.match(/(\d+)\s*menit/i)
+          : null;
+        const durJamMatch = durasiKeywordMatch ?? genericJamMatch;
+        const durMenitMatch = durasiMenitKeywordMatch ?? genericMenitMatch;
         if (durJamMatch) {
           newCollected = { ...newCollected, duration: `${durJamMatch[1]!.replace(",", ".")} jam` };
           logger.info({ duration: newCollected.duration, phone: session.phone }, "IntakeEngine: duration (jam) via regex fallback");
