@@ -136,7 +136,7 @@ function extractDateTimeRegex(msg: string): { date: string | null; time: string 
   // ── Date: "6 juli", "tanggal 6 juli", "6 juli 2026" ──
   let date: string | null = null;
   const dateMatch = text.match(
-    /(?:tanggal\s+)?(\d{1,2})\s+(jan(?:uari)?|feb(?:ruari)?|mar(?:et)?|apr(?:il)?|mei|jun(?:i)?|jul(?:i)?|agu(?:stus)?|sep(?:tember)?|okt(?:ober)?|nov(?:ember)?|des(?:ember)?)\s*(\d{4})?/i,
+    /(?:tan(?:ggal?|gl)?\s+)?(\d{1,2})\s+(jan(?:uari)?|feb(?:ruari)?|mar(?:et)?|apr(?:il)?|mei|jun(?:i)?|jul(?:i)?|agu(?:stus)?|sep(?:tember)?|okt(?:ober)?|nov(?:ember)?|des(?:ember)?)\s*(\d{4})?/i,
   );
   if (dateMatch) {
     const day = dateMatch[1].padStart(2, "0");
@@ -144,6 +144,18 @@ function extractDateTimeRegex(msg: string): { date: string | null; time: string 
     const month = MONTHS_ID[monthKey] ?? null;
     const year = dateMatch[3] ?? String(new Date().getFullYear());
     if (month) date = `${year}-${month}-${day}`;
+  }
+
+  // ── Date: "tanggal 8", "tanggl 8", "tgl 8" (day-only → use current month) ──
+  if (!date) {
+    const dayOnlyMatch = text.match(/(?:tan(?:ggal?|gl)\s+)(\d{1,2})(?!\s+\w|\d)/i);
+    if (dayOnlyMatch) {
+      const day = parseInt(dayOnlyMatch[1]!, 10);
+      if (day >= 1 && day <= 31) {
+        const now = new Date();
+        date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      }
+    }
   }
 
   return { date, time };
@@ -260,6 +272,7 @@ async function extractFieldsFromMessage(
     .map((f) => `- ${f.fieldName} (${f.fieldLabel}, type: ${f.fieldType})`)
     .join("\n");
 
+  const isAvailUnavailable = existingCollected._avail_status === "unavailable";
   const prompt = `Kamu adalah asisten AI yang membantu mengekstrak informasi dari pesan pelanggan.
 
 Intent pelanggan: ${intentCode}
@@ -277,16 +290,18 @@ Pesan terbaru pelanggan: "${message}"
 
 Instruksi PENTING:
 1. Ekstrak nilai baru dari pesan terbaru.
-2. SELALU gabungkan dengan data yang sudah ada. Jangan hapus atau timpa data yang sudah ada.
+2. SELALU gabungkan dengan data yang sudah ada.${isAvailUnavailable
+  ? `\n   KHUSUS: Jadwal sebelumnya SUDAH TERISI. Jika user memberikan tanggal atau jam BARU yang berbeda dari data sebelumnya, GANTI nilai booking_date dan/atau start_time dengan yang baru.`
+  : " Jangan hapus atau timpa data yang sudah ada."}
 3. Kembalikan JSON dengan SEMUA field yang sudah terkumpul (existing + baru).
 4. Gunakan field_name sebagai key (bukan label).
 5. Jangan sertakan field dengan nilai null/kosong.
 
 Panduan khusus untuk Sport Center (sport_center_booking, daftar_membership, dll):
 - "lapangan futsal" / "futsal" / "lapangan bola" / "bola" / "badminton" / "tenis" / "basket" / "voli" → ekstrak sebagai nilai field "field_name" (Nama Lapangan / Jenis Olahraga)
-- "tanggal 28" / "tanggal 28 juni" / "besok" / "minggu depan" → ekstrak sebagai nilai field "booking_date" (Tanggal Booking)
+- "tanggal 28" / "tanggal 28 juni" / "besok" / "minggu depan" / "tanggl 8" / "tgl 8" → ekstrak sebagai nilai field "booking_date" (YYYY-MM-DD, gunakan tahun ${new Date().getFullYear()}, bulan saat ini jika tidak disebutkan)
 - "3 jam" / "2 jam" / "90 menit" → hitung jam_selesai: jam_mulai + durasi, ekstrak sebagai "end_time"
-- "jam 10" / "pukul 10.00" / "sore jam 3" → ekstrak sebagai nilai field "start_time" (Jam Mulai)
+- "jam 10" / "pukul 10.00" / "sore jam 3" / "jam 15" / angka tunggal seperti "15" atau "16" dalam konteks jam → ekstrak sebagai nilai field "start_time" (format HH:00)
 - nama orang yang disebutkan sebagai pemesan → ekstrak sebagai "booker_name"
 - nomor telepon / nomor HP → ekstrak sebagai "phone"
 PENTING: Gunakan HANYA field_name yang ada di daftar "Field yang diperlukan" di atas sebagai key JSON.
@@ -836,17 +851,101 @@ async function runSportCenterAvailabilityGate({
 
   // ── Case C: Slot unavailable, and user hasn't changed date/time yet ───────
   if (currentAvailStatus === "unavailable" && !dateChanged && !timeChanged) {
-    // Prompt user to pick another slot — but only if they didn't already give new info
-    const hasNewDate = !existingCollected.booking_date && bookingDate;
-    const hasNewTime = !existingCollected.start_time && startTime;
-    if (hasNewDate || hasNewTime) {
-      // New slot info just arrived — clear status and let Case A re-check
+    // ── C-1: "ganti tanggal" / "hari lain" keywords → reset slot and re-ask ──
+    const wantsDateChange = /ganti\s*tanggal|ubah\s*tanggal|tanggal\s*lain|hari\s*lain|beda\s*tanggal|coba\s*tanggal|coba\s*hari|mau\s*ganti/i.test(message);
+    if (wantsDateChange) {
+      delete newCollected.booking_date;
+      delete newCollected.start_time;
       delete newCollected._avail_status;
-      return null;
+      delete newCollected._avail_checked;
+      const reAskQ =
+        `Baik! Silakan berikan *tanggal* dan *jam* baru yang Anda inginkan ya. 📅\n` +
+        `_(Contoh: "8 Juli jam 14:00")_`;
+      const [updated] = await db
+        .update(intakeSessionsTable)
+        .set({ collectedFields: newCollected, lastQuestion: reAskQ, lastMessage: message, lastMessageAt: now, updatedAt: now, expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) })
+        .where(eq(intakeSessionsTable.id, session.id))
+        .returning();
+      return { action: "continue_collecting", session: updated!, replyToUser: reAskQ, collectedFields: newCollected, missingFields: completeness.missingFieldNames, requiredDocuments: stillMissingDocs };
     }
-    // No new info — just remind them to pick another slot
+
+    // ── C-2: User provides a new time (e.g. "jam 15", "pukul 16", "15", "16") ──
+    // extractDateTimeRegex handles "jam X" and "X:00" — but NOT bare numbers.
+    // We also try bare numbers 7-21 as hour selections.
+    let caseCSuggestedTime: string | null = null;
+    const { time: regexExtractedTime } = extractDateTimeRegex(message);
+    if (regexExtractedTime) {
+      caseCSuggestedTime = regexExtractedTime;
+    } else {
+      // Bare number in range 7–21 treated as an hour selection
+      const bareHour = message.trim().match(/^(\d{1,2})$/);
+      if (bareHour) {
+        const h = parseInt(bareHour[1]!, 10);
+        if (h >= 7 && h <= 21) caseCSuggestedTime = `${String(h).padStart(2, "0")}:00`;
+      }
+    }
+
+    if (caseCSuggestedTime && caseCSuggestedTime !== String(existingCollected.start_time ?? "")) {
+      // New valid time → run inline availability check (same as Case A)
+      newCollected.start_time = caseCSuggestedTime;
+      delete newCollected._avail_status;
+      delete newCollected._avail_checked;
+      delete newCollected._avail_confirmed;
+
+      const durationHours = extractDurationHours(newCollected);
+      const bookerName = String(newCollected.booker_name ?? "").trim() || undefined;
+      const avail = await checkSportCenterAvailability({
+        fieldType, bookingDate, startTime: caseCSuggestedTime, durationHours, companyId, bookerName,
+      });
+      newCollected._avail_status  = avail.isAvailable ? "available" : "unavailable";
+      newCollected._avail_checked = true;
+
+      if (avail.isAvailable) {
+        newCollected._avail_confirmed = true;
+        if (!newCollected.end_time) {
+          const startMins = timeToMinutes(caseCSuggestedTime);
+          if (startMins >= 0) newCollected.end_time = minutesToTime(startMins + Math.round(durationHours * 60));
+        }
+        if (!newCollected.phone) newCollected.phone = session.phone;
+        // Notify group
+        const dateLabel = formatDateIndo(normalizeDateString(bookingDate) ?? bookingDate);
+        const durLabel  = `${durationHours} Jam`;
+        const nameLine  = bookerName ? `👤 Nama Pemesan : *${bookerName}*\n` : "";
+        const groupMsg  =
+          `📋 *Pemesanan Lapangan Masuk*\n\n` +
+          `🏟️ Lapangan    : *${fieldType}*\n` +
+          `📅 Tanggal     : *${dateLabel}*\n` +
+          `⏰ Jam Mulai   : *${caseCSuggestedTime}*\n` +
+          `⏱️ Durasi      : *${durLabel}*\n` +
+          nameLine +
+          `📱 No. WhatsApp : *${session.phone}*`;
+        const SPORT_CENTER_GROUP = "120363428216180040@g.us";
+        sendFonnte(SPORT_CENTER_GROUP, groupMsg, null)
+          .catch((e) => logger.warn({ e }, "IntakeEngine: CaseC group notify failed"));
+        const [updatedAvail] = await db
+          .update(intakeSessionsTable)
+          .set({ status: "ready_for_task", collectedFields: newCollected, missingFields: [], requiredFields: requiredFieldNames, completionPct: "100", lastQuestion: avail.message, lastMessage: message, lastMessageAt: now, updatedAt: now, expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) })
+          .where(eq(intakeSessionsTable.id, session.id))
+          .returning();
+        return { action: "ready_for_task", session: updatedAvail!, replyToUser: avail.message, collectedFields: newCollected, missingFields: [], requiredDocuments: stillMissingDocs };
+      }
+
+      // New slot also unavailable → show updated unavailability message
+      const [updated] = await db
+        .update(intakeSessionsTable)
+        .set({ collectedFields: newCollected, missingFields: completeness.missingFieldNames, requiredFields: requiredFieldNames, completionPct: String(completeness.completionPct), lastQuestion: avail.message, lastMessage: message, lastMessageAt: now, updatedAt: now, expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) })
+        .where(eq(intakeSessionsTable.id, session.id))
+        .returning();
+      return { action: "continue_collecting", session: updated!, replyToUser: avail.message, collectedFields: newCollected, missingFields: completeness.missingFieldNames, requiredDocuments: stillMissingDocs };
+    }
+
+    // ── C-3: No usable new slot info → polite reminder with available slots ──
+    const prevAvailMsg = String(existingCollected._avail_msg ?? "");
+    const availSlotsHint = prevAvailMsg.includes("tersedia") ? "" :
+      `\n\nSilakan pilih salah satu *jam yang tersedia* di atas, atau ketik *"ganti tanggal"* untuk memilih hari lain.`;
     const reminder =
-      `Jadwal tersebut sudah terisi. Silakan berikan tanggal dan jam lain yang Anda inginkan.`;
+      `Jadwal tersebut sudah terisi. Silakan pilih jam lain atau ketik *"ganti tanggal"* untuk hari lain.` +
+      availSlotsHint;
 
     const [updated] = await db
       .update(intakeSessionsTable)
@@ -1171,11 +1270,14 @@ export async function processIntakeMessage({
 
       if (awaitingDateTime) {
         const { date: regexDate, time: regexTime } = extractDateTimeRegex(message);
-        if (regexDate && !newCollected.booking_date) {
+        // Allow overwriting start_time / booking_date when availability was already
+        // checked as "unavailable" — user is providing a new preferred slot.
+        const availWasUnavailable = existingCollected._avail_status === "unavailable";
+        if (regexDate && (!newCollected.booking_date || availWasUnavailable)) {
           newCollected = { ...newCollected, booking_date: regexDate };
           logger.info({ date: regexDate, phone: session.phone }, "IntakeEngine: booking_date via regex fallback");
         }
-        if (regexTime && !newCollected.start_time) {
+        if (regexTime && (!newCollected.start_time || availWasUnavailable)) {
           newCollected = { ...newCollected, start_time: regexTime };
           logger.info({ time: regexTime, phone: session.phone }, "IntakeEngine: start_time via regex fallback");
         }
