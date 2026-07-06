@@ -20,7 +20,7 @@ export const supabasePool = connectionString
       max: 5,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 5000,
-      ssl: false,
+      ssl: process.env.DB_SSL === 'false' ? false : { rejectUnauthorized: false },
     })
   : null;
 
