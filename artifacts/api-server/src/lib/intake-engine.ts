@@ -539,7 +539,10 @@ async function runSportCenterAvailabilityGate({
       if (!hasName) missingParts.push("Nama pemesan");
       openingQ =
         `Untuk booking lapangan *${fieldType}*, mohon berikan:\n` +
-        `${missingParts.join(", ")} (contoh: "5 Juli jam 10:00 Durasi 2 Jam dan Nama Ahmad")`;
+        `Tanggal      :\n` +
+        `Jam Mulai    :\n` +
+        `Durasi       :\n` +
+        `Nama Pemesan :`;
     } else {
       openingQ =
         `🏟️ Lapangan apa yang ingin Anda booking, dan tanggal serta jam berapa?\n\n` +
