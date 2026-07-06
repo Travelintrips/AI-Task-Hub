@@ -22,6 +22,7 @@ import {
   documentTemplatesTable,
   documentTemplateFieldsTable,
   auditLogsTable,
+  notificationReceiversTable,
   type IntakeSession,
 } from "@workspace/db";
 import { openai } from "./openai";
@@ -40,6 +41,46 @@ import {
   normalizeDateString,
 } from "./sport-center-availability";
 import { sendFonnte } from "./fonnte";
+
+// ─── Sport Center notification helper ─────────────────────────────────────────
+// Sends the booking confirmation message to ALL active "Sport Center" recipients
+// registered in the Penerima Notifikasi table (phones + groups).
+async function sendSportCenterNotifications(
+  companyId: string,
+  message: string,
+  fonnteDevice: string | null | undefined,
+): Promise<void> {
+  const SPORT_CENTER_ALIASES = ["Sport Center", "Lapangan", "Olahraga", "Booking Lapangan"];
+  try {
+    const receivers = await db
+      .select()
+      .from(notificationReceiversTable)
+      .where(
+        and(
+          eq(notificationReceiversTable.companyId, companyId),
+          eq(notificationReceiversTable.isActive, true),
+          inArray(notificationReceiversTable.category, SPORT_CENTER_ALIASES),
+        ),
+      );
+
+    if (receivers.length === 0) {
+      logger.warn({ companyId }, "IntakeEngine: no active Sport Center notification receivers found");
+      return;
+    }
+
+    await Promise.allSettled(
+      receivers.map((r) =>
+        sendFonnte(r.phone, message, null).catch((e) =>
+          logger.warn({ e, phone: r.phone }, "IntakeEngine: sport center notify to receiver failed"),
+        ),
+      ),
+    );
+
+    logger.info({ companyId, receiverCount: receivers.length }, "IntakeEngine: sport center notifications sent");
+  } catch (err) {
+    logger.warn({ err, companyId }, "IntakeEngine: sendSportCenterNotifications failed (non-fatal)");
+  }
+}
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -767,24 +808,10 @@ async function runSportCenterAvailabilityGate({
       // Ensure phone is captured from session
       if (!newCollected.phone) newCollected.phone = session.phone;
 
-      // Build group notification message
-      const dateLabel = formatDateIndo(normalizeDateString(bookingDate) ?? bookingDate);
-      const displayTime = String(newCollected.start_time ?? startTime)
-        .replace(/^(pukul|jam|pk|at)\s+/i, "").replace(/[.,]/g, ":").replace(/^(\d{1,2})$/, "$1:00");
-      const durLabel = Number.isInteger(durationHours) ? `${durationHours} Jam` : `${durationHours} Jam`;
-      const nameLine = bookerName ? `👤 Nama Pemesan : *${bookerName}*\n` : "";
-      const groupMsg =
-        `📋 *Pemesanan Lapangan Masuk*\n\n` +
-        `🏟️ Lapangan    : *${fieldType}*\n` +
-        `📅 Tanggal     : *${dateLabel}*\n` +
-        `⏰ Jam Mulai   : *${displayTime}*\n` +
-        `⏱️ Durasi      : *${durLabel}*\n` +
-        nameLine +
-        `📱 No. WhatsApp : *${session.phone}*`;
-
-      const SPORT_CENTER_GROUP = "120363428216180040@g.us";
-      sendFonnte(SPORT_CENTER_GROUP, groupMsg, null)
-        .catch((e) => logger.warn({ e }, "IntakeEngine: failed to send group booking notification"));
+      // Notify ALL active Sport Center recipients (groups + phone numbers) from Penerima Notifikasi table.
+      // avail.message already contains the full "Jadwal Tersedia!" summary with Harga + Nama Pemesan.
+      sendSportCenterNotifications(companyId, avail.message, fonnteDevice)
+        .catch((e) => logger.warn({ e }, "IntakeEngine: failed to send sport center notifications"));
 
       // Persist session as ready_for_task — whatsapp.ts will create the AI task immediately
       const [updatedAvail] = await db
@@ -918,21 +945,9 @@ async function runSportCenterAvailabilityGate({
           if (startMins >= 0) newCollected.end_time = minutesToTime(startMins + Math.round(durationHours * 60));
         }
         if (!newCollected.phone) newCollected.phone = session.phone;
-        // Notify group
-        const dateLabel = formatDateIndo(normalizeDateString(bookingDate) ?? bookingDate);
-        const durLabel  = `${durationHours} Jam`;
-        const nameLine  = bookerName ? `👤 Nama Pemesan : *${bookerName}*\n` : "";
-        const groupMsg  =
-          `📋 *Pemesanan Lapangan Masuk*\n\n` +
-          `🏟️ Lapangan    : *${fieldType}*\n` +
-          `📅 Tanggal     : *${dateLabel}*\n` +
-          `⏰ Jam Mulai   : *${caseCSuggestedTime}*\n` +
-          `⏱️ Durasi      : *${durLabel}*\n` +
-          nameLine +
-          `📱 No. WhatsApp : *${session.phone}*`;
-        const SPORT_CENTER_GROUP = "120363428216180040@g.us";
-        sendFonnte(SPORT_CENTER_GROUP, groupMsg, null)
-          .catch((e) => logger.warn({ e }, "IntakeEngine: CaseC group notify failed"));
+        // Notify ALL active Sport Center recipients from Penerima Notifikasi table
+        sendSportCenterNotifications(companyId, avail.message, fonnteDevice)
+          .catch((e) => logger.warn({ e }, "IntakeEngine: CaseC sport center notify failed"));
         const [updatedAvail] = await db
           .update(intakeSessionsTable)
           .set({ status: "ready_for_task", collectedFields: newCollected, missingFields: [], requiredFields: requiredFieldNames, completionPct: "100", lastQuestion: avail.message, lastMessage: message, lastMessageAt: now, updatedAt: now, expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) })
