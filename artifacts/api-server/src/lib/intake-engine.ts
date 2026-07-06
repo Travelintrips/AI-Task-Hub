@@ -688,7 +688,20 @@ async function runSportCenterAvailabilityGate({
       fonnteDevice ?? null,
     ).catch((e) => logger.warn({ e }, "IntakeEngine: failed to send availability pre-check message"));
 
-    await new Promise((resolve) => setTimeout(resolve, 15000));
+    // Fonnte tidak menyediakan indikator "sedang mengetik" native seperti WA
+    // Business API resmi, jadi kita simulasikan dengan mengirim satu pesan
+    // progres singkat di tengah masa tunggu — supaya customer tahu prosesnya
+    // masih berjalan (bukan macet), bukan cuma diam 15 detik.
+    const halfDelayMs = 7000;
+    await new Promise((resolve) => setTimeout(resolve, halfDelayMs));
+
+    await sendFonnte(
+      session.phone,
+      "⏳ Sebentar ya, masih kami cek...",
+      fonnteDevice ?? null,
+    ).catch((e) => logger.warn({ e }, "IntakeEngine: failed to send availability progress pulse message"));
+
+    await new Promise((resolve) => setTimeout(resolve, 15000 - halfDelayMs));
 
     const durationHours = extractDurationHours(newCollected);
     const bookerName = String(newCollected.booker_name ?? "").trim() || undefined;
