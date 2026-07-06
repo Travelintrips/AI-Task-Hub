@@ -611,7 +611,7 @@ async function runSportCenterAvailabilityGate({
             .join("\n")
         : "";
       const fieldLabel = isBilliard ? "Meja Billiard" : `lapangan *${fieldType}*`;
-      const itemLabel  = isBilliard ? "Jumlah Coin, Tanggal, Jam main, Nama pemesan" : "Tanggal, Jam mulai, Durasi, Nama pemesan";
+      const itemLabel  = isBilliard ? "Jumlah Coin, Tanggal, Jam main, Nama pemesan" : "Tanggal & Bulan, Jam mulai, Durasi, Nama pemesan";
       const example    = isBilliard
         ? `"10 Juli jam 14:00 5 Coin Nama Ahmad"`
         : `"5 Juli jam 10:00 Durasi 2 Jam dan Nama Ahmad"`;
