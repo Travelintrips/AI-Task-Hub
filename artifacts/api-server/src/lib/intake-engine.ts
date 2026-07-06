@@ -522,17 +522,30 @@ async function runSportCenterAvailabilityGate({
       // Has date/time but field is still generic → show menu
       openingQ = FIELD_MENU_TEXT;
     } else if (!isGenericFieldType && (!bookingDate || !startTime)) {
-      // Has specific field type but missing date/time — also ask for duration + name upfront
+      // Has specific field type but missing date/time.
+      // Build a TARGETED prompt — only ask for what is STILL missing so the
+      // bot doesn't repeat the same question after the user already answered
+      // duration or name.
+      const hasDuration = !!(newCollected.duration ?? newCollected.durasi);
+      const hasName     = !!(newCollected.booker_name);
+
       openingQ =
         `Untuk booking lapangan *${fieldType}*, mohon berikan:\n` +
-        `📅 *Tanggal & jam mulai* (contoh: "5 Juli jam 10:00")\n\n` +
-        `Pilih *durasi*:\n` +
-        `1️⃣ 1 Jam\n` +
-        `2️⃣ 2 Jam\n` +
-        `3️⃣ 3 Jam\n` +
-        `4️⃣ 4 Jam\n` +
-        `5️⃣ 5 Jam\n\n` +
-        `✏️ Dan *nama pemesan* Anda.`;
+        `📅 *Tanggal & jam mulai* (contoh: "5 Juli jam 10:00")`;
+
+      if (!hasDuration) {
+        openingQ +=
+          `\n\nPilih *durasi*:\n` +
+          `1️⃣ 1 Jam\n` +
+          `2️⃣ 2 Jam\n` +
+          `3️⃣ 3 Jam\n` +
+          `4️⃣ 4 Jam\n` +
+          `5️⃣ 5 Jam`;
+      }
+
+      if (!hasName) {
+        openingQ += `\n\n✏️ Dan *nama pemesan* Anda.`;
+      }
     } else {
       openingQ =
         `🏟️ Lapangan apa yang ingin Anda booking, dan tanggal serta jam berapa?\n\n` +
