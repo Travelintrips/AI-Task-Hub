@@ -638,11 +638,11 @@ async function runAiDetection({
       const greetingReply =
         `Halo! 👋 Selamat datang, ada yang bisa kami bantu?\n\n` +
         `Silakan ceritakan kebutuhan Anda, misalnya:\n` +
-        `• 🚚 Pengiriman / Trucking / Sea & Air Freight\n` +
-        `• 📋 Layanan PPJK / Bea Cukai / Customs\n` +
-        `• 🏟️ Booking Lapangan Olahraga\n` +
-        `• 💰 Kasbon / Pembayaran\n` +
-        `• ❓ Pertanyaan lainnya\n\n` +
+        `1 * 🚚 Pengiriman / Trucking / Sea & Air Freight\n` +
+        `2 * 📋 Layanan PPJK / Bea Cukai / Customs\n` +
+        `3 * 🏟️ Booking Lapangan Olahraga\n` +
+        `4 * 💰 Kasbon / Pembayaran\n` +
+        `5 * ❓ Pertanyaan lainnya\n\n` +
         `Tim kami siap membantu! 🙏`;
       await sendFonnte(replyTo, greetingReply, fonnteDevice).catch((e) =>
         logger.warn({ e }, "greeting: failed to send canned reply"),
