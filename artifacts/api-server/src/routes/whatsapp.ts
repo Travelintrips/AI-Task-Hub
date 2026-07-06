@@ -655,6 +655,29 @@ async function runAiDetection({
       return;
     }
 
+    // ── Step 0a-menu: Menu digit selection gate ─────────────────────────────────
+    // When user replies with a single digit 1-5 referencing the greeting menu
+    // (and there is no active intake session), translate the digit to a full
+    // intent phrase so the AI pipeline detects the correct intent and creates
+    // an intake session. Do NOT return early here — let the full AI pipeline
+    // run so an intake session is started correctly.
+    if (!activeSession && messageType === "text") {
+      const menuExpand: Record<string, string> = {
+        "1": "saya butuh layanan pengiriman trucking sea air freight logistik",
+        "2": "saya butuh layanan PPJK bea cukai customs kepabeanan",
+        "3": "saya mau booking lapangan olahraga futsal badminton",
+        "4": "saya butuh kasbon pembayaran uang muka",
+        "5": "saya punya pertanyaan umum informasi lainnya",
+      };
+      const menuKey = bodyText.trim();
+      const expanded = menuExpand[menuKey];
+      if (expanded) {
+        logger.info({ from, digit: menuKey }, "Menu digit detected — expanding to full intent text for AI pipeline");
+        // eslint-disable-next-line no-param-reassign
+        bodyText = expanded;
+      }
+    }
+
     // ── Step 0b: Check for active intake session ───────────────────────────────
     // If customer is mid-conversation collecting data, continue that session
     // instead of detecting a new intent.
