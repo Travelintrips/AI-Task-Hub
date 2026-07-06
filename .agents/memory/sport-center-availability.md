@@ -37,3 +37,10 @@ Private keys managed by the gate (prefixed `_`, excluded from form/task):
 - Field matching: strips generic words ("lapangan", "court") before ILIKE
 
 **Why:** User requirement: AI should check availability before sending form, not immediately send form link when "Booking Lapangan Olahraga" is received.
+
+## Fix: wait-message ordering + booker name in confirmation (2026-07-06)
+- Bug: the "Mohon ditunggu, kami cek dulu..." text was returned as `preReply` alongside `replyToUser` in the SAME IntakeResult, so it was only ever displayed by the caller AFTER the (already-completed) availability check — never truly sent first.
+- Fix: inside the availability-check branch of `runSportCenterAvailabilityGate` (intake-engine.ts), now `await sendFonnte(session.phone, waitMsg, fonnteDevice)` directly BEFORE calling `checkSportCenterAvailability()`, then return only `replyToUser` (no `preReply`). This required threading `fonnteDevice` as a new param through `processIntakeMessage()` → `runSportCenterAvailabilityGate()`, and both call sites in `whatsapp.ts` (main flow + guard re-check flow) now pass `fonnteDevice` through.
+- `buildAvailableMessage()` in sport-center-availability.ts already had a Durasi line; added an optional `bookerName` param that renders a "👤 Nama Pemesan" line when present — threaded through all 3 return branches inside `checkSportCenterAvailability()`.
+- The `preReply` field on `IntakeResult` still exists and is still consumed by whatsapp.ts for other flows, but is no longer used by the sport-center availability Case A branch — don't reintroduce it there, since synchronous send-before-check is the correct fix, not a "send both, hope for ordering" pattern.
+- Mini-form-after-"ya"-confirmation behavior did NOT need a code change — Case B/C in the gate already only fall through (allowing the form to be sent) after `isAvailabilityConfirmation(message)` is true.

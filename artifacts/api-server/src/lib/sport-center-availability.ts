@@ -141,12 +141,14 @@ export async function checkSportCenterAvailability({
   startTime,
   durationHours = 1,
   companyId,
+  bookerName,
 }: {
   fieldType: string;
   bookingDate: string;
   startTime: string;
   durationHours?: number;
   companyId: string;
+  bookerName?: string;
 }): Promise<AvailabilityResult> {
   const normalizedDate = normalizeDateString(bookingDate);
   if (!normalizedDate) {
@@ -208,7 +210,7 @@ export async function checkSportCenterAvailability({
         checkedDate: normalizedDate,
         checkedDateIndo: dateIndo,
         availableSlots: [],
-        message: buildAvailableMessage(fieldType, dateIndo, startTime, minutesToTime(reqEndMin), durationHours),
+        message: buildAvailableMessage(fieldType, dateIndo, startTime, minutesToTime(reqEndMin), durationHours, bookerName),
       };
     }
 
@@ -246,7 +248,7 @@ export async function checkSportCenterAvailability({
         checkedDate: normalizedDate,
         checkedDateIndo: dateIndo,
         availableSlots: freeSlots,
-        message: buildAvailableMessage(fieldType, dateIndo, startTime, minutesToTime(reqEndMin), durationHours),
+        message: buildAvailableMessage(fieldType, dateIndo, startTime, minutesToTime(reqEndMin), durationHours, bookerName),
       };
     }
 
@@ -273,7 +275,7 @@ export async function checkSportCenterAvailability({
       checkedDate: normalizedDate,
       checkedDateIndo: dateIndo,
       availableSlots: [],
-      message: buildAvailableMessage(fieldType, dateIndo, startTime, minutesToTime(reqEndMin), durationHours),
+      message: buildAvailableMessage(fieldType, dateIndo, startTime, minutesToTime(reqEndMin), durationHours, bookerName),
     };
   }
 }
@@ -284,6 +286,7 @@ function buildAvailableMessage(
   startTime: string,
   _endTime: string,
   durationHours: number = 1,
+  bookerName?: string,
 ): string {
   // Normalise startTime: strip leading words like "jam", "pukul", "pk" so we
   // always display the plain HH:MM the user typed (e.g. "12:00" not "jam 12:00").
@@ -296,13 +299,18 @@ function buildAvailableMessage(
     ? `${durationHours} Jam`
     : `${durationHours} Jam`;
 
+  const namePart = bookerName?.trim()
+    ? `👤 Nama Pemesan : *${bookerName.trim()}*\n`
+    : "";
+
   return (
     `✅ *Jadwal Tersedia!*\n\n` +
     `🏟️ Lapangan : *${fieldType}*\n` +
     `📅 Tanggal  : *${dateIndo}*\n` +
     `⏰ Jam      : *${displayTime}*\n` +
-    `⏱️ Durasi   : *${durationLabel}*\n\n` +
-    `Apakah Anda ingin booking di jadwal ini?\n` +
+    `⏱️ Durasi   : *${durationLabel}*\n` +
+    namePart +
+    `\nApakah Anda ingin booking di jadwal ini?\n` +
     `Balas *"ya"* untuk konfirmasi, lalu kami kirimkan form lengkapnya. 🙏`
   );
 }

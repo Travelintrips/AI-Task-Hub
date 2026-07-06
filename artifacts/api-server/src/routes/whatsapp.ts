@@ -726,6 +726,7 @@ async function runAiDetection({
           message: effectiveText,
           attachmentUrl: effectiveAttachmentUrl,
           companyId,
+          fonnteDevice,
         });
 
         logger.info(
@@ -1045,6 +1046,7 @@ async function runAiDetection({
           message: bodyText,
           attachmentUrl: attachmentUrl ?? undefined,
           companyId,
+          fonnteDevice,
         }).catch((err) => {
           logger.error({ err, from }, "Sport Center guard: processIntakeMessage failed");
           return null;

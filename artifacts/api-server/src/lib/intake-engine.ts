@@ -36,6 +36,7 @@ import {
   timeToMinutes,
   minutesToTime,
 } from "./sport-center-availability";
+import { sendFonnte } from "./fonnte";
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -443,6 +444,7 @@ async function runSportCenterAvailabilityGate({
   companyId,
   now,
   dataFields,
+  fonnteDevice,
 }: {
   session: IntakeSession;
   message: string;
@@ -454,6 +456,7 @@ async function runSportCenterAvailabilityGate({
   companyId: string;
   now: Date;
   dataFields: FieldDef[];
+  fonnteDevice?: string | null;
 }): Promise<IntakeResult | null> {
   const fieldType  = String(newCollected.field_type ?? newCollected.field_name  ?? "").trim();
   const bookingDate = String(newCollected.booking_date ?? "").trim();
@@ -619,8 +622,19 @@ async function runSportCenterAvailabilityGate({
   // Skip if fieldType is still generic (user hasn't specified which lapangan)
   if (!isGenericFieldType && fieldType && bookingDate && startTime && hasDuration && !currentAvailStatus) {
     logger.info({ companyId, fieldType, bookingDate, startTime }, "IntakeEngine: running sport center availability check");
+
+    // Send the "please wait" message FIRST and actually await its delivery
+    // before running the Supabase availability query, so the WhatsApp message
+    // order always reflects the real sequence: "mohon tunggu" → (DB check) → hasil.
+    await sendFonnte(
+      session.phone,
+      "Mohon ditunggu, kami cek dulu ketersediaan jadwalnya ya... 🔍",
+      fonnteDevice ?? null,
+    ).catch((e) => logger.warn({ e }, "IntakeEngine: failed to send availability pre-check message"));
+
     const durationHours = extractDurationHours(newCollected);
-    const avail = await checkSportCenterAvailability({ fieldType, bookingDate, startTime, durationHours, companyId });
+    const bookerName = String(newCollected.booker_name ?? "").trim() || undefined;
+    const avail = await checkSportCenterAvailability({ fieldType, bookingDate, startTime, durationHours, companyId, bookerName });
 
     newCollected._avail_status  = avail.isAvailable ? "available" : "unavailable";
     newCollected._avail_checked = true;
@@ -644,8 +658,6 @@ async function runSportCenterAvailabilityGate({
     return {
       action:            "continue_collecting",
       session:           updated!,
-      // preReply is sent FIRST by whatsapp.ts, then replyToUser is sent after the check.
-      preReply:          "Mohon ditunggu, kami cek dulu ketersediaan jadwalnya ya... 🔍",
       replyToUser:       avail.message,
       collectedFields:   newCollected,
       missingFields:     completeness.missingFieldNames,
@@ -855,11 +867,13 @@ export async function processIntakeMessage({
   message,
   attachmentUrl,
   companyId,
+  fonnteDevice,
 }: {
   session: IntakeSession;
   message: string;
   attachmentUrl?: string | null;
   companyId: string;
+  fonnteDevice?: string | null;
 }): Promise<IntakeResult> {
   // 1. Check cancellation
   if (isCancellation(message)) {
@@ -1133,6 +1147,7 @@ export async function processIntakeMessage({
       companyId,
       now,
       dataFields,
+      fonnteDevice,
     });
     if (gateResult !== null) return gateResult;
     // null → gate satisfied (confirmed or not applicable) → fall through
