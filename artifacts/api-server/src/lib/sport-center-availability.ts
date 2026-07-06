@@ -321,9 +321,24 @@ function buildAvailableMessage(
     .replace(/[.,]/g, ":")
     .replace(/^(\d{1,2})$/, "$1:00"); // "12" → "12:00"
 
-  const durationLabel = Number.isInteger(durationHours)
-    ? `${durationHours} Jam`
-    : `${durationHours} Jam`;
+  const isBilliard = fieldType.toLowerCase().trim() === "billiard";
+  const unitLabel = isBilliard ? "Coin" : "Jam";
+  const durationLabel = `${durationHours} ${unitLabel}`;
+
+  const PRICE_PER_UNIT: Record<string, number> = {
+    futsal:     350_000,
+    badminton:   75_000,
+    tennis:     100_000,
+    basketball: 150_000,
+    voli:       100_000,
+    gym:         50_000,
+    billiard:    50_000,
+  };
+  const pricePerUnit = PRICE_PER_UNIT[fieldType.toLowerCase().trim()];
+  const totalPrice = pricePerUnit ? pricePerUnit * durationHours : null;
+  const hargaPart = totalPrice
+    ? `💰 Harga      : *Rp ${totalPrice.toLocaleString("id-ID")}*\n`
+    : "";
 
   const namePart = bookerName?.trim()
     ? `👤 Nama Pemesan : *${bookerName.trim()}*\n`
@@ -335,8 +350,9 @@ function buildAvailableMessage(
     `📅 Tanggal  : *${dateIndo}*\n` +
     `⏰ Jam      : *${displayTime}*\n` +
     `⏱️ Durasi   : *${durationLabel}*\n` +
+    hargaPart +
     namePart +
-    `\nKami akan meneruskan pemesanan anda ke Team mohon di tunggu. 🙏`
+    `\nBaik team kami akan segera membantu. 🙏`
   );
 }
 

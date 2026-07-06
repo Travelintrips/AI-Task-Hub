@@ -521,6 +521,7 @@ async function runSportCenterAvailabilityGate({
     "4": "Basketball",
     "5": "Voli",
     "6": "GYM",
+    "7": "Billiard",
   };
   const FIELD_MENU_TEXT =
     `🏟️ Pilih lapangan/Fasilitas yang ingin Anda booking:\n\n` +
@@ -529,7 +530,8 @@ async function runSportCenterAvailabilityGate({
     `3️⃣ Tennis\n` +
     `4️⃣ Basketball\n` +
     `5️⃣ Voli\n` +
-    `6️⃣ GYM\n\n` +
+    `6️⃣ GYM\n` +
+    `7️⃣ Meja Billiard\n\n` +
     `Balas dengan *nomor* atau *nama lapangan* yang Anda pilih.`;
 
   const missingSlot = !bookingDate || !startTime;
@@ -544,7 +546,7 @@ async function runSportCenterAvailabilityGate({
       openingQ = FIELD_MENU_TEXT;
     } else if (!isGenericFieldType && (!bookingDate || !startTime)) {
       // Has specific field type but missing date/time.
-      // Price list per field type (Rp per hour, up to 5 hours)
+      // Price list per field type (Rp per hour / per coin for Billiard)
       const PRICE_PER_HOUR: Record<string, number> = {
         futsal:     350_000,
         badminton:   75_000,
@@ -552,19 +554,28 @@ async function runSportCenterAvailabilityGate({
         basketball: 150_000,
         voli:       100_000,
         gym:         50_000,
+        billiard:    50_000,
       };
-      const pricePerHour = PRICE_PER_HOUR[fieldType.toLowerCase().trim()];
-      const priceBlock = pricePerHour
-        ? `\n\n💰 *Harga Sewa ${fieldType}:*\n` +
-          [1, 2, 3, 4, 5]
-            .map((h) => `• ${h} Jam  : Rp ${(pricePerHour * h).toLocaleString("id-ID")}`)
+      const ft = fieldType.toLowerCase().trim();
+      const pricePerUnit = PRICE_PER_HOUR[ft];
+      const isBilliard = ft === "billiard";
+      const unitLabel = isBilliard ? "Coin" : "Jam";
+      const maxUnits = 5;
+      const priceLines = pricePerUnit
+        ? Array.from({ length: maxUnits }, (_, i) => i + 1)
+            .map((n) => `${n} ${unitLabel} = Rp ${(pricePerUnit * n).toLocaleString("id-ID")}`)
             .join("\n")
         : "";
+      const fieldLabel = isBilliard ? "Meja Billiard" : `lapangan *${fieldType}*`;
+      const itemLabel  = isBilliard ? "Jumlah Coin, Tanggal, Jam main, Nama pemesan" : "Tanggal, Jam mulai, Durasi, Nama pemesan";
+      const example    = isBilliard
+        ? `"10 Juli jam 14:00 5 Coin Nama Ahmad"`
+        : `"5 Juli jam 10:00 Durasi 2 Jam dan Nama Ahmad"`;
       openingQ =
-        `Untuk booking lapangan *${fieldType}*, mohon berikan:\n` +
-        `Tanggal dan jam mulai, Durasi, Nama pemesan\n` +
-        `_(Contoh: "5 Juli jam 10:00 Durasi 2 Jam dan Nama Ahmad")_` +
-        priceBlock;
+        `Untuk booking *${fieldLabel}*, mohon berikan:\n` +
+        itemLabel.split(", ").map((item) => `• ${item}`).join("\n") + `\n` +
+        `_(Contoh: ${example})_` +
+        (priceLines ? `\n\n💰 *Harga:*\n${priceLines}` : "");
     } else {
       openingQ =
         `🏟️ Lapangan apa yang ingin Anda booking, dan tanggal serta jam berapa?\n\n` +
@@ -1135,12 +1146,12 @@ export async function processIntakeMessage({
   // inject directly WITHOUT calling OpenAI to avoid loop when key is invalid.
   const FIELD_MENU_MAP: Record<string, string> = {
     "1": "Badminton", "2": "Futsal", "3": "Tennis",
-    "4": "Basketball", "5": "Voli", "6": "GYM",
+    "4": "Basketball", "5": "Voli", "6": "GYM", "7": "Billiard",
   };
 
   // Keywords that mark a field_type as already-specific (user has chosen a real lapangan).
   // Uses substring/contains matching so "lapangan futsal", "main futsal", etc. are caught.
-  const SPECIFIC_LAPANGAN_KEYWORDS = ["badminton", "futsal", "tennis", "basketball", "voli", "gym"];
+  const SPECIFIC_LAPANGAN_KEYWORDS = ["badminton", "futsal", "tennis", "basketball", "voli", "gym", "billiard"];
   const existingFieldTypeLower = String(existingCollected.field_type ?? "").toLowerCase().trim();
   const existingFieldNameLower = String(existingCollected.field_name ?? "").toLowerCase().trim();
   // A field is specific only if it contains one of the known lapangan keywords.
@@ -1169,7 +1180,7 @@ export async function processIntakeMessage({
     !isMenuQuestion &&
     !isDurationQuestion &&
     isSportCenterBookingIntent(session.intentCode) &&
-    /^[1-6]$/.test(trimmedMsg) &&
+    /^[1-7]$/.test(trimmedMsg) &&
     !lapanganAlreadySpecific &&
     !availAlreadyChecked;
 
