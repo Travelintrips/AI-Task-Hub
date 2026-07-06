@@ -673,11 +673,22 @@ async function runSportCenterAvailabilityGate({
     // Send the "please wait" message FIRST and actually await its delivery
     // before running the Supabase availability query, so the WhatsApp message
     // order always reflects the real sequence: "mohon tunggu" → (DB check) → hasil.
+    //
+    // NOTE: awaiting the sendFonnte() HTTP call only guarantees Fonnte *accepted*
+    // the request — it does NOT guarantee WhatsApp has actually displayed the
+    // message yet. Because the availability DB query below is very fast
+    // (<200ms), the second message ("Jadwal Tersedia!") could reach Fonnte's
+    // delivery queue before the first one is actually pushed out, causing the
+    // two messages to appear out of order in the chat. We add a fixed 15s
+    // delay here to give Fonnte/WhatsApp enough time to deliver message #1
+    // before message #2 is ever sent.
     await sendFonnte(
       session.phone,
       "Mohon ditunggu, kami cek dulu ketersediaan jadwalnya ya... 🔍",
       fonnteDevice ?? null,
     ).catch((e) => logger.warn({ e }, "IntakeEngine: failed to send availability pre-check message"));
+
+    await new Promise((resolve) => setTimeout(resolve, 15000));
 
     const durationHours = extractDurationHours(newCollected);
     const bookerName = String(newCollected.booker_name ?? "").trim() || undefined;
