@@ -208,7 +208,7 @@ export async function checkSportCenterAvailability({
         checkedDate: normalizedDate,
         checkedDateIndo: dateIndo,
         availableSlots: [],
-        message: buildAvailableMessage(fieldType, dateIndo, startTime, minutesToTime(reqEndMin)),
+        message: buildAvailableMessage(fieldType, dateIndo, startTime, minutesToTime(reqEndMin), durationHours),
       };
     }
 
@@ -246,7 +246,7 @@ export async function checkSportCenterAvailability({
         checkedDate: normalizedDate,
         checkedDateIndo: dateIndo,
         availableSlots: freeSlots,
-        message: buildAvailableMessage(fieldType, dateIndo, startTime, minutesToTime(reqEndMin)),
+        message: buildAvailableMessage(fieldType, dateIndo, startTime, minutesToTime(reqEndMin), durationHours),
       };
     }
 
@@ -273,7 +273,7 @@ export async function checkSportCenterAvailability({
       checkedDate: normalizedDate,
       checkedDateIndo: dateIndo,
       availableSlots: [],
-      message: buildAvailableMessage(fieldType, dateIndo, startTime, minutesToTime(reqEndMin)),
+      message: buildAvailableMessage(fieldType, dateIndo, startTime, minutesToTime(reqEndMin), durationHours),
     };
   }
 }
@@ -283,6 +283,7 @@ function buildAvailableMessage(
   dateIndo: string,
   startTime: string,
   _endTime: string,
+  durationHours: number = 1,
 ): string {
   // Normalise startTime: strip leading words like "jam", "pukul", "pk" so we
   // always display the plain HH:MM the user typed (e.g. "12:00" not "jam 12:00").
@@ -291,11 +292,16 @@ function buildAvailableMessage(
     .replace(/[.,]/g, ":")
     .replace(/^(\d{1,2})$/, "$1:00"); // "12" → "12:00"
 
+  const durationLabel = Number.isInteger(durationHours)
+    ? `${durationHours} Jam`
+    : `${durationHours} Jam`;
+
   return (
     `✅ *Jadwal Tersedia!*\n\n` +
     `🏟️ Lapangan : *${fieldType}*\n` +
     `📅 Tanggal  : *${dateIndo}*\n` +
-    `⏰ Jam      : *${displayTime}*\n\n` +
+    `⏰ Jam      : *${displayTime}*\n` +
+    `⏱️ Durasi   : *${durationLabel}*\n\n` +
     `Apakah Anda ingin booking di jadwal ini?\n` +
     `Balas *"ya"* untuk konfirmasi, lalu kami kirimkan form lengkapnya. 🙏`
   );

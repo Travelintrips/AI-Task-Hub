@@ -523,16 +523,10 @@ async function runSportCenterAvailabilityGate({
       openingQ = FIELD_MENU_TEXT;
     } else if (!isGenericFieldType && (!bookingDate || !startTime)) {
       // Has specific field type but missing date/time.
-      // Build a TARGETED prompt — only ask for what is STILL missing so the
-      // bot doesn't repeat the same question after the user already answered
-      // duration or name.
-      const hasDuration = !!(newCollected.duration ?? newCollected.durasi);
-      const hasName     = !!(newCollected.booker_name);
-
+      const hasName = !!(newCollected.booker_name);
       const missingParts: string[] = [];
       if (!bookingDate || !startTime) missingParts.push("Tanggal & jam mulai");
       if (!hasName) missingParts.push("Nama");
-
       openingQ =
         `Untuk booking lapangan *${fieldType}*, mohon berikan:\n` +
         `${missingParts.join(" & ")} (contoh: "5 Juli jam 10:00 Robby")`;
@@ -577,9 +571,53 @@ async function runSportCenterAvailabilityGate({
     }
   }
 
-  // ── Case A: Have field + date + time but haven't checked yet → check now ──
+  // ── Case 0.5: Has date + time but missing durasi → ask durasi menu ──────────
+  const hasDuration = !!(newCollected.duration ?? newCollected.durasi);
+  if (!isGenericFieldType && bookingDate && startTime && !hasDuration && !currentAvailStatus) {
+    const durasiQ =
+      `Pilih *durasi* booking lapangan *${fieldType}*:\n\n` +
+      `1️⃣ 1 Jam\n` +
+      `2️⃣ 2 Jam\n` +
+      `3️⃣ 3 Jam\n` +
+      `4️⃣ 4 Jam\n` +
+      `5️⃣ 5 Jam`;
+    try {
+      const [updated] = await db
+        .update(intakeSessionsTable)
+        .set({
+          collectedFields: newCollected,
+          lastQuestion:    durasiQ,
+          lastMessage:     message,
+          lastMessageAt:   now,
+          updatedAt:       now,
+          expiresAt:       new Date(Date.now() + 24 * 60 * 60 * 1000),
+        })
+        .where(eq(intakeSessionsTable.id, session.id))
+        .returning();
+      return {
+        action:            "continue_collecting",
+        session:           updated!,
+        replyToUser:       durasiQ,
+        collectedFields:   newCollected,
+        missingFields:     completeness.missingFieldNames,
+        requiredDocuments: stillMissingDocs,
+      };
+    } catch (dbErr) {
+      logger.error({ dbErr }, "SportCenterGate Case0.5: DB update failed");
+      return {
+        action:            "continue_collecting",
+        session,
+        replyToUser:       durasiQ,
+        collectedFields:   newCollected,
+        missingFields:     completeness.missingFieldNames,
+        requiredDocuments: stillMissingDocs,
+      };
+    }
+  }
+
+  // ── Case A: Have field + date + time + durasi → check availability ───────────
   // Skip if fieldType is still generic (user hasn't specified which lapangan)
-  if (!isGenericFieldType && fieldType && bookingDate && startTime && !currentAvailStatus) {
+  if (!isGenericFieldType && fieldType && bookingDate && startTime && hasDuration && !currentAvailStatus) {
     logger.info({ companyId, fieldType, bookingDate, startTime }, "IntakeEngine: running sport center availability check");
     const durationHours = extractDurationHours(newCollected);
     const avail = await checkSportCenterAvailability({ fieldType, bookingDate, startTime, durationHours, companyId });
