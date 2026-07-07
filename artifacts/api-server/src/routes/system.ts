@@ -366,7 +366,10 @@ router.post("/system/test-sport-center-notify", async (req: Request, res: Respon
       return;
     }
 
-    const testMsg = `[TEST NOTIFIKASI]\n✅ Jadwal Tersedia!\n\n🏟️ Lapangan : Futsal\n📅 Tanggal  : 8 Juli 2026\n⏰ Jam      : 11:00\n⏱️ Durasi   : 2 Jam\n💰 Harga    : Rp 700.000\n👤 Nama Pemesan : Test User\n\nIni adalah pesan uji coba — bukan booking sungguhan.`;
+    const body = req.body as Record<string, unknown>;
+    const customMessage = typeof body?.customMessage === "string" ? body.customMessage : null;
+    const testMsg = customMessage
+      ?? `[TEST NOTIFIKASI]\n✅ Jadwal Tersedia!\n\n🏟️ Lapangan : Futsal\n📅 Tanggal  : 8 Juli 2026\n⏰ Jam      : 11:00\n⏱️ Durasi   : 2 Jam\n💰 Harga    : Rp 700.000\n👤 Nama Pemesan : Test User\n\nIni adalah pesan uji coba — bukan booking sungguhan.`;
 
     const results = await Promise.all(
       receivers.map(async (r) => {
