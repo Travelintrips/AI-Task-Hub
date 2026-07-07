@@ -616,10 +616,10 @@ async function runSportCenterAvailabilityGate({
         ? `"10 Juli jam 14:00 5 Coin Nama Ahmad"`
         : `"5 Juli jam 10:00 Durasi 2 Jam dan Nama Ahmad"`;
       openingQ =
-        `Untuk booking *${fieldLabel}*, mohon berikan:\n` +
-        itemLabel.split(", ").map((item) => `• ${item}`).join("\n") + `\n` +
-        `_(Contoh: ${example})_` +
-        (priceLines ? `\n\n💰 *Harga:*\n${priceLines}` : "");
+        `Untuk booking ${fieldLabel}, mohon berikan:\n` +
+        itemLabel.split(", ").map((item) => `* ${item}`).join("\n") + `\n` +
+        `(Contoh: ${example})` +
+        (priceLines ? `\n\n💰 Harga:\n${priceLines}` : "");
     } else {
       openingQ =
         `🏟️ Lapangan apa yang ingin Anda booking, dan tanggal serta jam berapa?\n\n` +
