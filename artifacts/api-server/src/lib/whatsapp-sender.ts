@@ -160,7 +160,7 @@ async function sendViaGateway(to: string, message: string): Promise<GatewayResul
 
 export interface SendNotificationOptions {
   to: string;
-  recipientType: "customer" | "admin" | "team";
+  recipientType: "customer" | "admin" | "team" | "group";
   templateName: TemplateName;
   variables?: TemplateVars;
   taskId?: number | null;
@@ -180,6 +180,17 @@ export async function sendWhatsAppNotification(
   opts: SendNotificationOptions,
 ): Promise<SendNotificationResult> {
   const { to, recipientType, templateName, variables = {}, taskId, companyId = "default" } = opts;
+
+  // Guard: nomor tujuan tidak boleh kosong
+  if (!to || !to.trim()) {
+    logger.warn({ templateName, recipientType, taskId }, "sendWhatsAppNotification: 'to' kosong — notifikasi dibatalkan");
+    return {
+      success: false,
+      notificationId: -1,
+      messageText: "",
+      error: "Nomor tujuan (to) tidak boleh kosong",
+    };
+  }
 
   const messageText = renderTemplate(templateName, variables);
 

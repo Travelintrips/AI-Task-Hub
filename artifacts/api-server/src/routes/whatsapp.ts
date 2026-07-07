@@ -19,6 +19,7 @@ import { getOrCreateCustomerContext, updateCustomerContextAfterTask } from "../l
 import { createAdminNotification } from "../lib/admin-notifications";
 import { emitSseEvent } from "../lib/sse";
 import { sendFonnte, getOwnDeviceNumbers, normalizePhone } from "../lib/fonnte";
+import { requireAuth } from "../middleware/auth";
 import { validateDocument } from "../lib/document-validation-engine";
 import {
   findActiveIntakeSession,
@@ -83,9 +84,9 @@ router.post("/whatsapp/send", async (req, res): Promise<void> => {
     return;
   }
 
-  const validRecipientTypes = ["customer", "admin", "team"] as const;
+  const validRecipientTypes = ["customer", "admin", "team", "group"] as const;
   if (!recipientType || !validRecipientTypes.includes(recipientType as typeof validRecipientTypes[number])) {
-    res.status(400).json({ error: "Field 'recipientType' must be one of: customer, admin, team" });
+    res.status(400).json({ error: "Field 'recipientType' must be one of: customer, admin, team, group" });
     return;
   }
 
@@ -98,7 +99,7 @@ router.post("/whatsapp/send", async (req, res): Promise<void> => {
 
   const result = await sendWhatsAppNotification({
     to: to.trim(),
-    recipientType: recipientType as "customer" | "admin" | "team",
+    recipientType: recipientType as "customer" | "admin" | "team" | "group",
     templateName: templateName as TemplateName,
     variables: variables ?? {},
     taskId: taskId ?? null,
@@ -107,6 +108,79 @@ router.post("/whatsapp/send", async (req, res): Promise<void> => {
 
   const httpStatus = result.success ? 200 : result.configMissing ? 202 : 500;
   res.status(httpStatus).json(result);
+});
+
+// ─── POST /whatsapp/send-group ─────────────────────────────────────────────────
+// Kirim pesan teks bebas ke grup WhatsApp via group JID (@g.us).
+// Sistem akan mencoba semua Fonnte device yang terdaftar secara otomatis.
+
+router.post("/whatsapp/send-group", requireAuth, async (req, res): Promise<void> => {
+  const { groupJid, message, taskId, companyId } = req.body as {
+    groupJid?: string;
+    message?: string;
+    taskId?: number;
+    companyId?: string;
+  };
+
+  if (!groupJid || typeof groupJid !== "string" || !groupJid.trim()) {
+    res.status(400).json({ error: "Field 'groupJid' (group WhatsApp JID, format: 628xxx@g.us) diperlukan" });
+    return;
+  }
+
+  const jid = groupJid.trim();
+  if (!jid.endsWith("@g.us")) {
+    res.status(400).json({ error: "groupJid harus berformat grup WhatsApp: <nomor>@g.us" });
+    return;
+  }
+
+  if (!message || typeof message !== "string" || !message.trim()) {
+    res.status(400).json({ error: "Field 'message' tidak boleh kosong" });
+    return;
+  }
+
+  const effectiveCompanyId = companyId ?? "default";
+  const messageText = message.trim();
+
+  // Simpan ke DB sebagai audit trail
+  let notifId: number | null = null;
+  try {
+    const [inserted] = await db.insert(whatsappNotificationsTable).values({
+      taskId: taskId ?? null,
+      companyId: effectiveCompanyId,
+      recipientPhone: jid,
+      recipientType: "group",
+      templateName: "group_broadcast",
+      messageText,
+      status: "pending",
+    }).returning({ id: whatsappNotificationsTable.id });
+    notifId = inserted?.id ?? null;
+  } catch (err) {
+    logger.warn({ err }, "send-group: gagal simpan notif ke DB (lanjut kirim)");
+  }
+
+  const result = await sendFonnte(jid, messageText);
+
+  // Update status di DB (non-critical — jangan blokir response)
+  if (notifId !== null) {
+    db.update(whatsappNotificationsTable)
+      .set({
+        status: result.success ? "sent" : "failed",
+        sentAt: result.success ? new Date() : null,
+        externalMessageId: result.messageId ?? null,
+        errorMessage: result.error ?? null,
+      })
+      .where(eq(whatsappNotificationsTable.id, notifId))
+      .catch(() => { /* non-critical */ });
+  }
+
+  logger.info({ groupJid: jid, success: result.success, taskId }, "WhatsApp group send result");
+
+  res.status(result.success ? 200 : 500).json({
+    success: result.success,
+    groupJid: jid,
+    messageId: result.messageId,
+    error: result.error,
+  });
 });
 
 type MessageType = "text" | "image" | "document" | "audio" | "video" | "sticker" | "location" | "unknown";

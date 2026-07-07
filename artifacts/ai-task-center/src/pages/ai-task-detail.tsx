@@ -486,6 +486,11 @@ export default function AiTaskDetail() {
   const [waTemplateId, setWaTemplateId]   = useState<string>("konfirmasi_penerimaan");
   const [waMessage, setWaMessage]         = useState("");
 
+  // ── Kirim ke Grup WA dialog ────────────────────────────────────────────────
+  const [waGroupOpen, setWaGroupOpen]     = useState(false);
+  const [waGroupJid, setWaGroupJid]       = useState("");
+  const [waGroupMessage, setWaGroupMessage] = useState("");
+
   // ── Koreksi AI drawer ───────────────────────────────────────────────────────
   const [correctionOpen, setCorrectionOpen] = useState(false);
 
@@ -628,6 +633,34 @@ export default function AiTaskDetail() {
     onError: (err) => {
       toast({
         title: "❌ Gagal mengirim WA",
+        description: err instanceof Error ? err.message : "Terjadi kesalahan",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // ── Kirim ke Grup WA mutation ──────────────────────────────────────────────
+
+  const sendWaGroupMutation = useMutation({
+    mutationFn: ({ groupJid, message }: { groupJid: string; message: string }) =>
+      apiFetch("/whatsapp/send-group", {
+        method: "POST",
+        body: JSON.stringify({
+          groupJid,
+          message,
+          taskId: task?.id,
+          companyId: task?.companyId ?? "default",
+        }),
+      }),
+    onSuccess: () => {
+      toast({ title: "✅ Pesan berhasil dikirim ke Grup WA" });
+      setWaGroupOpen(false);
+      setWaGroupJid("");
+      setWaGroupMessage("");
+    },
+    onError: (err) => {
+      toast({
+        title: "❌ Gagal kirim ke Grup WA",
         description: err instanceof Error ? err.message : "Terjadi kesalahan",
         variant: "destructive",
       });
@@ -947,27 +980,35 @@ export default function AiTaskDetail() {
           )}
 
           {/* Kirim WA */}
-          {task.customerPhone ? (
-            <div className="bg-green-50 border border-green-200 rounded-lg p-4 space-y-2">
-              <p className="text-xs font-semibold text-green-700 uppercase tracking-wide flex items-center gap-1.5">
-                <MessageSquare className="h-3.5 w-3.5" /> WhatsApp
-              </p>
-              <p className="text-xs text-green-700 font-mono">{task.customerPhone}</p>
-              <Button
-                size="sm"
-                className="w-full bg-green-600 hover:bg-green-700 text-white gap-2"
-                onClick={openWaDialog}
-              >
-                <MessageSquare className="h-3.5 w-3.5" />
-                Kirim Pesan WA
-              </Button>
-            </div>
-          ) : (
-            <div className="bg-gray-50 border border-dashed border-gray-200 rounded-lg p-4 text-center">
-              <MessageSquare className="h-6 w-6 text-gray-300 mx-auto mb-1" />
-              <p className="text-xs text-gray-400">Belum ada nomor WA customer</p>
-            </div>
-          )}
+          <div className="bg-green-50 border border-green-200 rounded-lg p-4 space-y-2">
+            <p className="text-xs font-semibold text-green-700 uppercase tracking-wide flex items-center gap-1.5">
+              <MessageSquare className="h-3.5 w-3.5" /> WhatsApp
+            </p>
+            {task.customerPhone ? (
+              <>
+                <p className="text-xs text-green-700 font-mono">{task.customerPhone}</p>
+                <Button
+                  size="sm"
+                  className="w-full bg-green-600 hover:bg-green-700 text-white gap-2"
+                  onClick={openWaDialog}
+                >
+                  <MessageSquare className="h-3.5 w-3.5" />
+                  Kirim ke Customer
+                </Button>
+              </>
+            ) : (
+              <p className="text-xs text-gray-400 italic">Belum ada nomor WA customer</p>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              className="w-full border-green-300 text-green-700 hover:bg-green-100 gap-2"
+              onClick={() => setWaGroupOpen(true)}
+            >
+              <MessageSquare className="h-3.5 w-3.5" />
+              Kirim ke Grup WA
+            </Button>
+          </div>
 
           {/* Document Validation Panel */}
           <DocumentValidationPanel taskId={Number(id)} />
@@ -1249,6 +1290,97 @@ export default function AiTaskDetail() {
               {sendWaMutation.isPending
                 ? <><Loader2 className="h-4 w-4 animate-spin" /> Mengirim…</>
                 : <><Send className="h-4 w-4" /> Kirim WA</>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Dialog Kirim ke Grup WA ──────────────────────────────────────────── */}
+      <Dialog open={waGroupOpen} onOpenChange={setWaGroupOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-green-700">
+              <MessageSquare className="h-5 w-5" />
+              Kirim ke Grup WhatsApp
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 py-1">
+            {/* Info task */}
+            {task && (
+              <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-3 py-2 text-sm">
+                <MessageSquare className="h-4 w-4 text-green-600 shrink-0" />
+                <div>
+                  <span className="text-green-800 font-medium">{task.taskNumber ?? "Task"}</span>
+                  <span className="text-green-600 ml-2 text-xs">{task.title}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Group JID input */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-gray-600">
+                Group JID (contoh: 6281234567890-1234567890@g.us)
+              </Label>
+              <Input
+                value={waGroupJid}
+                onChange={(e) => setWaGroupJid(e.target.value)}
+                placeholder="628xxxxxxxxxx-xxxxxxxxxx@g.us"
+                className="font-mono text-sm"
+              />
+              <p className="text-[11px] text-gray-400">
+                Dapatkan Group JID dari log Fonnte webhook saat ada pesan masuk dari grup tersebut.
+              </p>
+            </div>
+
+            {/* Editor pesan */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-gray-600">Isi Pesan</Label>
+              <Textarea
+                value={waGroupMessage}
+                onChange={(e) => setWaGroupMessage(e.target.value)}
+                placeholder="Ketik pesan untuk grup WhatsApp di sini…"
+                className="min-h-[160px] text-sm font-mono resize-none leading-relaxed"
+              />
+              <p className="text-xs text-gray-400 text-right">{waGroupMessage.length} karakter</p>
+            </div>
+
+            {/* Preview */}
+            {waGroupMessage.trim() && (
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium text-gray-600">Preview</p>
+                <div className="bg-[#DCF8C6] rounded-2xl rounded-tl-sm px-3.5 py-2.5 text-sm text-gray-800 whitespace-pre-wrap max-h-[120px] overflow-y-auto shadow-sm border border-green-200">
+                  {waGroupMessage}
+                </div>
+              </div>
+            )}
+
+            <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-xs text-blue-700">
+              💡 Sistem akan otomatis mencoba semua device Fonnte yang terdaftar sampai satu berhasil mengirim ke grup.
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setWaGroupOpen(false)}>
+              Batal
+            </Button>
+            <Button
+              className="bg-green-600 hover:bg-green-700 text-white gap-2"
+              disabled={
+                !waGroupJid.trim().endsWith("@g.us") ||
+                !waGroupMessage.trim() ||
+                sendWaGroupMutation.isPending
+              }
+              onClick={() =>
+                sendWaGroupMutation.mutate({
+                  groupJid: waGroupJid.trim(),
+                  message: waGroupMessage.trim(),
+                })
+              }
+            >
+              {sendWaGroupMutation.isPending
+                ? <><Loader2 className="h-4 w-4 animate-spin" /> Mengirim…</>
+                : <><Send className="h-4 w-4" /> Kirim ke Grup</>}
             </Button>
           </DialogFooter>
         </DialogContent>

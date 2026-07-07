@@ -132,10 +132,6 @@ router.post("/webhook/fonnte", async (req, res): Promise<void> => {
       return;
     }
 
-    // NOTE: sender=device check dihapus.
-    // Pengguna/admin yang nomor pribadinya sama dengan Fonnte device
-    // akan salah difilter sebagai echo. Filter quick=true di atas sudah cukup.
-
     // Build normalized message object matching what processIncomingMessage expects
     const normalizedMsg: Record<string, unknown> = {
       // Standard fields used by processIncomingMessage
