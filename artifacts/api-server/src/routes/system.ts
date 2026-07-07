@@ -6,10 +6,11 @@
  */
 
 import { Router, type IRouter, type Request, type Response } from "express";
-import { db, companySettingsTable, aiTasksTable, auditLogsTable } from "@workspace/db";
-import { eq, desc, sql } from "drizzle-orm";
+import { db, companySettingsTable, aiTasksTable, auditLogsTable, notificationReceiversTable } from "@workspace/db";
+import { eq, desc, sql, and, inArray } from "drizzle-orm";
 import { requireAuth, getCompanyId } from "../middleware/auth";
 import { logger } from "../lib/logger";
+import { sendFonnte, normalizePhone } from "../lib/fonnte";
 
 const router: IRouter = Router();
 
@@ -338,6 +339,65 @@ router.post("/system/ai-test", requireAuth, async (req: Request, res: Response):
   } catch (err) {
     logger.error({ err }, "POST /system/ai-test failed");
     res.status(500).json({ error: "Gagal menjalankan simulasi AI" });
+  }
+});
+
+// ── POST /api/system/test-sport-center-notify ──────────────────────────────────
+// Test endpoint: kirim pesan test ke semua penerima Sport Center aktif
+
+router.post("/system/test-sport-center-notify", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const companyId = (req.body as Record<string, unknown>)?.companyId as string ?? req.user?.companyId ?? "default";
+    const ALIASES = ["Sport Center", "Lapangan", "Olahraga", "Booking Lapangan"];
+
+    const receivers = await db
+      .select()
+      .from(notificationReceiversTable)
+      .where(
+        and(
+          eq(notificationReceiversTable.companyId, companyId),
+          eq(notificationReceiversTable.isActive, true),
+          inArray(notificationReceiversTable.category, ALIASES),
+        ),
+      );
+
+    if (receivers.length === 0) {
+      res.json({ ok: false, message: "Tidak ada penerima aktif dengan kategori Sport Center ditemukan", companyId, receivers: [] });
+      return;
+    }
+
+    const testMsg = `[TEST NOTIFIKASI]\n✅ Jadwal Tersedia!\n\n🏟️ Lapangan : Futsal\n📅 Tanggal  : 8 Juli 2026\n⏰ Jam      : 11:00\n⏱️ Durasi   : 2 Jam\n💰 Harga    : Rp 700.000\n👤 Nama Pemesan : Test User\n\nIni adalah pesan uji coba — bukan booking sungguhan.`;
+
+    const results = await Promise.all(
+      receivers.map(async (r) => {
+        const normalizedTarget = normalizePhone(r.phone) ?? r.phone;
+        const isGroup = r.phone.includes("@g.us");
+        const result = await sendFonnte(r.phone, testMsg, null).catch((e: unknown) => ({
+          success: false,
+          error: String(e instanceof Error ? e.message : e),
+        }));
+        return {
+          name: r.name,
+          rawPhone: r.phone,
+          normalizedTarget,
+          isGroup,
+          category: r.category,
+          result,
+        };
+      }),
+    );
+
+    const allOk = results.every((r) => r.result.success);
+    res.json({
+      ok: allOk,
+      companyId,
+      receiverCount: receivers.length,
+      results,
+      sentAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    logger.error({ err }, "POST /system/test-sport-center-notify failed");
+    res.status(500).json({ error: "Gagal menjalankan test notifikasi" });
   }
 });
 
