@@ -183,11 +183,86 @@ export interface FonnteResult {
  *   Self-send otomatis dihindari: jika target = nomor device pengirim,
  *   sistem akan pakai device lain secara otomatis.
  */
+/**
+ * Kirim pesan ke satu target menggunakan token tertentu.
+ * Dipakai secara internal oleh sendFonnte dan sendFonnteGroup.
+ */
+async function sendWithToken(
+  phone: string,
+  message: string,
+  token: string,
+): Promise<FonnteResult> {
+  try {
+    const res = await fetch(FONNTE_URL, {
+      method: "POST",
+      headers: {
+        Authorization: token,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({ target: phone, message }).toString(),
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      return { success: false, error: `Fonnte HTTP ${res.status}: ${text}` };
+    }
+
+    const data = (await res.json()) as { status?: boolean; id?: string; reason?: string };
+    if (!data.status) {
+      return { success: false, error: data.reason ?? "Fonnte rejected message" };
+    }
+
+    return { success: true, messageId: data.id };
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : "Network error" };
+  }
+}
+
+/**
+ * Untuk grup (@g.us), coba semua token yang tersedia sampai satu berhasil.
+ * Ini diperlukan karena hanya device yang sudah bergabung ke grup yang bisa kirim.
+ */
+async function sendFonnteGroup(groupJid: string, message: string): Promise<FonnteResult> {
+  const allTokens: string[] = [];
+
+  // Kumpulkan semua token unik dari TOKEN_MAP
+  for (const [, token] of TOKEN_MAP.entries()) {
+    if (!allTokens.includes(token)) allTokens.push(token);
+  }
+
+  if (allTokens.length === 0) {
+    return { success: false, error: "FONNTE_TOKEN tidak dikonfigurasi" };
+  }
+
+  let lastError = "Semua device gagal mengirim ke grup";
+  for (const token of allTokens) {
+    const result = await sendWithToken(groupJid, message, token);
+    if (result.success) {
+      const senderDevice = TOKEN_DEVICE_MAP.get(token) ?? "unknown";
+      logger.info(
+        { groupJid, messageId: result.messageId, via: senderDevice },
+        "WhatsApp group sent via Fonnte",
+      );
+      return result;
+    }
+    lastError = result.error ?? lastError;
+    logger.debug({ groupJid, error: result.error, token: token.slice(0, 8) + "…" }, "Fonnte group: token failed, trying next");
+  }
+
+  logger.warn({ groupJid, lastError }, "Fonnte: semua token gagal kirim ke grup");
+  return { success: false, error: lastError };
+}
+
 export async function sendFonnte(
   to: string,
   message: string,
   fonnteDevice?: string | null,
 ): Promise<FonnteResult> {
+  // Untuk grup: coba semua token secara berurutan
+  if (to.includes("@g.us")) {
+    return sendFonnteGroup(to, message);
+  }
+
   const token = resolveToken(to, fonnteDevice);
 
   if (!token) {
