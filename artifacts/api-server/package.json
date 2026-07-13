@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "export NODE_ENV=development && pnpm run build && pnpm run start",
+    "dev": "export NODE_ENV=development && sleep 25 && (fuser 8080/tcp > /dev/null 2>&1 && echo 'Port 8080 already owned by Start application — standing by' && sleep infinity || (pnpm run build && pnpm run start))",
     "build": "node ./build.mjs",
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"

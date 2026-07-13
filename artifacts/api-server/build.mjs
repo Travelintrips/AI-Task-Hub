@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { build as esbuild } from "esbuild";
 import esbuildPluginPino from "esbuild-plugin-pino";
-import { rm, rename } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 
 // Plugins (e.g. 'esbuild-plugin-pino') may use `require` to resolve dependencies
 globalThis.require = createRequire(import.meta.url);
@@ -12,20 +12,14 @@ const artifactDir = path.dirname(fileURLToPath(import.meta.url));
 
 async function buildAll() {
   const distDir = path.resolve(artifactDir, "dist");
-  // Build into a per-process temp directory first, then atomically swap.
-  // This avoids the "Cannot find module" window that occurs when two workflows
-  // (e.g. "Start application" and "API Server") run simultaneous builds:
-  // the original rm-rf dist/ before building leaves dist/ absent for the
-  // duration of the build, crashing any concurrent `node ./dist/index.mjs`.
-  const tmpDir = path.resolve(artifactDir, `dist_tmp_${process.pid}`);
-  await rm(tmpDir, { recursive: true, force: true });
+  await rm(distDir, { recursive: true, force: true });
 
   await esbuild({
     entryPoints: [path.resolve(artifactDir, "src/index.ts")],
     platform: "node",
     bundle: true,
     format: "esm",
-    outdir: tmpDir,
+    outdir: distDir,
     outExtension: { ".js": ".mjs" },
     logLevel: "info",
     // Some packages may not be bundleable, so we externalize them, we can add more here as needed.
@@ -131,10 +125,6 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
     },
   });
 
-  // Atomically replace dist/ with the freshly built tmp/ so other processes
-  // that depend on dist/index.mjs never see a missing-file window.
-  await rm(distDir, { recursive: true, force: true });
-  await rename(tmpDir, distDir);
 }
 
 buildAll().catch((err) => {
