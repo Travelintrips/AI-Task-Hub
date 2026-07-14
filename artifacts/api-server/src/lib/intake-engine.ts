@@ -33,6 +33,9 @@ import {
   isSportCenterBookingIntent,
   isAvailabilityConfirmation,
   checkSportCenterAvailability,
+  saveSportCenterBooking,
+  buildBookingConfirmationWA,
+  buildAdminNotifWA,
   extractDurationHours,
   timeToMinutes,
   minutesToTime,
@@ -831,9 +834,51 @@ async function runSportCenterAvailabilityGate({
       // Ensure phone is captured from session
       if (!newCollected.phone) newCollected.phone = session.phone;
 
-      // Notify ALL active Sport Center recipients (groups + phone numbers) from Penerima Notifikasi table.
-      // avail.message already contains the full "Jadwal Tersedia!" summary with Harga + Nama Pemesan.
-      sendSportCenterNotifications(companyId, avail.message, fonnteDevice, session.phone)
+      // ── Create booking record immediately in Supabase ─────────────────────
+      const savedBooking = await saveSportCenterBooking({
+        companyId,
+        intakeSessionId: session.id,
+        fieldType:       String(newCollected.field_type ?? newCollected.field_name ?? fieldType),
+        bookingDate:     String(bookingDate),
+        startTime:       String(startTime),
+        endTime:         newCollected.end_time ? String(newCollected.end_time) : null,
+        durationHours,
+        bookerName:      String(newCollected.booker_name ?? "").trim() || null,
+        phone:           session.phone,
+        notes:           String(newCollected.notes ?? "").trim() || null,
+      }).catch((e) => { logger.warn({ e }, "IntakeEngine: saveSportCenterBooking failed"); return null; });
+
+      // Build customer confirmation WA message
+      const customerReply = savedBooking
+        ? buildBookingConfirmationWA({
+            phone:             session.phone,
+            bookingNumber:     savedBooking.bookingNumber,
+            facilityName:      savedBooking.facilityName,
+            bookingDate:       savedBooking.bookingDate,
+            startTime:         savedBooking.startTime,
+            endTime:           savedBooking.endTime,
+            totalPrice:        savedBooking.totalPrice,
+            paymentDeadline:   savedBooking.paymentDeadline,
+            paymentProofToken: savedBooking.paymentProofToken,
+          })
+        : avail.message;
+
+      // Build admin group notification
+      const adminMsg = savedBooking
+        ? buildAdminNotifWA({
+            bookingNumber: savedBooking.bookingNumber,
+            facilityName:  savedBooking.facilityName,
+            bookingDate:   savedBooking.bookingDate,
+            startTime:     savedBooking.startTime,
+            endTime:       savedBooking.endTime,
+            bookerName:    savedBooking.bookerName,
+            phone:         session.phone,
+            totalPrice:    savedBooking.totalPrice,
+          })
+        : avail.message;
+
+      // Notify admin group with booking details
+      sendSportCenterNotifications(companyId, adminMsg, fonnteDevice, session.phone)
         .catch((e) => logger.warn({ e }, "IntakeEngine: failed to send sport center notifications"));
 
       // Persist session as ready_for_task — whatsapp.ts will create the AI task immediately
@@ -845,7 +890,7 @@ async function runSportCenterAvailabilityGate({
           missingFields:   [],
           requiredFields:  requiredFieldNames,
           completionPct:   "100",
-          lastQuestion:    avail.message,
+          lastQuestion:    customerReply,
           lastMessage:     message,
           lastMessageAt:   now,
           updatedAt:       now,
@@ -857,7 +902,7 @@ async function runSportCenterAvailabilityGate({
       return {
         action:            "ready_for_task",
         session:           updatedAvail!,
-        replyToUser:       avail.message,
+        replyToUser:       customerReply,
         collectedFields:   newCollected,
         missingFields:     [],
         requiredDocuments: stillMissingDocs,
@@ -968,15 +1013,48 @@ async function runSportCenterAvailabilityGate({
           if (startMins >= 0) newCollected.end_time = minutesToTime(startMins + Math.round(durationHours * 60));
         }
         if (!newCollected.phone) newCollected.phone = session.phone;
+
+        // ── Create booking record immediately ─────────────────────────────
+        const savedBookingC = await saveSportCenterBooking({
+          companyId,
+          intakeSessionId: session.id,
+          fieldType:       String(newCollected.field_type ?? newCollected.field_name ?? fieldType),
+          bookingDate:     String(bookingDate),
+          startTime:       caseCSuggestedTime,
+          endTime:         newCollected.end_time ? String(newCollected.end_time) : null,
+          durationHours,
+          bookerName:      String(newCollected.booker_name ?? "").trim() || null,
+          phone:           session.phone,
+          notes:           String(newCollected.notes ?? "").trim() || null,
+        }).catch((e) => { logger.warn({ e }, "IntakeEngine: CaseC saveSportCenterBooking failed"); return null; });
+
+        const customerReplyC = savedBookingC
+          ? buildBookingConfirmationWA({
+              phone: session.phone, bookingNumber: savedBookingC.bookingNumber,
+              facilityName: savedBookingC.facilityName, bookingDate: savedBookingC.bookingDate,
+              startTime: savedBookingC.startTime, endTime: savedBookingC.endTime,
+              totalPrice: savedBookingC.totalPrice, paymentDeadline: savedBookingC.paymentDeadline,
+              paymentProofToken: savedBookingC.paymentProofToken,
+            })
+          : avail.message;
+        const adminMsgC = savedBookingC
+          ? buildAdminNotifWA({
+              bookingNumber: savedBookingC.bookingNumber, facilityName: savedBookingC.facilityName,
+              bookingDate: savedBookingC.bookingDate, startTime: savedBookingC.startTime,
+              endTime: savedBookingC.endTime, bookerName: savedBookingC.bookerName,
+              phone: session.phone, totalPrice: savedBookingC.totalPrice,
+            })
+          : avail.message;
+
         // Notify ALL active Sport Center recipients from Penerima Notifikasi table
-        sendSportCenterNotifications(companyId, avail.message, fonnteDevice, session.phone)
+        sendSportCenterNotifications(companyId, adminMsgC, fonnteDevice, session.phone)
           .catch((e) => logger.warn({ e }, "IntakeEngine: CaseC sport center notify failed"));
         const [updatedAvail] = await db
           .update(intakeSessionsTable)
-          .set({ status: "ready_for_task", collectedFields: newCollected, missingFields: [], requiredFields: requiredFieldNames, completionPct: "100", lastQuestion: avail.message, lastMessage: message, lastMessageAt: now, updatedAt: now, expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) })
+          .set({ status: "ready_for_task", collectedFields: newCollected, missingFields: [], requiredFields: requiredFieldNames, completionPct: "100", lastQuestion: customerReplyC, lastMessage: message, lastMessageAt: now, updatedAt: now, expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) })
           .where(eq(intakeSessionsTable.id, session.id))
           .returning();
-        return { action: "ready_for_task", session: updatedAvail!, replyToUser: avail.message, collectedFields: newCollected, missingFields: [], requiredDocuments: stillMissingDocs };
+        return { action: "ready_for_task", session: updatedAvail!, replyToUser: customerReplyC, collectedFields: newCollected, missingFields: [], requiredDocuments: stillMissingDocs };
       }
 
       // New slot also unavailable → show updated unavailability message

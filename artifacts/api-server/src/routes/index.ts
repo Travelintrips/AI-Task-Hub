@@ -68,6 +68,8 @@ import { companyOnboardingRouter } from "./company-onboarding";
 import holdingDashboardRouter from "./holding-dashboard";
 import aiOperationsRouter from "./ai-operations";
 import notificationReceiversRouter from "./notification-receivers";
+import sportCenterRouter from "./sport-center";
+import publicSportCenterRouter from "./public-sport-center";
 import { extractUser } from "../middleware/auth";
 
 const router: IRouter = Router();
@@ -165,5 +167,8 @@ router.use(holdingDashboardRouter);
 router.use(aiOperationsRouter);
 // ── Notification Receivers ────────────────────────────────────────────────────
 router.use(notificationReceiversRouter);
+// ── Sport Center Booking Management ───────────────────────────────────────────
+router.use(sportCenterRouter);
+router.use(publicSportCenterRouter);
 
 export default router;

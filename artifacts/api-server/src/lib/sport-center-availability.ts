@@ -356,7 +356,176 @@ function buildAvailableMessage(
   );
 }
 
-// ── Save booking record (called after form is submitted) ──────────────────────
+// ── Pricing table (Rp per hour / per coin for Billiard) ──────────────────────
+
+export const SC_PRICE_PER_HOUR: Record<string, number> = {
+  futsal:     350_000,
+  badminton:  100_000,
+  tennis:     100_000,
+  basketball: 150_000,
+  voli:       100_000,
+  gym:         50_000,
+  billiard:    50_000,
+};
+
+export function calcTotalPrice(fieldType: string, durationHours: number): number {
+  const ft = fieldType.toLowerCase().trim();
+  const price = SC_PRICE_PER_HOUR[ft] ?? 100_000;
+  return Math.round(price * Math.max(durationHours, 1));
+}
+
+export function getPricePerHour(fieldType: string): number {
+  return SC_PRICE_PER_HOUR[fieldType.toLowerCase().trim()] ?? 100_000;
+}
+
+// ── Generate next booking number (SC-XXXX, per-company, race-safe) ───────────
+//
+// Uses pg_advisory_xact_lock keyed on company hash to serialize concurrent
+// inserts within the same company.  The lock is released automatically when
+// the surrounding transaction commits/rolls back.
+
+async function generateBookingNumber(
+  client: import("pg").PoolClient,
+  companyId: string,
+): Promise<string> {
+  // Deterministic lock key from company string (FNV-1a 32-bit, fits bigint)
+  let hash = 2166136261;
+  for (let i = 0; i < companyId.length; i++) {
+    hash ^= companyId.charCodeAt(i);
+    hash = (hash * 16777619) >>> 0;
+  }
+  // Lock per company — released on txn end
+  await client.query(`SELECT pg_advisory_xact_lock($1)`, [hash]);
+
+  // Use MAX of the numeric suffix so deletes never cause reuse.
+  // booking_number format is 'SC-NNNN'; extract the integer part.
+  const { rows } = await client.query(
+    `SELECT COALESCE(MAX(
+       NULLIF(REGEXP_REPLACE(booking_number, '[^0-9]', '', 'g'), '')::integer
+     ), 0) AS max_seq
+     FROM sport_center_bookings
+     WHERE company_id = $1`,
+    [companyId],
+  );
+  const maxSeq = parseInt((rows[0] as { max_seq: string | null }).max_seq ?? "0", 10) || 0;
+  return `SC-${String(maxSeq + 1).padStart(4, "0")}`;
+}
+
+// ── SC domain helper ──────────────────────────────────────────────────────────
+
+export function getScDomain(): string {
+  return (
+    process.env.SC_DOMAIN ??
+    (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : "https://sc.travelintrips.co.id")
+  );
+}
+
+// ── Bank/payment settings ─────────────────────────────────────────────────────
+
+export function getPaymentInfo(): { bankName: string; bankAccount: string; bankHolder: string } {
+  return {
+    bankName:    process.env.SC_BANK_NAME    ?? "Bank Mandiri",
+    bankAccount: process.env.SC_BANK_ACCOUNT ?? "1640006707220",
+    bankHolder:  process.env.SC_BANK_HOLDER  ?? "PT Cahaya Sejati Teknologi",
+  };
+}
+
+// ── Build WA confirmation message for customer ────────────────────────────────
+
+export function buildBookingConfirmationWA(params: {
+  phone: string;
+  bookingNumber: string;
+  facilityName: string;
+  bookingDate: string;
+  startTime: string;
+  endTime?: string | null;
+  totalPrice: number;
+  paymentDeadline: Date;
+  paymentProofToken: string;
+}): string {
+  const domain = getScDomain();
+  const { bankName, bankAccount, bankHolder } = getPaymentInfo();
+  const deadlineStr = params.paymentDeadline.toLocaleString("id-ID", {
+    timeZone: "Asia/Jakarta",
+    day: "numeric",
+    month: "numeric",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+  const timeRange = params.endTime
+    ? `${params.startTime} - ${params.endTime}`
+    : params.startTime;
+  const priceStr = params.totalPrice.toLocaleString("id-ID");
+  const shortPhone = params.phone.replace(/^62/, "0");
+
+  return (
+    `Halo ${shortPhone}! Booking Anda berhasil dibuat.\n\n` +
+    `Nomor Order: *${params.bookingNumber}*\n` +
+    `Fasilitas: ${params.facilityName}\n` +
+    `Tanggal: ${params.bookingDate}\n` +
+    `Jam: ${timeRange}\n` +
+    `Total: *Rp ${priceStr}*\n\n` +
+    `Silakan lakukan pembayaran sebelum ${deadlineStr} ke:\n` +
+    `Bank: ${bankName}\n` +
+    `No. Rek: ${bankAccount}\n` +
+    `a.n. ${bankHolder}\n\n` +
+    `Kirim bukti transfer ke WA ini setelah membayar. Terima kasih!\n\n` +
+    `📎 Upload bukti transfer:\n${domain}/sc/bukti/${params.paymentProofToken}\n` +
+    `🔍 Cek status booking:\n${domain}/sc/status/${params.paymentProofToken}`
+  );
+}
+
+// ── Build WA admin group notification ────────────────────────────────────────
+
+export function buildAdminNotifWA(params: {
+  bookingNumber: string;
+  facilityName: string;
+  bookingDate: string;
+  startTime: string;
+  endTime?: string | null;
+  bookerName?: string | null;
+  phone: string;
+  totalPrice: number;
+}): string {
+  const timeRange = params.endTime
+    ? `${params.startTime} - ${params.endTime}`
+    : params.startTime;
+  const priceStr = params.totalPrice.toLocaleString("id-ID");
+  const shortPhone = params.phone.replace(/^62/, "0");
+  return (
+    `🏟️ *BOOKING BARU - ${params.bookingNumber}*\n\n` +
+    `Fasilitas: ${params.facilityName}\n` +
+    `Tanggal: ${params.bookingDate}\n` +
+    `Jam: ${timeRange}\n` +
+    `Pemesan: ${params.bookerName ?? "—"}\n` +
+    `No. WA: ${shortPhone}\n` +
+    `Total: Rp ${priceStr}\n\n` +
+    `Status: ⏳ Menunggu Pembayaran\n` +
+    `Mohon konfirmasi setelah pembayaran masuk.`
+  );
+}
+
+// ── Save booking record ───────────────────────────────────────────────────────
+
+export interface SavedBooking {
+  id: number;
+  bookingNumber: string;
+  facilityName: string;
+  fieldType: string;
+  bookingDate: string;
+  startTime: string;
+  endTime?: string | null;
+  durationHours?: number | null;
+  totalPrice: number;
+  paymentStatus: string;
+  paymentProofToken: string;
+  paymentDeadline: Date;
+  bookerName?: string | null;
+  phone?: string | null;
+  status: string;
+}
 
 export async function saveSportCenterBooking(params: {
   companyId: string;
@@ -370,38 +539,115 @@ export async function saveSportCenterBooking(params: {
   bookerName?: string | null;
   phone?: string | null;
   notes?: string | null;
-}): Promise<void> {
+}): Promise<SavedBooking | null> {
   const pool = supabasePool;
-  if (!pool) return;
+  if (!pool) return null;
 
   const normalizedDate = normalizeDateString(params.bookingDate) ?? params.bookingDate;
+  const durationHours  = params.durationHours ?? 1;
+  const pricePerHour   = getPricePerHour(params.fieldType);
+  const totalPrice     = calcTotalPrice(params.fieldType, durationHours);
+  const paymentDeadline = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
 
+  // Facility display name
+  const facilityMap: Record<string, string> = {
+    badminton: "Badminton Court A", futsal: "Lapangan Futsal",
+    tennis: "Lapangan Tennis", basketball: "Lapangan Basketball",
+    voli: "Lapangan Voli", gym: "GYM", billiard: "Meja Billiard",
+  };
+  const facilityName = facilityMap[params.fieldType.toLowerCase().trim()] ?? params.fieldType;
+
+  const client = await pool.connect();
   try {
-    await pool.query(
+    await client.query("BEGIN");
+
+    // Check for duplicate: same session + field + date + start_time
+    if (params.intakeSessionId) {
+      const dup = await client.query(
+        `SELECT id FROM sport_center_bookings
+         WHERE intake_session_id = $1 AND booking_date = $2 AND start_time = $3 AND company_id = $4
+         LIMIT 1`,
+        [params.intakeSessionId, normalizedDate, params.startTime, params.companyId],
+      );
+      if ((dup.rows?.length ?? 0) > 0) {
+        await client.query("ROLLBACK");
+        logger.info({ sessionId: params.intakeSessionId }, "saveSportCenterBooking: duplicate skipped");
+        const existing = await client.query(
+          `SELECT * FROM sport_center_bookings WHERE id = $1`, [dup.rows[0]?.id]);
+        // client.release() is handled by finally block — do NOT call it here
+        const row = existing.rows[0];
+        if (row) return rowToSavedBooking(row);
+        return null;
+      }
+    }
+
+    // Generate booking number inside transaction with advisory lock (race-safe)
+    const bookingNumber      = await generateBookingNumber(client, params.companyId);
+    const { randomBytes }    = await import("crypto");
+    const paymentProofToken  = randomBytes(8).toString("base64url");
+
+    const result = await client.query(
       `INSERT INTO sport_center_bookings
          (company_id, ai_task_id, intake_session_id,
-          field_type, booking_date, start_time, end_time, duration_hours,
-          booker_name, phone, notes, status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'pending')`,
+          field_type, facility_name, booking_date, start_time, end_time, duration_hours,
+          booker_name, phone, notes, status,
+          booking_number, price_per_hour, total_price,
+          payment_status, payment_proof_token, payment_deadline)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'pending',$13,$14,$15,'unpaid',$16,$17)
+       RETURNING *`,
       [
         params.companyId,
         params.aiTaskId ?? null,
         params.intakeSessionId ?? null,
         params.fieldType,
+        facilityName,
         normalizedDate,
         params.startTime,
         params.endTime ?? null,
-        params.durationHours ?? null,
+        durationHours,
         params.bookerName ?? null,
         params.phone ?? null,
         params.notes ?? null,
+        bookingNumber,
+        pricePerHour,
+        totalPrice,
+        paymentProofToken,
+        paymentDeadline,
       ],
     );
+
+    await client.query("COMMIT");
+    const saved = result.rows[0];
     logger.info(
-      { companyId: params.companyId, fieldType: params.fieldType, bookingDate: normalizedDate, startTime: params.startTime },
+      { bookingNumber, companyId: params.companyId, fieldType: params.fieldType },
       "sport_center_booking saved",
     );
+    return rowToSavedBooking(saved);
   } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
     logger.warn({ err }, "saveSportCenterBooking: non-fatal DB error");
+    return null;
+  } finally {
+    client.release();
   }
+}
+
+function rowToSavedBooking(row: Record<string, unknown>): SavedBooking {
+  return {
+    id:                row.id as number,
+    bookingNumber:     row.booking_number as string,
+    facilityName:      (row.facility_name as string) ?? String(row.field_type),
+    fieldType:         row.field_type as string,
+    bookingDate:       String(row.booking_date ?? "").slice(0, 10),
+    startTime:         row.start_time as string,
+    endTime:           row.end_time as string | null,
+    durationHours:     row.duration_hours != null ? Number(row.duration_hours) : null,
+    totalPrice:        Number(row.total_price ?? 0),
+    paymentStatus:     (row.payment_status as string) ?? "unpaid",
+    paymentProofToken: row.payment_proof_token as string,
+    paymentDeadline:   new Date(row.payment_deadline as string),
+    bookerName:        row.booker_name as string | null,
+    phone:             row.phone as string | null,
+    status:            row.status as string,
+  };
 }
