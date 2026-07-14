@@ -593,7 +593,7 @@ async function runSportCenterAvailabilityGate({
       // Price list per field type (Rp per hour / per coin for Billiard)
       const PRICE_PER_HOUR: Record<string, number> = {
         futsal:     350_000,
-        badminton:   75_000,
+        badminton:   100_000,
         tennis:     100_000,
         basketball: 150_000,
         voli:       100_000,

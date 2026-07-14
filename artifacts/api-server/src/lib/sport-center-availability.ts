@@ -327,7 +327,7 @@ function buildAvailableMessage(
 
   const PRICE_PER_UNIT: Record<string, number> = {
     futsal:     350_000,
-    badminton:   75_000,
+    badminton:   100_000,
     tennis:     100_000,
     basketball: 150_000,
     voli:       100_000,
