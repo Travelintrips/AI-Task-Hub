@@ -45,6 +45,26 @@ const router: IRouter = Router();
 // sessions and confusing or missing replies (e.g. sport center booking flow).
 const phoneQueues = new Map<string, Promise<void>>();
 
+// ─── Incoming-message dedup cache ────────────────────────────────────────────
+// Fonnte has multiple configured devices. When a message arrives it can be
+// forwarded by several devices to our webhook concurrently, producing multiple
+// identical webhook calls for the exact same customer message. Without dedup
+// these would each create a new intake session and send e.g. "Jadwal Tersedia!"
+// three times. We prevent this by tracking (phone, body) pairs for 60 seconds.
+const recentMessages = new Map<string, number>(); // key → epoch ms
+const DEDUP_WINDOW_MS = 60_000;
+function isDuplicateMessage(from: string, body: string): boolean {
+  const key = `${from}:${body}`;
+  const now = Date.now();
+  // Prune stale entries to avoid unbounded growth
+  for (const [k, ts] of recentMessages) {
+    if (now - ts > DEDUP_WINDOW_MS) recentMessages.delete(k);
+  }
+  if (recentMessages.has(key)) return true;
+  recentMessages.set(key, now);
+  return false;
+}
+
 function enqueueForPhone(phone: string, task: () => Promise<void>): void {
   const prev = phoneQueues.get(phone) ?? Promise.resolve();
   const next = prev
@@ -572,7 +592,14 @@ export async function processIncomingMessage({
     });
 
     // 6. Trigger AI detection (non-blocking, but serialized per phone number to
-    // avoid race conditions between quick successive messages — see phoneQueues)
+    // avoid race conditions between quick successive messages — see phoneQueues).
+    // Dedup guard: Fonnte may forward the same customer message from multiple
+    // devices, producing duplicate webhook calls. If we've already queued this
+    // (from, body) pair within DEDUP_WINDOW_MS, skip to avoid triple-sends.
+    if (isDuplicateMessage(from, bodyText)) {
+      logger.info({ from, bodyText: bodyText.slice(0, 80) }, "Duplicate webhook call detected — skipping (already queued for this phone+body)");
+      return;
+    }
     enqueueForPhone(from, () =>
       runAiDetection({
         savedMsgId: savedMsg.id,
