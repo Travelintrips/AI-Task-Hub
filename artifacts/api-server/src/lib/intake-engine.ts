@@ -49,10 +49,11 @@ async function sendSportCenterNotifications(
   companyId: string,
   message: string,
   fonnteDevice: string | null | undefined,
+  customerPhone: string,
 ): Promise<void> {
   const SPORT_CENTER_ALIASES = ["Sport Center", "Lapangan", "Olahraga", "Booking Lapangan"];
   try {
-    const receivers = await db
+    const rawReceivers = await db
       .select()
       .from(notificationReceiversTable)
       .where(
@@ -62,6 +63,22 @@ async function sendSportCenterNotifications(
           inArray(notificationReceiversTable.category, SPORT_CENTER_ALIASES),
         ),
       );
+
+    // Guard against the customer receiving the broadcast twice:
+    //   1. Never notify the customer's own number/JID via the staff/group
+    //      broadcast list — they already get this message as their direct
+    //      conversational reply.
+    //   2. De-duplicate by phone in case the receivers table has duplicate
+    //      rows (e.g. same number saved under two aliases).
+    const normalizedCustomer = customerPhone.replace(/\D/g, "");
+    const seen = new Set<string>();
+    const receivers = rawReceivers.filter((r) => {
+      const key = r.phone.replace(/\D/g, "") || r.phone;
+      if (key === normalizedCustomer) return false;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
 
     if (receivers.length === 0) {
       logger.warn({ companyId }, "IntakeEngine: no active Sport Center notification receivers found");
@@ -76,7 +93,10 @@ async function sendSportCenterNotifications(
       ),
     );
 
-    logger.info({ companyId, receiverCount: receivers.length }, "IntakeEngine: sport center notifications sent");
+    logger.info(
+      { companyId, receiverCount: receivers.length, skippedCustomerDupe: rawReceivers.length - receivers.length },
+      "IntakeEngine: sport center notifications sent",
+    );
   } catch (err) {
     logger.warn({ err, companyId }, "IntakeEngine: sendSportCenterNotifications failed (non-fatal)");
   }
@@ -813,7 +833,7 @@ async function runSportCenterAvailabilityGate({
 
       // Notify ALL active Sport Center recipients (groups + phone numbers) from Penerima Notifikasi table.
       // avail.message already contains the full "Jadwal Tersedia!" summary with Harga + Nama Pemesan.
-      sendSportCenterNotifications(companyId, avail.message, fonnteDevice)
+      sendSportCenterNotifications(companyId, avail.message, fonnteDevice, session.phone)
         .catch((e) => logger.warn({ e }, "IntakeEngine: failed to send sport center notifications"));
 
       // Persist session as ready_for_task — whatsapp.ts will create the AI task immediately
@@ -949,7 +969,7 @@ async function runSportCenterAvailabilityGate({
         }
         if (!newCollected.phone) newCollected.phone = session.phone;
         // Notify ALL active Sport Center recipients from Penerima Notifikasi table
-        sendSportCenterNotifications(companyId, avail.message, fonnteDevice)
+        sendSportCenterNotifications(companyId, avail.message, fonnteDevice, session.phone)
           .catch((e) => logger.warn({ e }, "IntakeEngine: CaseC sport center notify failed"));
         const [updatedAvail] = await db
           .update(intakeSessionsTable)
