@@ -408,7 +408,7 @@ async function generateBookingNumber(
     [companyId],
   );
   const maxSeq = parseInt((rows[0] as { max_seq: string | null }).max_seq ?? "0", 10) || 0;
-  return `SC-${String(maxSeq + 1).padStart(4, "0")}`;
+  return `SC-AI-${String(maxSeq + 1).padStart(5, "0")}`;
 }
 
 // ── SC domain helper ──────────────────────────────────────────────────────────
@@ -489,6 +489,7 @@ export function buildAdminNotifWA(params: {
   bookerName?: string | null;
   phone: string;
   totalPrice: number;
+  customerConfirmationMsg?: string | null;
 }): string {
   const timeRange = params.endTime
     ? `${params.startTime} - ${params.endTime}`
@@ -499,15 +500,25 @@ export function buildAdminNotifWA(params: {
   const durationStr = durationNum != null && !Number.isNaN(durationNum)
     ? `${durationNum % 1 === 0 ? durationNum : durationNum.toFixed(1)} Jam`
     : "—";
+
+  // Build WA deep-link so admin can tap to open a chat with the customer.
+  // If we have the full confirmation message, pre-fill it so admin just hits Send.
+  const intlPhone = params.phone.replace(/\D/g, "");
+  const confirmLink = params.customerConfirmationMsg
+    ? `https://wa.me/${intlPhone}?text=${encodeURIComponent(params.customerConfirmationMsg)}`
+    : `https://wa.me/${intlPhone}`;
+
   return (
     `Booking Baru-Dari AI Task\n\n` +
+    `Kode Booking: ${params.bookingNumber}\n` +
     `🏟️ Lapangan : ${params.facilityName}\n` +
     `📅 Tanggal  : ${formatDateIndo(params.bookingDate)}\n` +
     `⏰ Jam      : ${timeRange}\n` +
     `⏱️ Durasi   : ${durationStr}\n` +
     `💰 Harga      : Rp ${priceStr}\n` +
     `👤 Nama Pemesan : ${params.bookerName ?? "—"}\n` +
-    `No.WA : ${shortPhone}`
+    `No.WA : ${shortPhone}\n\n` +
+    `✅ Konfirmasi Ke Customer/User:\n${confirmLink}`
   );
 }
 

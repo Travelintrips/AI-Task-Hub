@@ -587,8 +587,11 @@ async function finalizeSportCenterBooking({
     if (savedBooking.endTime) newCollected.end_time = savedBooking.endTime;
   }
 
-  // Build customer confirmation WA message
-  const customerReply = savedBooking
+  // Build the full customer confirmation WA message (payment details).
+  // This is NOT sent to the customer automatically — admin must confirm first.
+  // It is stored in lastQuestion so it's visible in the admin panel, and
+  // embedded in the admin notification as a pre-filled WA deep-link.
+  const customerConfirmationMsg = savedBooking
     ? buildBookingConfirmationWA({
         phone:             session.phone,
         bookingNumber:     savedBooking.bookingNumber,
@@ -600,9 +603,15 @@ async function finalizeSportCenterBooking({
         paymentDeadline:   savedBooking.paymentDeadline,
         paymentProofToken: savedBooking.paymentProofToken,
       })
+    : null;
+
+  // Reply sent to the customer — a neutral holding message.
+  // Admin will send the full payment confirmation via the link in the admin notification.
+  const customerReply = savedBooking
+    ? `✅ Booking lapangan *${savedBooking.facilityName}* berhasil kami catat!\n\nAdmin kami akan segera mengirimkan detail konfirmasi pembayaran. Terima kasih! 🙏`
     : "Baik, booking Anda sudah kami konfirmasi. Tim kami akan segera menghubungi Anda. 🙏";
 
-  // Build admin group notification
+  // Build admin group notification (includes Kode Booking + WA confirm deep-link)
   const adminMsg = savedBooking
     ? buildAdminNotifWA({
         bookingNumber: savedBooking.bookingNumber,
@@ -614,6 +623,7 @@ async function finalizeSportCenterBooking({
         bookerName:    savedBooking.bookerName,
         phone:         session.phone,
         totalPrice:    savedBooking.totalPrice,
+        customerConfirmationMsg,
       })
     : customerReply;
 
@@ -621,7 +631,8 @@ async function finalizeSportCenterBooking({
   sendSportCenterNotifications(companyId, adminMsg, fonnteDevice, session.phone)
     .catch((e) => logger.warn({ e }, "IntakeEngine: failed to send sport center notifications"));
 
-  // Persist session as ready_for_task — whatsapp.ts will create the AI task immediately
+  // Persist session as ready_for_task — whatsapp.ts will create the AI task immediately.
+  // lastQuestion stores the full customer confirmation so admin can reference/copy it.
   const [updatedAvail] = await db
     .update(intakeSessionsTable)
     .set({
@@ -630,7 +641,7 @@ async function finalizeSportCenterBooking({
       missingFields:   [],
       requiredFields:  requiredFieldNames,
       completionPct:   "100",
-      lastQuestion:    customerReply,
+      lastQuestion:    customerConfirmationMsg ?? customerReply,
       lastMessage:     message,
       lastMessageAt:   now,
       updatedAt:       now,
