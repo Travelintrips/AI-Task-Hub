@@ -47,7 +47,6 @@ import {
   FileCheck,
   Cpu,
   PhoneCall,
-  Dumbbell,
 } from "lucide-react";
 import { NotificationsBell } from "@/components/notifications-bell";
 import { useAuth } from "@/contexts/auth-context";
@@ -101,7 +100,6 @@ export function AppLayout({ children }: { children: ReactNode }) {
     { name: "Analitik",    href: "/analytics",         icon: BarChart2 },
     { name: "Notif WA",    href: "/wa-notifications",  icon: BellRing },
     { name: "Penerima Notif", href: "/notification-receivers", icon: PhoneCall },
-    { name: "Sport Center", href: "/sport-center", icon: Dumbbell },
     { name: "Export",      href: "/export",            icon: FileSpreadsheet },
     { name: "Webhook",     href: "/webhook-setup",     icon: Webhook },
     ...(user?.role === "super_admin" || user?.role === "company_admin"
