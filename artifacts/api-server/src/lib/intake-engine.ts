@@ -475,6 +475,10 @@ const FIELD_LABEL_FALLBACK: Record<string, string> = {
   duration:            "Durasi Sewa",
   durasi:              "Durasi Sewa",
   payment_method:      "Metode Pembayaran",
+  facility_name:       "Fasilitas",
+  booking_number:      "No. Booking",
+  payment_status:      "Status Pembayaran",
+  total_price:         "Harga",
   // Freight
   origin_country:      "Negara Asal",
   destination_country: "Negara Tujuan",
@@ -848,6 +852,17 @@ async function runSportCenterAvailabilityGate({
         notes:           String(newCollected.notes ?? "").trim() || null,
       }).catch((e) => { logger.warn({ e }, "IntakeEngine: saveSportCenterBooking failed"); return null; });
 
+      // Enrich collectedFields with the saved booking's DB-generated fields so the
+      // AI task (built from JSON.stringify(collectedFields)) matches what's actually
+      // stored in sport_center_bookings — not just the raw fields the customer typed.
+      if (savedBooking) {
+        newCollected.facility_name  = savedBooking.facilityName;
+        newCollected.booking_number = savedBooking.bookingNumber;
+        newCollected.payment_status = savedBooking.paymentStatus;
+        newCollected.total_price    = savedBooking.totalPrice;
+        if (savedBooking.endTime) newCollected.end_time = savedBooking.endTime;
+      }
+
       // Build customer confirmation WA message
       const customerReply = savedBooking
         ? buildBookingConfirmationWA({
@@ -1027,6 +1042,15 @@ async function runSportCenterAvailabilityGate({
           phone:           session.phone,
           notes:           String(newCollected.notes ?? "").trim() || null,
         }).catch((e) => { logger.warn({ e }, "IntakeEngine: CaseC saveSportCenterBooking failed"); return null; });
+
+        // Enrich collectedFields with DB-generated booking fields (see Case A note above)
+        if (savedBookingC) {
+          newCollected.facility_name  = savedBookingC.facilityName;
+          newCollected.booking_number = savedBookingC.bookingNumber;
+          newCollected.payment_status = savedBookingC.paymentStatus;
+          newCollected.total_price    = savedBookingC.totalPrice;
+          if (savedBookingC.endTime) newCollected.end_time = savedBookingC.endTime;
+        }
 
         const customerReplyC = savedBookingC
           ? buildBookingConfirmationWA({
