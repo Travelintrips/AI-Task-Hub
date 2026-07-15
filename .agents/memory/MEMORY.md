@@ -39,3 +39,4 @@
 - [Sport Center Availability](sport-center-availability.md) — booking_lapangan gets availability gate (field+date+time → check DB → confirm "ya" → form); sport_center_bookings table; gate resets on slot change.
 - [Sport Center menu loop fix](sport-center-menu-loop.md) — digit 1-6 not recognized as menu reply when AI extracted generic field_type; fixed via keyword-contains check + avail-check guard.
 - [Sport Center booking prod schema drift](sport-center-booking-schema-drift.md) — dev/prod are separate Supabase projects; prod sport_center_bookings missing columns caused silent save failures behind a generic "confirmed" fallback reply.
+- [SC domain for customer links](sc-domain-links.md) — WA links used ephemeral REPLIT_DEV_DOMAIN when SC_DOMAIN unset, going dead across dev domain changes; fixed by setting SC_DOMAIN to stable prod domain.
