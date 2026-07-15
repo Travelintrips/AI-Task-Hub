@@ -518,6 +518,136 @@ async function generateCompletionMessage(
   return `✅ Terima kasih! Data Anda sudah lengkap.\n\n*Ringkasan permintaan:*\n${fieldSummary}\n\nTim kami akan segera menghubungi Anda. Mohon tunggu konfirmasi dari kami ya! 🙏`;
 }
 
+// ─── Finalize a confirmed Sport Center booking ────────────────────────────────
+// Called ONLY after the customer explicitly replies "ya" (isAvailabilityConfirmation).
+// Saves the booking to sport_center_bookings, notifies admins, and marks the
+// session ready_for_task so an AI task is created.
+async function finalizeSportCenterBooking({
+  session,
+  message,
+  newCollected,
+  requiredFieldNames,
+  stillMissingDocs,
+  companyId,
+  now,
+  fonnteDevice,
+  fieldType,
+  bookingDate,
+  startTime,
+}: {
+  session: IntakeSession;
+  message: string;
+  newCollected: Record<string, unknown>;
+  requiredFieldNames: string[];
+  stillMissingDocs: string[];
+  companyId: string;
+  now: Date;
+  fonnteDevice?: string | null;
+  fieldType: string;
+  bookingDate: string;
+  startTime: string;
+}): Promise<IntakeResult> {
+  newCollected._avail_confirmed = true;
+
+  const durationHours = extractDurationHours(newCollected);
+
+  // Auto-compute end_time from start_time + duration
+  if (newCollected.start_time && !newCollected.end_time) {
+    const startMins = timeToMinutes(String(newCollected.start_time));
+    if (startMins >= 0) {
+      newCollected.end_time = minutesToTime(startMins + Math.round(durationHours * 60));
+    }
+  }
+
+  // Ensure phone is captured from session
+  if (!newCollected.phone) newCollected.phone = session.phone;
+
+  // ── Create booking record NOW — only after "ya" confirmation ────────────
+  const savedBooking = await saveSportCenterBooking({
+    companyId,
+    intakeSessionId: session.id,
+    fieldType:       String(newCollected.field_type ?? newCollected.field_name ?? fieldType),
+    bookingDate:     String(bookingDate),
+    startTime:       String(newCollected.start_time ?? startTime),
+    endTime:         newCollected.end_time ? String(newCollected.end_time) : null,
+    durationHours,
+    bookerName:      String(newCollected.booker_name ?? "").trim() || null,
+    phone:           session.phone,
+    notes:           String(newCollected.notes ?? "").trim() || null,
+  }).catch((e) => { logger.warn({ e }, "IntakeEngine: saveSportCenterBooking failed"); return null; });
+
+  // Enrich collectedFields with the saved booking's DB-generated fields so the
+  // AI task (built from JSON.stringify(collectedFields)) matches what's actually
+  // stored in sport_center_bookings — not just the raw fields the customer typed.
+  if (savedBooking) {
+    newCollected.facility_name  = savedBooking.facilityName;
+    newCollected.booking_number = savedBooking.bookingNumber;
+    newCollected.payment_status = savedBooking.paymentStatus;
+    newCollected.total_price    = savedBooking.totalPrice;
+    if (savedBooking.endTime) newCollected.end_time = savedBooking.endTime;
+  }
+
+  // Build customer confirmation WA message
+  const customerReply = savedBooking
+    ? buildBookingConfirmationWA({
+        phone:             session.phone,
+        bookingNumber:     savedBooking.bookingNumber,
+        facilityName:      savedBooking.facilityName,
+        bookingDate:       savedBooking.bookingDate,
+        startTime:         savedBooking.startTime,
+        endTime:           savedBooking.endTime,
+        totalPrice:        savedBooking.totalPrice,
+        paymentDeadline:   savedBooking.paymentDeadline,
+        paymentProofToken: savedBooking.paymentProofToken,
+      })
+    : "Baik, booking Anda sudah kami konfirmasi. Tim kami akan segera menghubungi Anda. 🙏";
+
+  // Build admin group notification
+  const adminMsg = savedBooking
+    ? buildAdminNotifWA({
+        bookingNumber: savedBooking.bookingNumber,
+        facilityName:  savedBooking.facilityName,
+        bookingDate:   savedBooking.bookingDate,
+        startTime:     savedBooking.startTime,
+        endTime:       savedBooking.endTime,
+        bookerName:    savedBooking.bookerName,
+        phone:         session.phone,
+        totalPrice:    savedBooking.totalPrice,
+      })
+    : customerReply;
+
+  // Notify admin group with booking details
+  sendSportCenterNotifications(companyId, adminMsg, fonnteDevice, session.phone)
+    .catch((e) => logger.warn({ e }, "IntakeEngine: failed to send sport center notifications"));
+
+  // Persist session as ready_for_task — whatsapp.ts will create the AI task immediately
+  const [updatedAvail] = await db
+    .update(intakeSessionsTable)
+    .set({
+      status:          "ready_for_task",
+      collectedFields: newCollected,
+      missingFields:   [],
+      requiredFields:  requiredFieldNames,
+      completionPct:   "100",
+      lastQuestion:    customerReply,
+      lastMessage:     message,
+      lastMessageAt:   now,
+      updatedAt:       now,
+      expiresAt:       new Date(Date.now() + 24 * 60 * 60 * 1000),
+    })
+    .where(eq(intakeSessionsTable.id, session.id))
+    .returning();
+
+  return {
+    action:            "ready_for_task",
+    session:           updatedAvail!,
+    replyToUser:       customerReply,
+    collectedFields:   newCollected,
+    missingFields:     [],
+    requiredDocuments: stillMissingDocs,
+  };
+}
+
 // ─── Sport Center availability gate ───────────────────────────────────────────
 // Returns an IntakeResult to send back if the gate needs to intercept,
 // or null if the gate is satisfied and the normal flow should continue.
@@ -824,102 +954,31 @@ async function runSportCenterAvailabilityGate({
     newCollected._avail_checked = true;
 
     if (avail.isAvailable) {
-      // Auto-confirm: no "ya" needed — mark confirmed, auto-complete, notify group, create task immediately
-      newCollected._avail_confirmed = true;
-
-      // Auto-compute end_time from start_time + duration
-      if (newCollected.start_time && !newCollected.end_time) {
-        const startMins = timeToMinutes(String(newCollected.start_time));
-        if (startMins >= 0) {
-          newCollected.end_time = minutesToTime(startMins + Math.round(durationHours * 60));
-        }
-      }
-
-      // Ensure phone is captured from session
-      if (!newCollected.phone) newCollected.phone = session.phone;
-
-      // ── Create booking record immediately in Supabase ─────────────────────
-      const savedBooking = await saveSportCenterBooking({
-        companyId,
-        intakeSessionId: session.id,
-        fieldType:       String(newCollected.field_type ?? newCollected.field_name ?? fieldType),
-        bookingDate:     String(bookingDate),
-        startTime:       String(startTime),
-        endTime:         newCollected.end_time ? String(newCollected.end_time) : null,
-        durationHours,
-        bookerName:      String(newCollected.booker_name ?? "").trim() || null,
-        phone:           session.phone,
-        notes:           String(newCollected.notes ?? "").trim() || null,
-      }).catch((e) => { logger.warn({ e }, "IntakeEngine: saveSportCenterBooking failed"); return null; });
-
-      // Enrich collectedFields with the saved booking's DB-generated fields so the
-      // AI task (built from JSON.stringify(collectedFields)) matches what's actually
-      // stored in sport_center_bookings — not just the raw fields the customer typed.
-      if (savedBooking) {
-        newCollected.facility_name  = savedBooking.facilityName;
-        newCollected.booking_number = savedBooking.bookingNumber;
-        newCollected.payment_status = savedBooking.paymentStatus;
-        newCollected.total_price    = savedBooking.totalPrice;
-        if (savedBooking.endTime) newCollected.end_time = savedBooking.endTime;
-      }
-
-      // Build customer confirmation WA message
-      const customerReply = savedBooking
-        ? buildBookingConfirmationWA({
-            phone:             session.phone,
-            bookingNumber:     savedBooking.bookingNumber,
-            facilityName:      savedBooking.facilityName,
-            bookingDate:       savedBooking.bookingDate,
-            startTime:         savedBooking.startTime,
-            endTime:           savedBooking.endTime,
-            totalPrice:        savedBooking.totalPrice,
-            paymentDeadline:   savedBooking.paymentDeadline,
-            paymentProofToken: savedBooking.paymentProofToken,
-          })
-        : avail.message;
-
-      // Build admin group notification
-      const adminMsg = savedBooking
-        ? buildAdminNotifWA({
-            bookingNumber: savedBooking.bookingNumber,
-            facilityName:  savedBooking.facilityName,
-            bookingDate:   savedBooking.bookingDate,
-            startTime:     savedBooking.startTime,
-            endTime:       savedBooking.endTime,
-            bookerName:    savedBooking.bookerName,
-            phone:         session.phone,
-            totalPrice:    savedBooking.totalPrice,
-          })
-        : avail.message;
-
-      // Notify admin group with booking details
-      sendSportCenterNotifications(companyId, adminMsg, fonnteDevice, session.phone)
-        .catch((e) => logger.warn({ e }, "IntakeEngine: failed to send sport center notifications"));
-
-      // Persist session as ready_for_task — whatsapp.ts will create the AI task immediately
-      const [updatedAvail] = await db
+      // Slot is free, but DO NOT save to Supabase / create a task yet.
+      // Wait for the customer to explicitly reply "ya" (isAvailabilityConfirmation)
+      // — handled in Case B below on the next message.
+      const [updatedWait] = await db
         .update(intakeSessionsTable)
         .set({
-          status:          "ready_for_task",
-          collectedFields: newCollected,
-          missingFields:   [],
-          requiredFields:  requiredFieldNames,
-          completionPct:   "100",
-          lastQuestion:    customerReply,
-          lastMessage:     message,
-          lastMessageAt:   now,
-          updatedAt:       now,
-          expiresAt:       new Date(Date.now() + 24 * 60 * 60 * 1000),
+          collectedFields:   newCollected, // _avail_status="available", _avail_confirmed NOT set
+          missingFields:     completeness.missingFieldNames,
+          requiredFields:    requiredFieldNames,
+          completionPct:     String(completeness.completionPct),
+          lastQuestion:      avail.message,
+          lastMessage:       message,
+          lastMessageAt:     now,
+          updatedAt:         now,
+          expiresAt:         new Date(Date.now() + 24 * 60 * 60 * 1000),
         })
         .where(eq(intakeSessionsTable.id, session.id))
         .returning();
 
       return {
-        action:            "ready_for_task",
-        session:           updatedAvail!,
-        replyToUser:       customerReply,
+        action:            "continue_collecting",
+        session:           updatedWait!,
+        replyToUser:       avail.message,
         collectedFields:   newCollected,
-        missingFields:     [],
+        missingFields:     completeness.missingFieldNames,
         requiredDocuments: stillMissingDocs,
       };
     }
@@ -951,20 +1010,41 @@ async function runSportCenterAvailabilityGate({
     };
   }
 
-  // ── Case B: Slot was available (old session without auto-confirm) ──────────
-  // Auto-confirm immediately — no "ya" needed anymore.
+  // ── Case B: Slot was available, waiting for the customer's "ya" ───────────
   if (currentAvailStatus === "available") {
     if (!dateChanged && !timeChanged) {
-      // Mark confirmed, auto-compute end_time, fall through to task creation
-      newCollected._avail_confirmed = true;
-      if (newCollected.start_time && !newCollected.end_time) {
-        const dh = extractDurationHours(newCollected);
-        const startMins = timeToMinutes(String(newCollected.start_time));
-        if (startMins >= 0) {
-          newCollected.end_time = minutesToTime(startMins + Math.round(dh * 60));
-        }
+      if (isAvailabilityConfirmation(message)) {
+        // Customer confirmed → NOW save to Supabase and create the task
+        return await finalizeSportCenterBooking({
+          session, message, newCollected, requiredFieldNames, stillMissingDocs,
+          companyId, now, fonnteDevice, fieldType, bookingDate, startTime,
+        });
       }
-      return null;
+
+      // Not yet confirmed — remind the user to reply "ya" before we book it
+      const reminderMsg =
+        `Mohon balas *YA* untuk konfirmasi booking ini ya, atau berikan tanggal/jam baru jika ingin mengubah jadwal. 🙏`;
+      const [updatedReminder] = await db
+        .update(intakeSessionsTable)
+        .set({
+          collectedFields: newCollected,
+          lastQuestion:    reminderMsg,
+          lastMessage:     message,
+          lastMessageAt:   now,
+          updatedAt:       now,
+          expiresAt:       new Date(Date.now() + 24 * 60 * 60 * 1000),
+        })
+        .where(eq(intakeSessionsTable.id, session.id))
+        .returning();
+
+      return {
+        action:            "continue_collecting",
+        session:           updatedReminder!,
+        replyToUser:       reminderMsg,
+        collectedFields:   newCollected,
+        missingFields:     completeness.missingFieldNames,
+        requiredDocuments: stillMissingDocs,
+      };
     }
     // Date/time changed → clear status so Case A re-checks availability
     return null;
@@ -1022,63 +1102,31 @@ async function runSportCenterAvailabilityGate({
       newCollected._avail_checked = true;
 
       if (avail.isAvailable) {
-        newCollected._avail_confirmed = true;
-        if (!newCollected.end_time) {
-          const startMins = timeToMinutes(caseCSuggestedTime);
-          if (startMins >= 0) newCollected.end_time = minutesToTime(startMins + Math.round(durationHours * 60));
-        }
-        if (!newCollected.phone) newCollected.phone = session.phone;
-
-        // ── Create booking record immediately ─────────────────────────────
-        const savedBookingC = await saveSportCenterBooking({
-          companyId,
-          intakeSessionId: session.id,
-          fieldType:       String(newCollected.field_type ?? newCollected.field_name ?? fieldType),
-          bookingDate:     String(bookingDate),
-          startTime:       caseCSuggestedTime,
-          endTime:         newCollected.end_time ? String(newCollected.end_time) : null,
-          durationHours,
-          bookerName:      String(newCollected.booker_name ?? "").trim() || null,
-          phone:           session.phone,
-          notes:           String(newCollected.notes ?? "").trim() || null,
-        }).catch((e) => { logger.warn({ e }, "IntakeEngine: CaseC saveSportCenterBooking failed"); return null; });
-
-        // Enrich collectedFields with DB-generated booking fields (see Case A note above)
-        if (savedBookingC) {
-          newCollected.facility_name  = savedBookingC.facilityName;
-          newCollected.booking_number = savedBookingC.bookingNumber;
-          newCollected.payment_status = savedBookingC.paymentStatus;
-          newCollected.total_price    = savedBookingC.totalPrice;
-          if (savedBookingC.endTime) newCollected.end_time = savedBookingC.endTime;
-        }
-
-        const customerReplyC = savedBookingC
-          ? buildBookingConfirmationWA({
-              phone: session.phone, bookingNumber: savedBookingC.bookingNumber,
-              facilityName: savedBookingC.facilityName, bookingDate: savedBookingC.bookingDate,
-              startTime: savedBookingC.startTime, endTime: savedBookingC.endTime,
-              totalPrice: savedBookingC.totalPrice, paymentDeadline: savedBookingC.paymentDeadline,
-              paymentProofToken: savedBookingC.paymentProofToken,
-            })
-          : avail.message;
-        const adminMsgC = savedBookingC
-          ? buildAdminNotifWA({
-              bookingNumber: savedBookingC.bookingNumber, facilityName: savedBookingC.facilityName,
-              bookingDate: savedBookingC.bookingDate, startTime: savedBookingC.startTime,
-              endTime: savedBookingC.endTime, bookerName: savedBookingC.bookerName,
-              phone: session.phone, totalPrice: savedBookingC.totalPrice,
-            })
-          : avail.message;
-
-        // Notify ALL active Sport Center recipients from Penerima Notifikasi table
-        sendSportCenterNotifications(companyId, adminMsgC, fonnteDevice, session.phone)
-          .catch((e) => logger.warn({ e }, "IntakeEngine: CaseC sport center notify failed"));
-        const [updatedAvail] = await db
+        // Slot is free — do NOT save yet. Ask for "ya" confirmation; Case B
+        // above will finalize the booking on the next message once confirmed.
+        const [updatedWaitC] = await db
           .update(intakeSessionsTable)
-          .set({ status: "ready_for_task", collectedFields: newCollected, missingFields: [], requiredFields: requiredFieldNames, completionPct: "100", lastQuestion: customerReplyC, lastMessage: message, lastMessageAt: now, updatedAt: now, expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) })
+          .set({
+            collectedFields:   newCollected,
+            missingFields:     completeness.missingFieldNames,
+            requiredFields:    requiredFieldNames,
+            completionPct:     String(completeness.completionPct),
+            lastQuestion:      avail.message,
+            lastMessage:       message,
+            lastMessageAt:     now,
+            updatedAt:         now,
+            expiresAt:         new Date(Date.now() + 24 * 60 * 60 * 1000),
+          })
           .where(eq(intakeSessionsTable.id, session.id))
           .returning();
-        return { action: "ready_for_task", session: updatedAvail!, replyToUser: customerReplyC, collectedFields: newCollected, missingFields: [], requiredDocuments: stillMissingDocs };
+        return {
+          action:            "continue_collecting",
+          session:           updatedWaitC!,
+          replyToUser:       avail.message,
+          collectedFields:   newCollected,
+          missingFields:     completeness.missingFieldNames,
+          requiredDocuments: stillMissingDocs,
+        };
       }
 
       // New slot also unavailable → show updated unavailability message

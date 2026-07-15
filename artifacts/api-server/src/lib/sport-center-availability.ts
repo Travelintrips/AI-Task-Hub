@@ -352,7 +352,7 @@ function buildAvailableMessage(
     `⏱️ Durasi   : *${durationLabel}*\n` +
     hargaPart +
     namePart +
-    `\nBaik team kami akan segera membantu. 🙏`
+    `\nSilakan balas *YA* untuk konfirmasi booking ini ya. 🙏`
   );
 }
 
