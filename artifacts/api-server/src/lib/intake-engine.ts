@@ -610,6 +610,7 @@ async function finalizeSportCenterBooking({
         bookingDate:   savedBooking.bookingDate,
         startTime:     savedBooking.startTime,
         endTime:       savedBooking.endTime,
+        durationHours: durationHours,
         bookerName:    savedBooking.bookerName,
         phone:         session.phone,
         totalPrice:    savedBooking.totalPrice,

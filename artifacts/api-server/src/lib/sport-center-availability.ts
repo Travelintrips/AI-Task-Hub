@@ -31,7 +31,7 @@ export function isSportCenterBookingIntent(intentCode: string): boolean {
 // ── Confirmation detection ─────────────────────────────────────────────────────
 
 const CONFIRM_PATTERNS =
-  /^(ya|iya|oke|ok|setuju|benar|betul|lanjut|bisa|boleh|yap|yep|yes|confirm|fix|pas|cocok|deal)\s*[!.?]*$/i;
+  /^(ya|iya|oke|ok|baik|setuju|benar|betul|lanjut|bisa|boleh|yap|yep|yes|confirm|fix|pas|cocok|deal)\s*[!.?]*$/i;
 
 export function isAvailabilityConfirmation(message: string): boolean {
   return CONFIRM_PATTERNS.test(message.trim());
@@ -485,6 +485,7 @@ export function buildAdminNotifWA(params: {
   bookingDate: string;
   startTime: string;
   endTime?: string | null;
+  durationHours?: number | string | null;
   bookerName?: string | null;
   phone: string;
   totalPrice: number;
@@ -494,16 +495,19 @@ export function buildAdminNotifWA(params: {
     : params.startTime;
   const priceStr = params.totalPrice.toLocaleString("id-ID");
   const shortPhone = params.phone.replace(/^62/, "0");
+  const durationNum = params.durationHours != null ? Number(params.durationHours) : null;
+  const durationStr = durationNum != null && !Number.isNaN(durationNum)
+    ? `${durationNum % 1 === 0 ? durationNum : durationNum.toFixed(1)} Jam`
+    : "—";
   return (
-    `🏟️ *BOOKING BARU - ${params.bookingNumber}*\n\n` +
-    `Fasilitas: ${params.facilityName}\n` +
-    `Tanggal: ${params.bookingDate}\n` +
-    `Jam: ${timeRange}\n` +
-    `Pemesan: ${params.bookerName ?? "—"}\n` +
-    `No. WA: ${shortPhone}\n` +
-    `Total: Rp ${priceStr}\n\n` +
-    `Status: ⏳ Menunggu Pembayaran\n` +
-    `Mohon konfirmasi setelah pembayaran masuk.`
+    `Booking Baru-Dari AI Task\n\n` +
+    `🏟️ Lapangan : ${params.facilityName}\n` +
+    `📅 Tanggal  : ${formatDateIndo(params.bookingDate)}\n` +
+    `⏰ Jam      : ${timeRange}\n` +
+    `⏱️ Durasi   : ${durationStr}\n` +
+    `💰 Harga      : Rp ${priceStr}\n` +
+    `👤 Nama Pemesan : ${params.bookerName ?? "—"}\n` +
+    `No.WA : ${shortPhone}`
   );
 }
 
