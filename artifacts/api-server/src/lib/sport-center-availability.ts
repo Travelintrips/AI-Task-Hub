@@ -306,13 +306,14 @@ export async function checkSportCenterAvailability({
   }
 }
 
-function buildAvailableMessage(
+export function buildAvailableMessage(
   fieldType: string,
   dateIndo: string,
   startTime: string,
   _endTime: string,
   durationHours: number = 1,
   bookerName?: string,
+  bookingCode?: string | null,
 ): string {
   // Normalise startTime: strip leading words like "jam", "pukul", "pk" so we
   // always display the plain HH:MM the user typed (e.g. "12:00" not "jam 12:00").
@@ -344,8 +345,13 @@ function buildAvailableMessage(
     ? `👤 Nama Pemesan : *${bookerName.trim()}*\n`
     : "";
 
+  const codePart = bookingCode
+    ? `🎟️ Kode Booking : *${bookingCode}*\n`
+    : "";
+
   return (
     `✅ *Jadwal Tersedia!*\n\n` +
+    codePart +
     `🏟️ Lapangan : *${fieldType}*\n` +
     `📅 Tanggal  : *${dateIndo}*\n` +
     `⏰ Jam      : *${displayTime}*\n` +
@@ -376,6 +382,31 @@ export function calcTotalPrice(fieldType: string, durationHours: number): number
 
 export function getPricePerHour(fieldType: string): number {
   return SC_PRICE_PER_HOUR[fieldType.toLowerCase().trim()] ?? 100_000;
+}
+
+// ── Reserve a booking code early (during availability check) ─────────────────
+// Called when a slot is confirmed available — before the customer says "ya".
+// This lets us show the booking code in the "Jadwal Tersedia!" message.
+// The code is stored in collectedFields._booking_code and passed to
+// saveSportCenterBooking so no second number is generated on finalization.
+// Sequence gaps are acceptable if the customer never confirms.
+
+export async function reserveBookingCode(companyId: string): Promise<string | null> {
+  const pool = supabasePool;
+  if (!pool) return null;
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const code = await generateBookingNumber(client, companyId);
+    await client.query("COMMIT");
+    return code;
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    logger.warn({ err, companyId }, "reserveBookingCode: failed");
+    return null;
+  } finally {
+    client.release();
+  }
 }
 
 // ── Generate next booking number (SC-XXXX, per-company, race-safe) ───────────
@@ -554,6 +585,8 @@ export async function saveSportCenterBooking(params: {
   bookerName?: string | null;
   phone?: string | null;
   notes?: string | null;
+  /** Pre-generated booking code from reserveBookingCode(). If provided, skips DB sequence generation. */
+  bookingNumber?: string | null;
 }): Promise<SavedBooking | null> {
   const pool = supabasePool;
   if (!pool) return null;
@@ -596,8 +629,9 @@ export async function saveSportCenterBooking(params: {
       }
     }
 
-    // Generate booking number inside transaction with advisory lock (race-safe)
-    const bookingNumber      = await generateBookingNumber(client, params.companyId);
+    // Use pre-generated booking code if provided (reserved at availability-check time),
+    // otherwise generate a new one inside this transaction.
+    const bookingNumber = params.bookingNumber ?? await generateBookingNumber(client, params.companyId);
     const { randomBytes }    = await import("crypto");
     const paymentProofToken  = randomBytes(8).toString("base64url");
 

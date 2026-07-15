@@ -36,9 +36,11 @@ import {
   saveSportCenterBooking,
   buildBookingConfirmationWA,
   buildAdminNotifWA,
-  extractDurationHours,
-  timeToMinutes,
+  reserveBookingCode,
+  buildAvailableMessage,
   minutesToTime,
+  timeToMinutes,
+  extractDurationHours,
   isValidBookerName,
   formatDateIndo,
   normalizeDateString,
@@ -563,6 +565,12 @@ async function finalizeSportCenterBooking({
   if (!newCollected.phone) newCollected.phone = session.phone;
 
   // ── Create booking record NOW — only after "ya" confirmation ────────────
+  // Reuse the booking code reserved during the availability check (Case A)
+  // so the customer sees the same code they already confirmed.
+  const preGeneratedCode = newCollected._booking_code
+    ? String(newCollected._booking_code)
+    : null;
+
   const savedBooking = await saveSportCenterBooking({
     companyId,
     intakeSessionId: session.id,
@@ -574,6 +582,7 @@ async function finalizeSportCenterBooking({
     bookerName:      String(newCollected.booker_name ?? "").trim() || null,
     phone:           session.phone,
     notes:           String(newCollected.notes ?? "").trim() || null,
+    bookingNumber:   preGeneratedCode,
   }).catch((e) => { logger.warn({ e }, "IntakeEngine: saveSportCenterBooking failed"); return null; });
 
   // Enrich collectedFields with the saved booking's DB-generated fields so the
@@ -966,9 +975,17 @@ async function runSportCenterAvailabilityGate({
     newCollected._avail_checked = true;
 
     if (avail.isAvailable) {
-      // Slot is free, but DO NOT save to Supabase / create a task yet.
-      // Wait for the customer to explicitly reply "ya" (isAvailabilityConfirmation)
-      // — handled in Case B below on the next message.
+      // Slot is free — reserve a booking code NOW so it can be shown to the
+      // customer in the "Jadwal Tersedia!" message. The same code is reused
+      // in finalizeSportCenterBooking (Case B) so the number is consistent.
+      // DO NOT save the booking to Supabase yet — wait for explicit "ya" reply.
+      const bookingCode = await reserveBookingCode(companyId);
+      if (bookingCode) newCollected._booking_code = bookingCode;
+
+      // Build the "Jadwal Tersedia!" message with the booking code embedded.
+      const endTime = minutesToTime(timeToMinutes(startTime) + Math.round(durationHours * 60));
+      const availMsg = buildAvailableMessage(fieldType, avail.checkedDateIndo, startTime, endTime, durationHours, bookerName, bookingCode ?? undefined);
+
       const [updatedWait] = await db
         .update(intakeSessionsTable)
         .set({
@@ -976,7 +993,7 @@ async function runSportCenterAvailabilityGate({
           missingFields:     completeness.missingFieldNames,
           requiredFields:    requiredFieldNames,
           completionPct:     String(completeness.completionPct),
-          lastQuestion:      avail.message,
+          lastQuestion:      availMsg,
           lastMessage:       message,
           lastMessageAt:     now,
           updatedAt:         now,
@@ -988,7 +1005,7 @@ async function runSportCenterAvailabilityGate({
       return {
         action:            "continue_collecting",
         session:           updatedWait!,
-        replyToUser:       avail.message,
+        replyToUser:       availMsg,
         collectedFields:   newCollected,
         missingFields:     completeness.missingFieldNames,
         requiredDocuments: stillMissingDocs,
