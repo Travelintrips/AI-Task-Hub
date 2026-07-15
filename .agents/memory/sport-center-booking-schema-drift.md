@@ -1,0 +1,12 @@
+---
+name: Sport Center booking prod schema drift
+description: sport_center_bookings table in production Supabase was missing payment/pricing columns that exist in dev, causing silent booking-save failures after "Ya" confirmation.
+---
+
+Two separate Supabase projects back this app: dev (SUPABASE_DATABASE_URL_DEV, project xssrfshdrtdfupgqwfdw) and production (SUPABASE_DATABASE_URL, project nzdweipzckfszczzqtuw). `src/lib/supabase-db.ts` prefers SUPABASE_DATABASE_URL over the _DEV fallback, so any process that has the production secret in scope talks to the production project even though the dev workspace shell only ever exposes the _DEV one.
+
+`sport_center_bookings` in production was missing: payment_status, booking_number, facility_name, price_per_hour, total_price, payment_proof_url, payment_proof_token, payment_deadline, admin_notes, customer_phone — all present in the dev copy. `saveSportCenterBooking()` (sport-center-availability.ts) wraps its INSERT in try/catch and returns `null` on any DB error, so the caller (`finalizeSportCenterBooking` in intake-engine.ts) silently falls back to a generic "booking confirmed" WA reply even though nothing was written. The customer sees a confirmation; no row exists.
+
+**Why:** there is no automatic schema sync between dev and prod Supabase for this project (Supabase is external, not Replit-managed, so Replit's publish-time dev→prod schema diff does not apply). A column added only in dev during development silently breaks prod until someone notices bookings aren't appearing.
+
+**How to apply:** when a customer reports "it said confirmed but I don't see it," or booking/order data seems to vanish, always check for schema drift between the two Supabase projects (`\d <table>` on both) before assuming an application-logic bug — the INSERT may be failing in production alone. Prefer surfacing DB errors (or at least logging table name + error code at `error` level, not `warn`) instead of swallowing them into a generic fallback message.
