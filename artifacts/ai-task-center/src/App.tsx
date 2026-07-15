@@ -46,7 +46,6 @@ import VendorReviewAdmin from "@/pages/vendor-review-admin";
 import ExecutiveIntelligencePage from "@/pages/executive-intelligence";
 import ExecutiveCommandPage from "@/pages/executive-command";
 import PurchasingIntelligencePage from "@/pages/purchasing-intelligence";
-import SportCenterPage from "@/pages/sport-center";
 import ScMyBookings from "@/pages/sc-my-bookings";
 import ScBookingStatus from "@/pages/sc-booking-status";
 import ScBukti from "@/pages/sc-bukti";
@@ -168,7 +167,6 @@ function AppRouter() {
         <Route path="/holding-dashboard" component={HoldingDashboardPage} />
         <Route path="/ai-operations" component={AiOperationsPage} />
         <Route path="/notification-receivers" component={NotificationReceiversPage} />
-        <Route path="/sport-center" component={SportCenterPage} />
         <Route component={NotFound} />
       </Switch>
     </AppLayout>
