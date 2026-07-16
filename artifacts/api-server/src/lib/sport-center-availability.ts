@@ -9,7 +9,7 @@
  *   4. User confirms → mark _avail_confirmed = true → proceed to form
  */
 
-import { supabasePool, supabaseQuery } from "./supabase-db";
+import { supabasePool, supabaseQuery, supabaseQueryStrict } from "./supabase-db";
 import { logger } from "./logger";
 
 // ── Intent detection ───────────────────────────────────────────────────────────
@@ -730,28 +730,40 @@ export async function bridgeToSportBookings(params: {
   const scFacilityId  = SC_FACILITY_MAP[normalizedType] ?? 1;   // Lapangan Multiguna as fallback (prod id=1)
   const pubFacilityId = PUB_FACILITY_MAP[normalizedType] ?? null;
 
-  const endTime       = params.saved.endTime ?? params.saved.startTime;
-  const durationInt   = Math.round(params.saved.durationHours ?? 1);   // INTEGER cast — sport_center.sport_bookings.duration_hours is INTEGER
+  // Normalize booking_date: strip ISO timestamp suffix if present
+  // e.g. "2026-07-18T00:00:00.000Z" → "2026-07-18"
+  const rawDate      = String(params.saved.bookingDate ?? "");
+  const bookingDateNorm = rawDate.includes("T") ? rawDate.split("T")[0] : rawDate;
+
+  // Normalize time to HH:MM format (strip seconds if present, e.g. "12:00:00" → "12:00")
+  const normalizeTime = (t: string) => (t ?? "").substring(0, 5);
+  const startTimeNorm = normalizeTime(params.saved.startTime);
+  const endTimeRaw    = params.saved.endTime ?? params.saved.startTime;
+  const endTimeNorm   = normalizeTime(endTimeRaw);
+
+  const durationInt   = Math.round(params.saved.durationHours ?? 1);
   const bookingNumber = params.saved.bookingNumber;
   const customerName  = params.saved.bookerName ?? "Customer WA";
 
   logger.info(
-    { bookingNumber, normalizedType, scFacilityId, pubFacilityId, durationInt },
+    { bookingNumber, normalizedType, scFacilityId, pubFacilityId, bookingDateNorm, startTimeNorm, endTimeNorm, durationInt },
     "bridgeToSportBookings: starting sync",
   );
 
   // ── 1. Insert into sport_center.sport_bookings ──────────────────────────
-  // Uses supabaseQuery helper — no manual pool.connect() needed.
+  // booking_date, start_time, end_time are TEXT columns in this schema — pass as-is.
+  // duration_hours is INTEGER — pass durationInt (JS number) directly, no ::integer cast needed.
+  // supabaseQueryStrict throws on error so the catch block actually fires.
   let scBookingId: number | null = null;
   try {
-    const rows = await supabaseQuery<{ id: number }>(
+    const rows = await supabaseQueryStrict<{ id: number }>(
       `INSERT INTO sport_center.sport_bookings
          (order_number, customer_name, customer_email, customer_phone,
           facility_id, booking_date, start_time, end_time, duration_hours,
           total_price, base_price, discount_amount,
           status, source, notes,
           payment_deadline, payment_required_now)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::integer,$10,$10,0,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10,0,
                'waiting_admin_approval','wa',$11,$12,true)
        ON CONFLICT (order_number) DO NOTHING
        RETURNING id`,
@@ -761,10 +773,10 @@ export async function bridgeToSportBookings(params: {
         "",                               // $3  customer_email (NOT NULL → empty placeholder)
         params.saved.phone ?? "",         // $4  customer_phone
         scFacilityId,                     // $5  facility_id
-        params.saved.bookingDate,         // $6  booking_date
-        params.saved.startTime,           // $7  start_time
-        endTime,                          // $8  end_time
-        durationInt,                      // $9  duration_hours (::integer)
+        bookingDateNorm,                  // $6  booking_date (TEXT col — normalized YYYY-MM-DD)
+        startTimeNorm,                    // $7  start_time   (TEXT col — HH:MM)
+        endTimeNorm,                      // $8  end_time     (TEXT col — HH:MM)
+        durationInt,                      // $9  duration_hours (INTEGER)
         params.saved.totalPrice,          // $10 total_price & base_price
         params.notes ?? null,             // $11 notes
         params.saved.paymentDeadline,     // $12 payment_deadline
@@ -782,14 +794,18 @@ export async function bridgeToSportBookings(params: {
   }
 
   // ── 2. Insert into public.sport_bookings (runs independently of step 1) ──
+  // booking_date is DATE col, start_time/end_time are TIME cols.
+  // Data is pre-normalized above (bookingDateNorm = YYYY-MM-DD, times = HH:MM)
+  // so no explicit SQL type cast needed — node-postgres handles JS string → pg type coercion.
+  // Avoid :: cast syntax: PgBouncer transaction mode (port 6543) can fail on it with parameterized queries.
   try {
-    await supabaseQuery(
+    await supabaseQueryStrict(
       `INSERT INTO public.sport_bookings
          (company_id, booking_number, customer_name, customer_phone, customer_email,
           facility_id, facility_name, booking_date, start_time, end_time, duration_hours,
           status, payment_status, base_amount, discount_amount, total_amount,
           notes, sc_booking_id)
-       VALUES (1,$1,$2,$3,$4,$5,$6,$7::date,$8::time,$9::time,$10,
+       VALUES (1,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
                'pending','unpaid',$11,0,$11,$12,$13)
        ON CONFLICT (booking_number) DO NOTHING`,
       [
@@ -797,11 +813,11 @@ export async function bridgeToSportBookings(params: {
         customerName,                     // $2  customer_name
         params.saved.phone ?? null,       // $3  customer_phone
         null,                             // $4  customer_email (nullable)
-        pubFacilityId,                    // $5  facility_id
+        pubFacilityId,                    // $5  facility_id (nullable FK)
         params.saved.facilityName,        // $6  facility_name
-        params.saved.bookingDate,         // $7  booking_date (::date)
-        params.saved.startTime,           // $8  start_time (::time)
-        endTime,                          // $9  end_time (::time)
+        bookingDateNorm,                  // $7  booking_date  (DATE col — YYYY-MM-DD)
+        startTimeNorm,                    // $8  start_time    (TIME col — HH:MM)
+        endTimeNorm,                      // $9  end_time      (TIME col — HH:MM)
         durationInt,                      // $10 duration_hours
         params.saved.totalPrice,          // $11 base_amount & total_amount
         params.notes ?? null,             // $12 notes

@@ -55,3 +55,18 @@ export async function supabaseQuery<T = Record<string, unknown>>(
     return [];
   }
 }
+
+/**
+ * Like supabaseQuery but THROWS on error instead of swallowing it.
+ * Use this when the caller needs to know about failures (e.g. bridge inserts).
+ */
+export async function supabaseQueryStrict<T = Record<string, unknown>>(
+  text: string,
+  params?: unknown[],
+): Promise<T[]> {
+  if (!supabasePool) {
+    throw new Error("supabaseQueryStrict: database not configured");
+  }
+  const res = await supabasePool.query(text, params as never);
+  return res.rows as T[];
+}

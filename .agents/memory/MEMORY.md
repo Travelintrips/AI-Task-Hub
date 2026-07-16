@@ -40,4 +40,5 @@
 - [Sport Center menu loop fix](sport-center-menu-loop.md) — digit 1-6 not recognized as menu reply when AI extracted generic field_type; fixed via keyword-contains check + avail-check guard.
 - [Sport Center booking prod schema drift](sport-center-booking-schema-drift.md) — dev/prod are separate Supabase projects; prod sport_center_bookings missing columns caused silent save failures behind a generic "confirmed" fallback reply.
 - [Supabase Pooler Advisory Lock](supabase-pooler-advisory-lock.md) — pg_advisory_xact_lock fails on port 6543 (PgBouncer txn mode); causes booking functions to silently return null; fix: supabaseQuery direct + UNIQUE retry loop.
+- [sport_bookings bridge insert](sport-bookings-bridge-insert.md) — bridgeToSportBookings Step 2 silently failed: supabaseQuery swallows errors, booking_date stored as ISO timestamp, :: cast syntax fails on pooler; fix: supabaseQueryStrict + normalize date/time in JS.
 - [SC domain for customer links](sc-domain-links.md) — WA links used ephemeral REPLIT_DEV_DOMAIN when SC_DOMAIN unset, going dead across dev domain changes; fixed by setting SC_DOMAIN to stable prod domain.
