@@ -731,25 +731,24 @@ export async function bridgeToSportBookings(params: {
          (order_number, customer_name, customer_email, customer_phone,
           facility_id, booking_date, start_time, end_time, duration_hours,
           total_price, base_price, discount_amount,
-          status, source, notes, booker_name,
+          status, source, notes,
           payment_deadline, payment_required_now)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10,0,
-               'waiting_admin_approval','wa',$11,$12,$13,true)
+               'waiting_admin_approval','wa',$11,$12,true)
        RETURNING id`,
       [
-        params.saved.bookingNumber,            // $1  order_number
-        params.saved.bookerName ?? "Customer WA",  // $2  customer_name
-        "",                                    // $3  customer_email (NOT NULL → placeholder)
-        params.saved.phone ?? "",              // $4  customer_phone
-        scFacilityId,                          // $5  facility_id
-        params.saved.bookingDate,              // $6  booking_date
-        params.saved.startTime,                // $7  start_time
-        endTime,                               // $8  end_time
-        params.saved.durationHours ?? 1,       // $9  duration_hours
-        params.saved.totalPrice,               // $10 total_price & base_price
-        params.notes ?? null,                  // $11 notes
-        params.saved.bookerName ?? null,       // $12 booker_name
-        params.saved.paymentDeadline,          // $13 payment_deadline
+        params.saved.bookingNumber,                 // $1  order_number
+        params.saved.bookerName ?? "Customer WA",   // $2  customer_name
+        "",                                         // $3  customer_email (NOT NULL → placeholder)
+        params.saved.phone ?? "",                   // $4  customer_phone
+        scFacilityId,                               // $5  facility_id
+        params.saved.bookingDate,                   // $6  booking_date
+        params.saved.startTime,                     // $7  start_time
+        endTime,                                    // $8  end_time
+        params.saved.durationHours ?? 1,            // $9  duration_hours
+        params.saved.totalPrice,                    // $10 total_price & base_price
+        params.notes ?? null,                       // $11 notes
+        params.saved.paymentDeadline,               // $12 payment_deadline
       ],
     );
 
