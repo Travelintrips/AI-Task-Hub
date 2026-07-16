@@ -33,15 +33,13 @@ import {
   isSportCenterBookingIntent,
   isAvailabilityConfirmation,
   checkSportCenterAvailability,
-  saveSportCenterBooking,
-  buildBookingConfirmationWA,
   buildAdminNotifWA,
   reserveBookingCode,
   buildAvailableMessage,
-  bridgeToSportBookings,
   minutesToTime,
   timeToMinutes,
   extractDurationHours,
+  calcTotalPrice,
   isValidBookerName,
   formatDateIndo,
   normalizeDateString,
@@ -566,88 +564,37 @@ async function finalizeSportCenterBooking({
   // Ensure phone is captured from session
   if (!newCollected.phone) newCollected.phone = session.phone;
 
-  // ── Create booking record NOW — only after "ya" confirmation ────────────
-  // Reuse the booking code reserved during the availability check (Case A)
-  // so the customer sees the same code they already confirmed.
-  const preGeneratedCode = newCollected._booking_code
-    ? String(newCollected._booking_code)
-    : null;
+  // ── TIDAK ada insert ke DB — admin/manusia yang akan membuat booking secara manual ──
+  // Cukup teruskan detail booking ke Grup Admin Sport Center via WA.
 
-  const savedBooking = await saveSportCenterBooking({
-    companyId,
-    intakeSessionId: session.id,
-    fieldType:       String(newCollected.field_type ?? newCollected.field_name ?? fieldType),
-    bookingDate:     String(bookingDate),
-    startTime:       String(newCollected.start_time ?? startTime),
-    endTime:         newCollected.end_time ? String(newCollected.end_time) : null,
-    durationHours,
-    bookerName:      String(newCollected.booker_name ?? "").trim() || null,
-    phone:           session.phone,
-    notes:           String(newCollected.notes ?? "").trim() || null,
-    bookingNumber:   preGeneratedCode,
-  }).catch((e) => { logger.warn({ e }, "IntakeEngine: saveSportCenterBooking failed"); return null; });
+  const theFieldType = String(newCollected.field_type ?? newCollected.field_name ?? fieldType);
+  const theStartTime = String(newCollected.start_time ?? startTime);
+  const theEndTime   = newCollected.end_time ? String(newCollected.end_time) : null;
+  const bookingCode  = newCollected._booking_code ? String(newCollected._booking_code) : "—";
+  const bookerName   = String(newCollected.booker_name ?? "").trim() || null;
+  const totalPrice   = calcTotalPrice(theFieldType, durationHours);
 
-  // Enrich collectedFields with the saved booking's DB-generated fields so the
-  // AI task (built from JSON.stringify(collectedFields)) matches what's actually
-  // stored in sport_center_bookings — not just the raw fields the customer typed.
-  if (savedBooking) {
-    newCollected.facility_name  = savedBooking.facilityName;
-    newCollected.booking_number = savedBooking.bookingNumber;
-    newCollected.payment_status = savedBooking.paymentStatus;
-    newCollected.total_price    = savedBooking.totalPrice;
-    if (savedBooking.endTime) newCollected.end_time = savedBooking.endTime;
-  }
+  // Build admin group notification
+  const adminMsg = buildAdminNotifWA({
+    bookingNumber: bookingCode,
+    facilityName:  theFieldType,
+    bookingDate:   bookingDate,
+    startTime:     theStartTime,
+    endTime:       theEndTime,
+    durationHours: durationHours,
+    bookerName:    bookerName,
+    phone:         session.phone,
+    totalPrice:    totalPrice,
+  });
 
-  // ── Bridge: sync booking ke sport_center.sport_bookings + public.sport_bookings ──
-  // Dijalankan secara async (fire-and-forget), tidak memblokir alur WA.
-  if (savedBooking) {
-    bridgeToSportBookings({
-      saved: savedBooking,
-      fieldType: String(newCollected.field_type ?? newCollected.field_name ?? fieldType),
-      notes: String(newCollected.notes ?? "").trim() || null,
-    }).catch((e) => logger.warn({ e }, "IntakeEngine: bridgeToSportBookings failed"));
-  }
-
-  // Build payment confirmation message (stored for admin reference in lastQuestion, NOT sent directly to customer)
-  const customerConfirmationMsg = savedBooking
-    ? buildBookingConfirmationWA({
-        phone:             session.phone,
-        bookingNumber:     savedBooking.bookingNumber,
-        facilityName:      savedBooking.facilityName,
-        bookingDate:       savedBooking.bookingDate,
-        startTime:         savedBooking.startTime,
-        endTime:           savedBooking.endTime,
-        totalPrice:        savedBooking.totalPrice,
-        paymentDeadline:   savedBooking.paymentDeadline,
-        paymentProofToken: savedBooking.paymentProofToken,
-      })
-    : null;
-
-  // Reply to customer: simple acknowledgment only
-  const customerReply = "Baik..mohon ditunggu team kami akan segera membantu.";
-
-  // Build admin group notification — no wa.me deep-link, form already sent to customer.
-  const adminMsg = savedBooking
-    ? buildAdminNotifWA({
-        bookingNumber: savedBooking.bookingNumber,
-        facilityName:  savedBooking.facilityName,
-        bookingDate:   savedBooking.bookingDate,
-        startTime:     savedBooking.startTime,
-        endTime:       savedBooking.endTime,
-        durationHours: durationHours,
-        bookerName:    savedBooking.bookerName,
-        phone:         session.phone,
-        totalPrice:    savedBooking.totalPrice,
-        // customerConfirmationMsg intentionally not passed — admin notif no longer embeds link
-      })
-    : customerReply;
-
-  // Notify admin group with booking details (Screenshot_5 format)
+  // Kirim ke Grup Admin Sport Center
   sendSportCenterNotifications(companyId, adminMsg, fonnteDevice, session.phone)
     .catch((e) => logger.warn({ e }, "IntakeEngine: failed to send sport center notifications"));
 
-  // Persist session as ready_for_task — whatsapp.ts will create the AI task immediately.
-  // lastQuestion stores the full customer confirmation so admin can reference/copy it.
+  // Reply ke customer: acknowledgment sederhana
+  const customerReply = "Baik..mohon ditunggu team kami akan segera membantu.";
+
+  // Simpan sesi sebagai ready_for_task agar loop percakapan ditutup
   const [updatedAvail] = await db
     .update(intakeSessionsTable)
     .set({
@@ -656,7 +603,7 @@ async function finalizeSportCenterBooking({
       missingFields:   [],
       requiredFields:  requiredFieldNames,
       completionPct:   "100",
-      lastQuestion:    customerConfirmationMsg ?? customerReply,
+      lastQuestion:    customerReply,
       lastMessage:     message,
       lastMessageAt:   now,
       updatedAt:       now,
