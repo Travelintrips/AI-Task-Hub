@@ -639,7 +639,7 @@ export async function saveSportCenterBooking(params: {
       `INSERT INTO sport_center_bookings
          (company_id, ai_task_id, intake_session_id,
           field_type, facility_name, booking_date, start_time, end_time, duration_hours,
-          booker_name, phone, notes, status,
+          customer_name, phone, notes, status,
           booking_number, price_per_hour, total_price,
           payment_status, payment_proof_token, payment_deadline)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'pending',$13,$14,$15,'unpaid',$16,$17)
@@ -808,7 +808,7 @@ function rowToSavedBooking(row: Record<string, unknown>): SavedBooking {
     paymentStatus:     (row.payment_status as string) ?? "unpaid",
     paymentProofToken: row.payment_proof_token as string,
     paymentDeadline:   new Date(row.payment_deadline as string),
-    bookerName:        row.booker_name as string | null,
+    bookerName:        row.customer_name as string | null,
     phone:             row.phone as string | null,
     status:            row.status as string,
   };

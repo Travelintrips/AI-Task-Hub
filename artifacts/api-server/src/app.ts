@@ -1038,7 +1038,7 @@ if (supabasePool) {
         start_time         TEXT NOT NULL,
         end_time           TEXT,
         duration_hours     NUMERIC(4,2),
-        booker_name        TEXT,
+        customer_name      TEXT,
         phone              TEXT,
         status             TEXT NOT NULL DEFAULT 'pending',
         notes              TEXT,

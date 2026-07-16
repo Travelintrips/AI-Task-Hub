@@ -68,7 +68,7 @@ router.get("/sport-center/bookings", requireAuth, async (req: Request, res: Resp
       params.push(status);
     }
     if (search) {
-      conditions.push(`(booker_name ILIKE $${idx} OR phone ILIKE $${idx})`);
+      conditions.push(`(customer_name ILIKE ${idx} OR phone ILIKE ${idx})`);
       params.push(`%${search}%`);
       idx++;
     }
@@ -82,7 +82,7 @@ router.get("/sport-center/bookings", requireAuth, async (req: Request, res: Resp
         `SELECT id, company_id, ai_task_id, intake_session_id,
                 booking_number, facility_name, field_type,
                 booking_date, start_time, end_time, duration_hours,
-                booker_name, phone, notes, status,
+                customer_name, phone, notes, status,
                 total_price, price_per_hour,
                 payment_status, payment_proof_url, payment_proof_token,
                 payment_deadline, admin_notes,
@@ -214,7 +214,7 @@ router.patch(
       if (paymentStatus)            addSet("payment_status",  paymentStatus);
       if (notes !== undefined)      addSet("notes",           notes);
       if (adminNotes !== undefined) addSet("admin_notes",     adminNotes);
-      if (bookerName)               addSet("booker_name",     bookerName);
+      if (bookerName)               addSet("customer_name",   bookerName);
       if (phone)                    addSet("phone",           phone);
       if (startTime)                addSet("start_time",      startTime);
       if (endTime)                  addSet("end_time",        endTime);
@@ -281,7 +281,7 @@ router.get("/sport-center/stats", requireAuth, async (req: Request, res: Respons
       ),
       pool.query(
         `SELECT id, booking_number, facility_name, field_type, start_time, end_time,
-                booker_name, phone, status, payment_status, total_price
+                customer_name, phone, status, payment_status, total_price
          FROM sport_center_bookings
          WHERE company_id = $1 AND booking_date = CURRENT_DATE
          ORDER BY start_time ASC`,

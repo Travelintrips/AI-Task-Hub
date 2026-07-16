@@ -31,7 +31,7 @@ function sanitizeBooking(row: Record<string, unknown>) {
     startTime:        row.start_time,
     endTime:          row.end_time,
     durationHours:    row.duration_hours != null ? Number(row.duration_hours) : null,
-    bookerName:       row.booker_name,
+    bookerName:       row.customer_name,
     phone:            row.phone,
     status:           row.status,
     paymentStatus:    row.payment_status ?? "unpaid",
