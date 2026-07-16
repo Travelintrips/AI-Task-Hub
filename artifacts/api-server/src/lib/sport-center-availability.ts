@@ -9,7 +9,7 @@
  *   4. User confirms → mark _avail_confirmed = true → proceed to form
  */
 
-import { supabasePool } from "./supabase-db";
+import { supabasePool, supabaseQuery } from "./supabase-db";
 import { logger } from "./logger";
 
 // ── Intent detection ───────────────────────────────────────────────────────────
@@ -711,21 +711,14 @@ export async function bridgeToSportBookings(params: {
   fieldType: string;
   notes?: string | null;
 }): Promise<void> {
-  const pool = supabasePool;
-  if (!pool) {
-    logger.warn("bridgeToSportBookings: supabasePool not available — skipping sync");
-    return;
-  }
-
   const normalizedType = params.saved.fieldType.toLowerCase().trim();
   const scFacilityId  = SC_FACILITY_MAP[normalizedType] ?? 1;   // Lapangan Multiguna as fallback (prod id=1)
   const pubFacilityId = PUB_FACILITY_MAP[normalizedType] ?? null;
 
   const endTime       = params.saved.endTime ?? params.saved.startTime;
-  const durationInt   = Math.round(params.saved.durationHours ?? 1);   // integer cast — sport_center.sport_bookings.duration_hours is INTEGER
+  const durationInt   = Math.round(params.saved.durationHours ?? 1);   // INTEGER cast — sport_center.sport_bookings.duration_hours is INTEGER
   const bookingNumber = params.saved.bookingNumber;
   const customerName  = params.saved.bookerName ?? "Customer WA";
-  const phone         = params.saved.phone ?? "";
 
   logger.info(
     { bookingNumber, normalizedType, scFacilityId, pubFacilityId, durationInt },
@@ -733,83 +726,74 @@ export async function bridgeToSportBookings(params: {
   );
 
   // ── 1. Insert into sport_center.sport_bookings ──────────────────────────
-  // Independent try-catch — failure here does NOT prevent public.sport_bookings insert.
+  // Uses supabaseQuery helper — no manual pool.connect() needed.
   let scBookingId: number | null = null;
   try {
-    const client1 = await pool.connect();
-    try {
-      const scResult = await client1.query(
-        `INSERT INTO sport_center.sport_bookings
-           (order_number, customer_name, customer_email, customer_phone,
-            facility_id, booking_date, start_time, end_time, duration_hours,
-            total_price, base_price, discount_amount,
-            status, source, notes,
-            payment_deadline, payment_required_now)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::integer,$10,$10,0,
-                 'waiting_admin_approval','wa',$11,$12,true)
-         ON CONFLICT (order_number) DO NOTHING
-         RETURNING id`,
-        [
-          bookingNumber,                    // $1  order_number
-          customerName,                     // $2  customer_name
-          "",                               // $3  customer_email (NOT NULL → placeholder)
-          phone,                            // $4  customer_phone
-          scFacilityId,                     // $5  facility_id
-          params.saved.bookingDate,         // $6  booking_date
-          params.saved.startTime,           // $7  start_time
-          endTime,                          // $8  end_time
-          durationInt,                      // $9  duration_hours (::integer)
-          params.saved.totalPrice,          // $10 total_price & base_price
-          params.notes ?? null,             // $11 notes
-          params.saved.paymentDeadline,     // $12 payment_deadline
-        ],
-      );
-      scBookingId = (scResult.rows[0] as { id: number } | undefined)?.id ?? null;
-      logger.info({ bookingNumber, scBookingId }, "bridgeToSportBookings: sport_center.sport_bookings OK");
-    } finally {
-      client1.release();
-    }
+    const rows = await supabaseQuery<{ id: number }>(
+      `INSERT INTO sport_center.sport_bookings
+         (order_number, customer_name, customer_email, customer_phone,
+          facility_id, booking_date, start_time, end_time, duration_hours,
+          total_price, base_price, discount_amount,
+          status, source, notes,
+          payment_deadline, payment_required_now)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::integer,$10,$10,0,
+               'waiting_admin_approval','wa',$11,$12,true)
+       ON CONFLICT (order_number) DO NOTHING
+       RETURNING id`,
+      [
+        bookingNumber,                    // $1  order_number
+        customerName,                     // $2  customer_name
+        "",                               // $3  customer_email (NOT NULL → empty placeholder)
+        params.saved.phone ?? "",         // $4  customer_phone
+        scFacilityId,                     // $5  facility_id
+        params.saved.bookingDate,         // $6  booking_date
+        params.saved.startTime,           // $7  start_time
+        endTime,                          // $8  end_time
+        durationInt,                      // $9  duration_hours (::integer)
+        params.saved.totalPrice,          // $10 total_price & base_price
+        params.notes ?? null,             // $11 notes
+        params.saved.paymentDeadline,     // $12 payment_deadline
+      ],
+    );
+    scBookingId = rows[0]?.id ?? null;
+    logger.info({ bookingNumber, scBookingId }, "bridgeToSportBookings: sport_center.sport_bookings OK");
   } catch (err) {
     const e = err as { message?: string; code?: string; detail?: string };
     logger.error(
       { bookingNumber, msg: e.message, code: e.code, detail: e.detail },
       "bridgeToSportBookings: sport_center.sport_bookings INSERT failed",
     );
+    // Continue — step 2 runs independently even if step 1 fails
   }
 
-  // ── 2. Insert into public.sport_bookings (independent — runs even if step 1 failed) ──
+  // ── 2. Insert into public.sport_bookings (runs independently of step 1) ──
   try {
-    const client2 = await pool.connect();
-    try {
-      await client2.query(
-        `INSERT INTO public.sport_bookings
-           (company_id, booking_number, customer_name, customer_phone, customer_email,
-            facility_id, facility_name, booking_date, start_time, end_time, duration_hours,
-            status, payment_status, base_amount, discount_amount, total_amount,
-            notes, sc_booking_id)
-         VALUES (1,$1,$2,$3,$4,$5,$6,$7::date,$8::time,$9::time,$10,
-                 'pending','unpaid',$11,0,$11,$12,$13)
-         ON CONFLICT (booking_number) DO NOTHING`,
-        [
-          bookingNumber,                    // $1  booking_number
-          customerName,                     // $2  customer_name
-          params.saved.phone ?? null,       // $3  customer_phone
-          null,                             // $4  customer_email (nullable)
-          pubFacilityId,                    // $5  facility_id
-          params.saved.facilityName,        // $6  facility_name
-          params.saved.bookingDate,         // $7  booking_date (::date)
-          params.saved.startTime,           // $8  start_time (::time)
-          endTime,                          // $9  end_time (::time)
-          durationInt,                      // $10 duration_hours
-          params.saved.totalPrice,          // $11 base_amount & total_amount
-          params.notes ?? null,             // $12 notes
-          scBookingId,                      // $13 sc_booking_id
-        ],
-      );
-      logger.info({ bookingNumber, scBookingId }, "bridgeToSportBookings: public.sport_bookings OK");
-    } finally {
-      client2.release();
-    }
+    await supabaseQuery(
+      `INSERT INTO public.sport_bookings
+         (company_id, booking_number, customer_name, customer_phone, customer_email,
+          facility_id, facility_name, booking_date, start_time, end_time, duration_hours,
+          status, payment_status, base_amount, discount_amount, total_amount,
+          notes, sc_booking_id)
+       VALUES (1,$1,$2,$3,$4,$5,$6,$7::date,$8::time,$9::time,$10,
+               'pending','unpaid',$11,0,$11,$12,$13)
+       ON CONFLICT (booking_number) DO NOTHING`,
+      [
+        bookingNumber,                    // $1  booking_number
+        customerName,                     // $2  customer_name
+        params.saved.phone ?? null,       // $3  customer_phone
+        null,                             // $4  customer_email (nullable)
+        pubFacilityId,                    // $5  facility_id
+        params.saved.facilityName,        // $6  facility_name
+        params.saved.bookingDate,         // $7  booking_date (::date)
+        params.saved.startTime,           // $8  start_time (::time)
+        endTime,                          // $9  end_time (::time)
+        durationInt,                      // $10 duration_hours
+        params.saved.totalPrice,          // $11 base_amount & total_amount
+        params.notes ?? null,             // $12 notes
+        scBookingId,                      // $13 sc_booking_id
+      ],
+    );
+    logger.info({ bookingNumber, scBookingId }, "bridgeToSportBookings: public.sport_bookings OK");
   } catch (err) {
     const e = err as { message?: string; code?: string; detail?: string };
     logger.error(
