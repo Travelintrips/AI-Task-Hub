@@ -625,13 +625,14 @@ async function finalizeSportCenterBooking({
       })
     : null;
 
-  // Reply sent to the customer — a neutral holding message.
-  // Admin will send the full payment confirmation via the link in the admin notification.
-  const customerReply = savedBooking
-    ? `✅ Booking lapangan *${savedBooking.facilityName}* berhasil kami catat!\n\nAdmin kami akan segera mengirimkan detail konfirmasi pembayaran. Terima kasih! 🙏`
-    : "Baik, booking Anda sudah kami konfirmasi. Tim kami akan segera menghubungi Anda. 🙏";
+  // Reply sent to the customer — full payment confirmation sent directly via bot.
+  // Admin no longer needs to manually tap a wa.me link; system sends it automatically.
+  const customerReply = customerConfirmationMsg
+    ?? (savedBooking
+      ? `✅ Booking lapangan *${savedBooking.facilityName}* berhasil kami catat!\n\nDetail konfirmasi pembayaran akan segera dikirimkan. Terima kasih! 🙏`
+      : "Baik, booking Anda sudah kami konfirmasi. Tim kami akan segera menghubungi Anda. 🙏");
 
-  // Build admin group notification (includes Kode Booking + WA confirm deep-link)
+  // Build admin group notification — no wa.me deep-link, form already sent to customer.
   const adminMsg = savedBooking
     ? buildAdminNotifWA({
         bookingNumber: savedBooking.bookingNumber,
@@ -643,7 +644,7 @@ async function finalizeSportCenterBooking({
         bookerName:    savedBooking.bookerName,
         phone:         session.phone,
         totalPrice:    savedBooking.totalPrice,
-        customerConfirmationMsg,
+        // customerConfirmationMsg intentionally not passed — admin notif no longer embeds link
       })
     : customerReply;
 
