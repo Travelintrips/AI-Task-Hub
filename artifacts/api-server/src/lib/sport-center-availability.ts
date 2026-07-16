@@ -228,7 +228,11 @@ export async function checkSportCenterAvailability({
   // e.g. "Lapangan Badminton" → "badminton", "Futsal" → "futsal"
   const STRIP_WORDS = new Set(["lapangan", "court", "area", "sport", "center"]);
   const keywords = fieldType.toLowerCase().split(/\s+/).filter(w => !STRIP_WORDS.has(w));
-  const fieldKeyword = keywords[0] ?? fieldType.toLowerCase();
+  const rawKeyword = keywords[0] ?? fieldType.toLowerCase();
+
+  // Futsal, basket/basketball, voli/volleyball → disimpan sebagai "Lapangan Multiguna" di sport_bookings
+  const MULTIGUNA_SPORTS = new Set(["futsal", "basket", "basketball", "voli", "volley", "volleyball", "bola voli"]);
+  const fieldKeyword = MULTIGUNA_SPORTS.has(rawKeyword) ? "multiguna" : rawKeyword;
 
   try {
     // Query dari public.sport_bookings di Supabase — sumber kebenaran ketersediaan lapangan
