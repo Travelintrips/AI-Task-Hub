@@ -231,28 +231,16 @@ export async function checkSportCenterAvailability({
   const fieldKeyword = keywords[0] ?? fieldType.toLowerCase();
 
   try {
-    const pool = supabasePool;
-    if (!pool) {
-      // No DB connection — assume available
-      logger.warn({ companyId }, "sport-center-availability: no supabasePool, assuming available");
-      return {
-        isAvailable: true,
-        checkedDate: normalizedDate,
-        checkedDateIndo: dateIndo,
-        availableSlots: [],
-        message: buildAvailableMessage(fieldType, dateIndo, startTime, minutesToTime(reqEndMin), durationHours, bookerName),
-      };
-    }
-
+    // Query dari public.sport_bookings di Supabase — sumber kebenaran ketersediaan lapangan
     interface BookingRow { start_time: string; end_time: string | null }
-    const { rows } = await pool.query<BookingRow>(`
-      SELECT start_time, end_time
-      FROM   sport_center_bookings
-      WHERE  company_id   = $1
-        AND  booking_date = $2
-        AND  (LOWER(field_type) ILIKE $3 OR $4 = 'all')
+    const rows = await supabaseQuery<BookingRow>(`
+      SELECT start_time::text, end_time::text
+      FROM   public.sport_bookings
+      WHERE  company_id   = 1
+        AND  booking_date = $1
+        AND  (LOWER(facility_name) ILIKE $2 OR $3 = 'all')
         AND  status NOT IN ('cancelled','rejected')
-    `, [companyId, normalizedDate, `%${fieldKeyword}%`, fieldKeyword === "all" ? "all" : "no"]);
+    `, [normalizedDate, `%${fieldKeyword}%`, fieldKeyword === "all" ? "all" : "no"]);
 
     // Build list of booked minute-ranges
     const booked = rows.map((r) => ({
