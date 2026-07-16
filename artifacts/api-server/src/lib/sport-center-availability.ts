@@ -101,9 +101,13 @@ export function formatDateIndo(isoDate: string): string {
     "Januari", "Februari", "Maret", "April", "Mei", "Juni",
     "Juli", "Agustus", "September", "Oktober", "November", "Desember",
   ];
+  // Try as YYYY-MM-DD first (most common path)
   const d = new Date(isoDate + "T12:00:00Z");
-  if (isNaN(d.getTime())) return isoDate;
-  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]!} ${d.getUTCFullYear()}`;
+  if (!isNaN(d.getTime())) return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]!} ${d.getUTCFullYear()}`;
+  // Fallback: parse as generic date string (e.g. JS Date.toString() like "Sun Jul 19 2026 ...")
+  const d2 = new Date(isoDate);
+  if (!isNaN(d2.getTime())) return `${d2.getDate()} ${MONTHS[d2.getMonth()]!} ${d2.getFullYear()}`;
+  return isoDate;
 }
 
 /** Extract duration in hours from collected fields */
@@ -833,7 +837,9 @@ function rowToSavedBooking(row: Record<string, unknown>): SavedBooking {
     bookingNumber:     row.booking_number as string,
     facilityName:      (row.facility_name as string) ?? String(row.field_type),
     fieldType:         row.field_type as string,
-    bookingDate:       String(row.booking_date ?? "").slice(0, 10),
+    bookingDate:       row.booking_date instanceof Date
+                         ? row.booking_date.toISOString().slice(0, 10)
+                         : String(row.booking_date ?? "").slice(0, 10),
     startTime:         row.start_time as string,
     endTime:           row.end_time as string | null,
     durationHours:     row.duration_hours != null ? Number(row.duration_hours) : null,
