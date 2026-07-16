@@ -681,6 +681,119 @@ export async function saveSportCenterBooking(params: {
   }
 }
 
+// ── Bridge: sync WA booking into sport_center.sport_bookings + public.sport_bookings ──
+//
+// Called after saveSportCenterBooking() succeeds.  Non-fatal — if this fails
+// the WA flow continues normally; only the sync to the web/admin SC tables is skipped.
+//
+// Mapping field_type → facility_id:
+//   sport_center.sport_facilities: badminton→1, tennis/tenis→3, gym→6, billiard→7, rest→5 (Multi Guna)
+//   public.sport_facilities      : badminton→1, tenis/tennis→2, basket→4, billiard→6, gym→8, rest→7
+
+const SC_FACILITY_MAP: Record<string, number> = {
+  badminton: 1,
+  tenis: 3, tennis: 3,
+  gym: 6,
+  billiard: 7,
+  futsal: 5, "multi guna": 5, basketball: 5, basket: 5, voli: 5,
+};
+
+const PUB_FACILITY_MAP: Record<string, number | null> = {
+  badminton: 1,
+  tenis: 2, tennis: 2,
+  basket: 4, basketball: 4,
+  billiard: 6,
+  gym: 8,
+  futsal: 7, "multi guna": 7, voli: 7,
+};
+
+export async function bridgeToSportBookings(params: {
+  saved: SavedBooking;
+  fieldType: string;
+  notes?: string | null;
+}): Promise<void> {
+  const pool = supabasePool;
+  if (!pool) return;
+
+  const normalizedType = params.saved.fieldType.toLowerCase().trim();
+  const scFacilityId  = SC_FACILITY_MAP[normalizedType] ?? 5;   // Multi Guna as fallback
+  const pubFacilityId = PUB_FACILITY_MAP[normalizedType] ?? null;
+
+  const endTime = params.saved.endTime ?? params.saved.startTime;
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    // ── 1. Insert into sport_center.sport_bookings ──────────────────────────
+    const scResult = await client.query(
+      `INSERT INTO sport_center.sport_bookings
+         (order_number, customer_name, customer_email, customer_phone,
+          facility_id, booking_date, start_time, end_time, duration_hours,
+          total_price, base_price, discount_amount,
+          status, source, notes, booker_name,
+          payment_deadline, payment_required_now)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10,0,
+               'waiting_admin_approval','wa',$11,$12,$13,true)
+       RETURNING id`,
+      [
+        params.saved.bookingNumber,            // $1  order_number
+        params.saved.bookerName ?? "Customer WA",  // $2  customer_name
+        "",                                    // $3  customer_email (NOT NULL → placeholder)
+        params.saved.phone ?? "",              // $4  customer_phone
+        scFacilityId,                          // $5  facility_id
+        params.saved.bookingDate,              // $6  booking_date
+        params.saved.startTime,                // $7  start_time
+        endTime,                               // $8  end_time
+        params.saved.durationHours ?? 1,       // $9  duration_hours
+        params.saved.totalPrice,               // $10 total_price & base_price
+        params.notes ?? null,                  // $11 notes
+        params.saved.bookerName ?? null,       // $12 booker_name
+        params.saved.paymentDeadline,          // $13 payment_deadline
+      ],
+    );
+
+    const scBookingId = (scResult.rows[0] as { id: number } | undefined)?.id ?? null;
+
+    // ── 2. Insert into public.sport_bookings (mirror, keyed by sc_booking_id) ─
+    await client.query(
+      `INSERT INTO public.sport_bookings
+         (company_id, booking_number, customer_name, customer_phone, customer_email,
+          facility_id, facility_name, booking_date, start_time, end_time, duration_hours,
+          status, payment_status, base_amount, discount_amount, total_amount,
+          notes, sc_booking_id)
+       VALUES (1,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
+               'pending','unpaid',$11,0,$11,$12,$13)`,
+      [
+        params.saved.bookingNumber,            // $1  booking_number
+        params.saved.bookerName ?? "Customer WA",  // $2  customer_name
+        params.saved.phone ?? null,            // $3  customer_phone
+        null,                                  // $4  customer_email (nullable)
+        pubFacilityId,                         // $5  facility_id
+        params.saved.facilityName,             // $6  facility_name
+        params.saved.bookingDate,              // $7  booking_date
+        params.saved.startTime,                // $8  start_time
+        endTime,                               // $9  end_time
+        params.saved.durationHours ?? 1,       // $10 duration_hours
+        params.saved.totalPrice,               // $11 base_amount & total_amount
+        params.notes ?? null,                  // $12 notes
+        scBookingId,                           // $13 sc_booking_id
+      ],
+    );
+
+    await client.query("COMMIT");
+    logger.info(
+      { bookingNumber: params.saved.bookingNumber, scBookingId },
+      "bridgeToSportBookings: synced to sport_center.sport_bookings + public.sport_bookings",
+    );
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    logger.warn({ err }, "bridgeToSportBookings: non-fatal sync failure");
+  } finally {
+    client.release();
+  }
+}
+
 function rowToSavedBooking(row: Record<string, unknown>): SavedBooking {
   return {
     id:                row.id as number,

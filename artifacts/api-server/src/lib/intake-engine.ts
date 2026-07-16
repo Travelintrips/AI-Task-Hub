@@ -38,6 +38,7 @@ import {
   buildAdminNotifWA,
   reserveBookingCode,
   buildAvailableMessage,
+  bridgeToSportBookings,
   minutesToTime,
   timeToMinutes,
   extractDurationHours,
@@ -594,6 +595,16 @@ async function finalizeSportCenterBooking({
     newCollected.payment_status = savedBooking.paymentStatus;
     newCollected.total_price    = savedBooking.totalPrice;
     if (savedBooking.endTime) newCollected.end_time = savedBooking.endTime;
+  }
+
+  // ── Bridge: sync booking ke sport_center.sport_bookings + public.sport_bookings ──
+  // Dijalankan secara async (fire-and-forget), tidak memblokir alur WA.
+  if (savedBooking) {
+    bridgeToSportBookings({
+      saved: savedBooking,
+      fieldType: String(newCollected.field_type ?? newCollected.field_name ?? fieldType),
+      notes: String(newCollected.notes ?? "").trim() || null,
+    }).catch((e) => logger.warn({ e }, "IntakeEngine: bridgeToSportBookings failed"));
   }
 
   // Build the full customer confirmation WA message (payment details).
