@@ -130,17 +130,23 @@ router.patch("/mini-form-config/:intentCode", requireAuth, async (req, res): Pro
       miniFormRoute?: string;
     };
 
-    // Find or validate template exists for this intent
-    const [tpl] = await db
+    // Find template: prefer company-specific, fall back to shared "default" pool.
+    // Same logic as GET so saving works even when templates are seeded as "default".
+    const tplFilter = companyId === "default"
+      ? and(eq(dataTemplatesTable.companyId, "default"), eq(dataTemplatesTable.intentCode, intentCode))
+      : and(
+          or(eq(dataTemplatesTable.companyId, companyId), eq(dataTemplatesTable.companyId, "default"))!,
+          eq(dataTemplatesTable.intentCode, intentCode),
+        );
+
+    const tplRows = await db
       .select()
       .from(dataTemplatesTable)
-      .where(
-        and(
-          eq(dataTemplatesTable.companyId, companyId),
-          eq(dataTemplatesTable.intentCode, intentCode),
-        ),
-      )
-      .limit(1);
+      .where(tplFilter)
+      .limit(2);
+
+    // Prefer company-specific over default
+    const tpl = tplRows.find(t => t.companyId === companyId) ?? tplRows.find(t => t.companyId === "default") ?? null;
 
     if (!tpl) {
       res.status(404).json({
