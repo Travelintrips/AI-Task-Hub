@@ -47,6 +47,7 @@ import {
   normalizeDateString,
 } from "./sport-center-availability";
 import { sendFonnte } from "./fonnte";
+import { generateSecureToken } from "./tokens";
 
 // ─── Sport Center notification helper ─────────────────────────────────────────
 // Sends the booking confirmation message to ALL active "Sport Center" recipients
@@ -607,10 +608,7 @@ async function finalizeSportCenterBooking({
     }).catch((e) => logger.warn({ e }, "IntakeEngine: bridgeToSportBookings failed"));
   }
 
-  // Build the full customer confirmation WA message (payment details).
-  // This is NOT sent to the customer automatically — admin must confirm first.
-  // It is stored in lastQuestion so it's visible in the admin panel, and
-  // embedded in the admin notification as a pre-filled WA deep-link.
+  // Build payment confirmation message (stored for admin reference in lastQuestion, NOT sent directly to customer)
   const customerConfirmationMsg = savedBooking
     ? buildBookingConfirmationWA({
         phone:             session.phone,
@@ -625,12 +623,19 @@ async function finalizeSportCenterBooking({
       })
     : null;
 
-  // Reply sent to the customer — full payment confirmation sent directly via bot.
-  // Admin no longer needs to manually tap a wa.me link; system sends it automatically.
-  const customerReply = customerConfirmationMsg
-    ?? (savedBooking
-      ? `✅ Booking lapangan *${savedBooking.facilityName}* berhasil kami catat!\n\nDetail konfirmasi pembayaran akan segera dikirimkan. Terima kasih! 🙏`
-      : "Baik, booking Anda sudah kami konfirmasi. Tim kami akan segera menghubungi Anda. 🙏");
+  // Reply to customer: simple acknowledgment — form link will be sent separately below
+  const customerReply = "Baik..mohon ditunggu team kami akan segera membantu.";
+
+  // Generate form token so customer can fill in the booking form
+  const formToken = generateSecureToken();
+  const _replitDomains = process.env.REPLIT_DOMAINS ?? "";
+  const _firstDomain = _replitDomains.split(",")[0]?.trim();
+  const _baseUrl = _firstDomain
+    ? `https://${_firstDomain}`
+    : process.env.REPLIT_DEV_DOMAIN
+    ? `https://${process.env.REPLIT_DEV_DOMAIN}`
+    : "http://localhost:5000";
+  const formUrl = `${_baseUrl}/mini-form/field-booking/${formToken}`;
 
   // Build admin group notification — no wa.me deep-link, form already sent to customer.
   const adminMsg = savedBooking
@@ -648,12 +653,21 @@ async function finalizeSportCenterBooking({
       })
     : customerReply;
 
-  // Notify admin group with booking details
+  // Notify admin group with booking details (Screenshot_5 format)
   sendSportCenterNotifications(companyId, adminMsg, fonnteDevice, session.phone)
     .catch((e) => logger.warn({ e }, "IntakeEngine: failed to send sport center notifications"));
 
+  // Send mini form link to customer so they can fill in complete booking data
+  {
+    const formWaMsg =
+      `Halo! Untuk mempercepat proses booking lapangan, mohon isi form berikut:\n\n${formUrl}\n\nSetelah form dikirim, tim kami akan segera mengkonfirmasi ketersediaan lapangan. Terima kasih!`;
+    sendFonnte(session.phone, formWaMsg, fonnteDevice ?? null)
+      .catch((e) => logger.warn({ e }, "IntakeEngine: failed to send form link to customer"));
+  }
+
   // Persist session as ready_for_task — whatsapp.ts will create the AI task immediately.
   // lastQuestion stores the full customer confirmation so admin can reference/copy it.
+  // formToken stored so the mini form submission can be linked back to this booking.
   const [updatedAvail] = await db
     .update(intakeSessionsTable)
     .set({
@@ -667,6 +681,8 @@ async function finalizeSportCenterBooking({
       lastMessageAt:   now,
       updatedAt:       now,
       expiresAt:       new Date(Date.now() + 24 * 60 * 60 * 1000),
+      formToken,
+      miniFormType:    "field-booking",
     })
     .where(eq(intakeSessionsTable.id, session.id))
     .returning();

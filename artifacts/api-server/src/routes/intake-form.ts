@@ -42,7 +42,7 @@ import { createAdminNotification } from "../lib/admin-notifications";
 import { MINI_FORM_CONFIGS, getFormConfig } from "../lib/mini-form-config";
 import type { MiniFormFieldDef } from "../lib/mini-form-config";
 import { sendFonnte } from "../lib/fonnte";
-import { saveSportCenterBooking, extractDurationHours } from "../lib/sport-center-availability";
+import { saveSportCenterBooking, extractDurationHours, bridgeToSportBookings } from "../lib/sport-center-availability";
 
 const router: IRouter = Router();
 
@@ -319,10 +319,10 @@ router.post("/public/mini-form/:type/:token", async (req, res): Promise<void> =>
 
       taskId = newTask!.id;
 
-      // ── Sport Center: save booking record for future availability checks ──
+      // ── Sport Center: save booking record + bridge to public.sport_bookings ──
       if (type === "field-booking" || session.intentCode.toLowerCase().includes("booking_lapangan") || session.intentCode.toLowerCase().includes("sport_center")) {
         const endTime = String(merged.end_time ?? "").trim() || undefined;
-        await saveSportCenterBooking({
+        const savedFormBooking = await saveSportCenterBooking({
           companyId: session.companyId,
           aiTaskId: taskId,
           intakeSessionId: session.id,
@@ -334,7 +334,16 @@ router.post("/public/mini-form/:type/:token", async (req, res): Promise<void> =>
           bookerName: String(merged.booker_name ?? "").trim() || null,
           phone: session.phone,
           notes: String(merged.notes ?? "").trim() || null,
-        }).catch((e) => logger.warn({ e }, "intake-form: saveSportCenterBooking failed (non-fatal)"));
+        }).catch((e) => { logger.warn({ e }, "intake-form: saveSportCenterBooking failed (non-fatal)"); return null; });
+
+        // Bridge ke public.sport_bookings agar data form customer tersimpan di tabel utama
+        if (savedFormBooking) {
+          bridgeToSportBookings({
+            saved: savedFormBooking,
+            fieldType: String(merged.field_type ?? merged.field_name ?? "Umum"),
+            notes: String(merged.notes ?? "").trim() || null,
+          }).catch((e) => logger.warn({ e }, "intake-form: bridgeToSportBookings failed (non-fatal)"));
+        }
       }
 
       await createAdminNotification({
