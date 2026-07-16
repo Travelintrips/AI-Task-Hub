@@ -531,8 +531,6 @@ export function buildAdminNotifWA(params: {
     ? `${durationNum % 1 === 0 ? durationNum : durationNum.toFixed(1)} Jam`
     : "—";
 
-  // Form konfirmasi pembayaran sudah otomatis dikirim ke customer via bot.
-  // Admin tidak perlu kirim manual — cukup cek status di admin panel.
   return (
     `Booking Baru-Dari AI Task\n\n` +
     `Kode Booking: ${params.bookingNumber}\n` +
@@ -543,7 +541,7 @@ export function buildAdminNotifWA(params: {
     `💰 Harga      : Rp ${priceStr}\n` +
     `👤 Nama Pemesan : ${params.bookerName ?? "—"}\n` +
     `No.WA : ${shortPhone}\n\n` +
-    `✅ Form konfirmasi & detail pembayaran sudah otomatis dikirim ke customer ${shortPhone}`
+    `✅ Segera konfirmasi ke user/customer.`
   );
 }
 

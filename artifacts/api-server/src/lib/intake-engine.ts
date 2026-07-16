@@ -623,19 +623,8 @@ async function finalizeSportCenterBooking({
       })
     : null;
 
-  // Reply to customer: simple acknowledgment — form link will be sent separately below
+  // Reply to customer: simple acknowledgment only
   const customerReply = "Baik..mohon ditunggu team kami akan segera membantu.";
-
-  // Generate form token so customer can fill in the booking form
-  const formToken = generateSecureToken();
-  const _replitDomains = process.env.REPLIT_DOMAINS ?? "";
-  const _firstDomain = _replitDomains.split(",")[0]?.trim();
-  const _baseUrl = _firstDomain
-    ? `https://${_firstDomain}`
-    : process.env.REPLIT_DEV_DOMAIN
-    ? `https://${process.env.REPLIT_DEV_DOMAIN}`
-    : "http://localhost:5000";
-  const formUrl = `${_baseUrl}/mini-form/field-booking/${formToken}`;
 
   // Build admin group notification — no wa.me deep-link, form already sent to customer.
   const adminMsg = savedBooking
@@ -657,17 +646,8 @@ async function finalizeSportCenterBooking({
   sendSportCenterNotifications(companyId, adminMsg, fonnteDevice, session.phone)
     .catch((e) => logger.warn({ e }, "IntakeEngine: failed to send sport center notifications"));
 
-  // Send mini form link to customer so they can fill in complete booking data
-  {
-    const formWaMsg =
-      `Halo! Untuk mempercepat proses booking lapangan, mohon isi form berikut:\n\n${formUrl}\n\nSetelah form dikirim, tim kami akan segera mengkonfirmasi ketersediaan lapangan. Terima kasih!`;
-    sendFonnte(session.phone, formWaMsg, fonnteDevice ?? null)
-      .catch((e) => logger.warn({ e }, "IntakeEngine: failed to send form link to customer"));
-  }
-
   // Persist session as ready_for_task — whatsapp.ts will create the AI task immediately.
   // lastQuestion stores the full customer confirmation so admin can reference/copy it.
-  // formToken stored so the mini form submission can be linked back to this booking.
   const [updatedAvail] = await db
     .update(intakeSessionsTable)
     .set({
@@ -681,8 +661,6 @@ async function finalizeSportCenterBooking({
       lastMessageAt:   now,
       updatedAt:       now,
       expiresAt:       new Date(Date.now() + 24 * 60 * 60 * 1000),
-      formToken,
-      miniFormType:    "field-booking",
     })
     .where(eq(intakeSessionsTable.id, session.id))
     .returning();
