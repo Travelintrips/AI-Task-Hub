@@ -392,20 +392,22 @@ export function getPricePerHour(fieldType: string): number {
 // Sequence gaps are acceptable if the customer never confirms.
 
 export async function reserveBookingCode(companyId: string): Promise<string | null> {
-  const pool = supabasePool;
-  if (!pool) return null;
-  const client = await pool.connect();
+  // Simple direct query — no transaction or advisory lock needed here.
+  // This is compatible with Supabase Pooler (PgBouncer transaction mode, port 6543).
   try {
-    await client.query("BEGIN");
-    const code = await generateBookingNumber(client, companyId);
-    await client.query("COMMIT");
-    return code;
+    const rows = await supabaseQuery<{ max_seq: string | null }>(
+      `SELECT COALESCE(MAX(
+         NULLIF(REGEXP_REPLACE(booking_number, '[^0-9]', '', 'g'), '')::integer
+       ), 0) AS max_seq
+       FROM sport_center_bookings
+       WHERE company_id = $1`,
+      [companyId],
+    );
+    const maxSeq = parseInt(rows[0]?.max_seq ?? "0", 10) || 0;
+    return `SC-AI-${String(maxSeq + 1).padStart(5, "0")}`;
   } catch (err) {
-    await client.query("ROLLBACK").catch(() => {});
     logger.warn({ err, companyId }, "reserveBookingCode: failed");
     return null;
-  } finally {
-    client.release();
   }
 }
 
@@ -419,17 +421,14 @@ async function generateBookingNumber(
   client: import("pg").PoolClient,
   companyId: string,
 ): Promise<string> {
-  // Deterministic lock key from company string (FNV-1a 32-bit, fits bigint)
-  let hash = 2166136261;
-  for (let i = 0; i < companyId.length; i++) {
-    hash ^= companyId.charCodeAt(i);
-    hash = (hash * 16777619) >>> 0;
-  }
-  // Lock per company — released on txn end
-  await client.query(`SELECT pg_advisory_xact_lock($1)`, [hash]);
+  // NOTE: pg_advisory_xact_lock is NOT used here because Supabase Pooler
+  // (port 6543, PgBouncer transaction mode) does not support advisory locks.
+  // Concurrency safety relies on the UNIQUE constraint on (company_id, booking_number)
+  // — the INSERT in saveSportCenterBooking will retry with an incremented sequence
+  // on conflict. Concurrent duplicate bookings are extremely rare in practice.
 
   // Use MAX of the numeric suffix so deletes never cause reuse.
-  // booking_number format is 'SC-NNNN'; extract the integer part.
+  // booking_number format is 'SC-AI-NNNNN'; extract the integer part.
   const { rows } = await client.query(
     `SELECT COALESCE(MAX(
        NULLIF(REGEXP_REPLACE(booking_number, '[^0-9]', '', 'g'), '')::integer
@@ -631,42 +630,58 @@ export async function saveSportCenterBooking(params: {
 
     // Use pre-generated booking code if provided (reserved at availability-check time),
     // otherwise generate a new one inside this transaction.
-    const bookingNumber = params.bookingNumber ?? await generateBookingNumber(client, params.companyId);
-    const { randomBytes }    = await import("crypto");
-    const paymentProofToken  = randomBytes(8).toString("base64url");
+    // On rare UNIQUE conflict (concurrent bookings), retry up to 3 times with next sequence.
+    const { randomBytes } = await import("crypto");
+    const paymentProofToken = randomBytes(8).toString("base64url");
 
-    const result = await client.query(
-      `INSERT INTO sport_center_bookings
-         (company_id, ai_task_id, intake_session_id,
-          field_type, facility_name, booking_date, start_time, end_time, duration_hours,
-          customer_name, phone, notes, status,
-          booking_number, price_per_hour, total_price,
-          payment_status, payment_proof_token, payment_deadline)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'pending',$13,$14,$15,'unpaid',$16,$17)
-       RETURNING *`,
-      [
-        params.companyId,
-        params.aiTaskId ?? null,
-        params.intakeSessionId ?? null,
-        params.fieldType,
-        facilityName,
-        normalizedDate,
-        params.startTime,
-        params.endTime ?? null,
-        durationHours,
-        params.bookerName ?? null,
-        params.phone ?? null,
-        params.notes ?? null,
-        bookingNumber,
-        pricePerHour,
-        totalPrice,
-        paymentProofToken,
-        paymentDeadline,
-      ],
-    );
+    let bookingNumber = params.bookingNumber ?? await generateBookingNumber(client, params.companyId);
+    let insertResult: import("pg").QueryResult | null = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        insertResult = await client.query(
+          `INSERT INTO sport_center_bookings
+             (company_id, ai_task_id, intake_session_id,
+              field_type, facility_name, booking_date, start_time, end_time, duration_hours,
+              customer_name, phone, notes, status,
+              booking_number, price_per_hour, total_price,
+              payment_status, payment_proof_token, payment_deadline)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'pending',$13,$14,$15,'unpaid',$16,$17)
+           RETURNING *`,
+          [
+            params.companyId,
+            params.aiTaskId ?? null,
+            params.intakeSessionId ?? null,
+            params.fieldType,
+            facilityName,
+            normalizedDate,
+            params.startTime,
+            params.endTime ?? null,
+            durationHours,
+            params.bookerName ?? null,
+            params.phone ?? null,
+            params.notes ?? null,
+            bookingNumber,
+            pricePerHour,
+            totalPrice,
+            paymentProofToken,
+            paymentDeadline,
+          ],
+        );
+        break; // success — exit retry loop
+      } catch (insertErr: unknown) {
+        const pgErr = insertErr as { code?: string; constraint?: string };
+        if (pgErr.code === "23505" && attempt < 2) {
+          // UNIQUE violation on booking_number — get next number and retry
+          logger.warn({ bookingNumber, attempt }, "saveSportCenterBooking: booking_number conflict, retrying");
+          bookingNumber = await generateBookingNumber(client, params.companyId);
+        } else {
+          throw insertErr; // non-conflict error or exhausted retries → rethrow
+        }
+      }
+    }
 
     await client.query("COMMIT");
-    const saved = result.rows[0];
+    const saved = insertResult!.rows[0];
     logger.info(
       { bookingNumber, companyId: params.companyId, fieldType: params.fieldType },
       "sport_center_booking saved",
