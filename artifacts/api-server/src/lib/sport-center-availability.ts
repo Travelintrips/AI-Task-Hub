@@ -686,25 +686,24 @@ export async function saveSportCenterBooking(params: {
 // Called after saveSportCenterBooking() succeeds.  Non-fatal — if this fails
 // the WA flow continues normally; only the sync to the web/admin SC tables is skipped.
 //
-// Mapping field_type → facility_id:
-//   sport_center.sport_facilities: badminton→1, tennis/tenis→3, gym→6, billiard→7, rest→5 (Multi Guna)
-//   public.sport_facilities      : badminton→1, tenis/tennis→2, basket→4, billiard→6, gym→8, rest→7
+// Mapping field_type → facility_id  (PRODUCTION IDs):
+//   sport_center.sport_facilities: id=1 Multiguna, id=2 Badminton B, id=4 Tennis, id=5 Badminton A, id=6 Gym, id=7 Billiard
+//   public.sport_facilities      : id=1 Gym, id=2 Multiguna, id=3 Badminton B, id=4 Tennis, id=5 Badminton A, id=6 Billiard
 
 const SC_FACILITY_MAP: Record<string, number> = {
-  badminton: 1,
-  tenis: 3, tennis: 3,
-  gym: 6,
-  billiard: 7,
-  futsal: 5, "multi guna": 5, basketball: 5, basket: 5, voli: 5,
+  badminton: 5,                                              // Badminton Court A
+  tenis: 4, tennis: 4,                                      // Lapangan Tennis Outdoor
+  gym: 6,                                                    // Gym / Fitness Center
+  billiard: 7,                                               // Billiard Coins
+  futsal: 1, "multi guna": 1, basketball: 1, basket: 1, voli: 1, // Lapangan Multiguna
 };
 
 const PUB_FACILITY_MAP: Record<string, number | null> = {
-  badminton: 1,
-  tenis: 2, tennis: 2,
-  basket: 4, basketball: 4,
-  billiard: 6,
-  gym: 8,
-  futsal: 7, "multi guna": 7, voli: 7,
+  badminton: 5,                                              // Badminton Court A
+  tenis: 4, tennis: 4,                                      // Lapangan Tennis Outdoor
+  gym: 1,                                                    // Gym / Fitness Center
+  billiard: 6,                                               // Billiard Coins
+  futsal: 2, "multi guna": 2, basketball: 2, basket: 2, voli: 2, // Lapangan Multiguna
 };
 
 export async function bridgeToSportBookings(params: {
@@ -719,7 +718,7 @@ export async function bridgeToSportBookings(params: {
   }
 
   const normalizedType = params.saved.fieldType.toLowerCase().trim();
-  const scFacilityId  = SC_FACILITY_MAP[normalizedType] ?? 5;   // Multi Guna as fallback
+  const scFacilityId  = SC_FACILITY_MAP[normalizedType] ?? 1;   // Lapangan Multiguna as fallback (prod id=1)
   const pubFacilityId = PUB_FACILITY_MAP[normalizedType] ?? null;
 
   const endTime       = params.saved.endTime ?? params.saved.startTime;
