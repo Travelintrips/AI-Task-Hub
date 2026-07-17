@@ -1611,6 +1611,57 @@ export async function processIntakeMessage({
       delete newCollected.booker_name;
     }
 
+    // ── Regex fallbacks for Trucking / Logistic fields ───────────────────
+    // OpenAI sometimes fails or times out for pickup/delivery address extraction.
+    // Runs on ANY trucking-type intent — never overwrites a value already set.
+    {
+      const intentLower = session.intentCode.toLowerCase();
+      const isTruckingIntent =
+        intentLower.includes("trucking") ||
+        intentLower.includes("freight") ||
+        intentLower.includes("logistic") ||
+        intentLower.includes("pengiriman");
+
+      if (isTruckingIntent) {
+        // Determine which field names the active template uses
+        // (seed-templates.mjs → pickup_address / delivery_address;
+        //  seed-kb-templates.mjs → rute_asal / rute_tujuan)
+        const PICKUP_KEYS  = ["pickup_address", "rute_asal",   "alamat_pickup", "asal"];
+        const DELIVERY_KEYS = ["delivery_address", "rute_tujuan", "alamat_tujuan", "tujuan"];
+        const pickupField  = dataFields.find((f) => PICKUP_KEYS.includes(f.fieldName))?.fieldName;
+        const deliveryField = dataFields.find((f) => DELIVERY_KEYS.includes(f.fieldName))?.fieldName;
+
+        if (pickupField && !newCollected[pickupField]) {
+          // "alamat pickup Jakarta", "asal Jakarta", "dari Jakarta", "pickup Jakarta"
+          // Stop before "dan", "ke", "tujuan", "delivery", "alamat tujuan"
+          const pickupMatch = message.match(
+            /(?:alamat\s+pickup|pickup|asal|dari)\s*[:\-]?\s*([A-Za-z][^,\n]+?)(?=\s*(?:,|dan\s|ke\s|tujuan\b|delivery\b|alamat\s+tujuan\b)|$)/i,
+          );
+          if (pickupMatch?.[1]?.trim()) {
+            newCollected = { ...newCollected, [pickupField]: pickupMatch[1].trim() };
+            logger.info(
+              { field: pickupField, value: pickupMatch[1].trim(), phone: session.phone },
+              "IntakeEngine: trucking pickup_address via regex fallback",
+            );
+          }
+        }
+
+        if (deliveryField && !newCollected[deliveryField]) {
+          // "tujuan Bandung", "ke Bandung", "alamat tujuan Bandung", "delivery Bandung"
+          const deliveryMatch = message.match(
+            /(?:alamat\s+tujuan|tujuan|delivery|ke)\s*[:\-]?\s*([A-Za-z][^,\n]+?)(?=\s*(?:,|$))/i,
+          );
+          if (deliveryMatch?.[1]?.trim()) {
+            newCollected = { ...newCollected, [deliveryField]: deliveryMatch[1].trim() };
+            logger.info(
+              { field: deliveryField, value: deliveryMatch[1].trim(), phone: session.phone },
+              "IntakeEngine: trucking delivery_address via regex fallback",
+            );
+          }
+        }
+      }
+    }
+
     // ── Regex fallbacks for Sport Center fields ───────────────────────────
     // OpenAI sometimes fails to extract fields (wrong key, timeout, context).
     // These run ONLY when the session is waiting for that type of info and
