@@ -148,13 +148,23 @@ export function isCancellation(message: string): boolean {
 // klarifikasi sebelum AI pipeline, sehingga customer bisa menjelaskan topiknya
 // dan bot bisa routing ke penerima notifikasi yang tepat.
 
+// Deteksi "pertanyaan lainnya" dengan toleransi typo:
+// - "lainya" (1 n), "lainnya" (2 n), "lainnnya" (3 n), dll.
+// - "pertanyaan umum", "pertanyaan lain", dll.
+// - Juga menangkap teks ekspansi digit menu "5"
 const GENERAL_INQUIRY_PATTERNS =
-  /^(pertanyaan\s+lainnya|pertanyaan\s+umum|lainnya|lain\s*nya|tanya\s+lainnya|tanya\s+umum|informasi\s+lainnya|info\s+lainnya|lain|other|others)\s*[!.?]*$/i;
+  /^(pertanyaan\s+lain\w*|pertanyaan\s+umum|pertanyaan\s+other|lain\w*nya|tanya\s+lain\w*|informasi\s+lain\w*|info\s+lain\w*)\s*[!.?]*$/i;
 const GENERAL_INQUIRY_EXPANDED = /saya punya pertanyaan umum/i;
+// Khusus "lainnya" / "lainya" standalone (tanpa kata "pertanyaan" di depan)
+const GENERAL_INQUIRY_STANDALONE = /^lain\w*nya\s*[!.?]*$/i;
 
 export function isGeneralInquiry(message: string): boolean {
   const text = message.trim();
-  return GENERAL_INQUIRY_PATTERNS.test(text) || GENERAL_INQUIRY_EXPANDED.test(text);
+  return (
+    GENERAL_INQUIRY_PATTERNS.test(text) ||
+    GENERAL_INQUIRY_EXPANDED.test(text) ||
+    GENERAL_INQUIRY_STANDALONE.test(text)
+  );
 }
 
 // ─── Price inquiry detection (vague — no service context) ─────────────────────

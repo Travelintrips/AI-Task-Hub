@@ -810,8 +810,25 @@ async function runAiDetection({
     // The NEXT message will then be routed to the correct notification recipient
     // (PPJK, Trucking, Lapangan Olahraga, Tenant, Bea Cukai, Pengiriman, dll.)
     // by the normal AI intent classification pipeline.
-    if (!isAnsweringClarification && !activeSession && (bodyText.trim() === "5" || isGeneralInquiry(bodyText))) {
-      logger.info({ from, msg: bodyText }, "General inquiry detected — asking clarification question");
+    //
+    // NOTE: `!activeSession` intentionally removed — we also need to intercept when
+    // a stale "ready_for_task" session exists from the same phone (e.g. the previous
+    // "pertanyaan lainnya" that slipped through to the AI pipeline and left a session).
+    if (!isAnsweringClarification && (bodyText.trim() === "5" || isGeneralInquiry(bodyText))) {
+      logger.info({ from, msg: bodyText }, "General inquiry detected — cancelling any stale session, asking clarification question");
+      // Cancel any lingering session so it doesn't interfere with the clarification flow
+      await db
+        .update(intakeSessionsTable)
+        .set({ status: "cancelled", updatedAt: new Date() })
+        .where(
+          and(
+            eq(intakeSessionsTable.phone, from),
+            eq(intakeSessionsTable.companyId, companyId),
+            inArray(intakeSessionsTable.status, ["collecting", "ready_for_task"]),
+          ),
+        )
+        .catch((e) => logger.warn({ e }, "general-inquiry: failed to cancel stale sessions"));
+
       const clarificationReply =
         `Boleh saya tau apa yang ingin ditanyakan? 😊\n\n` +
         `Kami siap bantu untuk pertanyaan seputar:\n` +
@@ -837,10 +854,10 @@ async function runAiDetection({
     // When user replies with a single digit 1-4 referencing the greeting menu
     // (and there is no active intake session), translate the digit to a full
     // intent phrase so the AI pipeline detects the correct intent and creates
-    // an intake session. Do NOT return early here — let the full AI pipeline
-    // run so an intake session is started correctly.
+    // an intake session. Also applies when answering the "pertanyaan lainnya"
+    // clarification so digits 1-4 are correctly routed to their services.
     // NOTE: Digit "5" is intercepted by the general inquiry gate above.
-    if (!activeSession && messageType === "text") {
+    if (messageType === "text") {
       const menuExpand: Record<string, string> = {
         "1": "saya butuh layanan pengiriman trucking sea air freight logistik",
         "2": "saya butuh layanan PPJK bea cukai customs kepabeanan",
@@ -848,7 +865,7 @@ async function runAiDetection({
         "4": "saya butuh kasbon pembayaran uang muka",
       };
       const menuKey = bodyText.trim();
-      const expanded = menuExpand[menuKey];
+      const expanded = !activeSession || isAnsweringClarification ? menuExpand[menuKey] : undefined;
       if (expanded) {
         logger.info({ from, digit: menuKey }, "Menu digit detected — expanding to full intent text for AI pipeline");
         // eslint-disable-next-line no-param-reassign
