@@ -1,4 +1,4 @@
-import { eq, and, ne, gte, desc, or } from "drizzle-orm";
+import { eq, and, ne, gte, desc, or, sql } from "drizzle-orm";
 import {
   db,
   aiTasksTable,
@@ -288,6 +288,11 @@ export interface CreateTaskInput {
   result: WhatsAppIntentResult;
   /** Optional: richer knowledge-base resolution from IntentEngine (Sprint 2A+) */
   resolution?: IntentResolution;
+  /**
+   * Field yang dikumpulkan via AI intake session (conversation/hybrid mode).
+   * Digunakan untuk menyimpan data spesifik ke tabel detail (trucking/logistic/sport_center).
+   */
+  collectedFields?: Record<string, unknown>;
 }
 
 export interface CreateTaskOutput {
@@ -345,7 +350,7 @@ export async function createTaskFromWhatsAppMessage(
           },
           "Topic change detected — creating a new task",
         );
-        return createNewTask({ customerName, customerPhone, companyId, bodyText, attachmentUrl, savedMsgId, result, resolution, action: "new_topic" });
+        return createNewTask({ customerName, customerPhone, companyId, bodyText, attachmentUrl, savedMsgId, result, resolution, action: "new_topic", collectedFields: input.collectedFields });
       }
 
       // ── 2b. Same topic → append and resolve missing data ──────────────────
@@ -444,7 +449,7 @@ export async function createTaskFromWhatsAppMessage(
     }
 
     // ── 3. No active task → create new ────────────────────────────────────────
-    return createNewTask({ customerName, customerPhone, companyId, bodyText, attachmentUrl, savedMsgId, result, resolution, action: "created" });
+    return createNewTask({ customerName, customerPhone, companyId, bodyText, attachmentUrl, savedMsgId, result, resolution, action: "created", collectedFields: input.collectedFields });
   } catch (err) {
     logger.error({ err, from, companyId }, "createTaskFromWhatsAppMessage failed");
     return null;
@@ -463,6 +468,7 @@ async function createNewTask({
   result,
   resolution,
   action,
+  collectedFields,
 }: {
   customerName: string | null;
   customerPhone: string;
@@ -473,6 +479,7 @@ async function createNewTask({
   result: WhatsAppIntentResult;
   resolution?: IntentResolution;
   action: "created" | "new_topic";
+  collectedFields?: Record<string, unknown>;
 }): Promise<CreateTaskOutput> {
   const taskNumber = `WA-${Date.now()}`;
   const title     = generateTaskTitle(result, customerName);
@@ -578,6 +585,80 @@ async function createNewTask({
     "New AI task created",
   );
 
+  // ── Simpan field detail ke tabel spesifik kategori (fire-and-forget) ──────────
+  // Menyimpan field yang dikumpulkan via AI intake (hs_code, npwp, nib, dll)
+  // ke tabel detail terpisah tanpa mengubah schema ai_tasks.
+  const cf = collectedFields ?? {};
+  try {
+    const cat = result.category ?? "";
+    if (cat === "Trucking") {
+      await db.execute(sql`
+        INSERT INTO trucking_task_details
+          (task_id, company_id, origin, destination, commodity, cargo_weight, cargo_volume, vehicle_type, pickup_date, contact_person, phone, raw_fields)
+        VALUES (
+          ${task.id}, ${companyId},
+          ${String(result.origin ?? result.pickup_location ?? cf.origin ?? cf.pickup_address ?? "")  || null},
+          ${String(result.destination ?? result.delivery_location ?? cf.destination ?? cf.delivery_address ?? "") || null},
+          ${String(result.commodity ?? cf.commodity ?? "") || null},
+          ${String(cf.cargo_weight ?? "") || null},
+          ${String(cf.cargo_volume ?? "") || null},
+          ${String(cf.vehicle_type ?? "") || null},
+          ${String(result.requested_date ?? cf.pickup_date ?? "") || null},
+          ${customerName},
+          ${customerPhone},
+          ${JSON.stringify(cf)}::jsonb
+        ) ON CONFLICT DO NOTHING
+      `);
+    } else if (["Import","Export","Customs","Finance","Freight"].includes(cat)) {
+      await db.execute(sql`
+        INSERT INTO logistic_task_details
+          (task_id, company_id, category, importer_name, npwp, nib, hs_code, commodity, origin_country, port_of_entry, invoice_value, invoice_number, bl_number, pib_peb_type, api_number, lartas, shipment_type, raw_fields)
+        VALUES (
+          ${task.id}, ${companyId}, ${cat},
+          ${String(cf.importer_name ?? "") || null},
+          ${String(cf.npwp ?? "") || null},
+          ${String(cf.nib ?? "") || null},
+          ${String(cf.hs_code ?? "") || null},
+          ${String(result.commodity ?? cf.commodity ?? "") || null},
+          ${String(result.origin ?? cf.origin_country ?? "") || null},
+          ${String(cf.port_of_entry ?? "") || null},
+          ${String(cf.invoice_value ?? "") || null},
+          ${String(cf.invoice_number ?? "") || null},
+          ${String(cf.bill_of_lading ?? cf.bl_number ?? "") || null},
+          ${String(cf.pib_peb_type ?? "") || null},
+          ${String(cf.api_number ?? "") || null},
+          ${String(cf.lartas ?? "") || null},
+          ${String(result.shipment_type ?? cf.shipment_type ?? "") || null},
+          ${JSON.stringify(cf)}::jsonb
+        ) ON CONFLICT DO NOTHING
+      `);
+    } else if (cat === "Sport Center") {
+      const durationHours = cf.duration_hours ? Number(cf.duration_hours) : null;
+      await db.execute(sql`
+        INSERT INTO sport_center_task_details
+          (task_id, company_id, field_type, booking_date, start_time, end_time, duration_hours, player_count, booker_name, phone, is_member, member_id, booking_code, raw_fields)
+        VALUES (
+          ${task.id}, ${companyId},
+          ${String(cf.field_name ?? cf.field_type ?? "") || null},
+          ${String(cf.booking_date ?? "") || null},
+          ${String(cf.start_time ?? "") || null},
+          ${String(cf.end_time ?? "") || null},
+          ${durationHours},
+          ${cf.player_count ? Number(cf.player_count) : null},
+          ${customerName},
+          ${customerPhone},
+          ${cf.is_member === true || cf.is_member === "ya" || cf.is_member === "yes"},
+          ${String(cf.member_id ?? "") || null},
+          ${String(cf._booking_code ?? "") || null},
+          ${JSON.stringify(cf)}::jsonb
+        ) ON CONFLICT DO NOTHING
+      `);
+    }
+  } catch (detailErr) {
+    // Non-fatal — detail tables might not exist yet (run migrate-detail-tables.mjs)
+    logger.warn({ detailErr, category: result.category }, "Failed to save task detail fields — run scripts/migrate-detail-tables.mjs");
+  }
+
   // ── WhatsApp notification (fire-and-forget) ──────────────────────────────────
   notifyTaskCreated({
     taskId:       task.id,
@@ -589,6 +670,8 @@ async function createNewTask({
     priority:     result.priority.toLowerCase(),
     companyId,
     suggestedReply: resolution?.suggestedReply ?? null,
+    division:  result.division ?? null,
+    category:  result.category ?? null,
   }).catch((err) => logger.error({ err }, "notifyTaskCreated gagal"));
 
   return {

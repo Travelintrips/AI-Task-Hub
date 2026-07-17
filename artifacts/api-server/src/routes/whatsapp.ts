@@ -1051,6 +1051,7 @@ async function runAiDetection({
               companyId,
               result,
               resolution: result._resolution,
+              collectedFields: intakeResult.collectedFields,
             });
 
             if (taskOutput) {

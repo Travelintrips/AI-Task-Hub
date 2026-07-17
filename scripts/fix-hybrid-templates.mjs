@@ -1,5 +1,5 @@
 /**
- * Fix hybrid intake_mode for trucking_request and sport_center_booking
+ * Fix hybrid intake_mode for trucking_inquiry and sport_center_booking
  * Run: cd scripts && node fix-hybrid-templates.mjs
  */
 import pg from "pg";
@@ -18,25 +18,25 @@ if (!companyId) {
 }
 console.log("Using company_id:", companyId);
 
-// Upsert trucking_request: update if exists, insert if not
+// Upsert trucking_inquiry: update if exists, insert if not
 const existing = await pool.query(
-  "SELECT id FROM data_templates WHERE company_id = $1 AND intent_code = 'trucking_request'",
+  "SELECT id FROM data_templates WHERE company_id = $1 AND intent_code = 'trucking_inquiry'",
   [companyId],
 );
 if (existing.rows.length > 0) {
   await pool.query(
     `UPDATE data_templates SET intake_mode='hybrid', mini_form_type='trucking', use_mini_form=true, updated_at=NOW()
-     WHERE company_id=$1 AND intent_code='trucking_request'`,
+     WHERE company_id=$1 AND intent_code='trucking_inquiry'`,
     [companyId],
   );
-  console.log("trucking_request: updated intake_mode=hybrid, mini_form_type=trucking");
+  console.log("trucking_inquiry: updated intake_mode=hybrid, mini_form_type=trucking");
 } else {
   await pool.query(
     `INSERT INTO data_templates (company_id, intent_code, name, category, description, is_active, use_mini_form, mini_form_type, intake_mode, created_at, updated_at)
-     VALUES ($1, 'trucking_request', 'Permintaan Trucking', 'Logistik', 'Pengiriman barang via trucking domestik', true, true, 'trucking', 'hybrid', NOW(), NOW())`,
+     VALUES ($1, 'trucking_inquiry', 'Permintaan Trucking', 'Logistik', 'Pengiriman barang via trucking domestik', true, true, 'trucking', 'hybrid', NOW(), NOW())`,
     [companyId],
   );
-  console.log("trucking_request: inserted with intake_mode=hybrid, mini_form_type=trucking");
+  console.log("trucking_inquiry: inserted with intake_mode=hybrid, mini_form_type=trucking");
 }
 
 // Fix sport_center_booking: ensure intake_mode=hybrid, mini_form_type=field-booking
@@ -50,7 +50,7 @@ console.log("sport_center_booking: ensured intake_mode=hybrid, mini_form_type=fi
 // Verify
 const r = await pool.query(
   `SELECT intent_code, intake_mode, mini_form_type FROM data_templates
-   WHERE intent_code IN ('trucking_request','sport_center_booking','import_inquiry','customs_clearance')
+   WHERE intent_code IN ('trucking_inquiry','sport_center_booking','import_inquiry','customs_clearance')
    ORDER BY intent_code`,
 );
 console.log("\nFinal state:");

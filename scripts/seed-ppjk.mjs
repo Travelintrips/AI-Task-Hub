@@ -22,7 +22,7 @@ const pool = new Pool({
   ssl: CONN.includes("supabase") ? { rejectUnauthorized: false } : false,
 });
 const COMPANY = "default";
-const INTENT_CODE = "ppjk_services";
+const INTENT_CODE = "ppjk_service";
 
 async function run() {
   const client = await pool.connect();

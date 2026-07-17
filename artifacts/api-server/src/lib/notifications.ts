@@ -16,6 +16,13 @@ export interface TaskNotifContext {
   suggestedReply?: string | null;
   /** Nomor device Fonnte yang menerima pesan asli — pastikan balasan keluar lewat device yang sama */
   fonnteDevice?: string | null;
+  /**
+   * Divisi/kategori task — digunakan untuk category-based routing notifikasi.
+   * Jika di-set, notifikasi dikirim hanya ke staff/group yang relevan.
+   * Contoh: "Logistik", "Customs", "Sport Center", "Finance"
+   */
+  division?: string | null;
+  category?: string | null;
 }
 
 // ─── Staff phones dari env ─────────────────────────────────────────────────────
@@ -46,6 +53,66 @@ function getGroupTargets(): string[] {
     .split(",")
     .map((g) => g.trim())
     .filter((g) => /^\d+@g\.us$/.test(g));
+}
+
+// ─── Category-based routing ────────────────────────────────────────────────────
+// Mapping divisi/kategori ke env var key suffix.
+// Env vars format:
+//   STAFF_NOTIFY_PHONES_LOGISTIK      → nomor tim logistik (trucking/freight/import/export)
+//   STAFF_NOTIFY_PHONES_CUSTOMS       → nomor tim customs/PPJK/finance
+//   STAFF_NOTIFY_PHONES_SPORT_CENTER  → nomor admin sport center
+//   STAFF_NOTIFY_GROUPS_LOGISTIK      → group WA tim logistik
+//   STAFF_NOTIFY_GROUPS_CUSTOMS       → group WA tim customs
+//   STAFF_NOTIFY_GROUPS_SPORT_CENTER  → group WA admin sport center
+//
+// Jika env var divisi tidak di-set → fallback ke STAFF_NOTIFY_PHONES/GROUPS (broadcast ke semua).
+
+function getDivisionEnvKey(division?: string | null, category?: string | null): string | null {
+  const raw = (division ?? category ?? "").toLowerCase();
+  if (!raw) return null;
+  if (raw.includes("logistik") || raw.includes("trucking") || raw.includes("freight")
+      || raw.includes("import") || raw.includes("export") || raw.includes("warehouse")) {
+    return "LOGISTIK";
+  }
+  if (raw.includes("custom") || raw.includes("ppjk") || raw.includes("finance")
+      || raw.includes("bea cukai") || raw.includes("customs")) {
+    return "CUSTOMS";
+  }
+  if (raw.includes("sport") || raw.includes("olahraga") || raw.includes("lapangan")
+      || raw.includes("sport center")) {
+    return "SPORT_CENTER";
+  }
+  return null;
+}
+
+/**
+ * Kembalikan nomor staff untuk divisi tertentu.
+ * Jika env STAFF_NOTIFY_PHONES_{KEY} tidak di-set → fallback ke semua staff.
+ */
+function getStaffPhonesByDivision(division?: string | null, category?: string | null): string[] {
+  const key = getDivisionEnvKey(division, category);
+  if (key) {
+    const divRaw = process.env[`STAFF_NOTIFY_PHONES_${key}`] ?? "";
+    if (divRaw.trim()) {
+      return divRaw.split(",").map((p) => p.trim()).filter(Boolean);
+    }
+  }
+  return getStaffPhones(); // fallback: broadcast ke semua staff
+}
+
+/**
+ * Kembalikan group WA untuk divisi tertentu.
+ * Jika env STAFF_NOTIFY_GROUPS_{KEY} tidak di-set → fallback ke semua group.
+ */
+function getGroupTargetsByDivision(division?: string | null, category?: string | null): string[] {
+  const key = getDivisionEnvKey(division, category);
+  if (key) {
+    const divRaw = process.env[`STAFF_NOTIFY_GROUPS_${key}`] ?? "";
+    if (divRaw.trim()) {
+      return divRaw.split(",").map((g) => g.trim()).filter((g) => /^\d+@g\.us$/.test(g));
+    }
+  }
+  return getGroupTargets(); // fallback: broadcast ke semua group
 }
 
 // ─── Template pesan ────────────────────────────────────────────────────────────
@@ -219,7 +286,11 @@ export async function notifyTaskCreated(ctx: TaskNotifContext): Promise<void> {
     );
   }
 
-  for (const phone of getStaffPhones()) {
+  // ── Category-based routing: kirim ke staff/group divisi yang relevan ──────────
+  // Jika env STAFF_NOTIFY_PHONES_{DIVISI} di-set → hanya kirim ke tim tersebut.
+  // Jika tidak di-set → fallback ke semua staff (broadcast seperti sebelumnya).
+  const staffPhones = getStaffPhonesByDivision(ctx.division, ctx.category);
+  for (const phone of staffPhones) {
     sends.push(
       sendAndLog({
         phone,
@@ -232,8 +303,9 @@ export async function notifyTaskCreated(ctx: TaskNotifContext): Promise<void> {
     );
   }
 
-  // Kirim ke WA group
-  for (const group of getGroupTargets()) {
+  // Kirim ke WA group — juga dengan category-based routing
+  const groupTargets = getGroupTargetsByDivision(ctx.division, ctx.category);
+  for (const group of groupTargets) {
     sends.push(
       sendAndLog({
         phone:        group,

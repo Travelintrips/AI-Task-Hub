@@ -676,7 +676,7 @@ export default function ConversationTestsPage() {
                 <Input
                   value={form.intentCode}
                   onChange={(e) => setForm((f) => ({ ...f, intentCode: e.target.value }))}
-                  placeholder="trucking_request"
+                  placeholder="trucking_inquiry"
                 />
               </div>
             </div>
@@ -695,7 +695,7 @@ export default function ConversationTestsPage() {
                 <Input
                   value={form.expectedIntentCode}
                   onChange={(e) => setForm((f) => ({ ...f, expectedIntentCode: e.target.value }))}
-                  placeholder="trucking_request"
+                  placeholder="trucking_inquiry"
                 />
               </div>
               <div>
