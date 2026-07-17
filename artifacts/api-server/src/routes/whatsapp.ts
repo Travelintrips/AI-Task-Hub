@@ -811,7 +811,9 @@ async function runAiDetection({
     // ── Step 0a-sc-price: Sport Center price inquiry gate ─────────────────────
     // "harga lapangan badminton", "tarif futsal", "berapa harga voli" dll →
     // langsung balas daftar harga tanpa masuk ke booking flow.
-    if (!isAnsweringClarification && !activeSession) {
+    // Gate ini juga aktif saat isAnsweringClarification (user menjawab setelah
+    // "pertanyaan lainnya" menu) agar tidak salah masuk ke booking flow.
+    if (!activeSession) {
       const scPrice = isSportCenterPriceInquiry(bodyText);
       if (scPrice.match) {
         logger.info({ from, msg: bodyText, fieldType: scPrice.fieldType }, "Sport Center price inquiry detected — sending price list");
