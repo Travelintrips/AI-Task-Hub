@@ -1228,8 +1228,8 @@ async function runAiDetection({
     //   3. Show slot result + ask user to confirm with "ya"
     //   4. Ask booker name + phone
     //   5. THEN send the mini-form link
-    const isGeneralInquiry = result.intent === "general_inquiry";
-    if (!isGeneralInquiry && result._resolution && isSportCenterBookingIntent(result.intent)) {
+    const isGenInquiryIntent = result.intent === "general_inquiry";
+    if (!isGenInquiryIntent && result._resolution && isSportCenterBookingIntent(result.intent)) {
       logger.info({ from, intent: result.intent }, "Sport Center booking detected — forcing conversation-first flow");
 
       // Safety guard: re-check for an active session here. The initial check at
@@ -1314,7 +1314,7 @@ async function runAiDetection({
     // ── Intake gate: start session if required fields are missing ──────────────
     const hasMissingFields = (result.missing_data?.length ?? 0) > 0;
 
-    if (hasMissingFields && !isGeneralInquiry && result._resolution) {
+    if (hasMissingFields && !isGenInquiryIntent && result._resolution) {
       logger.info(
         { intent: result.intent, missing: result.missing_data?.length },
         "Missing fields detected — checking intake flow mode",
