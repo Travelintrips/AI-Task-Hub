@@ -213,16 +213,44 @@ const SC_PRICE_FIELDS: Record<string, string> = {
 const SC_PRICE_KEYWORDS_RE = /\b(harga|tarif|biaya|berapa|info harga|daftar harga|price|rate|rincian harga)\b/i;
 const SC_SPORT_CONTEXT_RE  = /\b(lapangan|olahraga|sport|fasilitas|court|main|sewa lapangan)\b/i;
 
+// Matches comparative/implicit price questions without an explicit price keyword.
+// e.g. "kalau lapangan tenis?", "gimana futsal?", "kalau tenis?", "untuk badminton?"
+// Also matches: "maksud saya harga lapangan X" (correction/clarification of price intent)
+const SC_IMPLICIT_PRICE_RE =
+  /(?:^|\s)(?:kalau|gimana|bagaimana|untuk|nah|terus|lalu)\s+(?:lapangan\s+)?(?:badminton|futsal|tenis|tennis|basket|basketball|voli|volleyball|volley|gym|fitness|billiard|biliard|bilyard)\b/i;
+
+// Explicit price-intent correction: "maksud saya harga ...", "saya tanya harga ...", "yang saya maksud harga"
+const SC_PRICE_CORRECTION_RE =
+  /(?:maksud\s+saya|yang\s+saya\s+maksud|saya\s+(?:tanya|mau\s+tanya|nanya|ingin\s+tahu))\s+(?:tentang\s+)?harga/i;
+
 export function isSportCenterPriceInquiry(message: string): { match: boolean; fieldType: string | null } {
   const text = message.trim().toLowerCase();
-  if (!SC_PRICE_KEYWORDS_RE.test(text)) return { match: false, fieldType: null };
 
-  // Check specific field type keyword first
-  for (const [keyword, fieldType] of Object.entries(SC_PRICE_FIELDS)) {
-    if (text.includes(keyword)) return { match: true, fieldType };
+  // Path A: explicit price keyword ("harga", "tarif", "berapa", etc.)
+  if (SC_PRICE_KEYWORDS_RE.test(text)) {
+    for (const [keyword, fieldType] of Object.entries(SC_PRICE_FIELDS)) {
+      if (text.includes(keyword)) return { match: true, fieldType };
+    }
+    if (SC_SPORT_CONTEXT_RE.test(text)) return { match: true, fieldType: null };
   }
-  // Generic sport context ("harga lapangan", "tarif olahraga", dll.)
-  if (SC_SPORT_CONTEXT_RE.test(text)) return { match: true, fieldType: null };
+
+  // Path B: implicit comparative price question — "kalau lapangan tenis?", "gimana futsal?"
+  if (SC_IMPLICIT_PRICE_RE.test(text)) {
+    for (const [keyword, fieldType] of Object.entries(SC_PRICE_FIELDS)) {
+      if (text.includes(keyword)) return { match: true, fieldType };
+    }
+    // "kalau lapangan?" without specific sport → generic price list
+    if (SC_SPORT_CONTEXT_RE.test(text)) return { match: true, fieldType: null };
+  }
+
+  // Path C: explicit price-intent correction — "maksud saya harga lapangan tenis"
+  if (SC_PRICE_CORRECTION_RE.test(text)) {
+    for (const [keyword, fieldType] of Object.entries(SC_PRICE_FIELDS)) {
+      if (text.includes(keyword)) return { match: true, fieldType };
+    }
+    if (SC_SPORT_CONTEXT_RE.test(text)) return { match: true, fieldType: null };
+  }
+
   return { match: false, fieldType: null };
 }
 

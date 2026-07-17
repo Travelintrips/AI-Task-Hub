@@ -962,6 +962,38 @@ async function runAiDetection({
           }).catch((err) => logger.warn({ err }, "Sprint 9C: document validation failed (intake)"));
         }
 
+        // ── Price inquiry escape hatch ─────────────────────────────────────
+        // If customer is in a booking session but EXPLICITLY asks about price
+        // (e.g. "maksud saya harga lapangan tenis", "kalau lapangan tenis?"),
+        // cancel the booking session and show the price list instead.
+        // This prevents the "Pilih lapangan" loop when user just wants pricing.
+        if (isSportCenterBookingIntent(activeSession.intentCode)) {
+          const scPrice = isSportCenterPriceInquiry(effectiveText);
+          if (scPrice.match) {
+            logger.info(
+              { from, sessionId: activeSession.id, msg: effectiveText, fieldType: scPrice.fieldType },
+              "Price inquiry detected inside active booking session — cancelling session, sending price list",
+            );
+            // Cancel the booking session
+            await db
+              .update(intakeSessionsTable)
+              .set({ status: "cancelled", updatedAt: new Date() })
+              .where(eq(intakeSessionsTable.id, activeSession.id))
+              .catch((e) => logger.warn({ e }, "price-escape: failed to cancel session"));
+
+            const priceListReply = buildSportCenterPriceListMessage(scPrice.fieldType);
+            await sendFonnte(replyTo, priceListReply, fonnteDevice).catch((e) =>
+              logger.warn({ e }, "price-escape: failed to send price list"),
+            );
+            await db
+              .update(whatsappMessagesTable)
+              .set({ aiProcessed: true, detectedIntent: "sc_price_inquiry_escape" })
+              .where(eq(whatsappMessagesTable.id, savedMsgId))
+              .catch(() => {});
+            return;
+          }
+        }
+
         const intakeResult = await processIntakeMessage({
           session: activeSession,
           message: effectiveText,
