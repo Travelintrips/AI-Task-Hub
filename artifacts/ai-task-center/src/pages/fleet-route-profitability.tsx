@@ -8,6 +8,15 @@ import { useToast } from "@/hooks/use-toast";
 
 const API = "/api";
 
+function getToken(): string {
+  return localStorage.getItem("ai_task_center_token") ?? "";
+}
+
+function authHeaders(): HeadersInit {
+  const token = getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 type RouteRow = {
   id: number;
   route: string;
@@ -34,7 +43,7 @@ export default function FleetRouteProfitabilityPage() {
   const { data, isLoading } = useQuery({
     queryKey: ["fleet-route-profitability", period],
     queryFn: async () => {
-      const r = await fetch(`${API}/fleet/route-profitability?period=${period}`, { credentials: "include" });
+      const r = await fetch(`${API}/fleet/route-profitability?period=${period}`, { headers: authHeaders() });
       const d = await r.json() as {
         data: RouteRow[];
         mostProfitable?: RouteRow;
@@ -48,8 +57,7 @@ export default function FleetRouteProfitabilityPage() {
     mutationFn: async () => {
       const r = await fetch(`${API}/fleet/route-profitability/recompute`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({ period }),
       });
       return r.json();

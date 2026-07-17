@@ -26,9 +26,14 @@ const API = "/api";
 // ── API helpers ────────────────────────────────────────────────────────────────
 
 async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
+  const token = typeof window !== "undefined"
+    ? (localStorage.getItem("ai_task_center_token") ?? "")
+    : "";
   const res = await fetch(`${API}${path}`, {
-    headers: { "Content-Type": "application/json" },
-    credentials: "include",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
     ...opts,
   });
   if (!res.ok) {

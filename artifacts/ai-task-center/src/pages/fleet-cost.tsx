@@ -8,6 +8,15 @@ import { useToast } from "@/hooks/use-toast";
 
 const API = "/api";
 
+function getToken(): string {
+  return localStorage.getItem("ai_task_center_token") ?? "";
+}
+
+function authHeaders(): HeadersInit {
+  const token = getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 type CostRow = {
   id: number;
   fleet_unit_id: number;
@@ -49,7 +58,7 @@ export default function FleetCostPage() {
   const summary = useQuery({
     queryKey: ["fleet-cost-summary"],
     queryFn: async () => {
-      const r = await fetch(`${API}/fleet/cost-per-km/summary`, { credentials: "include" });
+      const r = await fetch(`${API}/fleet/cost-per-km/summary`, { headers: authHeaders() });
       const d = await r.json() as { data: SummaryRow[]; bestUnit?: CostRow; worstUnit?: CostRow };
       return d;
     },
@@ -58,7 +67,7 @@ export default function FleetCostPage() {
   const detail = useQuery({
     queryKey: ["fleet-cost-detail", period],
     queryFn: async () => {
-      const r = await fetch(`${API}/fleet/cost-per-km?period=${period}`, { credentials: "include" });
+      const r = await fetch(`${API}/fleet/cost-per-km?period=${period}`, { headers: authHeaders() });
       const d = await r.json() as { data: CostRow[] };
       return d.data ?? [];
     },
@@ -68,8 +77,7 @@ export default function FleetCostPage() {
     mutationFn: async () => {
       const r = await fetch(`${API}/fleet/cost-per-km/recompute`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({ period }),
       });
       return r.json();

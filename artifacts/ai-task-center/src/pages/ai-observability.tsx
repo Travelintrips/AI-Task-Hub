@@ -13,8 +13,15 @@ import { formatDistanceToNow } from "date-fns";
 
 // ─── API helpers ──────────────────────────────────────────────────────────────
 
+function getToken(): string {
+  return localStorage.getItem("ai_task_center_token") ?? "";
+}
+
 async function apiFetch(path: string) {
-  const res = await fetch(path, { credentials: "include" });
+  const token = getToken();
+  const res = await fetch(path, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }

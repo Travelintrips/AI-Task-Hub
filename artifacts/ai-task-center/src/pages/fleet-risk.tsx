@@ -11,6 +11,15 @@ import { useToast } from "@/hooks/use-toast";
 
 const API = "/api";
 
+function getToken(): string {
+  return localStorage.getItem("ai_task_center_token") ?? "";
+}
+
+function authHeaders(): HeadersInit {
+  const token = getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 type RiskRow = {
   id: number;
   fleet_unit_id: number;
@@ -127,7 +136,7 @@ export default function FleetRiskPage() {
   const { data, isLoading, refetch } = useQuery({
     queryKey: ["fleet-risk-scores"],
     queryFn: async () => {
-      const r = await fetch(`${API}/fleet/risk-scores`, { credentials: "include" });
+      const r = await fetch(`${API}/fleet/risk-scores`, { headers: authHeaders() });
       const d = await r.json() as { data: RiskRow[] };
       return d.data ?? [];
     },
@@ -135,7 +144,7 @@ export default function FleetRiskPage() {
 
   const refresh = useMutation({
     mutationFn: async () => {
-      const r = await fetch(`${API}/fleet/risk-scores/refresh`, { method: "POST", credentials: "include" });
+      const r = await fetch(`${API}/fleet/risk-scores/refresh`, { method: "POST", headers: authHeaders() });
       return r.json();
     },
     onSuccess: (d) => {

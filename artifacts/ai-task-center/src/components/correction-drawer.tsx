@@ -81,10 +81,13 @@ export function CorrectionDrawer({ open, onOpenChange, task, onSuccess }: Correc
     }
     setSubmitting(true);
     try {
+      const token = localStorage.getItem("ai_task_center_token") ?? "";
       const res = await fetch("/api/training/corrections", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({
           taskId: task.id,
           fieldCorrected,

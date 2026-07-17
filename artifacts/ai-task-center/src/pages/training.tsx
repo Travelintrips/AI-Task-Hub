@@ -25,8 +25,19 @@ import {
 
 // ─── API helpers ──────────────────────────────────────────────────────────────
 
+function getToken(): string {
+  return localStorage.getItem("ai_task_center_token") ?? "";
+}
+
 async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
-  const res = await fetch(`/api${path}`, { credentials: "include", ...opts });
+  const token = getToken();
+  const res = await fetch(`/api${path}`, {
+    ...opts,
+    headers: {
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(opts?.headers ?? {}),
+    },
+  });
   if (!res.ok) {
     const data = await res.json().catch(() => ({})) as { error?: string };
     throw new Error(data.error ?? `HTTP ${res.status}`);
@@ -233,10 +244,10 @@ function DatasetTab() {
   const handleExport = async (format: "jsonl" | "csv") => {
     setExporting(true);
     try {
+      const token = getToken();
       const res = await fetch("/api/training/dataset/export", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({ format, split_tag: splitFilter !== "all" ? splitFilter : undefined }),
       });
       if (!res.ok) throw new Error("Export gagal");

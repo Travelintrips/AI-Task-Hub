@@ -13,11 +13,20 @@ import { useToast } from "@/hooks/use-toast";
 
 const API = "/api";
 
+function getToken(): string {
+  return localStorage.getItem("ai_task_center_token") ?? "";
+}
+
+function authHeaders(): HeadersInit {
+  const token = getToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 function useFleetStats() {
   return useQuery({
     queryKey: ["fleet-units-stats"],
     queryFn: async () => {
-      const r = await fetch(`${API}/fleet/units`, { credentials: "include" });
+      const r = await fetch(`${API}/fleet/units`, { headers: authHeaders() });
       const data = await r.json() as { data: Array<{ status: string }> };
       const units = data.data ?? [];
       return {
@@ -36,7 +45,7 @@ function useRiskScores() {
   return useQuery({
     queryKey: ["fleet-risk-scores"],
     queryFn: async () => {
-      const r = await fetch(`${API}/fleet/risk-scores`, { credentials: "include" });
+      const r = await fetch(`${API}/fleet/risk-scores`, { headers: authHeaders() });
       const d = await r.json() as { data: Array<Record<string, unknown>> };
       return d.data ?? [];
     },
@@ -47,7 +56,7 @@ function useCostSummary() {
   return useQuery({
     queryKey: ["fleet-cost-summary"],
     queryFn: async () => {
-      const r = await fetch(`${API}/fleet/cost-per-km/summary`, { credentials: "include" });
+      const r = await fetch(`${API}/fleet/cost-per-km/summary`, { headers: authHeaders() });
       const d = await r.json() as { data: Array<Record<string, unknown>>; bestUnit?: Record<string, unknown>; worstUnit?: Record<string, unknown> };
       return d;
     },
@@ -58,7 +67,7 @@ function useDocAlerts() {
   return useQuery({
     queryKey: ["fleet-doc-alerts"],
     queryFn: async () => {
-      const r = await fetch(`${API}/fleet/documents?status=expiring_soon`, { credentials: "include" });
+      const r = await fetch(`${API}/fleet/documents?status=expiring_soon`, { headers: authHeaders() });
       const d = await r.json() as { data: Array<Record<string, unknown>> };
       return d.data ?? [];
     },
@@ -69,7 +78,7 @@ function useMaintenanceAlerts() {
   return useQuery({
     queryKey: ["fleet-maintenance-overdue"],
     queryFn: async () => {
-      const r = await fetch(`${API}/fleet/maintenance?status=pending`, { credentials: "include" });
+      const r = await fetch(`${API}/fleet/maintenance?status=pending`, { headers: authHeaders() });
       const d = await r.json() as { data: Array<Record<string, unknown>> };
       const pending = d.data ?? [];
       return pending.filter((m) => {
@@ -85,7 +94,7 @@ function useDriverLeaderboard() {
   return useQuery({
     queryKey: ["fleet-driver-leaderboard"],
     queryFn: async () => {
-      const r = await fetch(`${API}/fleet/drivers`, { credentials: "include" });
+      const r = await fetch(`${API}/fleet/drivers`, { headers: authHeaders() });
       const d = await r.json() as { data: Array<Record<string, unknown>> };
       return d.data ?? [];
     },
@@ -129,7 +138,7 @@ export default function FleetDashboardPage() {
 
   const refreshRisk = useMutation({
     mutationFn: async () => {
-      const r = await fetch(`${API}/fleet/risk-scores/refresh`, { method: "POST", credentials: "include" });
+      const r = await fetch(`${API}/fleet/risk-scores/refresh`, { method: "POST", headers: authHeaders() });
       return r.json();
     },
     onSuccess: () => {
@@ -143,8 +152,7 @@ export default function FleetDashboardPage() {
     mutationFn: async (type: string) => {
       const r = await fetch(`${API}/fleet/reports/whatsapp`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({ reportType: type }),
       });
       return r.json();
