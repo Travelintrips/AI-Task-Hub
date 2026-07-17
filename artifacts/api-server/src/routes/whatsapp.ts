@@ -31,6 +31,10 @@ import {
   isCancellation,
   isPriceInquiry,
   isGeneralInquiry,
+  isSportCenterPriceInquiry,
+  isTenantPriceInquiry,
+  buildSportCenterPriceListMessage,
+  buildTenantPriceMessage,
 } from "../lib/intake-engine";
 import { routeIntentToFlow } from "../lib/mini-form-router";
 import { getFormConfig } from "../lib/mini-form-config";
@@ -802,6 +806,40 @@ async function runAiDetection({
         .where(eq(whatsappMessagesTable.id, savedMsgId))
         .catch(() => {});
       return;
+    }
+
+    // ── Step 0a-sc-price: Sport Center price inquiry gate ─────────────────────
+    // "harga lapangan badminton", "tarif futsal", "berapa harga voli" dll →
+    // langsung balas daftar harga tanpa masuk ke booking flow.
+    if (!isAnsweringClarification && !activeSession) {
+      const scPrice = isSportCenterPriceInquiry(bodyText);
+      if (scPrice.match) {
+        logger.info({ from, msg: bodyText, fieldType: scPrice.fieldType }, "Sport Center price inquiry detected — sending price list");
+        const priceListReply = buildSportCenterPriceListMessage(scPrice.fieldType);
+        await sendFonnte(replyTo, priceListReply, fonnteDevice).catch((e) =>
+          logger.warn({ e }, "sc-price: failed to send price list"),
+        );
+        await db
+          .update(whatsappMessagesTable)
+          .set({ aiProcessed: true, detectedIntent: "sc_price_inquiry" })
+          .where(eq(whatsappMessagesTable.id, savedMsgId))
+          .catch(() => {});
+        return;
+      }
+
+      if (isTenantPriceInquiry(bodyText)) {
+        logger.info({ from, msg: bodyText }, "Tenant price inquiry detected — sending tenant price info");
+        const tenantReply = buildTenantPriceMessage();
+        await sendFonnte(replyTo, tenantReply, fonnteDevice).catch((e) =>
+          logger.warn({ e }, "tenant-price: failed to send price info"),
+        );
+        await db
+          .update(whatsappMessagesTable)
+          .set({ aiProcessed: true, detectedIntent: "tenant_price_inquiry" })
+          .where(eq(whatsappMessagesTable.id, savedMsgId))
+          .catch(() => {});
+        return;
+      }
     }
 
     // ── Step 0a-general: General inquiry gate ("pertanyaan lainnya" / digit 5) ──

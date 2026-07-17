@@ -187,6 +187,134 @@ export function isPriceInquiry(message: string): boolean {
   return PRICE_KEYWORDS.test(text) && !SPECIFIC_SERVICE_KEYWORDS.test(text);
 }
 
+// ─── Sport Center price inquiry detection ─────────────────────────────────────
+// Detects pesan seperti "harga lapangan badminton", "tarif futsal", "berapa harga voli"
+// dan mengembalikan daftar harga tanpa masuk ke booking flow.
+
+const SC_PRICE_FIELDS: Record<string, string> = {
+  badminton: "badminton",
+  bulu: "badminton",
+  shuttlecock: "badminton",
+  futsal: "futsal",
+  tennis: "tennis",
+  tenis: "tennis",
+  basket: "basketball",
+  basketball: "basketball",
+  voli: "voli",
+  volley: "voli",
+  volleyball: "voli",
+  gym: "gym",
+  fitness: "gym",
+  billiard: "billiard",
+  biliard: "billiard",
+  bilyard: "billiard",
+};
+
+const SC_PRICE_KEYWORDS_RE = /\b(harga|tarif|biaya|berapa|info harga|daftar harga|price|rate|rincian harga)\b/i;
+const SC_SPORT_CONTEXT_RE  = /\b(lapangan|olahraga|sport|fasilitas|court|main|sewa lapangan)\b/i;
+
+export function isSportCenterPriceInquiry(message: string): { match: boolean; fieldType: string | null } {
+  const text = message.trim().toLowerCase();
+  if (!SC_PRICE_KEYWORDS_RE.test(text)) return { match: false, fieldType: null };
+
+  // Check specific field type keyword first
+  for (const [keyword, fieldType] of Object.entries(SC_PRICE_FIELDS)) {
+    if (text.includes(keyword)) return { match: true, fieldType };
+  }
+  // Generic sport context ("harga lapangan", "tarif olahraga", dll.)
+  if (SC_SPORT_CONTEXT_RE.test(text)) return { match: true, fieldType: null };
+  return { match: false, fieldType: null };
+}
+
+export function isTenantPriceInquiry(message: string): boolean {
+  const text = message.trim().toLowerCase();
+  const PRICE_RE  = /\b(harga|tarif|biaya|berapa|info|sewa|rate|rincian)\b/i;
+  const TENANT_RE = /\b(tenant|kios|kiosk|toko|lapak|ruko|sewa kios|sewa tempat|stand|gerai)\b/i;
+  return PRICE_RE.test(text) && TENANT_RE.test(text);
+}
+
+const SC_PRICE_PER_JAM: Record<string, number> = {
+  badminton:  100_000,
+  futsal:     350_000,
+  tennis:     100_000,
+  basketball: 150_000,
+  voli:       100_000,
+  gym:         50_000,
+  billiard:    50_000,
+};
+
+const SC_EMOJI: Record<string, string> = {
+  badminton:  "🏸",
+  futsal:     "⚽",
+  tennis:     "🎾",
+  basketball: "🏀",
+  voli:       "🏐",
+  gym:        "💪",
+  billiard:   "🎱",
+};
+
+export function buildSportCenterPriceListMessage(fieldType: string | null): string {
+  const MAX_UNITS = 5;
+
+  if (fieldType) {
+    const key = fieldType.toLowerCase().trim();
+    const price = SC_PRICE_PER_JAM[key];
+    const emoji = SC_EMOJI[key] ?? "🏟️";
+    const isBilliard = key === "billiard";
+    const unit = isBilliard ? "Coin" : "Jam";
+    const label = key.charAt(0).toUpperCase() + key.slice(1);
+
+    if (!price) {
+      return (
+        `${emoji} *Daftar Harga ${label}*\n\n` +
+        `Mohon hubungi admin kami untuk informasi harga. 🙏`
+      );
+    }
+
+    const lines = Array.from({ length: MAX_UNITS }, (_, i) => i + 1)
+      .map((n) => `  ${n} ${unit.padEnd(4)} = Rp ${(price * n).toLocaleString("id-ID")}`)
+      .join("\n");
+
+    return (
+      `${emoji} *Daftar Harga Lapangan ${label}*\n\n` +
+      lines + "\n\n" +
+      `⏰ Jam Operasional: 07:00 – 22:00\n\n` +
+      `Mau booking? Balas dengan lapangan, tanggal dan jam yang Anda inginkan. 😊🙏`
+    );
+  }
+
+  // All fields
+  const allLines = Object.entries(SC_PRICE_PER_JAM)
+    .map(([key, price]) => {
+      const emoji = SC_EMOJI[key] ?? "🏟️";
+      const isBilliard = key === "billiard";
+      const unit = isBilliard ? "/koin" : "/jam";
+      const label = (key.charAt(0).toUpperCase() + key.slice(1)).padEnd(10);
+      return `${emoji} ${label}: Rp ${price.toLocaleString("id-ID")}${unit}`;
+    })
+    .join("\n");
+
+  return (
+    `🏟️ *Daftar Harga Lapangan Olahraga*\n\n` +
+    allLines + "\n\n" +
+    `⏰ Jam Operasional: 07:00 – 22:00\n\n` +
+    `Mau booking lapangan tertentu? Ceritakan lapangan, tanggal & jam yang Anda inginkan. 😊🙏`
+  );
+}
+
+export function buildTenantPriceMessage(): string {
+  return (
+    `🏪 *Informasi Harga Sewa Kios / Tenant*\n\n` +
+    `Harga sewa kios/tenant kami bervariasi tergantung:\n` +
+    `  • Ukuran dan lokasi kios\n` +
+    `  • Durasi sewa (bulanan / tahunan)\n` +
+    `  • Fasilitas yang dibutuhkan\n\n` +
+    `Untuk mendapatkan penawaran harga yang sesuai, silakan:\n` +
+    `📞 Hubungi admin kami secara langsung, atau\n` +
+    `💬 Ceritakan kebutuhan sewa Anda (ukuran, lokasi, durasi) dan tim kami akan segera membantu. 🙏`
+  );
+}
+
 // ─── Greeting detection — resets active session silently ──────────────────────
 // Pesan-pesan ini menandakan user memulai ulang percakapan.
 // Sesi aktif yang ada harus di-cancel agar user bisa mulai dari awal.
