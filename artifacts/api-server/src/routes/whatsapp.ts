@@ -30,6 +30,7 @@ import {
   isClosingPhrase,
   isCancellation,
   isPriceInquiry,
+  isGeneralInquiry,
 } from "../lib/intake-engine";
 import { routeIntentToFlow } from "../lib/mini-form-router";
 import { getFormConfig } from "../lib/mini-form-config";
@@ -45,6 +46,13 @@ const router: IRouter = Router();
 // finished creating/saving its session yet), causing duplicate/conflicting
 // sessions and confusing or missing replies (e.g. sport center booking flow).
 const phoneQueues = new Map<string, Promise<void>>();
+
+// ─── General inquiry clarification pending ────────────────────────────────────
+// Tracks which phone numbers are awaiting clarification after replying
+// "pertanyaan lainnya". The NEXT message from that phone bypasses all
+// early-return gates and goes straight to the AI pipeline so the actual
+// question can be classified and routed to the right notification recipient.
+const generalInquiryPending = new Set<string>();
 
 // ─── Incoming-message dedup cache ────────────────────────────────────────────
 // Fonnte has multiple configured devices. When a message arrives it can be
@@ -666,13 +674,25 @@ async function runAiDetection({
     // instead of detecting a new intent.
     const activeSession = await findActiveIntakeSession(from, companyId);
 
+    // ── Step 0a-clarify: "Pertanyaan lainnya" pending check ───────────────────
+    // If this phone was previously asked "Boleh saya tau apa yang ingin ditanyakan?",
+    // this message IS the actual question. Clear the pending flag and bypass all
+    // early-return gates so the AI pipeline can classify the question and route
+    // notifications to the correct recipient (PPJK, Trucking, Lapangan, etc.).
+    const isAnsweringClarification = generalInquiryPending.has(from);
+    if (isAnsweringClarification) {
+      generalInquiryPending.delete(from);
+      logger.info({ from, msg: bodyText }, "General inquiry clarification answer received — routing to AI pipeline");
+    }
+
     // ── Step 0a-pre: Closing phrase gate — "terima kasih", "ok", "siap", etc.
     // These are conversation-enders, not new requests. Respond with a simple
     // acknowledgment and return. Do NOT cancel sessions or show the full menu.
     // IMPORTANT: Skip this gate when there is an active intake session — phrases
     // like "ya", "oke", "iya" are intake confirmations (e.g. sport center availability),
-    // not conversation-enders.
-    if (isClosingPhrase(bodyText) && !activeSession) {
+    // not conversation-enders. Also skip when customer is answering a clarification
+    // question so their actual question is not silently swallowed.
+    if (!isAnsweringClarification && isClosingPhrase(bodyText) && !activeSession) {
       logger.info({ from, msg: bodyText }, "Closing phrase detected — sending simple ack, skipping AI");
       const closingReply = `Sama-sama! 😊 Jika ada kebutuhan lain, jangan ragu untuk menghubungi kami ya.`;
       await sendFonnte(replyTo, closingReply, fonnteDevice).catch((e) =>
@@ -721,7 +741,8 @@ async function runAiDetection({
     // When user sends a simple greeting, cancel all active sessions and respond
     // directly with a canned message. Do NOT fall through to AI detection,
     // which could re-detect the old intent and create a new stuck session.
-    if (isGreeting(bodyText)) {
+    // Greeting always fires — even mid-clarification — so customer can start fresh.
+    if (!isAnsweringClarification && isGreeting(bodyText)) {
       logger.info({ from, msg: bodyText }, "Greeting detected — cancelling sessions, sending canned reply, skipping AI");
       try {
         await db
@@ -761,7 +782,7 @@ async function runAiDetection({
     // "mau tanya harga", "berapa biaya", "info tarif" dll tanpa konteks layanan
     // spesifik → balas menu klarifikasi daripada menjalankan AI pipeline yang
     // akan salah classify ke freight/trucking dan mengirim form yang tidak tepat.
-    if (!activeSession && isPriceInquiry(bodyText)) {
+    if (!isAnsweringClarification && !activeSession && isPriceInquiry(bodyText)) {
       logger.info({ from, msg: bodyText }, "Price inquiry (vague) detected — sending clarification menu");
       const priceReply =
         `Halo! Kami siap bantu informasikan harga. 😊\n\n` +
@@ -783,19 +804,48 @@ async function runAiDetection({
       return;
     }
 
+    // ── Step 0a-general: General inquiry gate ("pertanyaan lainnya" / digit 5) ──
+    // Intercept BEFORE the AI pipeline. Instead of creating a task immediately,
+    // ask a clarification question so the customer can specify their topic.
+    // The NEXT message will then be routed to the correct notification recipient
+    // (PPJK, Trucking, Lapangan Olahraga, Tenant, Bea Cukai, Pengiriman, dll.)
+    // by the normal AI intent classification pipeline.
+    if (!isAnsweringClarification && !activeSession && (bodyText.trim() === "5" || isGeneralInquiry(bodyText))) {
+      logger.info({ from, msg: bodyText }, "General inquiry detected — asking clarification question");
+      const clarificationReply =
+        `Boleh saya tau apa yang ingin ditanyakan? 😊\n\n` +
+        `Kami siap bantu untuk pertanyaan seputar:\n` +
+        `• 🚚 Pengiriman / Trucking / Freight\n` +
+        `• 📋 PPJK / Bea Cukai / Customs\n` +
+        `• 🏟️ Harga Lapangan (Badminton, Futsal, Voli, Basketball, Tenis)\n` +
+        `• 🏪 Tenant / Sewa Kios\n` +
+        `• 📦 Layanan lainnya\n\n` +
+        `Silakan ceritakan kebutuhan Anda. 🙏`;
+      await sendFonnte(replyTo, clarificationReply, fonnteDevice).catch((e) =>
+        logger.warn({ e }, "general-inquiry: failed to send clarification question"),
+      );
+      generalInquiryPending.add(from);
+      await db
+        .update(whatsappMessagesTable)
+        .set({ aiProcessed: true, detectedIntent: "general_inquiry_pending" })
+        .where(eq(whatsappMessagesTable.id, savedMsgId))
+        .catch(() => {});
+      return;
+    }
+
     // ── Step 0a-menu: Menu digit selection gate ─────────────────────────────────
-    // When user replies with a single digit 1-5 referencing the greeting menu
+    // When user replies with a single digit 1-4 referencing the greeting menu
     // (and there is no active intake session), translate the digit to a full
     // intent phrase so the AI pipeline detects the correct intent and creates
     // an intake session. Do NOT return early here — let the full AI pipeline
     // run so an intake session is started correctly.
+    // NOTE: Digit "5" is intercepted by the general inquiry gate above.
     if (!activeSession && messageType === "text") {
       const menuExpand: Record<string, string> = {
         "1": "saya butuh layanan pengiriman trucking sea air freight logistik",
         "2": "saya butuh layanan PPJK bea cukai customs kepabeanan",
         "3": "saya mau booking lapangan olahraga futsal badminton",
         "4": "saya butuh kasbon pembayaran uang muka",
-        "5": "saya punya pertanyaan umum informasi lainnya",
       };
       const menuKey = bodyText.trim();
       const expanded = menuExpand[menuKey];

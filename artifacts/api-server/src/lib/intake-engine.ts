@@ -142,6 +142,21 @@ export function isCancellation(message: string): boolean {
   return CANCEL_PATTERNS.test(message);
 }
 
+// ─── General inquiry detection ("pertanyaan lainnya") ─────────────────────────
+// Detects pesan seperti "pertanyaan lainnya", "lainnya", "pertanyaan umum", dll.
+// Termasuk teks ekspansi menu digit 5.  Digunakan untuk memunculkan pertanyaan
+// klarifikasi sebelum AI pipeline, sehingga customer bisa menjelaskan topiknya
+// dan bot bisa routing ke penerima notifikasi yang tepat.
+
+const GENERAL_INQUIRY_PATTERNS =
+  /^(pertanyaan\s+lainnya|pertanyaan\s+umum|lainnya|lain\s*nya|tanya\s+lainnya|tanya\s+umum|informasi\s+lainnya|info\s+lainnya|lain|other|others)\s*[!.?]*$/i;
+const GENERAL_INQUIRY_EXPANDED = /saya punya pertanyaan umum/i;
+
+export function isGeneralInquiry(message: string): boolean {
+  const text = message.trim();
+  return GENERAL_INQUIRY_PATTERNS.test(text) || GENERAL_INQUIRY_EXPANDED.test(text);
+}
+
 // ─── Price inquiry detection (vague — no service context) ─────────────────────
 // Detects pesan seperti "mau tanya harga", "berapa biaya", "info tarif" dll
 // yang belum menyebutkan layanan spesifik (pengiriman, lapangan, dll.).
