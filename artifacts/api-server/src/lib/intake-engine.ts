@@ -142,6 +142,21 @@ export function isCancellation(message: string): boolean {
   return CANCEL_PATTERNS.test(message);
 }
 
+// ─── Price inquiry detection (vague — no service context) ─────────────────────
+// Detects pesan seperti "mau tanya harga", "berapa biaya", "info tarif" dll
+// yang belum menyebutkan layanan spesifik (pengiriman, lapangan, dll.).
+// Digunakan untuk memunculkan menu klarifikasi sebelum AI pipeline dijalankan.
+
+const PRICE_KEYWORDS = /\b(harga|biaya|tarif|ongkos|ongkir|rate|estimasi|penawaran|quotation|quote)\b/i;
+
+// Kata-kata yang menunjukkan layanan SPESIFIK sudah disebutkan → jangan intercept
+const SPECIFIC_SERVICE_KEYWORDS = /\b(pengiriman|kirim|trucking|truck|truk|angkut|freight|import|impor|ekspor|export|bea cukai|cukai|customs|ppjk|lapangan|badminton|futsal|basket|basketball|voli|volley|tennis|gym|billiard|olahraga|sport|booking|sewa|kios|tenant|kasbon|uang muka|dp)\b/i;
+
+export function isPriceInquiry(message: string): boolean {
+  const text = message.trim();
+  return PRICE_KEYWORDS.test(text) && !SPECIFIC_SERVICE_KEYWORDS.test(text);
+}
+
 // ─── Greeting detection — resets active session silently ──────────────────────
 // Pesan-pesan ini menandakan user memulai ulang percakapan.
 // Sesi aktif yang ada harus di-cancel agar user bisa mulai dari awal.

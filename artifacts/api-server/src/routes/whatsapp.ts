@@ -29,6 +29,7 @@ import {
   isGreeting,
   isClosingPhrase,
   isCancellation,
+  isPriceInquiry,
 } from "../lib/intake-engine";
 import { routeIntentToFlow } from "../lib/mini-form-router";
 import { getFormConfig } from "../lib/mini-form-config";
@@ -753,6 +754,32 @@ async function runAiDetection({
         .set({ aiProcessed: true, detectedIntent: "general_inquiry" })
         .where(eq(whatsappMessagesTable.id, savedMsgId))
         .catch((e) => logger.warn({ e }, "greeting: failed to mark aiProcessed"));
+      return;
+    }
+
+    // ── Step 0a-price: Price inquiry gate ─────────────────────────────────────
+    // "mau tanya harga", "berapa biaya", "info tarif" dll tanpa konteks layanan
+    // spesifik → balas menu klarifikasi daripada menjalankan AI pipeline yang
+    // akan salah classify ke freight/trucking dan mengirim form yang tidak tepat.
+    if (!activeSession && isPriceInquiry(bodyText)) {
+      logger.info({ from, msg: bodyText }, "Price inquiry (vague) detected — sending clarification menu");
+      const priceReply =
+        `Halo! Kami siap bantu informasikan harga. 😊\n\n` +
+        `Untuk layanan apa yang ingin Anda ketahui harganya?\n\n` +
+        `1.🚚 Pengiriman / Trucking / Freight\n` +
+        `2.📋 Bea Cukai / Customs / PPJK\n` +
+        `3.🏟️ Sewa Lapangan Olahraga\n` +
+        `4.🏪 Sewa Kios / Tenant\n` +
+        `5.❓ Lainnya — ceritakan kebutuhan Anda\n\n` +
+        `Silakan balas dengan nomor atau langsung ceritakan kebutuhan Anda. 🙏`;
+      await sendFonnte(replyTo, priceReply, fonnteDevice).catch((e) =>
+        logger.warn({ e }, "price-inquiry: failed to send clarification menu"),
+      );
+      await db
+        .update(whatsappMessagesTable)
+        .set({ aiProcessed: true, detectedIntent: "price_inquiry_vague" })
+        .where(eq(whatsappMessagesTable.id, savedMsgId))
+        .catch(() => {});
       return;
     }
 
