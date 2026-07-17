@@ -814,7 +814,13 @@ async function runAiDetection({
     // NOTE: `!activeSession` intentionally removed — we also need to intercept when
     // a stale "ready_for_task" session exists from the same phone (e.g. the previous
     // "pertanyaan lainnya" that slipped through to the AI pipeline and left a session).
-    if (!isAnsweringClarification && (bodyText.trim() === "5" || isGeneralInquiry(bodyText))) {
+    const _isDigit5 = bodyText.trim() === "5";
+    const _isGenInquiry = isGeneralInquiry(bodyText);
+    logger.info(
+      { from, bodyText, bodyLen: bodyText.length, isAnsweringClarification, _isDigit5, _isGenInquiry },
+      "general-inquiry-gate: evaluating",
+    );
+    if (!isAnsweringClarification && (_isDigit5 || _isGenInquiry)) {
       logger.info({ from, msg: bodyText }, "General inquiry detected — cancelling any stale session, asking clarification question");
       // Cancel any lingering session so it doesn't interfere with the clarification flow
       await db

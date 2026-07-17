@@ -148,23 +148,28 @@ export function isCancellation(message: string): boolean {
 // klarifikasi sebelum AI pipeline, sehingga customer bisa menjelaskan topiknya
 // dan bot bisa routing ke penerima notifikasi yang tepat.
 
-// Deteksi "pertanyaan lainnya" dengan toleransi typo:
-// - "lainya" (1 n), "lainnya" (2 n), "lainnnya" (3 n), dll.
-// - "pertanyaan umum", "pertanyaan lain", dll.
-// - Juga menangkap teks ekspansi digit menu "5"
-const GENERAL_INQUIRY_PATTERNS =
-  /^(pertanyaan\s+lain\w*|pertanyaan\s+umum|pertanyaan\s+other|lain\w*nya|tanya\s+lain\w*|informasi\s+lain\w*|info\s+lain\w*)\s*[!.?]*$/i;
-const GENERAL_INQUIRY_EXPANDED = /saya punya pertanyaan umum/i;
-// Khusus "lainnya" / "lainya" standalone (tanpa kata "pertanyaan" di depan)
-const GENERAL_INQUIRY_STANDALONE = /^lain\w*nya\s*[!.?]*$/i;
+// Deteksi "pertanyaan lainnya" dengan toleransi typo & karakter Unicode tersembunyi.
+// Menggunakan includes() + toLowerCase() agar jauh lebih robust daripada regex anchored.
+// Menangkap variasi: "lainya" (1n), "lainnya" (2n), "umum", dll.
 
 export function isGeneralInquiry(message: string): boolean {
-  const text = message.trim();
-  return (
-    GENERAL_INQUIRY_PATTERNS.test(text) ||
-    GENERAL_INQUIRY_EXPANDED.test(text) ||
-    GENERAL_INQUIRY_STANDALONE.test(text)
-  );
+  // Bersihkan karakter invisible (ZWNJ, ZWNBSP, LRM, RLM, zero-width space, dll.)
+  // yang kadang ikut terbawa saat copy-paste dari WhatsApp
+  const text = message
+    .replace(/[\u200b-\u200f\u202a-\u202e\u2060\ufeff]/g, "")
+    .trim()
+    .toLowerCase();
+
+  // Pesan berisi "pertanyaan" DAN salah satu kata "lain" / "umum" / "other"
+  if (text.includes("pertanyaan") && /lain|umum|other/.test(text)) return true;
+
+  // Standalone "lainnya" / "lainya" (customer hanya mengetik kata itu saja)
+  if (/^lain\w*ya\s*[!.?]*$/.test(text)) return true;
+
+  // Teks ekspansi digit menu lama (fallback)
+  if (text.includes("saya punya pertanyaan umum")) return true;
+
+  return false;
 }
 
 // ─── Price inquiry detection (vague — no service context) ─────────────────────
