@@ -67,6 +67,7 @@ import companyGovernanceRouter from "./company-governance";
 import { companyOnboardingRouter } from "./company-onboarding";
 import holdingDashboardRouter from "./holding-dashboard";
 import aiOperationsRouter from "./ai-operations";
+import creativeAiRouter from "./creative-ai";
 import notificationReceiversRouter from "./notification-receivers";
 import sportCenterRouter from "./sport-center";
 import publicSportCenterRouter from "./public-sport-center";
@@ -165,6 +166,8 @@ router.use(companyOnboardingRouter);
 router.use(holdingDashboardRouter);
 // ── Sprint 10B-4 — AI Operations Center ────────────────────────────────────────
 router.use(aiOperationsRouter);
+// ── Creative AI — Logo Generation via Together.ai / FLUX.1 ────────────────────
+router.use(creativeAiRouter);
 // ── Notification Receivers ────────────────────────────────────────────────────
 router.use(notificationReceiversRouter);
 // ── Sport Center Booking Management ───────────────────────────────────────────

@@ -13,6 +13,7 @@ import type { IntentResolution } from "./intent-engine";
 import { logger } from "./logger";
 import { emitSseEvent } from "./sse";
 import { notifyTaskCreated } from "./notifications";
+import { triggerCreativeAiJob } from "./creative-ai-engine";
 
 // ─── Status vocabulary ────────────────────────────────────────────────────────
 
@@ -657,6 +658,18 @@ async function createNewTask({
   } catch (detailErr) {
     // Non-fatal — detail tables might not exist yet (run migrate-detail-tables.mjs)
     logger.warn({ detailErr, category: result.category }, "Failed to save task detail fields — run scripts/migrate-detail-tables.mjs");
+  }
+
+  // ── Creative AI — generate logo/aset jika kategori Creative AI (fire-and-forget) ──
+  if ((result.category ?? "").toLowerCase() === "creative ai" || (result.category ?? "") === "Creative AI") {
+    triggerCreativeAiJob({
+      taskId:          task.id,
+      taskNumber,
+      customerName:    customerName ?? "Customer",
+      customerPhone,
+      companyId,
+      collectedFields: cf,
+    }).catch((err) => logger.error({ err }, "creative-ai: triggerCreativeAiJob failed"));
   }
 
   // ── WhatsApp notification (fire-and-forget) ──────────────────────────────────
