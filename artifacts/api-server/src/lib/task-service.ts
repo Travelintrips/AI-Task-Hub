@@ -13,7 +13,8 @@ import type { IntentResolution } from "./intent-engine";
 import { logger } from "./logger";
 import { emitSseEvent } from "./sse";
 import { notifyTaskCreated } from "./notifications";
-import { triggerCreativeAiJob } from "./creative-ai-engine";
+// creative-ai-engine: logo generation dihapus dari task-service —
+// AI Task Center kini hanya redirect ke Sales AI (lihat whatsapp.ts creative gate)
 
 // ─── Status vocabulary ────────────────────────────────────────────────────────
 
@@ -660,16 +661,13 @@ async function createNewTask({
     logger.warn({ detailErr, category: result.category }, "Failed to save task detail fields — run scripts/migrate-detail-tables.mjs");
   }
 
-  // ── Creative AI — generate logo/aset jika kategori Creative AI (fire-and-forget) ──
+  // ── Creative AI — layanan kreatif diarahkan ke Sales AI, tidak diproses di sini ──
+  // AI Task Center hanya menyambungkan ke Sales AI; logo/desain tidak dibuat di sini.
   if ((result.category ?? "").toLowerCase() === "creative ai" || (result.category ?? "") === "Creative AI") {
-    triggerCreativeAiJob({
-      taskId:          task.id,
-      taskNumber,
-      customerName:    customerName ?? "Customer",
-      customerPhone,
-      companyId,
-      collectedFields: cf,
-    }).catch((err) => logger.error({ err }, "creative-ai: triggerCreativeAiJob failed"));
+    logger.info(
+      { taskId: task.id, taskNumber, category: result.category },
+      "creative-ai: task recorded; customer already redirected to Sales AI via WA gate — skipping triggerCreativeAiJob",
+    );
   }
 
   // ── WhatsApp notification (fire-and-forget) ──────────────────────────────────

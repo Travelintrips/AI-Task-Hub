@@ -361,6 +361,38 @@ export function isClosingPhrase(message: string): boolean {
   return CLOSING_PHRASE_PATTERNS.test(message.trim());
 }
 
+// ─── Creative / Sales AI service request detection ────────────────────────────
+// Detects requests for logo, brand design, company profile, pitch deck, social
+// media design, packaging, copywriting, AI image, fashion brief, etc.
+// These are handled by Sales AI — not by AI Task Center directly.
+
+const CREATIVE_SERVICE_KEYWORDS_RE =
+  /\b(logo|brand(?:ing)?|identitas.?brand|desain.?brand|company.?profile|profil.?perusahaan|pitch.?deck|presentasi|media.?sosial|konten.?instagram|instagram.?konten|packaging|kemasan|copywriting|copy.?writing|gambar.?ai|ai.?image|fashion.?brief|fashion.?collection|brief.?fashion|desain.?sosial|social.?media.?design|desain.?packaging|desain.?kemasan|desain.?logo|buat.?logo|mau.?logo|bikin.?logo|logo.?ai|kreasi.?logo|kreasi.?brand|sales.?ai|layanan.?kreatif|kreatif|creative.?service|desain.?grafis|design.?grafis|grafis|graphic.?design)\b/i;
+
+export function isCreativeServiceRequest(message: string): boolean {
+  return CREATIVE_SERVICE_KEYWORDS_RE.test(message.trim());
+}
+
+export function buildSalesAiMessage(): string {
+  return (
+    `🎨 *Layanan Kreatif — Sales AI*\n\n` +
+    `Terima kasih sudah menghubungi kami! 😊\n\n` +
+    `Untuk layanan desain dan konten kreatif, Anda akan segera *dihubungkan ke Sales AI* yang akan membantu Anda lebih lanjut.\n\n` +
+    `*💼 Layanan Komersial Kreatif kami:*\n` +
+    `🖌️ Konsep Logo AI — Rp 299.000\n` +
+    `🏷️ Paket Identitas Brand — Rp 1.750.000\n` +
+    `📋 Company Profile — Rp 750.000\n` +
+    `📊 Pitch Deck / Presentasi — Rp 1.250.000\n` +
+    `📱 Desain Media Sosial — Rp 75.000\n` +
+    `📸 Konten Instagram (bulanan) — Rp 950.000/bln\n` +
+    `📦 Packaging Design — Rp 750.000\n` +
+    `✍️ Copywriting — Rp 350.000\n` +
+    `🖼️ Pembuatan Gambar AI — Rp 75.000\n` +
+    `👗 Fashion Collection Brief — Rp 950.000\n\n` +
+    `Tim Sales AI kami akan segera menghubungi Anda. Mohon tunggu sebentar! 🙏`
+  );
+}
+
 // ─── Sport Center: regex date/time extractor (no-OpenAI fallback) ─────────────
 // Extracts Indonesian date and time from free-text without calling OpenAI.
 // Used as a reliable fallback when extractFieldsFromMessage (OpenAI) fails.

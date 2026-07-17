@@ -35,6 +35,8 @@ import {
   isTenantPriceInquiry,
   buildSportCenterPriceListMessage,
   buildTenantPriceMessage,
+  isCreativeServiceRequest,
+  buildSalesAiMessage,
 } from "../lib/intake-engine";
 import { routeIntentToFlow } from "../lib/mini-form-router";
 import { getFormConfig } from "../lib/mini-form-config";
@@ -769,7 +771,8 @@ async function runAiDetection({
         `2.📋 Layanan PPJK / Bea Cukai / Customs\n` +
         `3.🏟️ Booking Lapangan Olahraga\n` +
         `4.💰 Kasbon / Pembayaran\n` +
-        `5.❓ Pertanyaan lainnya\n\n` +
+        `5.❓ Pertanyaan lainnya\n` +
+        `6.🎨 Layanan Kreatif / Desain (Sales AI)\n\n` +
         `Tim kami siap membantu! 🙏`;
       await sendFonnte(replyTo, greetingReply, fonnteDevice).catch((e) =>
         logger.warn({ e }, "greeting: failed to send canned reply"),
@@ -842,6 +845,7 @@ async function runAiDetection({
           .catch(() => {});
         return;
       }
+
     }
 
     // ── Step 0a-general: General inquiry gate ("pertanyaan lainnya" / digit 5) ──
@@ -897,26 +901,63 @@ async function runAiDetection({
     }
 
     // ── Step 0a-menu: Menu digit selection gate ─────────────────────────────────
-    // When user replies with a single digit 1-4 referencing the greeting menu
+    // When user replies with a single digit referencing the greeting menu
     // (and there is no active intake session), translate the digit to a full
     // intent phrase so the AI pipeline detects the correct intent and creates
     // an intake session. Also applies when answering the "pertanyaan lainnya"
     // clarification so digits 1-4 are correctly routed to their services.
     // NOTE: Digit "5" is intercepted by the general inquiry gate above.
+    // NOTE: Digit "6" is intercepted here and redirected directly to Sales AI.
     if (messageType === "text") {
+      const menuKey = bodyText.trim();
+      const isMenuEligible = !activeSession || isAnsweringClarification;
+
+      // ── Digit "6" → Sales AI redirect (no task, no intake session) ────────
+      if (isMenuEligible && menuKey === "6") {
+        logger.info({ from }, "Menu digit 6 — redirecting to Sales AI");
+        const salesAiReply = buildSalesAiMessage();
+        await sendFonnte(replyTo, salesAiReply, fonnteDevice).catch((e) =>
+          logger.warn({ e }, "creative-gate: failed to send Sales AI redirect reply"),
+        );
+        await db
+          .update(whatsappMessagesTable)
+          .set({ aiProcessed: true, detectedIntent: "sales_ai_redirect" })
+          .where(eq(whatsappMessagesTable.id, savedMsgId))
+          .catch(() => {});
+        return;
+      }
+
       const menuExpand: Record<string, string> = {
         "1": "saya butuh layanan pengiriman trucking sea air freight logistik",
         "2": "saya butuh layanan PPJK bea cukai customs kepabeanan",
         "3": "saya mau booking lapangan olahraga futsal badminton",
         "4": "saya butuh kasbon pembayaran uang muka",
       };
-      const menuKey = bodyText.trim();
-      const expanded = !activeSession || isAnsweringClarification ? menuExpand[menuKey] : undefined;
+      const expanded = isMenuEligible ? menuExpand[menuKey] : undefined;
       if (expanded) {
         logger.info({ from, digit: menuKey }, "Menu digit detected — expanding to full intent text for AI pipeline");
         // eslint-disable-next-line no-param-reassign
         bodyText = expanded;
       }
+    }
+
+    // ── Step 0a-creative: Creative / Sales AI gate (free-text) ─────────────────
+    // Catches free-text creative requests ("mau buat logo", "minta desain brand",
+    // "bikin company profile", dll) BEFORE the AI pipeline runs a full intent
+    // detection and creates a task. AI Task Center tidak mengerjakan kreatif
+    // sendiri — redirect ke Sales AI.
+    if (!isAnsweringClarification && !activeSession && isCreativeServiceRequest(bodyText)) {
+      logger.info({ from, msg: bodyText }, "Creative service request detected — redirecting to Sales AI");
+      const salesAiReply = buildSalesAiMessage();
+      await sendFonnte(replyTo, salesAiReply, fonnteDevice).catch((e) =>
+        logger.warn({ e }, "creative-gate: failed to send Sales AI redirect reply"),
+      );
+      await db
+        .update(whatsappMessagesTable)
+        .set({ aiProcessed: true, detectedIntent: "sales_ai_redirect" })
+        .where(eq(whatsappMessagesTable.id, savedMsgId))
+        .catch(() => {});
+      return;
     }
 
     // ── Step 0b: Check for active intake session ───────────────────────────────
