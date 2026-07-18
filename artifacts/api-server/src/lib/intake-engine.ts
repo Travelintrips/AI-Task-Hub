@@ -375,9 +375,9 @@ export function isCreativeServiceRequest(message: string): boolean {
 
 export function buildSalesAiMessage(): string {
   return (
-    `🎨 *Layanan Kreatif — Sales AI*\n\n` +
+    `🎨 *Layanan Kreatif AI*\n\n` +
     `Terima kasih sudah menghubungi kami! 😊\n\n` +
-    `Untuk layanan desain dan konten kreatif, Anda akan segera *dihubungkan ke Sales AI* yang akan membantu Anda lebih lanjut.\n\n` +
+    `Untuk layanan desain dan konten kreatif, Anda akan segera *dihubungkan ke Kreatif AI* yang akan membantu Anda lebih lanjut.\n\n` +
     `*💼 Layanan Komersial Kreatif kami:*\n` +
     `🖌️ Konsep Logo AI — Rp 299.000\n` +
     `🏷️ Paket Identitas Brand — Rp 1.750.000\n` +
@@ -389,7 +389,7 @@ export function buildSalesAiMessage(): string {
     `✍️ Copywriting — Rp 350.000\n` +
     `🖼️ Pembuatan Gambar AI — Rp 75.000\n` +
     `👗 Fashion Collection Brief — Rp 950.000\n\n` +
-    `Tim Sales AI kami akan segera menghubungi Anda. Mohon tunggu sebentar! 🙏`
+    `Tim Kreatif AI kami akan segera menghubungi Anda. Mohon tunggu sebentar! 🙏`
   );
 }
 

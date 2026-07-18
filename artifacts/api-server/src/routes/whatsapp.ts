@@ -772,7 +772,7 @@ async function runAiDetection({
         `3.🏟️ Booking Lapangan Olahraga\n` +
         `4.💰 Kasbon / Pembayaran\n` +
         `5.❓ Pertanyaan lainnya\n` +
-        `6.🎨 Layanan Kreatif / Desain (Sales AI)\n\n` +
+        `6.🎨 Layanan Kreatif / Desain AI\n\n` +
         `Tim kami siap membantu! 🙏`;
       await sendFonnte(replyTo, greetingReply, fonnteDevice).catch((e) =>
         logger.warn({ e }, "greeting: failed to send canned reply"),
