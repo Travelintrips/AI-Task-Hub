@@ -74,6 +74,8 @@ FONNTE_TOKEN_3 = "IoGQPB!5S#7VCSz5AcXw"
 FONNTE_TOKEN_4 = "3hYIZghAc5N1!sUe3dMb"
 OPENAI_API_KEY = "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"
 SC_DOMAIN = "https://sc.travelintrips.co.id"
+FONNTE_DEVICE_5 = "6281992935152"
+FONNTE_TOKEN_5 = "V6t2bZekuV33hLBFw83H"
 
 [userenv.production]
 VITE_SUPABASE_URL = "https://nzdweipzckfszczzqtuw.supabase.co"
