@@ -18,7 +18,7 @@ function buildTokenMap(): Map<string, string> {
     map.set("default", defaultToken);
   }
 
-  for (let i = 2; i <= 10; i++) {
+  for (let i = 1; i <= 10; i++) {
     const token = process.env[`FONNTE_TOKEN_${i}`];
     const device = process.env[`FONNTE_DEVICE_${i}`];
     if (token && device) {
