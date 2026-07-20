@@ -11,7 +11,8 @@ export const config = {
       `https://${SUPABASE_PROJECT_REF}.storage.supabase.co/storage/v1/s3`,
   },
   openai: {
-    baseUrl: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL || undefined,
+    // Priority: Replit AI Integration proxy → fallback OPENAI_BASE_URL env → direct OpenAI
+    baseUrl: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL || process.env.OPENAI_BASE_URL || undefined,
     apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY || process.env.OPENAI_API_KEY || "_NOT_CONFIGURED_",
   },
   objectStorage: {
