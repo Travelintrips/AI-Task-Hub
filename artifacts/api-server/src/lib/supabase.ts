@@ -54,25 +54,32 @@ export async function getUploadUrl(filename: string, _mimeType: string): Promise
     throw new Error(`Failed to create signed upload URL: ${error?.message}`);
   }
 
-  // Gunakan createSignedUrl (bukan getPublicUrl) agar URL selalu accessible
-  // tanpa bergantung pada bucket harus public — penting untuk Fonnte document delivery.
-  const { data: signedReadData, error: signedReadError } = await supabase.storage
-    .from(BUCKET)
-    .createSignedUrl(path, 60 * 60 * 24 * 7); // 7 hari
+  // Gunakan getPublicUrl (bucket dibuat public: true) agar URL permanen tanpa expiry.
+  // Fonnte perlu mengunduh file dari URL ini — public URL jauh lebih andal karena:
+  // - Tidak ada token JWT yang bisa expire
+  // - Tidak ada query string yang bisa gagal di-decode
+  // - Bekerja konsisten dari server mana pun (termasuk Fonnte)
+  const { data: publicData } = supabase.storage.from(BUCKET).getPublicUrl(path);
 
-  if (signedReadError || !signedReadData) {
-    // Fallback ke public URL jika signed read gagal
-    const { data: publicData } = supabase.storage.from(BUCKET).getPublicUrl(path);
-    return {
-      uploadUrl: data.signedUrl,
-      publicUrl: publicData.publicUrl,
-      path,
-    };
+  // Fallback: jika bucket belum public, gunakan signed read URL (7 hari)
+  if (!publicData.publicUrl || !publicData.publicUrl.includes("/public/")) {
+    const { data: signedReadData, error: signedReadError } = await supabase.storage
+      .from(BUCKET)
+      .createSignedUrl(path, 60 * 60 * 24 * 7); // 7 hari
+    if (!signedReadError && signedReadData) {
+      logger.info({ path, mode: "signed" }, "getUploadUrl: using signed read URL (bucket may not be public)");
+      return {
+        uploadUrl: data.signedUrl,
+        publicUrl: signedReadData.signedUrl,
+        path,
+      };
+    }
   }
 
+  logger.info({ path, publicUrl: publicData.publicUrl, mode: "public" }, "getUploadUrl: using public URL");
   return {
     uploadUrl: data.signedUrl,
-    publicUrl: signedReadData.signedUrl,
+    publicUrl: publicData.publicUrl,
     path,
   };
 }

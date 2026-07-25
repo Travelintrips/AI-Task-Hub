@@ -563,11 +563,25 @@ router.post("/public/mini-form/:type/:token", async (req, res): Promise<void> =>
             .filter((f: MiniFormFieldDef) => f.type === "file")
             .map((f: MiniFormFieldDef) => ({ key: f.name, label: f.label }));
 
+          // Log diagnostik: berapa file field yang ditemukan dan nilai masing-masing
+          const docFieldStatus = docAttachments.map(({ key, label }) => ({
+            key,
+            label,
+            value: merged[key] ?? null,
+            isUrl: isPublicUrl(merged[key]),
+          }));
+          logger.info(
+            { docAttachmentCount: docAttachments.length, docFieldStatus },
+            "intake-form: file field attachment diagnostic",
+          );
+
           for (const { key, label } of docAttachments) {
             const fileUrl = merged[key];
             if (!isPublicUrl(fileUrl)) {
               if (fileUrl) {
-                logger.info({ key, value: fileUrl }, "intake-form: file field has value but not a public URL — skip WA attachment");
+                logger.warn({ key, value: fileUrl }, "intake-form: file field has value but not a public URL — skip WA attachment");
+              } else {
+                logger.info({ key }, "intake-form: file field kosong — tidak ada dokumen untuk dikirim");
               }
               continue;
             }
@@ -586,7 +600,7 @@ router.post("/public/mini-form/:type/:token", async (req, res): Promise<void> =>
                   return { success: false, error: String(e) };
                 });
                 if (!result.success) {
-                  logger.warn({ phone: r.phone, key, filename, error: result.error }, "intake-form: WA document attachment failed");
+                  logger.warn({ phone: r.phone, key, filename, fileUrl, error: result.error }, "intake-form: WA document attachment failed");
                 } else {
                   logger.info({ phone: r.phone, key, filename }, "intake-form: WA document attachment sent");
                 }

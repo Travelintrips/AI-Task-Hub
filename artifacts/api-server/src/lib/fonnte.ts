@@ -193,14 +193,21 @@ export async function sendFonnteDocument(
       if (!allTokens.includes(t)) allTokens.push(t);
     }
     if (allTokens.length === 0) {
+      logger.warn({ to, filename }, "sendFonnteDocument: FONNTE_TOKEN tidak dikonfigurasi — dokumen ke grup dilewati");
       return { success: false, error: "FONNTE_TOKEN tidak dikonfigurasi" };
     }
+    logger.info({ groupJid: to, filename, documentUrl, tokenCount: allTokens.length }, "sendFonnteDocument: mencoba kirim dokumen ke grup");
     let lastError = "Semua device gagal mengirim dokumen ke grup";
     for (const t of allTokens) {
       const r = await sendDocWithToken(to, documentUrl, filename, t);
-      if (r.success) return r;
+      if (r.success) {
+        logger.info({ groupJid: to, filename, messageId: r.messageId }, "sendFonnteDocument: dokumen berhasil dikirim ke grup");
+        return r;
+      }
       lastError = r.error ?? lastError;
+      logger.debug({ groupJid: to, filename, error: r.error, token: t.slice(0, 8) + "…" }, "sendFonnteDocument: token gagal kirim ke grup, coba berikutnya");
     }
+    logger.warn({ groupJid: to, filename, lastError }, "sendFonnteDocument: semua token gagal kirim dokumen ke grup");
     return { success: false, error: lastError };
   }
 
