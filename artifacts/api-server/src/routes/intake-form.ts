@@ -9,7 +9,7 @@
  */
 
 import { Router, type IRouter } from "express";
-import { eq, and, or, inArray } from "drizzle-orm";
+import { eq, and, or, inArray, sql } from "drizzle-orm";
 
 // ── Kategori alias — mapping dari nama internal sistem → nama yang dipakai di Penerima Notifikasi
 // Ini memungkinkan admin menambahkan penerima dengan nama yang lebih familiar (misal "Trucking")
@@ -440,13 +440,26 @@ router.post("/public/mini-form/:type/:token", async (req, res): Promise<void> =>
         if (intentCodeCategory) getCategoryAliases(intentCodeCategory).forEach(a => aliasSet.add(a));
         const categoryList = Array.from(aliasSet);
 
-        // Cari penerima aktif yang match salah satu alias kategori
+        // Cari penerima aktif yang match salah satu alias kategori.
+        // Catatan companyId: intake sessions selalu dibuat dengan companyId="default",
+        // sementara receiver bisa tersimpan dengan company ID numerik (mis: "4").
+        // Solusi: jika session.companyId="default", jangan filter by companyId agar
+        // semua receiver aktif (termasuk yang company-specific) ikut ditemukan.
+        // Jika session punya company ID spesifik, cari receiver untuk company tsb + "default".
+        const companyFilter =
+          session.companyId === "default"
+            ? sql`1=1` // no company filter — find receivers from all companies
+            : or(
+                eq(notificationReceiversTable.companyId, session.companyId),
+                eq(notificationReceiversTable.companyId, "default"),
+              );
+
         const receivers = await db
           .select()
           .from(notificationReceiversTable)
           .where(
             and(
-              eq(notificationReceiversTable.companyId, session.companyId),
+              companyFilter,
               eq(notificationReceiversTable.isActive, true),
               categoryList.length === 1
                 ? eq(notificationReceiversTable.category, categoryList[0]!)
