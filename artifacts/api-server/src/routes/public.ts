@@ -11,7 +11,7 @@ import { validateToken, createPublicToken } from "../lib/tokens";
 import { logTimeline } from "../lib/timeline";
 import { runAuditForTask } from "../lib/run-audit";
 import { sendWhatsAppNotification } from "../lib/whatsapp-sender";
-import { getUploadUrl } from "../lib/supabase";
+import { getUploadUrl, ensureBucket } from "../lib/supabase";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
