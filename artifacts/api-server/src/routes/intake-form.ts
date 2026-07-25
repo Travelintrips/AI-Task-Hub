@@ -426,19 +426,49 @@ router.post("/public/mini-form/:type/:token", async (req, res): Promise<void> =>
           "intake-form: resolving notification receiver category",
         );
 
-        // Kumpulkan semua alias kategori yang perlu dicek
-        // Misal: intent "Customs" → cari penerima dengan kategori "Customs" ATAU "PPJK" ATAU "Bea Cukai" dll.
-        const aliasSet = new Set<string>();
-        if (resolvedCategory) getCategoryAliases(resolvedCategory).forEach(a => aliasSet.add(a));
-        if (session.category) getCategoryAliases(session.category).forEach(a => aliasSet.add(a));
-        if (aliasSet.size === 0) getCategoryAliases(effectiveCategory).forEach(a => aliasSet.add(a));
+        // ── Tentukan kategori routing dengan prioritas yang jelas ──────────────
+        //
+        // MASALAH LAMA: aliasSet adalah UNION dari semua sumber (DB + intentCode).
+        // Ini menyebabkan form PPJK/freight (intentCode="ppjk_import") juga masuk ke group
+        // Trucking karena DB intent_master.category = "Logistik" → alias "Trucking" ikut masuk.
+        //
+        // PRIORITAS BARU:
+        //   1. intentCode inference — paling spesifik, selalu sistem-defined
+        //   2. DB intent_master.category — trusted tapi bisa punya data lama
+        //   3. session.category / formCfg.title — fallback
+        //
+        // Jika intentCode memberikan kategori yang BERBEDA dari DB, intentCode menang.
+        // Dengan begitu form PPJK tidak juga masuk ke Trucking.
 
-        // SELALU tambahkan alias dari intentCode — penting untuk kasus di mana intentCode
-        // lebih spesifik dari category (misal: ppjk_service → category "Logistik" di DB,
-        // tapi penerima notif terdaftar dengan kategori "PPJK" atau "Customs")
         const intentCodeCategory = inferCategoryFromIntentCode(session.intentCode);
-        if (intentCodeCategory) getCategoryAliases(intentCodeCategory).forEach(a => aliasSet.add(a));
+
+        const aliasSet = new Set<string>();
+
+        if (intentCodeCategory) {
+          // intentCode adalah sumber paling spesifik — pakai sebagai primary
+          getCategoryAliases(intentCodeCategory).forEach(a => aliasSet.add(a));
+
+          // Tambahkan DB/session aliases HANYA jika SAMA dengan intentCode category
+          // (untuk menangkap alias tambahan yang didaftarkan admin, misal "PPJK/Customs")
+          if (resolvedCategory && resolvedCategory === intentCodeCategory) {
+            getCategoryAliases(resolvedCategory).forEach(a => aliasSet.add(a));
+          }
+          if (session.category && session.category === intentCodeCategory) {
+            getCategoryAliases(session.category).forEach(a => aliasSet.add(a));
+          }
+        } else {
+          // intentCode tidak memberikan kategori — fallback ke DB/session
+          if (resolvedCategory) getCategoryAliases(resolvedCategory).forEach(a => aliasSet.add(a));
+          if (session.category) getCategoryAliases(session.category).forEach(a => aliasSet.add(a));
+          if (aliasSet.size === 0) getCategoryAliases(effectiveCategory).forEach(a => aliasSet.add(a));
+        }
+
         const categoryList = Array.from(aliasSet);
+
+        logger.info(
+          { intentCodeCategory, resolvedCategory, sessionCategory: session.category, categoryList },
+          "intake-form: final category routing list",
+        );
 
         // Cari penerima aktif yang match salah satu alias kategori.
         // Catatan companyId: intake sessions selalu dibuat dengan companyId="default",

@@ -39,6 +39,8 @@
 - [Sport Center Availability](sport-center-availability.md) — booking_lapangan gets availability gate (field+date+time → check DB → confirm "ya" → form); sport_center_bookings table; gate resets on slot change.
 - [Sport Center menu loop fix](sport-center-menu-loop.md) — digit 1-6 not recognized as menu reply when AI extracted generic field_type; fixed via keyword-contains check + avail-check guard.
 - [Sport Center booking prod schema drift](sport-center-booking-schema-drift.md) — dev/prod are separate Supabase projects; prod sport_center_bookings missing columns caused silent save failures behind a generic "confirmed" fallback reply.
+- [WA document attachment CI/PL](wa-document-attachment.md) — CI/PL uploaded to Supabase from mini-form (not just filename); sent via sendFonnteDocument (url+filename params); excluded from text summary.
+- [Intake form notification routing](intake-form-routing.md) — intentCode inference MUST take priority over DB category (aliasSet union caused PPJK forms to go to Trucking group); see INTENT_CODE_CATEGORY map.
 - [Supabase Pooler Advisory Lock](supabase-pooler-advisory-lock.md) — pg_advisory_xact_lock fails on port 6543 (PgBouncer txn mode); causes booking functions to silently return null; fix: supabaseQuery direct + UNIQUE retry loop.
 - [sport_bookings bridge insert](sport-bookings-bridge-insert.md) — bridgeToSportBookings Step 2 silently failed: supabaseQuery swallows errors, booking_date stored as ISO timestamp, :: cast syntax fails on pooler; fix: supabaseQueryStrict + normalize date/time in JS.
 - [SC domain for customer links](sc-domain-links.md) — WA links used ephemeral REPLIT_DEV_DOMAIN when SC_DOMAIN unset, going dead across dev domain changes; fixed by setting SC_DOMAIN to stable prod domain.
