@@ -54,34 +54,85 @@ export async function getUploadUrl(filename: string, _mimeType: string): Promise
     throw new Error(`Failed to create signed upload URL: ${error?.message}`);
   }
 
-  // Gunakan getPublicUrl (bucket dibuat public: true) agar URL permanen tanpa expiry.
-  // Fonnte perlu mengunduh file dari URL ini — public URL jauh lebih andal karena:
-  // - Tidak ada token JWT yang bisa expire
-  // - Tidak ada query string yang bisa gagal di-decode
-  // - Bekerja konsisten dari server mana pun (termasuk Fonnte)
+  // Coba public URL dulu — bucket dibuat dengan public: true.
+  // PENTING: getPublicUrl() SELALU mengembalikan URL (bahkan jika bucket private),
+  // jadi kita TIDAK bisa mengandalkan format URL saja. Kita harus cek aksesibilitas
+  // setelah file di-upload (lihat getAccessibleUrl).
   const { data: publicData } = supabase.storage.from(BUCKET).getPublicUrl(path);
 
-  // Fallback: jika bucket belum public, gunakan signed read URL (7 hari)
-  if (!publicData.publicUrl || !publicData.publicUrl.includes("/public/")) {
-    const { data: signedReadData, error: signedReadError } = await supabase.storage
-      .from(BUCKET)
-      .createSignedUrl(path, 60 * 60 * 24 * 7); // 7 hari
-    if (!signedReadError && signedReadData) {
-      logger.info({ path, mode: "signed" }, "getUploadUrl: using signed read URL (bucket may not be public)");
-      return {
-        uploadUrl: data.signedUrl,
-        publicUrl: signedReadData.signedUrl,
-        path,
-      };
-    }
-  }
-
-  logger.info({ path, publicUrl: publicData.publicUrl, mode: "public" }, "getUploadUrl: using public URL");
+  logger.info({ path, publicUrl: publicData.publicUrl, mode: "public" }, "getUploadUrl: signed upload URL created, public URL generated");
   return {
     uploadUrl: data.signedUrl,
     publicUrl: publicData.publicUrl,
     path,
   };
+}
+
+/**
+ * Setelah file berhasil di-upload, verifikasi public URL benar-benar accessible.
+ * Jika HEAD request gagal (bucket private/policy restricted), generate signed URL 7 hari
+ * yang bisa diakses Fonnte tanpa login.
+ *
+ * Gunakan fungsi ini sebelum kirim URL ke Fonnte.
+ */
+export async function getAccessibleUrl(
+  storagePath: string,
+  originalUrl: string,
+): Promise<{ url: string; mode: "public" | "signed" | "original" }> {
+  if (!supabase) {
+    return { url: originalUrl, mode: "original" };
+  }
+
+  // 1. HEAD check pada public URL
+  try {
+    const headRes = await fetch(originalUrl, { method: "HEAD" });
+    if (headRes.ok) {
+      logger.info({ storagePath, status: headRes.status, mode: "public" }, "getAccessibleUrl: public URL OK");
+      return { url: originalUrl, mode: "public" };
+    }
+    logger.warn(
+      { storagePath, httpStatus: headRes.status, url: originalUrl },
+      "getAccessibleUrl: public URL tidak accessible — fallback ke signed URL",
+    );
+  } catch (headErr) {
+    logger.warn(
+      { storagePath, headErr, url: originalUrl },
+      "getAccessibleUrl: HEAD request gagal — fallback ke signed URL",
+    );
+  }
+
+  // 2. Fallback: signed URL 7 hari (dapat diakses Fonnte tanpa auth)
+  const { data: signedData, error: signedErr } = await supabase.storage
+    .from(BUCKET)
+    .createSignedUrl(storagePath, 60 * 60 * 24 * 7);
+
+  if (!signedErr && signedData?.signedUrl) {
+    logger.info({ storagePath, mode: "signed" }, "getAccessibleUrl: signed URL 7 hari berhasil dibuat");
+    return { url: signedData.signedUrl, mode: "signed" };
+  }
+
+  logger.error(
+    { storagePath, signedErr },
+    "getAccessibleUrl: signed URL gagal dibuat — pakai original URL sebagai fallback terakhir",
+  );
+  return { url: originalUrl, mode: "original" };
+}
+
+/**
+ * Ekstrak storage path dari Supabase public URL.
+ * Format: https://{project}.supabase.co/storage/v1/object/public/{bucket}/{path}
+ * Returns: "uploads/..." atau null jika format tidak dikenali.
+ */
+export function extractStoragePath(publicUrl: string): string | null {
+  try {
+    const marker = `/object/public/${BUCKET}/`;
+    const idx = publicUrl.indexOf(marker);
+    if (idx === -1) return null;
+    const pathWithQuery = publicUrl.slice(idx + marker.length);
+    return pathWithQuery.split("?")[0] ?? null;
+  } catch {
+    return null;
+  }
 }
 
 export async function uploadBuffer(

@@ -55,6 +55,7 @@ import {
   bridgeToSportBookings,
 } from "../lib/sport-center-availability";
 import { supabaseQuery } from "../lib/supabase-db";
+import { getAccessibleUrl, extractStoragePath } from "../lib/supabase";
 
 // ── Fallback map: intent code prefix → kategori penerima notifikasi
 // Digunakan ketika intent_master lookup ke DB tidak menemukan data
@@ -484,6 +485,13 @@ router.post(
         });
 
         // ── Kirim WA ke Penerima Notifikasi yang aktif sesuai kategori ─────────
+        // Ini diisi jika ada file attachment yang dicoba dikirim, digunakan di res.json
+        let attachmentSummary: {
+          total: number;
+          failed: number;
+          errors: string[];
+        } | null = null;
+
         try {
           // Lookup kategori dari intent_master — coba heliumdb dulu, lalu Supabase
           let resolvedCategory: string | null = null;
@@ -733,6 +741,15 @@ router.post(
               "intake-form: file field attachment diagnostic",
             );
 
+            const attachmentResults: Array<{
+              key: string;
+              filename: string;
+              urlMode: string;
+              successCount: number;
+              failCount: number;
+              errors: string[];
+            }> = [];
+
             for (const { key, label } of docAttachments) {
               const fileUrl = merged[key];
               if (!isPublicUrl(fileUrl)) {
@@ -757,43 +774,132 @@ router.post(
               const filename =
                 rawFilename.replace(/^\d+_/, "") || `${label}.pdf`;
 
+              // ── Verifikasi URL benar-benar accessible sebelum kirim ke Fonnte ──
+              // getPublicUrl() Supabase SELALU mengembalikan URL bahkan jika bucket private.
+              // HEAD check memastikan Fonnte bisa download file tanpa auth.
+              const storagePath = extractStoragePath(fileUrl);
+              let accessibleFileUrl = fileUrl;
+              let urlMode = "original";
+
+              if (storagePath) {
+                try {
+                  const accessible = await getAccessibleUrl(storagePath, fileUrl);
+                  accessibleFileUrl = accessible.url;
+                  urlMode = accessible.mode;
+                  logger.info(
+                    { key, filename, storagePath, urlMode, accessibleFileUrl },
+                    "intake-form: URL accessibility check selesai",
+                  );
+                } catch (accessErr) {
+                  logger.warn(
+                    { key, filename, storagePath, accessErr },
+                    "intake-form: getAccessibleUrl gagal — pakai original URL",
+                  );
+                }
+              } else {
+                logger.warn(
+                  { key, fileUrl },
+                  "intake-form: tidak dapat ekstrak storage path dari URL — pakai URL langsung",
+                );
+              }
+
               logger.info(
-                { key, filename, fileUrl, receiverCount: receivers.length },
-                "intake-form: sending WA document attachment",
+                {
+                  key,
+                  filename,
+                  originalUrl: fileUrl,
+                  accessibleUrl: accessibleFileUrl,
+                  urlMode,
+                  receiverCount: receivers.length,
+                  receivers: receivers.map((r) => r.phone),
+                },
+                "intake-form: mulai kirim WA document attachment ke semua receiver",
               );
+
+              const docResult = {
+                key,
+                filename,
+                urlMode,
+                successCount: 0,
+                failCount: 0,
+                errors: [] as string[],
+              };
 
               await Promise.allSettled(
                 receivers.map(async (r) => {
+                  logger.info(
+                    {
+                      target: r.phone,
+                      filename,
+                      url: accessibleFileUrl,
+                      urlMode,
+                    },
+                    "intake-form: [Fonnte doc payload] target/url/filename (token disembunyikan)",
+                  );
+
                   const result = await sendFonnteDocument(
                     r.phone,
-                    fileUrl,
+                    accessibleFileUrl,
                     filename,
                   ).catch((e: unknown) => {
                     logger.warn(
-                      { e, phone: r.phone, key },
-                      "intake-form: sendFonnteDocument threw",
+                      { e, phone: r.phone, key, filename },
+                      "intake-form: sendFonnteDocument threw exception",
                     );
                     return { success: false, error: String(e) };
                   });
+
                   if (!result.success) {
+                    docResult.failCount++;
+                    docResult.errors.push(`${r.phone}: ${result.error ?? "unknown"}`);
                     logger.warn(
                       {
                         phone: r.phone,
                         key,
                         filename,
-                        fileUrl,
+                        accessibleUrl: accessibleFileUrl,
+                        urlMode,
                         error: result.error,
                       },
-                      "intake-form: WA document attachment failed",
+                      "intake-form: WA document attachment GAGAL",
                     );
                   } else {
+                    docResult.successCount++;
                     logger.info(
-                      { phone: r.phone, key, filename },
-                      "intake-form: WA document attachment sent",
+                      {
+                        phone: r.phone,
+                        key,
+                        filename,
+                        messageId: "messageId" in result ? result.messageId : undefined,
+                      },
+                      "intake-form: WA document attachment BERHASIL",
                     );
                   }
                 }),
               );
+
+              attachmentResults.push(docResult);
+            }
+
+            // Log ringkasan hasil attachment
+            const totalDocs = attachmentResults.length;
+            const failedDocs = attachmentResults.filter((r) => r.failCount > 0);
+            logger.info(
+              {
+                totalDocs,
+                failedDocs: failedDocs.length,
+                results: attachmentResults,
+              },
+              "intake-form: ringkasan kirim WA document attachment",
+            );
+
+            // Simpan summary ke scope luar agar bisa dilaporkan di response
+            if (totalDocs > 0) {
+              attachmentSummary = {
+                total: totalDocs,
+                failed: failedDocs.length,
+                errors: failedDocs.flatMap((r) => r.errors),
+              };
             }
 
             logger.info(
@@ -842,13 +948,26 @@ router.post(
         "Mini form submitted",
       );
 
+      const hasAttachmentFailure =
+        attachmentSummary !== null && attachmentSummary.failed > 0;
+
       res.json({
         ok: true,
         isComplete,
         taskNumber,
         missingFields: stillMissing,
+        attachmentStatus: attachmentSummary
+          ? {
+              total: attachmentSummary.total,
+              failed: attachmentSummary.failed,
+              partialFailure: hasAttachmentFailure,
+              errors: attachmentSummary.errors,
+            }
+          : null,
         message: isComplete
-          ? "🎉 Terima kasih! Data Anda telah kami terima dan kami akan segera memproses permintaan Anda."
+          ? hasAttachmentFailure
+            ? `🎉 Data Anda telah kami terima (No. Task: ${taskNumber}). Namun ${attachmentSummary!.failed} dari ${attachmentSummary!.total} dokumen gagal dikirim ke WhatsApp — tim kami tetap akan memprosesnya.`
+            : "🎉 Terima kasih! Data Anda telah kami terima dan kami akan segera memproses permintaan Anda."
           : `Data sebagian disimpan. Masih ada ${stillMissing.length} data yang perlu dilengkapi.`,
       });
     } catch (err) {

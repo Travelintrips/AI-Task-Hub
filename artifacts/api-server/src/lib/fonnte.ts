@@ -234,13 +234,27 @@ async function sendDocWithToken(
   filename: string,
   token: string,
 ): Promise<FonnteResult> {
-  try {
-    const params = new URLSearchParams({
-      target:   phone,
-      url:      documentUrl,
-      filename: filename,
-    });
+  const params = new URLSearchParams({
+    target:   phone,
+    url:      documentUrl,
+    filename: filename,
+  });
 
+  // Log payload tanpa token untuk debugging
+  logger.info(
+    {
+      fonntePayload: {
+        target: phone,
+        url: documentUrl,
+        filename: filename,
+        tokenPrefix: token.slice(0, 8) + "…",
+      },
+    },
+    "sendDocWithToken: mengirim dokumen ke Fonnte",
+  );
+
+  let responseText: string | null = null;
+  try {
     const res = await fetch(FONNTE_URL, {
       method: "POST",
       headers: {
@@ -250,22 +264,52 @@ async function sendDocWithToken(
       body: params.toString(),
     });
 
+    responseText = await res.text();
+
+    logger.info(
+      {
+        target: phone,
+        filename,
+        httpStatus: res.status,
+        fonnteResponse: responseText,
+      },
+      "sendDocWithToken: raw Fonnte response",
+    );
+
     if (!res.ok) {
-      const text = await res.text();
-      logger.error({ status: res.status, text }, "Fonnte document API error");
-      return { success: false, error: `Fonnte HTTP ${res.status}: ${text}` };
+      logger.error(
+        { target: phone, httpStatus: res.status, responseBody: responseText, filename, documentUrl },
+        "sendDocWithToken: Fonnte HTTP error",
+      );
+      return { success: false, error: `Fonnte HTTP ${res.status}: ${responseText}` };
     }
 
-    const data = (await res.json()) as { status?: boolean; id?: string; reason?: string };
+    let data: { status?: boolean; id?: string; reason?: string };
+    try {
+      data = JSON.parse(responseText) as { status?: boolean; id?: string; reason?: string };
+    } catch {
+      logger.error({ responseText, filename }, "sendDocWithToken: Fonnte response bukan JSON valid");
+      return { success: false, error: `Fonnte response tidak valid: ${responseText}` };
+    }
+
     if (!data.status) {
-      logger.warn({ data, filename }, "Fonnte document: status=false");
+      logger.warn(
+        { target: phone, filename, documentUrl, fonnteData: data },
+        "sendDocWithToken: Fonnte status=false (dokumen ditolak)",
+      );
       return { success: false, error: data.reason ?? "Fonnte rejected document" };
     }
 
-    logger.info({ phone, filename, messageId: data.id }, "WhatsApp document sent via Fonnte");
+    logger.info(
+      { target: phone, filename, messageId: data.id },
+      "sendDocWithToken: dokumen berhasil dikirim via Fonnte",
+    );
     return { success: true, messageId: data.id };
   } catch (err) {
-    logger.error({ err, filename }, "Gagal mengirim dokumen via Fonnte");
+    logger.error(
+      { err, target: phone, filename, documentUrl, responseText },
+      "sendDocWithToken: exception saat kirim dokumen",
+    );
     return { success: false, error: err instanceof Error ? err.message : "Network error" };
   }
 }
