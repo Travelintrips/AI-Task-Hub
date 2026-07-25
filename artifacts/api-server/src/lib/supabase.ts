@@ -54,11 +54,25 @@ export async function getUploadUrl(filename: string, _mimeType: string): Promise
     throw new Error(`Failed to create signed upload URL: ${error?.message}`);
   }
 
-  const { data: publicData } = supabase.storage.from(BUCKET).getPublicUrl(path);
+  // Gunakan createSignedUrl (bukan getPublicUrl) agar URL selalu accessible
+  // tanpa bergantung pada bucket harus public — penting untuk Fonnte document delivery.
+  const { data: signedReadData, error: signedReadError } = await supabase.storage
+    .from(BUCKET)
+    .createSignedUrl(path, 60 * 60 * 24 * 7); // 7 hari
+
+  if (signedReadError || !signedReadData) {
+    // Fallback ke public URL jika signed read gagal
+    const { data: publicData } = supabase.storage.from(BUCKET).getPublicUrl(path);
+    return {
+      uploadUrl: data.signedUrl,
+      publicUrl: publicData.publicUrl,
+      path,
+    };
+  }
 
   return {
     uploadUrl: data.signedUrl,
-    publicUrl: publicData.publicUrl,
+    publicUrl: signedReadData.signedUrl,
     path,
   };
 }
