@@ -33,6 +33,8 @@ description: How Commercial Invoice and Packing List are uploaded and sent as WA
 - If URL: call `sendFonnteDocument` for each receiver separately
 - Filename extraction: strips URL path + removes timestamp prefix (e.g., `1753449600000_`)
 - If not URL (just filename): skip attachment silently, log warning
+- Mini-form submit must send both the merged `fields` and `uploadedDocuments`; backend can use the latter as a recovery source for custom file fields.
+- The public upload-url route should initialize the storage bucket before creating a signed upload URL.
 
 ## Key Code Locations
 - `artifacts/api-server/src/lib/fonnte.ts` — `sendFonnteDocument` function

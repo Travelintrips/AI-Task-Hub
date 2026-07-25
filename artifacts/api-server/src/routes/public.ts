@@ -551,6 +551,7 @@ router.post("/public/mini-form-upload-url", async (req, res): Promise<void> => {
       res.status(400).json({ error: "filename wajib diisi" });
       return;
     }
+    await ensureBucket();
     const result = await getUploadUrl(filename, mimeType ?? "application/octet-stream");
     res.json(result);
   } catch (err) {

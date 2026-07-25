@@ -54,7 +54,15 @@ interface FormData {
   uploadedDocuments: string[];
 }
 
-function normalizeField(f: FieldDef): { name: string; label: string; type: string; required: boolean; options?: string[]; helpText?: string; placeholder?: string } {
+function normalizeField(f: FieldDef): {
+  name: string;
+  label: string;
+  type: string;
+  required: boolean;
+  options?: string[];
+  helpText?: string;
+  placeholder?: string;
+} {
   return {
     name: f.name ?? f.field_name ?? "",
     label: f.label ?? f.field_label ?? "",
@@ -82,7 +90,9 @@ function ErrorState({ message }: { message: string }) {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-red-50 to-orange-50 p-4">
       <div className="bg-white rounded-2xl shadow-lg p-8 max-w-md w-full text-center">
         <div className="text-4xl mb-4">⚠️</div>
-        <h2 className="text-lg font-semibold text-gray-800 mb-2">Form Tidak Tersedia</h2>
+        <h2 className="text-lg font-semibold text-gray-800 mb-2">
+          Form Tidak Tersedia
+        </h2>
         <p className="text-gray-500 text-sm">{message}</p>
       </div>
     </div>
@@ -96,7 +106,9 @@ function SuccessState({ message }: { message: string }) {
         <div className="text-5xl mb-4">✅</div>
         <h2 className="text-xl font-bold text-gray-800 mb-3">Berhasil!</h2>
         <p className="text-gray-600 text-sm leading-relaxed">{message}</p>
-        <p className="text-xs text-gray-400 mt-4">Anda dapat menutup halaman ini.</p>
+        <p className="text-xs text-gray-400 mt-4">
+          Anda dapat menutup halaman ini.
+        </p>
       </div>
     </div>
   );
@@ -114,7 +126,9 @@ function FormField({
   hasError: boolean;
 }) {
   const base = `w-full rounded-lg border px-3 py-2.5 text-sm outline-none transition ${
-    hasError ? "border-red-400 focus:ring-2 focus:ring-red-200" : "border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+    hasError
+      ? "border-red-400 focus:ring-2 focus:ring-red-200"
+      : "border-gray-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
   }`;
 
   if (field.type === "textarea") {
@@ -129,10 +143,16 @@ function FormField({
   }
   if (field.type === "select" && field.options) {
     return (
-      <select className={base} value={value} onChange={(e) => onChange(e.target.value)}>
+      <select
+        className={base}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+      >
         <option value="">— Pilih —</option>
         {field.options.map((o) => (
-          <option key={o} value={o}>{o}</option>
+          <option key={o} value={o}>
+            {o}
+          </option>
         ))}
       </select>
     );
@@ -143,7 +163,13 @@ function FormField({
   }
   return (
     <input
-      type={field.type === "number" ? "number" : field.type === "date" ? "date" : "text"}
+      type={
+        field.type === "number"
+          ? "number"
+          : field.type === "date"
+            ? "date"
+            : "text"
+      }
       className={base}
       placeholder={field.placeholder}
       value={value}
@@ -177,14 +203,19 @@ function FileFieldRenderer({
       {isUploaded ? (
         <div className="flex items-center gap-2 rounded-lg border border-green-300 bg-green-50 px-3 py-2.5 text-sm text-green-700">
           <span>✅</span>
-          <span className="truncate flex-1">{currentValue.split("/").pop()?.split("?")[0] ?? "File terupload"}</span>
+          <span className="truncate flex-1">
+            {currentValue.split("/").pop()?.split("?")[0] ?? "File terupload"}
+          </span>
           <label className="cursor-pointer text-xs text-blue-500 underline shrink-0">
             Ganti
             <input
               type="file"
               className="hidden"
               accept=".jpg,.jpeg,.png,.pdf,.doc,.docx"
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) onFileChange(f); }}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) onFileChange(f);
+              }}
             />
           </label>
         </div>
@@ -197,44 +228,65 @@ function FileFieldRenderer({
         <label className="block w-full cursor-pointer rounded-lg border-2 border-dashed border-gray-200 px-4 py-4 text-center hover:border-blue-400 hover:bg-blue-50 transition-colors">
           <div className="text-2xl mb-1">📎</div>
           <p className="text-sm text-gray-500">Pilih atau seret file ke sini</p>
-          <p className="text-xs text-gray-400 mt-0.5">{field.helpText ?? "PDF, JPG, PNG — maks. 10 MB"}</p>
+          <p className="text-xs text-gray-400 mt-0.5">
+            {field.helpText ?? "PDF, JPG, PNG — maks. 10 MB"}
+          </p>
           <input
             type="file"
             className="hidden"
             accept=".jpg,.jpeg,.png,.pdf,.doc,.docx"
-            onChange={(e) => { const f = e.target.files?.[0]; if (f) onFileChange(f); }}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) onFileChange(f);
+            }}
           />
         </label>
       )}
 
-      {uploadError && (
-        <p className="text-xs text-red-500">⚠️ {uploadError}</p>
-      )}
+      {uploadError && <p className="text-xs text-red-500">⚠️ {uploadError}</p>}
     </div>
   );
 }
 
 export default function MiniFormPage() {
-  const params = useParams<{ type?: string; token?: string; templateId?: string }>();
+  const params = useParams<{
+    type?: string;
+    token?: string;
+    templateId?: string;
+  }>();
   const type = params.type;
   const token = params.token;
   const templateId = params.templateId;
   const isPreview = !!templateId || type === "preview";
   const [values, setValues] = useState<Record<string, string>>({});
   const [touched, setTouched] = useState<Set<string>>(new Set());
-  const [submitResult, setSubmitResult] = useState<{ ok: boolean; message: string; isComplete: boolean; missingFields?: string[] } | null>(null);
-  const [uploadingFields, setUploadingFields] = useState<Set<string>>(new Set());
+  const [submitResult, setSubmitResult] = useState<{
+    ok: boolean;
+    message: string;
+    isComplete: boolean;
+    missingFields?: string[];
+  } | null>(null);
+  const [uploadingFields, setUploadingFields] = useState<Set<string>>(
+    new Set(),
+  );
   const [uploadErrors, setUploadErrors] = useState<Record<string, string>>({});
 
   async function handleFileUpload(fieldName: string, file: File) {
     setUploadingFields((prev) => new Set(prev).add(fieldName));
-    setUploadErrors((prev) => { const n = { ...prev }; delete n[fieldName]; return n; });
+    setUploadErrors((prev) => {
+      const n = { ...prev };
+      delete n[fieldName];
+      return n;
+    });
     try {
       // 1. Dapatkan signed upload URL dari server
-      const urlRes = await apiFetch("/public/mini-form-upload-url", {
+      const urlRes = (await apiFetch("/public/mini-form-upload-url", {
         method: "POST",
-        body: JSON.stringify({ filename: file.name, mimeType: file.type || "application/octet-stream" }),
-      }) as { uploadUrl: string; publicUrl: string; path: string };
+        body: JSON.stringify({
+          filename: file.name,
+          mimeType: file.type || "application/octet-stream",
+        }),
+      })) as { uploadUrl: string; publicUrl: string; path: string };
 
       // 2. Upload file langsung ke Supabase Storage
       const uploadRes = await fetch(urlRes.uploadUrl, {
@@ -247,9 +299,16 @@ export default function MiniFormPage() {
       // 3. Simpan public URL sebagai nilai field
       setValues((prev) => ({ ...prev, [fieldName]: urlRes.publicUrl }));
     } catch (err) {
-      setUploadErrors((prev) => ({ ...prev, [fieldName]: (err as Error).message ?? "Upload gagal" }));
+      setUploadErrors((prev) => ({
+        ...prev,
+        [fieldName]: (err as Error).message ?? "Upload gagal",
+      }));
     } finally {
-      setUploadingFields((prev) => { const n = new Set(prev); n.delete(fieldName); return n; });
+      setUploadingFields((prev) => {
+        const n = new Set(prev);
+        n.delete(fieldName);
+        return n;
+      });
     }
   }
 
@@ -258,7 +317,10 @@ export default function MiniFormPage() {
     : `/public/mini-form/${type}/${token}`;
 
   const { data, isLoading, error } = useQuery<FormData>({
-    queryKey: ["mini-form", isPreview ? `preview-${templateId}` : `${type}-${token}`],
+    queryKey: [
+      "mini-form",
+      isPreview ? `preview-${templateId}` : `${type}-${token}`,
+    ],
     queryFn: () => apiFetch(apiPath),
     retry: false,
     staleTime: Infinity,
@@ -266,15 +328,24 @@ export default function MiniFormPage() {
   });
 
   const mutation = useMutation({
-    mutationFn: () =>
+    mutationFn: (payload: {
+      fields: Record<string, string>;
+      uploadedDocuments: string[];
+    }) =>
       apiFetch(`/public/mini-form/${type}/${token}`, {
         method: "POST",
         body: JSON.stringify({
-          fields: values,
+          fields: payload.fields,
           submittedBy: "customer",
+          uploadedDocuments: payload.uploadedDocuments,
         }),
       }),
-    onSuccess: (res: { ok: boolean; message: string; isComplete: boolean; missingFields?: string[] }) => {
+    onSuccess: (res: {
+      ok: boolean;
+      message: string;
+      isComplete: boolean;
+      missingFields?: string[];
+    }) => {
       setSubmitResult(res);
     },
     onError: (e: Error) => {
@@ -285,21 +356,25 @@ export default function MiniFormPage() {
   if (isLoading) return <Spinner />;
   if (error) return <ErrorState message={(error as Error).message} />;
   if (!data) return <ErrorState message="Form tidak tersedia" />;
-  if (data.status === "submitted") return <SuccessState message={data.message ?? "Data sudah kami terima."} />;
-  if (submitResult?.isComplete) return <SuccessState message={submitResult.message} />;
+  if (data.status === "submitted")
+    return <SuccessState message={data.message ?? "Data sudah kami terima."} />;
+  if (submitResult?.isComplete)
+    return <SuccessState message={submitResult.message} />;
 
   // Preview mode banner
   const previewBanner = isPreview ? (
     <div className="bg-amber-400 text-amber-900 text-center text-xs font-semibold py-2 px-4">
-      🔍 MODE PREVIEW — Form ini tidak aktif. Hanya untuk pratinjau tampilan admin.
+      🔍 MODE PREVIEW — Form ini tidak aktif. Hanya untuk pratinjau tampilan
+      admin.
     </div>
   ) : null;
 
   const allFields = [
     ...data.builtinFields.map(normalizeField),
     ...data.customFields.map(normalizeField),
-  ].filter((f, i, arr) => arr.findIndex((x) => x.name === f.name) === i) // dedupe
-   .filter((f) => f.name.trim() !== "" && f.label.trim() !== ""); // remove empty/unnamed fields
+  ]
+    .filter((f, i, arr) => arr.findIndex((x) => x.name === f.name) === i) // dedupe
+    .filter((f) => f.name.trim() !== "" && f.label.trim() !== ""); // remove empty/unnamed fields
 
   // Pre-fill from already collected fields
   const prefilled: Record<string, string> = {};
@@ -320,147 +395,192 @@ export default function MiniFormPage() {
     e.preventDefault();
     const allNames = new Set(allFields.map((f) => f.name));
     setTouched(allNames);
-    mutation.mutate();
+    // Keep an explicit list of uploaded document URLs as well as the file
+    // fields. The API uses the list to persist uploads across multi-step
+    // submissions and to recover if a custom form omits a file field.
+    const uploadedDocuments = allFields
+      .filter((f) => f.type === "file")
+      .map((f) => merged[f.name] ?? "")
+      .filter((value) => value.startsWith("http"));
+    mutation.mutate({
+      fields: merged,
+      uploadedDocuments,
+    });
   }
 
-  const requiredFields = allFields.filter((f) => f.required && f.type !== "file");
-  const filledRequired = requiredFields.filter((f) => (merged[f.name] ?? "").trim() !== "").length;
-  const progress = requiredFields.length > 0 ? Math.round((filledRequired / requiredFields.length) * 100) : 100;
+  const requiredFields = allFields.filter(
+    (f) => f.required && f.type !== "file",
+  );
+  const filledRequired = requiredFields.filter(
+    (f) => (merged[f.name] ?? "").trim() !== "",
+  ).length;
+  const progress =
+    requiredFields.length > 0
+      ? Math.round((filledRequired / requiredFields.length) * 100)
+      : 100;
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
       {previewBanner}
-    <div className="p-4 py-8">
-      <div className="max-w-lg mx-auto space-y-4">
-        {/* Header */}
-        <div className="bg-white rounded-2xl shadow-sm p-6">
-          <div className="flex items-center gap-3 mb-1">
-            <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white text-lg">
-              📋
-            </div>
-            <div>
-              <h1 className="text-lg font-bold text-gray-800">{data.formTitle}</h1>
-              {data.intentName && <p className="text-xs text-blue-600">{data.intentName}</p>}
-            </div>
-          </div>
-          {data.formDescription && (
-            <p className="text-sm text-gray-500 mt-2">{data.formDescription}</p>
-          )}
-
-          {/* Progress bar */}
-          {requiredFields.length > 0 && (
-            <div className="mt-4">
-              <div className="flex justify-between text-xs text-gray-400 mb-1">
-                <span>Progres pengisian</span>
-                <span>{filledRequired}/{requiredFields.length} field wajib</span>
+      <div className="p-4 py-8">
+        <div className="max-w-lg mx-auto space-y-4">
+          {/* Header */}
+          <div className="bg-white rounded-2xl shadow-sm p-6">
+            <div className="flex items-center gap-3 mb-1">
+              <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white text-lg">
+                📋
               </div>
-              <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-blue-500 rounded-full transition-all duration-300"
-                  style={{ width: `${progress}%` }}
-                />
+              <div>
+                <h1 className="text-lg font-bold text-gray-800">
+                  {data.formTitle}
+                </h1>
+                {data.intentName && (
+                  <p className="text-xs text-blue-600">{data.intentName}</p>
+                )}
               </div>
             </div>
-          )}
-        </div>
+            {data.formDescription && (
+              <p className="text-sm text-gray-500 mt-2">
+                {data.formDescription}
+              </p>
+            )}
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="space-y-3">
-          <div className="bg-white rounded-2xl shadow-sm p-6 space-y-5">
-            {allFields.map((field) => {
-              const val = merged[field.name] ?? "";
-              const isTouched = touched.has(field.name);
-              const hasError = isTouched && field.required && field.type !== "file" && !val.trim();
-
-              // File fields pakai FileFieldRenderer khusus (upload ke Supabase)
-              if (field.type === "file") {
-                return (
-                  <FileFieldRenderer
-                    key={field.name}
-                    field={field}
-                    currentValue={val}
-                    isUploading={uploadingFields.has(field.name)}
-                    uploadError={uploadErrors[field.name]}
-                    onFileChange={(file) => handleFileUpload(field.name, file)}
+            {/* Progress bar */}
+            {requiredFields.length > 0 && (
+              <div className="mt-4">
+                <div className="flex justify-between text-xs text-gray-400 mb-1">
+                  <span>Progres pengisian</span>
+                  <span>
+                    {filledRequired}/{requiredFields.length} field wajib
+                  </span>
+                </div>
+                <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-blue-500 rounded-full transition-all duration-300"
+                    style={{ width: `${progress}%` }}
                   />
-                );
-              }
+                </div>
+              </div>
+            )}
+          </div>
 
-              return (
-                <div key={field.name} className="space-y-1.5">
-                  <label className="block text-sm font-medium text-gray-700">
-                    {field.label}
-                    {field.required && <span className="text-red-500 ml-0.5">*</span>}
-                  </label>
-                  <div onBlur={() => handleBlur(field.name)}>
-                    <FormField
+          {/* Form */}
+          <form onSubmit={handleSubmit} className="space-y-3">
+            <div className="bg-white rounded-2xl shadow-sm p-6 space-y-5">
+              {allFields.map((field) => {
+                const val = merged[field.name] ?? "";
+                const isTouched = touched.has(field.name);
+                const hasError =
+                  isTouched &&
+                  field.required &&
+                  field.type !== "file" &&
+                  !val.trim();
+
+                // File fields pakai FileFieldRenderer khusus (upload ke Supabase)
+                if (field.type === "file") {
+                  return (
+                    <FileFieldRenderer
+                      key={field.name}
                       field={field}
-                      value={val}
-                      onChange={(v) => handleChange(field.name, v)}
-                      hasError={hasError}
+                      currentValue={val}
+                      isUploading={uploadingFields.has(field.name)}
+                      uploadError={uploadErrors[field.name]}
+                      onFileChange={(file) =>
+                        handleFileUpload(field.name, file)
+                      }
                     />
+                  );
+                }
+
+                return (
+                  <div key={field.name} className="space-y-1.5">
+                    <label className="block text-sm font-medium text-gray-700">
+                      {field.label}
+                      {field.required && (
+                        <span className="text-red-500 ml-0.5">*</span>
+                      )}
+                    </label>
+                    <div onBlur={() => handleBlur(field.name)}>
+                      <FormField
+                        field={field}
+                        value={val}
+                        onChange={(v) => handleChange(field.name, v)}
+                        hasError={hasError}
+                      />
+                    </div>
+                    {hasError && (
+                      <p className="text-xs text-red-500">
+                        Field ini wajib diisi
+                      </p>
+                    )}
+                    {!hasError && field.helpText && field.type !== "file" && (
+                      <p className="text-xs text-gray-400">{field.helpText}</p>
+                    )}
                   </div>
-                  {hasError && (
-                    <p className="text-xs text-red-500">Field ini wajib diisi</p>
-                  )}
-                  {!hasError && field.helpText && field.type !== "file" && (
-                    <p className="text-xs text-gray-400">{field.helpText}</p>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Error banner — tampilkan field mana yang masih kosong */}
-          {submitResult && !submitResult.isComplete && (
-            <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 text-sm text-orange-700 space-y-2">
-              <p className="font-medium">{submitResult.message}</p>
-              {submitResult.missingFields && submitResult.missingFields.length > 0 && (
-                <div>
-                  <p className="text-xs text-orange-600 mb-1">Field yang belum diisi:</p>
-                  <ul className="space-y-1">
-                    {submitResult.missingFields.map((fname) => {
-                      const fieldDef = allFields.find((f) => f.name === fname);
-                      const label = fieldDef?.label ?? fname;
-                      return (
-                        <li key={fname} className="flex items-center gap-1.5 text-xs font-medium">
-                          <span className="text-red-500">●</span>
-                          <span>{label}</span>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </div>
-              )}
+                );
+              })}
             </div>
-          )}
 
-          {/* Submit */}
-          <div className="bg-white rounded-2xl shadow-sm p-4">
-            <button
-              type="submit"
-              disabled={mutation.isPending || uploadingFields.size > 0}
-              className="w-full py-3 px-6 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-semibold rounded-xl transition text-sm"
-            >
-              {mutation.isPending ? (
-                <span className="flex items-center justify-center gap-2">
-                  <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Mengirim data...
-                </span>
-              ) : uploadingFields.size > 0 ? (
-                <span className="flex items-center justify-center gap-2">
-                  <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  Mengupload file...
-                </span>
-              ) : "Kirim Data"}
-            </button>
-            <p className="text-center text-xs text-gray-400 mt-2">
-              Data Anda aman dan digunakan hanya untuk keperluan layanan
-            </p>
-          </div>
-        </form>
+            {/* Error banner — tampilkan field mana yang masih kosong */}
+            {submitResult && !submitResult.isComplete && (
+              <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 text-sm text-orange-700 space-y-2">
+                <p className="font-medium">{submitResult.message}</p>
+                {submitResult.missingFields &&
+                  submitResult.missingFields.length > 0 && (
+                    <div>
+                      <p className="text-xs text-orange-600 mb-1">
+                        Field yang belum diisi:
+                      </p>
+                      <ul className="space-y-1">
+                        {submitResult.missingFields.map((fname) => {
+                          const fieldDef = allFields.find(
+                            (f) => f.name === fname,
+                          );
+                          const label = fieldDef?.label ?? fname;
+                          return (
+                            <li
+                              key={fname}
+                              className="flex items-center gap-1.5 text-xs font-medium"
+                            >
+                              <span className="text-red-500">●</span>
+                              <span>{label}</span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  )}
+              </div>
+            )}
+
+            {/* Submit */}
+            <div className="bg-white rounded-2xl shadow-sm p-4">
+              <button
+                type="submit"
+                disabled={mutation.isPending || uploadingFields.size > 0}
+                className="w-full py-3 px-6 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-semibold rounded-xl transition text-sm"
+              >
+                {mutation.isPending ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Mengirim data...
+                  </span>
+                ) : uploadingFields.size > 0 ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Mengupload file...
+                  </span>
+                ) : (
+                  "Kirim Data"
+                )}
+              </button>
+              <p className="text-center text-xs text-gray-400 mt-2">
+                Data Anda aman dan digunakan hanya untuk keperluan layanan
+              </p>
+            </div>
+          </form>
+        </div>
       </div>
-    </div>
     </div>
   );
 }
