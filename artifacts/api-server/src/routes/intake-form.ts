@@ -467,6 +467,18 @@ router.post("/public/mini-form/:type/:token", async (req, res): Promise<void> =>
             durasi: "Durasi Sewa",
             payment_method: "Metode Pembayaran",
             notes: "Catatan",
+            contact_person: "Nama Kontak",
+            contact_phone: "No. Kontak",
+            consignee_name: "Nama Consignee",
+            shipment_type: "Jenis Pengiriman",
+            ready_date: "Tanggal Kargo Siap",
+            origin_country: "Negara Asal",
+            destination_country: "Negara Tujuan",
+            commodity: "Komoditi",
+            gross_weight: "Berat (kg)",
+            volume: "Volume (m³)",
+            incoterm: "Incoterm",
+            shipment_mode: "Moda Pengiriman",
           };
 
           const fieldSummaryWa = Object.entries(merged)

@@ -65,6 +65,7 @@ export const MINI_FORM_CONFIGS: Record<string, MiniFormConfig> = {
       { name: "ready_date",           label: "Tanggal Kargo Siap",   type: "date",   required: true },
       { name: "consignee_name",       label: "Nama Consignee",       type: "text",   required: true,  placeholder: "PT Maju Bersama" },
       { name: "contact_person",       label: "Nama Kontak",          type: "text",   required: true,  placeholder: "Andi Wijaya" },
+      { name: "contact_phone",        label: "No. Kontak",           type: "text",   required: false, placeholder: "08123456789" },
       { name: "commercial_invoice",   label: "Commercial Invoice",   type: "file",   required: false, helpText: "Upload dokumen CI (PDF/JPG)" },
       { name: "packing_list",         label: "Packing List",         type: "file",   required: false, helpText: "Upload packing list (PDF/JPG)" },
     ],
