@@ -524,13 +524,16 @@ router.post("/public/mini-form/:type/:token", async (req, res): Promise<void> =>
             shipment_mode: "Moda Pengiriman",
           };
 
-          // Field file (CI/PL) yang punya URL dikirim sebagai attachment — jangan tampilkan sebagai teks
+          // Field yang dikecualikan dari ringkasan teks:
+          // - file fields: dikirim sebagai attachment WA (bukan teks)
+          // - phone: sudah tampil di baris "Pelanggan:" di header notifikasi
           const FILE_FIELD_KEYS = new Set(["commercial_invoice", "packing_list"]);
+          const SKIP_SUMMARY_KEYS = new Set([...FILE_FIELD_KEYS, "phone"]);
           const isPublicUrl = (v: unknown): v is string =>
             typeof v === "string" && (v.startsWith("http://") || v.startsWith("https://"));
 
           const fieldSummaryWa = Object.entries(merged)
-            .filter(([k]) => !FILE_FIELD_KEYS.has(k)) // skip file fields sepenuhnya dari teks
+            .filter(([k]) => !SKIP_SUMMARY_KEYS.has(k)) // skip file fields & phone dari teks
             .slice(0, 20)
             .map(([k, v]) => {
               const label = fieldLabelMap[k] ?? k;
