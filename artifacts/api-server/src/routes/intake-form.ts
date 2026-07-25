@@ -495,7 +495,7 @@ router.post("/public/mini-form/:type/:token", async (req, res): Promise<void> =>
           };
 
           const fieldSummaryWa = Object.entries(merged)
-            .slice(0, 10)
+            .slice(0, 20)
             .map(([k, v]) => {
               const label = fieldLabelMap[k] ?? k;
               return `• ${label}: ${String(v)}`;
