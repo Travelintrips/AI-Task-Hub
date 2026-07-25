@@ -129,7 +129,7 @@ export async function routeIntentToFlow({
     const existingFormUrl = `${baseUrl}/mini-form/${existingFormType}/${existingSession.formToken}`;
 
     // Resend the existing form link (user may not have seen it or it went to wrong device)
-    const resendMsg = `🔗 Link form pemesanan Anda:\n\n${existingFormUrl}\n\nSilakan lengkapi form untuk melanjutkan proses booking. Jika ada pertanyaan, tim kami siap membantu! 🙏`;
+    const resendMsg = `🔗 Link form pemesanan Anda:\n\n${existingFormUrl}\n\nSilakan lengkapi form data untuk melanjutkan proses . Jika ada pertanyaan, tim kami siap membantu! 🙏`;
     const resent = await sendFonnte(phone, resendMsg, fonnteDevice).catch((e) => {
       logger.warn({ e, phone }, "mini-form-router: resend form link failed");
       return { success: false, error: String(e) };
