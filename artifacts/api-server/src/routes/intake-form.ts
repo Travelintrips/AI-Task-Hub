@@ -553,11 +553,12 @@ router.post("/public/mini-form/:type/:token", async (req, res): Promise<void> =>
             ),
           );
 
-          // ── Kirim Commercial Invoice & Packing List sebagai attachment dokumen WA ──
-          const docAttachments: Array<{ key: string; label: string }> = [
-            { key: "commercial_invoice", label: "Commercial Invoice" },
-            { key: "packing_list",       label: "Packing List" },
-          ];
+          // ── Kirim semua file field sebagai attachment dokumen WA ──
+          // Dinamis dari formCfg — mencakup semua form: CI/PL (freight), foto (complaint/fleet-repair),
+          // dokumen pendukung (cash-advance), dll. Tidak perlu hardcode per form type.
+          const docAttachments: Array<{ key: string; label: string }> = formCfg.fields
+            .filter((f: MiniFormFieldDef) => f.type === "file")
+            .map((f: MiniFormFieldDef) => ({ key: f.name, label: f.label }));
 
           for (const { key, label } of docAttachments) {
             const fileUrl = merged[key];
