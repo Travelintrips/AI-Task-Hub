@@ -538,4 +538,25 @@ async function runReauditAndNotify(taskId: number, companyId: string): Promise<v
   }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// MINI FORM: Upload URL (tanpa token task — untuk upload file dari mini-form)
+// POST /public/mini-form-upload-url
+// Body: { filename: string, mimeType?: string }
+// Returns: { uploadUrl, publicUrl, path }
+// ═══════════════════════════════════════════════════════════════════════════════
+router.post("/public/mini-form-upload-url", async (req, res): Promise<void> => {
+  try {
+    const { filename, mimeType } = req.body as { filename: string; mimeType?: string };
+    if (!filename || typeof filename !== "string") {
+      res.status(400).json({ error: "filename wajib diisi" });
+      return;
+    }
+    const result = await getUploadUrl(filename, mimeType ?? "application/octet-stream");
+    res.json(result);
+  } catch (err) {
+    logger.error({ err }, "POST /public/mini-form-upload-url failed");
+    res.status(500).json({ error: "Gagal membuat upload URL" });
+  }
+});
+
 export default router;

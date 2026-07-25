@@ -176,6 +176,94 @@ export interface FonnteResult {
 }
 
 /**
+ * Kirim file/dokumen sebagai attachment WhatsApp via Fonnte.
+ * documentUrl harus berupa public URL yang dapat diakses Fonnte.
+ * filename  = nama file yang ditampilkan di WhatsApp (misal: "Commercial Invoice.pdf").
+ */
+export async function sendFonnteDocument(
+  to: string,
+  documentUrl: string,
+  filename: string,
+  fonnteDevice?: string | null,
+): Promise<FonnteResult> {
+  // Grup: coba semua token
+  if (to.includes("@g.us")) {
+    const allTokens: string[] = [];
+    for (const [, t] of TOKEN_MAP.entries()) {
+      if (!allTokens.includes(t)) allTokens.push(t);
+    }
+    if (allTokens.length === 0) {
+      return { success: false, error: "FONNTE_TOKEN tidak dikonfigurasi" };
+    }
+    let lastError = "Semua device gagal mengirim dokumen ke grup";
+    for (const t of allTokens) {
+      const r = await sendDocWithToken(to, documentUrl, filename, t);
+      if (r.success) return r;
+      lastError = r.error ?? lastError;
+    }
+    return { success: false, error: lastError };
+  }
+
+  const token = resolveToken(to, fonnteDevice);
+  if (!token) {
+    logger.warn("FONNTE_TOKEN tidak disetel — pengiriman dokumen dilewati");
+    return { success: false, error: "FONNTE_TOKEN not configured" };
+  }
+
+  const phone = normalizePhone(to);
+  if (!phone) {
+    return { success: false, error: `Nomor tidak valid: ${to}` };
+  }
+
+  return sendDocWithToken(phone, documentUrl, filename, token);
+}
+
+/**
+ * Internal: kirim dokumen ke satu target menggunakan token tertentu.
+ */
+async function sendDocWithToken(
+  phone: string,
+  documentUrl: string,
+  filename: string,
+  token: string,
+): Promise<FonnteResult> {
+  try {
+    const params = new URLSearchParams({
+      target:   phone,
+      url:      documentUrl,
+      filename: filename,
+    });
+
+    const res = await fetch(FONNTE_URL, {
+      method: "POST",
+      headers: {
+        Authorization: token,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: params.toString(),
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      logger.error({ status: res.status, text }, "Fonnte document API error");
+      return { success: false, error: `Fonnte HTTP ${res.status}: ${text}` };
+    }
+
+    const data = (await res.json()) as { status?: boolean; id?: string; reason?: string };
+    if (!data.status) {
+      logger.warn({ data, filename }, "Fonnte document: status=false");
+      return { success: false, error: data.reason ?? "Fonnte rejected document" };
+    }
+
+    logger.info({ phone, filename, messageId: data.id }, "WhatsApp document sent via Fonnte");
+    return { success: true, messageId: data.id };
+  } catch (err) {
+    logger.error({ err, filename }, "Gagal mengirim dokumen via Fonnte");
+    return { success: false, error: err instanceof Error ? err.message : "Network error" };
+  }
+}
+
+/**
  * Kirim pesan WhatsApp via Fonnte gateway.
  * Nomor tujuan harus format internasional tanpa "+" (cth: 6281234567890).
  * fonnteDevice — nomor device Fonnte yang menerima pesan asal (opsional).

@@ -41,7 +41,7 @@ import { logger } from "../lib/logger";
 import { createAdminNotification } from "../lib/admin-notifications";
 import { MINI_FORM_CONFIGS, getFormConfig } from "../lib/mini-form-config";
 import type { MiniFormFieldDef } from "../lib/mini-form-config";
-import { sendFonnte } from "../lib/fonnte";
+import { sendFonnte, sendFonnteDocument } from "../lib/fonnte";
 import { saveSportCenterBooking, extractDurationHours, bridgeToSportBookings } from "../lib/sport-center-availability";
 import { supabaseQuery } from "../lib/supabase-db";
 
@@ -494,7 +494,13 @@ router.post("/public/mini-form/:type/:token", async (req, res): Promise<void> =>
             shipment_mode: "Moda Pengiriman",
           };
 
+          // Field file (CI/PL) yang punya URL dikirim sebagai attachment — jangan tampilkan sebagai teks
+          const FILE_FIELD_KEYS = new Set(["commercial_invoice", "packing_list"]);
+          const isPublicUrl = (v: unknown): v is string =>
+            typeof v === "string" && (v.startsWith("http://") || v.startsWith("https://"));
+
           const fieldSummaryWa = Object.entries(merged)
+            .filter(([k]) => !FILE_FIELD_KEYS.has(k)) // skip file fields sepenuhnya dari teks
             .slice(0, 20)
             .map(([k, v]) => {
               const label = fieldLabelMap[k] ?? k;
@@ -516,6 +522,43 @@ router.post("/public/mini-form/:type/:token", async (req, res): Promise<void> =>
               ),
             ),
           );
+
+          // ── Kirim Commercial Invoice & Packing List sebagai attachment dokumen WA ──
+          const docAttachments: Array<{ key: string; label: string }> = [
+            { key: "commercial_invoice", label: "Commercial Invoice" },
+            { key: "packing_list",       label: "Packing List" },
+          ];
+
+          for (const { key, label } of docAttachments) {
+            const fileUrl = merged[key];
+            if (!isPublicUrl(fileUrl)) {
+              if (fileUrl) {
+                logger.info({ key, value: fileUrl }, "intake-form: file field has value but not a public URL — skip WA attachment");
+              }
+              continue;
+            }
+
+            // Ekstrak nama file asli dari URL (hapus query string & prefix timestamp)
+            const rawFilename = fileUrl.split("/").pop()?.split("?")[0] ?? `${label}.pdf`;
+            // Hapus prefix timestamp (misal: "1753449600000_") yang ditambah getUploadUrl
+            const filename = rawFilename.replace(/^\d+_/, "") || `${label}.pdf`;
+
+            logger.info({ key, filename, fileUrl, receiverCount: receivers.length }, "intake-form: sending WA document attachment");
+
+            await Promise.allSettled(
+              receivers.map(async (r) => {
+                const result = await sendFonnteDocument(r.phone, fileUrl, filename).catch((e: unknown) => {
+                  logger.warn({ e, phone: r.phone, key }, "intake-form: sendFonnteDocument threw");
+                  return { success: false, error: String(e) };
+                });
+                if (!result.success) {
+                  logger.warn({ phone: r.phone, key, filename, error: result.error }, "intake-form: WA document attachment failed");
+                } else {
+                  logger.info({ phone: r.phone, key, filename }, "intake-form: WA document attachment sent");
+                }
+              }),
+            );
+          }
 
           logger.info(
             { companyId: session.companyId, taskId, effectiveCategory, receiverCount: receivers.length },

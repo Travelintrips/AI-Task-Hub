@@ -137,21 +137,9 @@ function FormField({
       </select>
     );
   }
+  // File fields are handled separately in MiniFormPage (see FileFieldRenderer)
   if (field.type === "file") {
-    return (
-      <div className="space-y-1">
-        <input
-          type="file"
-          className="w-full text-sm text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-blue-50 file:text-blue-600 file:font-medium hover:file:bg-blue-100"
-          accept=".jpg,.jpeg,.png,.pdf,.doc,.docx"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) onChange(file.name);
-          }}
-        />
-        {field.helpText && <p className="text-xs text-gray-400">{field.helpText}</p>}
-      </div>
-    );
+    return null;
   }
   return (
     <input
@@ -164,6 +152,68 @@ function FormField({
   );
 }
 
+/** Render file upload field dengan progress indicator dan status upload */
+function FileFieldRenderer({
+  field,
+  currentValue,
+  isUploading,
+  uploadError,
+  onFileChange,
+}: {
+  field: ReturnType<typeof normalizeField>;
+  currentValue: string;
+  isUploading: boolean;
+  uploadError?: string;
+  onFileChange: (file: File) => void;
+}) {
+  const isUploaded = currentValue.startsWith("http");
+  return (
+    <div className="space-y-2">
+      <label className="block text-sm font-medium text-gray-700">
+        {field.label}
+        {field.required && <span className="text-red-500 ml-0.5">*</span>}
+      </label>
+
+      {isUploaded ? (
+        <div className="flex items-center gap-2 rounded-lg border border-green-300 bg-green-50 px-3 py-2.5 text-sm text-green-700">
+          <span>✅</span>
+          <span className="truncate flex-1">{currentValue.split("/").pop()?.split("?")[0] ?? "File terupload"}</span>
+          <label className="cursor-pointer text-xs text-blue-500 underline shrink-0">
+            Ganti
+            <input
+              type="file"
+              className="hidden"
+              accept=".jpg,.jpeg,.png,.pdf,.doc,.docx"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) onFileChange(f); }}
+            />
+          </label>
+        </div>
+      ) : isUploading ? (
+        <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-sm text-blue-600">
+          <span className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin shrink-0" />
+          <span>Mengupload...</span>
+        </div>
+      ) : (
+        <label className="block w-full cursor-pointer rounded-lg border-2 border-dashed border-gray-200 px-4 py-4 text-center hover:border-blue-400 hover:bg-blue-50 transition-colors">
+          <div className="text-2xl mb-1">📎</div>
+          <p className="text-sm text-gray-500">Pilih atau seret file ke sini</p>
+          <p className="text-xs text-gray-400 mt-0.5">{field.helpText ?? "PDF, JPG, PNG — maks. 10 MB"}</p>
+          <input
+            type="file"
+            className="hidden"
+            accept=".jpg,.jpeg,.png,.pdf,.doc,.docx"
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) onFileChange(f); }}
+          />
+        </label>
+      )}
+
+      {uploadError && (
+        <p className="text-xs text-red-500">⚠️ {uploadError}</p>
+      )}
+    </div>
+  );
+}
+
 export default function MiniFormPage() {
   const params = useParams<{ type?: string; token?: string; templateId?: string }>();
   const type = params.type;
@@ -173,6 +223,35 @@ export default function MiniFormPage() {
   const [values, setValues] = useState<Record<string, string>>({});
   const [touched, setTouched] = useState<Set<string>>(new Set());
   const [submitResult, setSubmitResult] = useState<{ ok: boolean; message: string; isComplete: boolean; missingFields?: string[] } | null>(null);
+  const [uploadingFields, setUploadingFields] = useState<Set<string>>(new Set());
+  const [uploadErrors, setUploadErrors] = useState<Record<string, string>>({});
+
+  async function handleFileUpload(fieldName: string, file: File) {
+    setUploadingFields((prev) => new Set(prev).add(fieldName));
+    setUploadErrors((prev) => { const n = { ...prev }; delete n[fieldName]; return n; });
+    try {
+      // 1. Dapatkan signed upload URL dari server
+      const urlRes = await apiFetch("/public/mini-form-upload-url", {
+        method: "POST",
+        body: JSON.stringify({ filename: file.name, mimeType: file.type || "application/octet-stream" }),
+      }) as { uploadUrl: string; publicUrl: string; path: string };
+
+      // 2. Upload file langsung ke Supabase Storage
+      const uploadRes = await fetch(urlRes.uploadUrl, {
+        method: "PUT",
+        body: file,
+        headers: { "Content-Type": file.type || "application/octet-stream" },
+      });
+      if (!uploadRes.ok) throw new Error(`Upload gagal (${uploadRes.status})`);
+
+      // 3. Simpan public URL sebagai nilai field
+      setValues((prev) => ({ ...prev, [fieldName]: urlRes.publicUrl }));
+    } catch (err) {
+      setUploadErrors((prev) => ({ ...prev, [fieldName]: (err as Error).message ?? "Upload gagal" }));
+    } finally {
+      setUploadingFields((prev) => { const n = new Set(prev); n.delete(fieldName); return n; });
+    }
+  }
 
   const apiPath = isPreview
     ? `/public/mini-form/preview/${templateId ?? token}`
@@ -293,6 +372,20 @@ export default function MiniFormPage() {
               const isTouched = touched.has(field.name);
               const hasError = isTouched && field.required && field.type !== "file" && !val.trim();
 
+              // File fields pakai FileFieldRenderer khusus (upload ke Supabase)
+              if (field.type === "file") {
+                return (
+                  <FileFieldRenderer
+                    key={field.name}
+                    field={field}
+                    currentValue={val}
+                    isUploading={uploadingFields.has(field.name)}
+                    uploadError={uploadErrors[field.name]}
+                    onFileChange={(file) => handleFileUpload(field.name, file)}
+                  />
+                );
+              }
+
               return (
                 <div key={field.name} className="space-y-1.5">
                   <label className="block text-sm font-medium text-gray-700">
@@ -346,13 +439,18 @@ export default function MiniFormPage() {
           <div className="bg-white rounded-2xl shadow-sm p-4">
             <button
               type="submit"
-              disabled={mutation.isPending}
+              disabled={mutation.isPending || uploadingFields.size > 0}
               className="w-full py-3 px-6 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-semibold rounded-xl transition text-sm"
             >
               {mutation.isPending ? (
                 <span className="flex items-center justify-center gap-2">
                   <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                   Mengirim data...
+                </span>
+              ) : uploadingFields.size > 0 ? (
+                <span className="flex items-center justify-center gap-2">
+                  <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Mengupload file...
                 </span>
               ) : "Kirim Data"}
             </button>
