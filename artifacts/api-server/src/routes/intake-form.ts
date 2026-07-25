@@ -43,6 +43,40 @@ import { MINI_FORM_CONFIGS, getFormConfig } from "../lib/mini-form-config";
 import type { MiniFormFieldDef } from "../lib/mini-form-config";
 import { sendFonnte } from "../lib/fonnte";
 import { saveSportCenterBooking, extractDurationHours, bridgeToSportBookings } from "../lib/sport-center-availability";
+import { supabaseQuery } from "../lib/supabase-db";
+
+// ── Fallback map: intent code prefix → kategori penerima notifikasi
+// Digunakan ketika intent_master lookup ke DB tidak menemukan data
+const INTENT_CODE_CATEGORY: Record<string, string> = {
+  ppjk:             "Customs",
+  customs:          "Customs",
+  bea_cukai:        "Customs",
+  trucking:         "Logistik",
+  freight:          "Logistik",
+  import:           "Logistik",
+  export:           "Logistik",
+  ekspor:           "Logistik",
+  logistik:         "Logistik",
+  kasbon:           "Finance",
+  cash_advance:     "Finance",
+  finance:          "Finance",
+  booking_lapangan: "Sport Center",
+  sport:            "Sport Center",
+  lapangan:         "Sport Center",
+  fleet:            "Fleet",
+  armada:           "Fleet",
+  tenant:           "Tenant",
+  sewa:             "Tenant",
+};
+
+/** Resolve kategori dari intentCode menggunakan prefix map */
+function inferCategoryFromIntentCode(intentCode: string): string | null {
+  const lower = intentCode.toLowerCase().replace(/-/g, "_");
+  for (const [prefix, cat] of Object.entries(INTENT_CODE_CATEGORY)) {
+    if (lower.startsWith(prefix) || lower.includes(prefix)) return cat;
+  }
+  return null;
+}
 
 const router: IRouter = Router();
 
@@ -357,8 +391,7 @@ router.post("/public/mini-form/:type/:token", async (req, res): Promise<void> =>
 
       // ── Kirim WA ke Penerima Notifikasi yang aktif sesuai kategori ─────────
       try {
-        // Lookup kategori dari intent_master berdasarkan intentCode (lebih akurat dari session.category)
-        // karena session.category bisa salah (misalnya "General Inquiry" padahal seharusnya "Sport Center")
+        // Lookup kategori dari intent_master — coba heliumdb dulu, lalu Supabase
         let resolvedCategory: string | null = null;
         try {
           const [intentRow] = await db
@@ -367,11 +400,25 @@ router.post("/public/mini-form/:type/:token", async (req, res): Promise<void> =>
             .where(eq(intentMasterTable.intentCode, session.intentCode))
             .limit(1);
           resolvedCategory = intentRow?.category ?? null;
-        } catch {
-          // fallback below
+        } catch { /* ignore */ }
+
+        // Jika heliumdb tidak punya, coba Supabase (tempat seed data sebenarnya)
+        if (!resolvedCategory) {
+          try {
+            const rows = await supabaseQuery<{ category: string | null }>(
+              `SELECT category FROM intent_master WHERE intent_code = $1 AND is_active = true LIMIT 1`,
+              [session.intentCode],
+            );
+            resolvedCategory = rows[0]?.category ?? null;
+          } catch { /* ignore */ }
         }
 
-        // Fallback chain: intent_master → session.category → formCfg.title
+        // Terakhir: inferensi dari intentCode itu sendiri (selalu berhasil untuk kode yang dikenal)
+        if (!resolvedCategory) {
+          resolvedCategory = inferCategoryFromIntentCode(session.intentCode);
+        }
+
+        // Fallback chain: intent_master (heliumdb/supabase) → intentCode prefix → session.category → formCfg.title
         const effectiveCategory = resolvedCategory ?? session.category ?? formCfg.title;
 
         logger.info(
@@ -380,11 +427,17 @@ router.post("/public/mini-form/:type/:token", async (req, res): Promise<void> =>
         );
 
         // Kumpulkan semua alias kategori yang perlu dicek
-        // Misal: intent "Logistik" → cari penerima dengan kategori "Logistik" ATAU "Trucking" ATAU "Freight" dll.
+        // Misal: intent "Customs" → cari penerima dengan kategori "Customs" ATAU "PPJK" ATAU "Bea Cukai" dll.
         const aliasSet = new Set<string>();
         if (resolvedCategory) getCategoryAliases(resolvedCategory).forEach(a => aliasSet.add(a));
         if (session.category) getCategoryAliases(session.category).forEach(a => aliasSet.add(a));
         if (aliasSet.size === 0) getCategoryAliases(effectiveCategory).forEach(a => aliasSet.add(a));
+
+        // SELALU tambahkan alias dari intentCode — penting untuk kasus di mana intentCode
+        // lebih spesifik dari category (misal: ppjk_service → category "Logistik" di DB,
+        // tapi penerima notif terdaftar dengan kategori "PPJK" atau "Customs")
+        const intentCodeCategory = inferCategoryFromIntentCode(session.intentCode);
+        if (intentCodeCategory) getCategoryAliases(intentCodeCategory).forEach(a => aliasSet.add(a));
         const categoryList = Array.from(aliasSet);
 
         // Cari penerima aktif yang match salah satu alias kategori
