@@ -507,7 +507,7 @@ router.post("/public/mini-form/:type/:token", async (req, res): Promise<void> =>
             `No. Task: *${taskNumber}*\n` +
             `Pelanggan: ${session.phone}\n\n` +
             `*Detail Pesanan:*\n${fieldSummaryWa}\n\n` +
-            `Silakan tindak lanjuti di AI Task Center.`;
+            `Mohon Segera Konfirmasi.`;
 
           await Promise.allSettled(
             receivers.map((r) =>
