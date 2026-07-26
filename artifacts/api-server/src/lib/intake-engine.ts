@@ -134,12 +134,21 @@ export interface IntakeResult {
   preReply?: string;
 }
 
+// ─── Invisible Unicode character cleaner ───────────────────────────────────────
+// WhatsApp (Android/iOS) embeds invisible characters like zero-width spaces
+// (U+200B), LTR/RTL marks (U+200E/F), and BOM (U+FEFF) into messages.
+// Anchored regexes (^ and $) fail when these are present, causing gates like
+// isGreeting / isClosingPhrase / isCancellation to silently pass through.
+function cleanInvisible(s: string): string {
+  return s.replace(/[\u200b-\u200f\u202a-\u202e\u2060\ufeff]/g, "").trim();
+}
+
 // ─── Cancellation detection ────────────────────────────────────────────────────
 
 const CANCEL_PATTERNS = /\b(batal|cancel|tidak jadi|ga jadi|stop|batalkan|hapus|ngga jadi|engga jadi)\b/i;
 
 export function isCancellation(message: string): boolean {
-  return CANCEL_PATTERNS.test(message);
+  return CANCEL_PATTERNS.test(cleanInvisible(message));
 }
 
 // ─── General inquiry detection ("pertanyaan lainnya") ─────────────────────────
@@ -354,11 +363,11 @@ const GREETING_OPENER_PATTERNS = /^(halo|hallo|helo|hai|haii|hi|hey|hei|hello|se
 const CLOSING_PHRASE_PATTERNS = /^(terima kasih|terimakasih|makasih|trims|ok|oke|iya|ya|thanks|tq|thx|noted|siap|baik|oke siap|ok siap)\s*[!.?]*$/i;
 
 export function isGreeting(message: string): boolean {
-  return GREETING_OPENER_PATTERNS.test(message.trim());
+  return GREETING_OPENER_PATTERNS.test(cleanInvisible(message));
 }
 
 export function isClosingPhrase(message: string): boolean {
-  return CLOSING_PHRASE_PATTERNS.test(message.trim());
+  return CLOSING_PHRASE_PATTERNS.test(cleanInvisible(message));
 }
 
 // ─── Creative / Sales AI service request detection ────────────────────────────
