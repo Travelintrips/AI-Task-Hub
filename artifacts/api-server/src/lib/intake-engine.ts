@@ -357,13 +357,25 @@ export function buildTenantPriceMessage(): string {
 // Sesi aktif yang ada harus di-cancel agar user bisa mulai dari awal.
 
 // Opener greetings: trigger session reset + full welcome menu
+// Exact match (single greeting word ± punctuation)
 const GREETING_OPENER_PATTERNS = /^(halo|hallo|helo|hai|haii|hi|hey|hei|hello|selamat pagi|selamat siang|selamat sore|selamat malam|pagi|siang|sore|malam|assalamualaikum|assalamu'?alaikum|salamualaikum|waalaikumsalam|test|ping)\s*[!.?]*$/i;
+
+// Prefix match: message starts with a greeting word (for short multi-word messages like "hallo ai task")
+const GREETING_PREFIX_PATTERNS = /^(halo|hallo|helo|hai|haii|hi|hey|hei|hello)\b/i;
 
 // Closing phrases: user wrapping up — send simple ack, no session reset, no menu
 const CLOSING_PHRASE_PATTERNS = /^(terima kasih|terimakasih|makasih|trims|ok|oke|iya|ya|thanks|tq|thx|noted|siap|baik|oke siap|ok siap)\s*[!.?]*$/i;
 
 export function isGreeting(message: string): boolean {
-  return GREETING_OPENER_PATTERNS.test(cleanInvisible(message));
+  const cleaned = cleanInvisible(message);
+  // 1. Exact single-word greeting (original strict match)
+  if (GREETING_OPENER_PATTERNS.test(cleaned)) return true;
+  // 2. Short message (≤ 3 words) that starts with a greeting word
+  //    Catches: "hallo ai task", "hei bot", "hi there"
+  //    Does NOT catch: "hallo saya mau pesan barang" (4 words → goes to AI)
+  const words = cleaned.trim().split(/\s+/);
+  if (words.length >= 1 && words.length <= 3 && GREETING_PREFIX_PATTERNS.test(cleaned)) return true;
+  return false;
 }
 
 export function isClosingPhrase(message: string): boolean {

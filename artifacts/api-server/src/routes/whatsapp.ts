@@ -650,6 +650,84 @@ export async function processIncomingMessage({
       }
     }
 
+    // 2b. Fast-path gates: greeting / cancellation — intercept BEFORE the async AI queue.
+    // This is a safety net that ensures these always fire even if runAiDetection has DB issues.
+    // Only applies to plain text messages.
+    if (messageType === "text" && messageText) {
+      const trimmed = messageText.trim();
+      const answeringClarification = generalInquiryPending.has(from);
+
+      // Greeting gate (also matches short messages starting with greeting word e.g. "hallo ai task")
+      if (!answeringClarification && isGreeting(trimmed)) {
+        logger.info({ from, msg: trimmed }, "processIncomingMessage: greeting pre-gate — sending menu");
+        // Cancel any stale intake sessions (fire-and-forget)
+        db.update(intakeSessionsTable)
+          .set({ status: "cancelled", updatedAt: new Date() })
+          .where(and(
+            eq(intakeSessionsTable.phone, from),
+            eq(intakeSessionsTable.companyId, companyId),
+            inArray(intakeSessionsTable.status, ["collecting", "ready_for_task"]),
+          ))
+          .catch((e) => logger.warn({ e }, "greeting pre-gate: failed to cancel sessions"));
+
+        const greetingReply =
+          `Halo! 👋 Selamat datang, ada yang bisa kami bantu?\n\n` +
+          `Silakan ceritakan kebutuhan Anda, misalnya:\n` +
+          `1.🚚 Pengiriman / Trucking / Sea & Air Freight\n` +
+          `2.📋 Layanan PPJK / Bea Cukai / Customs\n` +
+          `3.🏟️ Booking Lapangan Olahraga\n` +
+          `4.💰 Kasbon / Pembayaran\n` +
+          `5.❓ Pertanyaan lainnya\n` +
+          `6.🎨 Layanan Kreatif / Desain AI\n\n` +
+          `Tim kami siap membantu! 🙏`;
+        await sendFonnte(replyTo, greetingReply, fonnteDevice ?? null).catch((e) =>
+          logger.warn({ e }, "greeting pre-gate: failed to send reply"),
+        );
+        await db.update(whatsappMessagesTable)
+          .set({ processed: true, aiProcessed: true })
+          .where(eq(whatsappMessagesTable.id, savedMsg.id))
+          .catch(() => {});
+        return;
+      }
+
+      // Cancellation gate (fires even mid-session — always intercept)
+      if (isCancellation(trimmed)) {
+        logger.info({ from, msg: trimmed }, "processIncomingMessage: cancellation pre-gate — sending ack");
+        db.update(intakeSessionsTable)
+          .set({ status: "cancelled", updatedAt: new Date() })
+          .where(and(
+            eq(intakeSessionsTable.phone, from),
+            eq(intakeSessionsTable.companyId, companyId),
+            inArray(intakeSessionsTable.status, ["collecting", "ready_for_task"]),
+          ))
+          .catch((e) => logger.warn({ e }, "cancellation pre-gate: failed to cancel sessions"));
+
+        const cancelReply = `Baik, permintaan Anda telah dibatalkan. 🙏 Jika ada kebutuhan lain, silakan hubungi kami kembali ya.`;
+        await sendFonnte(replyTo, cancelReply, fonnteDevice ?? null).catch((e) =>
+          logger.warn({ e }, "cancellation pre-gate: failed to send reply"),
+        );
+        await db.update(whatsappMessagesTable)
+          .set({ processed: true, aiProcessed: true })
+          .where(eq(whatsappMessagesTable.id, savedMsg.id))
+          .catch(() => {});
+        return;
+      }
+
+      // Closing phrase gate (only when not answering clarification)
+      if (!answeringClarification && isClosingPhrase(trimmed)) {
+        logger.info({ from, msg: trimmed }, "processIncomingMessage: closing-phrase pre-gate — sending ack");
+        const closingReply = `Sama-sama! 😊 Jika ada kebutuhan lain, jangan ragu untuk menghubungi kami ya.`;
+        await sendFonnte(replyTo, closingReply, fonnteDevice ?? null).catch((e) =>
+          logger.warn({ e }, "closing pre-gate: failed to send reply"),
+        );
+        await db.update(whatsappMessagesTable)
+          .set({ processed: true, aiProcessed: true })
+          .where(eq(whatsappMessagesTable.id, savedMsg.id))
+          .catch(() => {});
+        return;
+      }
+    }
+
     // 3. Save attachment reference if present
     if (attachment?.url && savedMsg.id) {
       try {
