@@ -38,7 +38,7 @@ import {
   isCreativeServiceRequest,
   buildSalesAiMessage,
 } from "../lib/intake-engine";
-import { routeIntentToFlow, findFormSentSession } from "../lib/mini-form-router";
+import { routeIntentToFlow, findFormSentSession, FORM_MENU_SUFFIX } from "../lib/mini-form-router";
 import { getFormConfig } from "../lib/mini-form-config";
 import { generateSecureToken } from "../lib/tokens";
 import { isSportCenterBookingIntent } from "../lib/sport-center-availability";
@@ -705,22 +705,21 @@ async function runAiDetection({
       const isOption2 = /^(2|akhiri percakapan|akhiri)$/i.test(normalizedMsg);
       const isOption3 = /^(3|hubungi agent|hubungi agen|agent|agen)$/i.test(normalizedMsg);
 
-      // Digit "1"/"2"/"3" hanya berlaku jika ada form_sent session aktif
-      const isDigit = /^[123]$/.test(normalizedMsg);
-      const formSentSession = isDigit
+      // Semua opsi form, termasuk label teks, hanya berlaku jika pelanggan
+      // memang sedang memiliki sesi form aktif. Tanpa guard ini, angka "2"
+      // dari menu greeting dianggap sebagai "Akhiri Percakapan" sebelum
+      // sempat masuk ke menu layanan PPJK / Bea Cukai.
+      const isFormMenuReply = isOption1 || isOption2 || isOption3;
+      const formSentSession = isFormMenuReply
         ? await findFormSentSession(from, companyId)
         : null;
-      const digitHasFormSession = isDigit && formSentSession !== null;
-
-      const shouldHandleFormMenu =
-        (isOption1 || isOption2 || isOption3) ||
-        (digitHasFormSession && isDigit);
+      const shouldHandleFormMenu = isFormMenuReply && formSentSession !== null;
 
       if (shouldHandleFormMenu) {
         const choice =
-          isOption1 || (digitHasFormSession && normalizedMsg === "1") ? 1
-          : isOption2 || (digitHasFormSession && normalizedMsg === "2") ? 2
-          : isOption3 || (digitHasFormSession && normalizedMsg === "3") ? 3
+          isOption1 ? 1
+          : isOption2 ? 2
+          : isOption3 ? 3
           : 0;
 
         if (choice > 0) {
@@ -1211,7 +1210,7 @@ async function runAiDetection({
           const formCfg = getFormConfig(formType);
           const waTemplate = formCfg?.waMessageTemplate ??
             "Terima kasih! Data Anda sudah lengkap. Silakan konfirmasi melalui form berikut:\n\n{mini_form_url}\n\nTim kami akan segera menindaklanjuti. 🙏";
-          const waMsg = waTemplate.replace("{mini_form_url}", formUrl);
+          const waMsg = waTemplate.replace("{mini_form_url}", formUrl) + FORM_MENU_SUFFIX;
 
           await sendFonnte(replyTo, waMsg, fonnteDevice).catch(e =>
             logger.warn({ e, from }, "hybrid: failed to send form link via Fonnte"),
