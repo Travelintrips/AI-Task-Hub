@@ -38,7 +38,7 @@ import {
   isCreativeServiceRequest,
   buildSalesAiMessage,
 } from "../lib/intake-engine";
-import { routeIntentToFlow } from "../lib/mini-form-router";
+import { routeIntentToFlow, findFormSentSession } from "../lib/mini-form-router";
 import { getFormConfig } from "../lib/mini-form-config";
 import { generateSecureToken } from "../lib/tokens";
 import { isSportCenterBookingIntent } from "../lib/sport-center-availability";
@@ -689,6 +689,130 @@ async function runAiDetection({
     if (isAnsweringClarification) {
       generalInquiryPending.delete(from);
       logger.info({ from, msg: bodyText }, "General inquiry clarification answer received — routing to AI pipeline");
+    }
+
+    // ── Step 0a-form-menu: Form menu reply gate ─────────────────────────────────
+    // Deteksi ketika pelanggan membalas pilihan yang ditampilkan di bawah link form:
+    //   1️⃣ Kembali Menu Awal  → tampilkan menu utama + cancel semua sesi
+    //   2️⃣ Akhiri Percakapan  → cancel sesi + kirim pesan penutup
+    //   3️⃣ Hubungi Agent      → notif ke staff + ack ke pelanggan
+    //
+    // Digit tunggal "1"/"2"/"3" hanya ditangkap jika ada form_sent session aktif
+    // (untuk menghindari konflik dengan pemilihan menu awal seperti "1" untuk Trucking).
+    {
+      const normalizedMsg = bodyText.trim().toLowerCase();
+      const isOption1 = /^(1|kembali menu awal|kembali)$/i.test(normalizedMsg);
+      const isOption2 = /^(2|akhiri percakapan|akhiri)$/i.test(normalizedMsg);
+      const isOption3 = /^(3|hubungi agent|hubungi agen|agent|agen)$/i.test(normalizedMsg);
+
+      // Digit "1"/"2"/"3" hanya berlaku jika ada form_sent session aktif
+      const isDigit = /^[123]$/.test(normalizedMsg);
+      const formSentSession = isDigit
+        ? await findFormSentSession(from, companyId)
+        : null;
+      const digitHasFormSession = isDigit && formSentSession !== null;
+
+      const shouldHandleFormMenu =
+        (isOption1 || isOption2 || isOption3) ||
+        (digitHasFormSession && isDigit);
+
+      if (shouldHandleFormMenu) {
+        const choice =
+          isOption1 || (digitHasFormSession && normalizedMsg === "1") ? 1
+          : isOption2 || (digitHasFormSession && normalizedMsg === "2") ? 2
+          : isOption3 || (digitHasFormSession && normalizedMsg === "3") ? 3
+          : 0;
+
+        if (choice > 0) {
+          logger.info({ from, bodyText, choice }, "form-menu: pilihan menu form terdeteksi");
+
+          // Cancel semua sesi aktif (form_sent, collecting, ready_for_task)
+          try {
+            await db
+              .update(intakeSessionsTable)
+              .set({ status: "cancelled", updatedAt: new Date() })
+              .where(
+                and(
+                  eq(intakeSessionsTable.phone, from),
+                  eq(intakeSessionsTable.companyId, companyId),
+                  inArray(intakeSessionsTable.status, ["form_sent", "collecting", "ready_for_task"]),
+                ),
+              );
+          } catch (cancelErr) {
+            logger.warn({ cancelErr }, "form-menu: gagal cancel sesi");
+          }
+
+          if (choice === 1) {
+            // Kembali Menu Awal — tampilkan menu utama
+            const menuReply =
+              `Halo! 👋 Selamat datang, ada yang bisa kami bantu?\n\n` +
+              `Silakan ceritakan kebutuhan Anda, misalnya:\n` +
+              `1.🚚 Pengiriman / Trucking / Sea & Air Freight\n` +
+              `2.📋 Layanan PPJK / Bea Cukai / Customs\n` +
+              `3.🏟️ Booking Lapangan Olahraga\n` +
+              `4.💰 Kasbon / Pembayaran\n` +
+              `5.❓ Pertanyaan lainnya\n` +
+              `6.🎨 Layanan Kreatif / Desain AI\n\n` +
+              `Tim kami siap membantu! 🙏`;
+            await sendFonnte(replyTo, menuReply, fonnteDevice).catch((e) =>
+              logger.warn({ e }, "form-menu: gagal kirim menu utama"),
+            );
+          } else if (choice === 2) {
+            // Akhiri Percakapan
+            const endReply =
+              `Baik, percakapan telah diakhiri. 🙏\n\n` +
+              `Jika suatu saat membutuhkan bantuan lagi, jangan ragu menghubungi kami ya. Terima kasih!`;
+            await sendFonnte(replyTo, endReply, fonnteDevice).catch((e) =>
+              logger.warn({ e }, "form-menu: gagal kirim pesan penutup"),
+            );
+          } else if (choice === 3) {
+            // Hubungi Agent — ack ke pelanggan + notif ke staff
+            const agentAck =
+              `Baik, kami akan segera menghubungkan Anda dengan agent kami. 🙏\n\n` +
+              `Mohon tunggu sebentar, tim kami akan segera membantu!`;
+            await sendFonnte(replyTo, agentAck, fonnteDevice).catch((e) =>
+              logger.warn({ e }, "form-menu: gagal kirim ack agent"),
+            );
+
+            // Notif ke staff
+            const staffPhones = (process.env.STAFF_NOTIFY_PHONES ?? "")
+              .split(",")
+              .map((p) => p.trim())
+              .filter(Boolean);
+            const staffGroups = (process.env.STAFF_NOTIFY_GROUPS ?? "")
+              .split(",")
+              .map((g) => g.trim())
+              .filter((g) => /^\d+@g\.us$/.test(g));
+            const staffTargets = [...staffPhones, ...staffGroups];
+
+            const staffMsg =
+              `🔔 *Permintaan Bantuan Agent*\n\n` +
+              `Pelanggan *${from}*${effectiveName ? ` (${effectiveName})` : ""}` +
+              ` meminta dihubungi oleh agent.\n\n` +
+              `Silakan segera hubungi pelanggan via WhatsApp.`;
+
+            await Promise.allSettled(
+              staffTargets.map((target) =>
+                sendFonnte(target, staffMsg).catch((e) =>
+                  logger.warn({ e, target }, "form-menu: gagal notif staff"),
+                ),
+              ),
+            );
+
+            if (staffTargets.length === 0) {
+              logger.warn({ from }, "form-menu: STAFF_NOTIFY_PHONES/GROUPS tidak dikonfigurasi — notif agent dilewati");
+            }
+          }
+
+          await db
+            .update(whatsappMessagesTable)
+            .set({ aiProcessed: true, detectedIntent: `form_menu_${choice}` })
+            .where(eq(whatsappMessagesTable.id, savedMsgId))
+            .catch((e) => logger.warn({ e }, "form-menu: gagal update aiProcessed"));
+
+          return;
+        }
+      }
     }
 
     // ── Step 0a-pre: Closing phrase gate — "terima kasih", "ok", "siap", etc.

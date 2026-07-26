@@ -17,6 +17,13 @@ import { db, intakeSessionsTable, dataTemplatesTable } from "@workspace/db";
 import { generateSecureToken } from "./tokens";
 import { getFormConfig, inferFormType } from "./mini-form-config";
 import { sendFonnte } from "./fonnte";
+
+/** Teks suffix yang ditambahkan di bawah setiap pesan link form. */
+export const FORM_MENU_SUFFIX =
+  `\n\n─────────────────\n` +
+  `1️⃣ Kembali Menu Awal\n` +
+  `2️⃣ Akhiri Percakapan\n` +
+  `3️⃣ Hubungi Agent`;
 import { logger } from "./logger";
 import type { IntentResolution } from "./intent-engine";
 
@@ -129,7 +136,9 @@ export async function routeIntentToFlow({
     const existingFormUrl = `${baseUrl}/mini-form/${existingFormType}/${existingSession.formToken}`;
 
     // Resend the existing form link (user may not have seen it or it went to wrong device)
-    const resendMsg = `🔗 Link form pemesanan Anda:\n\n${existingFormUrl}\n\nSilakan lengkapi form data untuk melanjutkan proses . Jika ada pertanyaan, tim kami siap membantu! 🙏`;
+    const resendMsg =
+      `🔗 Link form pemesanan Anda:\n\n${existingFormUrl}\n\nSilakan lengkapi form data untuk melanjutkan proses. Jika ada pertanyaan, tim kami siap membantu! 🙏` +
+      FORM_MENU_SUFFIX;
     const resent = await sendFonnte(phone, resendMsg, fonnteDevice).catch((e) => {
       logger.warn({ e, phone }, "mini-form-router: resend form link failed");
       return { success: false, error: String(e) };
@@ -186,7 +195,7 @@ export async function routeIntentToFlow({
     formCfg?.waMessageTemplate ??
     "Baik, untuk mempercepat proses, mohon isi form berikut:\n\n{mini_form_url}\n\nSetelah form dikirim, tim kami akan segera menindaklanjuti. Terima kasih!";
 
-  const waMessage = template.replace("{mini_form_url}", formUrl);
+  const waMessage = template.replace("{mini_form_url}", formUrl) + FORM_MENU_SUFFIX;
 
   // Send WA link to customer — gunakan device yang sama dengan incoming message
   const sent = await sendFonnte(phone, waMessage, fonnteDevice).catch((e) => {
