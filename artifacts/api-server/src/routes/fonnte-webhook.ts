@@ -132,9 +132,28 @@ router.post("/webhook/fonnte", async (req, res): Promise<void> => {
     }
 
     // ── Filter pesan keluar (echo dari Fonnte) ─────────────────────────────
-    const isOutgoingEcho = rawPayload.quick === true;
+    // Fonnte echoes every sent message back to the webhook.
+    // Real incoming: quick=false or quick absent.
+    // Echo: quick=true (bool), quick=1 (int), or quick="true"/"1" (string).
+    const quickVal = rawPayload.quick;
+    const isOutgoingEcho =
+      quickVal === true || quickVal === 1 ||
+      (typeof quickVal === "string" && (quickVal === "true" || quickVal === "1"));
     if (isOutgoingEcho) {
-      logger.info({ sender, device, quick: rawPayload.quick }, "Fonnte webhook: outgoing echo (quick=true) — skipping");
+      logger.info({ sender, device, quick: rawPayload.quick }, "Fonnte webhook: outgoing echo — skipping");
+      return;
+    }
+
+    // ── Secondary: skip if body looks like our own bot reply (belt-and-suspenders) ─
+    // Catches echoes where quick is absent or has an unexpected value.
+    const echoBodyCheck = String(rawPayload.message ?? rawPayload.text ?? "");
+    const isBotReplyBody =
+      echoBodyCheck.includes("Silakan ceritakan kebutuhan Anda") ||
+      echoBodyCheck.includes("Tim kami siap membantu! 🙏") ||
+      echoBodyCheck.includes("_AI Task Center_") ||
+      echoBodyCheck.includes("/mini-form/");
+    if (isBotReplyBody) {
+      logger.info({ sender, snippet: echoBodyCheck.slice(0, 60) }, "Fonnte webhook: bot-reply body detected — skipping echo");
       return;
     }
 

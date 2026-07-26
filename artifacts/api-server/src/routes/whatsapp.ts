@@ -502,20 +502,28 @@ router.post("/whatsapp/webhook", async (req, res): Promise<void> => {
     //
     // Anti-echo-loop: Fonnte marks outgoing message echoes with quick=true.
     // Real incoming messages from customers have quick=false or quick absent.
-    // Skip quick=true payloads to prevent infinite response loops.
-    const isQuickEcho = rawPayload?.quick === true;
+    // Use truthy comparison — Fonnte may send boolean true, integer 1, or string "true".
+    const quickVal = rawPayload?.quick;
+    const isQuickEcho =
+      quickVal === true || quickVal === 1 ||
+      (typeof quickVal === "string" && (quickVal === "true" || quickVal === "1"));
     if (isQuickEcho) {
-      logger.debug("Fonnte quick=true echo detected — skipping outgoing message");
+      logger.debug({ quick: quickVal }, "Fonnte echo detected — skipping outgoing message");
       return;
     }
 
-    // Secondary content filter: belt-and-suspenders for any missed echoes
+    // Secondary content filter: belt-and-suspenders for echoes where quick is absent
     const rawMessage =
       (rawPayload?.message as string | undefined) ??
       (rawPayload?.pesan as string | undefined) ??
       "";
-    if (rawMessage.includes("/mini-form/")) {
-      logger.debug({ rawMessage: rawMessage.slice(0, 80) }, "mini-form URL echo detected — skipping");
+    const isBotReplyEcho =
+      rawMessage.includes("/mini-form/") ||
+      rawMessage.includes("Silakan ceritakan kebutuhan Anda") ||
+      rawMessage.includes("Tim kami siap membantu! 🙏") ||
+      rawMessage.includes("_AI Task Center_");
+    if (isBotReplyEcho) {
+      logger.debug({ snippet: rawMessage.slice(0, 80) }, "Bot-reply echo detected — skipping");
       return;
     }
 
