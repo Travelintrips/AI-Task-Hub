@@ -38,7 +38,7 @@ import {
   isCreativeServiceRequest,
   buildSalesAiMessage,
 } from "../lib/intake-engine";
-import { routeIntentToFlow, findFormSentSession, FORM_MENU_SUFFIX } from "../lib/mini-form-router";
+import { routeIntentToFlow, findFormSentSession, FORM_MENU_OPTIONS } from "../lib/mini-form-router";
 import { getFormConfig } from "../lib/mini-form-config";
 import { generateSecureToken } from "../lib/tokens";
 import { isSportCenterBookingIntent } from "../lib/sport-center-availability";
@@ -692,23 +692,22 @@ async function runAiDetection({
     }
 
     // ── Step 0a-form-menu: Form menu reply gate ─────────────────────────────────
-    // Deteksi ketika pelanggan membalas pilihan yang ditampilkan di bawah link form:
-    //   1️⃣ Kembali Menu Awal  → tampilkan menu utama + cancel semua sesi
-    //   2️⃣ Akhiri Percakapan  → cancel sesi + kirim pesan penutup
-    //   3️⃣ Hubungi Agent      → notif ke staff + ack ke pelanggan
+    // Deteksi ketika pelanggan memilih salah satu polling yang ditampilkan di bawah
+    // link form. Fonnte mengirim label pilihan sebagai pesan masuk:
+    //   Kembali Menu Awal  → tampilkan menu utama + cancel semua sesi
+    //   Akhiri Percakapan  → cancel sesi + kirim pesan penutup
+    //   Hubungi Agent      → notif ke staff + ack ke pelanggan
     //
-    // Digit tunggal "1"/"2"/"3" hanya ditangkap jika ada form_sent session aktif
-    // (untuk menghindari konflik dengan pemilihan menu awal seperti "1" untuk Trucking).
+    // Jangan gunakan angka di sini: menu greeting juga memakai angka 1-6,
+    // sedangkan pilihan form sekarang dikirim sebagai polling yang dapat ditekan.
     {
       const normalizedMsg = bodyText.trim().toLowerCase();
-      const isOption1 = /^(1|kembali menu awal|kembali)$/i.test(normalizedMsg);
-      const isOption2 = /^(2|akhiri percakapan|akhiri)$/i.test(normalizedMsg);
-      const isOption3 = /^(3|hubungi agent|hubungi agen|agent|agen)$/i.test(normalizedMsg);
+      const isOption1 = /^(kembali menu awal|kembali)$/i.test(normalizedMsg);
+      const isOption2 = /^(akhiri percakapan|akhiri)$/i.test(normalizedMsg);
+      const isOption3 = /^(hubungi agent|hubungi agen|agent|agen)$/i.test(normalizedMsg);
 
-      // Semua opsi form, termasuk label teks, hanya berlaku jika pelanggan
-      // memang sedang memiliki sesi form aktif. Tanpa guard ini, angka "2"
-      // dari menu greeting dianggap sebagai "Akhiri Percakapan" sebelum
-      // sempat masuk ke menu layanan PPJK / Bea Cukai.
+      // Semua opsi form hanya berlaku jika pelanggan memang sedang memiliki
+      // sesi form aktif. Guard ini mencegah label pilihan diproses di luar flow form.
       const isFormMenuReply = isOption1 || isOption2 || isOption3;
       const formSentSession = isFormMenuReply
         ? await findFormSentSession(from, companyId)
@@ -1210,9 +1209,11 @@ async function runAiDetection({
           const formCfg = getFormConfig(formType);
           const waTemplate = formCfg?.waMessageTemplate ??
             "Terima kasih! Data Anda sudah lengkap. Silakan konfirmasi melalui form berikut:\n\n{mini_form_url}\n\nTim kami akan segera menindaklanjuti. 🙏";
-          const waMsg = waTemplate.replace("{mini_form_url}", formUrl) + FORM_MENU_SUFFIX;
+          const waMsg =
+            waTemplate.replace("{mini_form_url}", formUrl) +
+            `\n\nSetelah form dikirim, silakan pilih tindakan berikutnya dari menu di bawah.`;
 
-          await sendFonnte(replyTo, waMsg, fonnteDevice).catch(e =>
+          await sendFonnte(replyTo, waMsg, fonnteDevice, FORM_MENU_OPTIONS).catch(e =>
             logger.warn({ e, from }, "hybrid: failed to send form link via Fonnte"),
           );
 

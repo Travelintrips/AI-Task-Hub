@@ -44,3 +44,4 @@
 - [Supabase Pooler Advisory Lock](supabase-pooler-advisory-lock.md) — pg_advisory_xact_lock fails on port 6543 (PgBouncer txn mode); causes booking functions to silently return null; fix: supabaseQuery direct + UNIQUE retry loop.
 - [sport_bookings bridge insert](sport-bookings-bridge-insert.md) — bridgeToSportBookings Step 2 silently failed: supabaseQuery swallows errors, booking_date stored as ISO timestamp, :: cast syntax fails on pooler; fix: supabaseQueryStrict + normalize date/time in JS.
 - [SC domain for customer links](sc-domain-links.md) — WA links used ephemeral REPLIT_DEV_DOMAIN when SC_DOMAIN unset, going dead across dev domain changes; fixed by setting SC_DOMAIN to stable prod domain.
+- [Fonnte interactive menu](fonnte-interactive-menu.md) — native buttons/lists are deprecated; use a single-choice poll and route its labels, not overlapping greeting-menu numbers.
