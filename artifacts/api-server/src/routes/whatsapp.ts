@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, inArray, or } from "drizzle-orm";
 import {
   db,
   whatsappMessagesTable,
@@ -8,6 +8,7 @@ import {
   auditLogsTable,
   whatsappNotificationsTable,
   intakeSessionsTable,
+  notificationReceiversTable,
 } from "@workspace/db";
 import { detectWhatsAppIntent } from "../lib/whatsapp-ai";
 import { createTaskFromWhatsAppMessage } from "../lib/task-service";
@@ -38,12 +39,67 @@ import {
   isCreativeServiceRequest,
   buildSalesAiMessage,
 } from "../lib/intake-engine";
-import { routeIntentToFlow, findFormSentSession, FORM_MENU_OPTIONS } from "../lib/mini-form-router";
+import {
+  routeIntentToFlow,
+  findFormSentSession,
+  FORM_MENU_BUTTONS,
+  sendFormMenu,
+} from "../lib/mini-form-router";
+import { sendWhatsAppInteractiveButtons } from "../lib/whatsapp";
 import { getFormConfig } from "../lib/mini-form-config";
 import { generateSecureToken } from "../lib/tokens";
 import { isSportCenterBookingIntent } from "../lib/sport-center-availability";
 
 const router: IRouter = Router();
+
+function getFormMenuCategory(intentCode: string, sessionCategory?: string | null): {
+  label: string;
+  aliases: string[];
+} {
+  const raw = `${intentCode} ${sessionCategory ?? ""}`.toLowerCase().replace(/-/g, "_");
+  if (/(ppjk|custom|bea_cukai)/.test(raw)) {
+    return { label: "PPJK / Customs", aliases: ["Customs", "PPJK", "Bea Cukai", "PPJK/Customs"] };
+  }
+  return { label: "Trucking / Logistik", aliases: ["Logistik", "Trucking", "Freight", "Pengiriman", "Sea Freight", "Air Freight"] };
+}
+
+async function getFormAgentTargets(
+  companyId: string,
+  intentCode: string,
+  sessionCategory?: string | null,
+): Promise<{ label: string; targets: string[] }> {
+  const category = getFormMenuCategory(intentCode, sessionCategory);
+  try {
+    const receivers = await db
+      .select({ phone: notificationReceiversTable.phone })
+      .from(notificationReceiversTable)
+      .where(
+        and(
+          or(
+            eq(notificationReceiversTable.companyId, companyId),
+            eq(notificationReceiversTable.companyId, "default"),
+          ),
+          eq(notificationReceiversTable.isActive, true),
+          inArray(notificationReceiversTable.category, category.aliases),
+        ),
+      );
+    const targets = [...new Set(receivers.map((receiver) => receiver.phone).filter(Boolean))];
+    if (targets.length > 0) return { label: category.label, targets };
+  } catch (err) {
+    logger.warn({ err, companyId, intentCode }, "form-menu: gagal mencari penerima berdasarkan kategori");
+  }
+
+  const key = category.label.startsWith("PPJK") ? "CUSTOMS" : "LOGISTIK";
+  const divisionPhones = (process.env[`STAFF_NOTIFY_PHONES_${key}`] ?? "")
+    .split(",")
+    .map((phone) => phone.trim())
+    .filter(Boolean);
+  const divisionGroups = (process.env[`STAFF_NOTIFY_GROUPS_${key}`] ?? "")
+    .split(",")
+    .map((group) => group.trim())
+    .filter((group) => /^\d+@g\.us$/.test(group));
+  return { label: category.label, targets: [...divisionPhones, ...divisionGroups] };
+}
 
 // ─── Per-phone processing queue ─────────────────────────────────────────────────
 // Guards against race conditions when two messages from the same customer arrive
@@ -245,6 +301,21 @@ function extractMessageContent(msg: Record<string, unknown>): {
       (msg.text as Record<string, unknown> | undefined)?.body as string | undefined ??
       (typeof msg.message === "string" ? msg.message : undefined);
     return { type: "text", text: textBody ?? null, attachment: null };
+  }
+
+  if (type === "interactive") {
+    const interactive = msg.interactive as Record<string, unknown> | undefined;
+    const buttonReply = interactive?.button_reply as Record<string, unknown> | undefined;
+    const listReply = interactive?.list_reply as Record<string, unknown> | undefined;
+    const reply = buttonReply ?? listReply;
+    return {
+      type: "text",
+      text:
+        (reply?.title as string | undefined) ??
+        (reply?.id as string | undefined) ??
+        null,
+      attachment: null,
+    };
   }
 
   if (type === "image") {
@@ -702,9 +773,9 @@ async function runAiDetection({
     // sedangkan pilihan form sekarang dikirim sebagai polling yang dapat ditekan.
     {
       const normalizedMsg = bodyText.trim().toLowerCase();
-      const isOption1 = /^(kembali menu awal|kembali)$/i.test(normalizedMsg);
-      const isOption2 = /^(akhiri percakapan|akhiri)$/i.test(normalizedMsg);
-      const isOption3 = /^(hubungi agent|hubungi agen|agent|agen)$/i.test(normalizedMsg);
+      const isOption1 = /^(form_menu_home|kembali menu awal|kembali)$/i.test(normalizedMsg);
+      const isOption2 = /^(form_menu_end|akhiri percakapan|akhiri)$/i.test(normalizedMsg);
+      const isOption3 = /^(form_menu_agent|hubungi agent|hubungi agen|agent|agen)$/i.test(normalizedMsg);
 
       // Semua opsi form hanya berlaku jika pelanggan memang sedang memiliki
       // sesi form aktif. Guard ini mencegah label pilihan diproses di luar flow form.
@@ -752,7 +823,7 @@ async function runAiDetection({
               `5.❓ Pertanyaan lainnya\n` +
               `6.🎨 Layanan Kreatif / Desain AI\n\n` +
               `Tim kami siap membantu! 🙏`;
-            await sendFonnte(replyTo, menuReply, fonnteDevice).catch((e) =>
+           await sendFonnte(replyTo, menuReply, fonnteDevice).catch((e) =>
               logger.warn({ e }, "form-menu: gagal kirim menu utama"),
             );
           } else if (choice === 2) {
@@ -773,32 +844,31 @@ async function runAiDetection({
             );
 
             // Notif ke staff
-            const staffPhones = (process.env.STAFF_NOTIFY_PHONES ?? "")
-              .split(",")
-              .map((p) => p.trim())
-              .filter(Boolean);
-            const staffGroups = (process.env.STAFF_NOTIFY_GROUPS ?? "")
-              .split(",")
-              .map((g) => g.trim())
-              .filter((g) => /^\d+@g\.us$/.test(g));
-            const staffTargets = [...staffPhones, ...staffGroups];
+            const agentTargets = await getFormAgentTargets(
+              companyId,
+              formSentSession.intentCode,
+              formSentSession.category,
+            );
 
             const staffMsg =
               `🔔 *Permintaan Bantuan Agent*\n\n` +
               `Pelanggan *${from}*${effectiveName ? ` (${effectiveName})` : ""}` +
-              ` meminta dihubungi oleh agent.\n\n` +
+              ` meminta dihubungi oleh agent ${agentTargets.label}.\n\n` +
               `Silakan segera hubungi pelanggan via WhatsApp.`;
 
             await Promise.allSettled(
-              staffTargets.map((target) =>
+              agentTargets.targets.map((target) =>
                 sendFonnte(target, staffMsg).catch((e) =>
                   logger.warn({ e, target }, "form-menu: gagal notif staff"),
                 ),
               ),
             );
 
-            if (staffTargets.length === 0) {
-              logger.warn({ from }, "form-menu: STAFF_NOTIFY_PHONES/GROUPS tidak dikonfigurasi — notif agent dilewati");
+            if (agentTargets.targets.length === 0) {
+              logger.warn(
+                { from, category: agentTargets.label },
+                "form-menu: penerima agent berdasarkan divisi tidak ditemukan",
+              );
             }
           }
 
@@ -1213,7 +1283,7 @@ async function runAiDetection({
             waTemplate.replace("{mini_form_url}", formUrl) +
             `\n\nSetelah form dikirim, silakan pilih tindakan berikutnya dari menu di bawah.`;
 
-          await sendFonnte(replyTo, waMsg, fonnteDevice, FORM_MENU_OPTIONS).catch(e =>
+          await sendFormMenu(replyTo, waMsg, companyId, fonnteDevice).catch(e =>
             logger.warn({ e, from }, "hybrid: failed to send form link via Fonnte"),
           );
 

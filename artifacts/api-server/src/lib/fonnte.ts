@@ -176,15 +176,6 @@ export interface FonnteResult {
 }
 
 /** Opsi polling yang didukung endpoint kirim Fonnte. */
-export interface FonnteSendOptions {
-  /** Pilihan polling; minimal 2 dan maksimal 12 item. */
-  choices?: string[];
-  /** Batas pilihan polling. Untuk menu navigasi gunakan "single". */
-  select?: "single" | "multiple";
-  /** Judul polling yang ditampilkan di WhatsApp. */
-  pollname?: string;
-}
-
 /**
  * Kirim file/dokumen sebagai attachment WhatsApp via Fonnte.
  * documentUrl harus berupa public URL yang dapat diakses Fonnte.
@@ -406,7 +397,6 @@ export async function sendFonnte(
   to: string,
   message: string,
   fonnteDevice?: string | null,
-  options?: FonnteSendOptions,
 ): Promise<FonnteResult> {
   // Untuk grup: coba semua token secara berurutan
   if (to.includes("@g.us")) {
@@ -435,21 +425,13 @@ export async function sendFonnte(
   }
 
   try {
-    const payload = new URLSearchParams({ target: phone, message });
-    const choices = options?.choices?.filter((choice) => choice.trim().length > 0) ?? [];
-    if (choices.length >= 2) {
-      payload.set("choices", choices.join(","));
-      payload.set("select", options?.select ?? "single");
-      payload.set("pollname", options?.pollname?.trim() || "Pilih tindakan");
-    }
-
     const res = await fetch(FONNTE_URL, {
       method: "POST",
       headers: {
         Authorization: token,
         "Content-Type": "application/x-www-form-urlencoded",
       },
-      body: payload.toString(),
+      body: new URLSearchParams({ target: phone, message }).toString(),
     });
 
     if (!res.ok) {

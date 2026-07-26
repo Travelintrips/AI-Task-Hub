@@ -16,16 +16,38 @@ import { eq, and, gt } from "drizzle-orm";
 import { db, intakeSessionsTable, dataTemplatesTable } from "@workspace/db";
 import { generateSecureToken } from "./tokens";
 import { getFormConfig, inferFormType } from "./mini-form-config";
-import { sendFonnte, type FonnteSendOptions } from "./fonnte";
-
-/** Pilihan menu form dikirim sebagai polling agar customer dapat menekan pilihan. */
-export const FORM_MENU_OPTIONS: FonnteSendOptions = {
-  choices: ["Kembali Menu Awal", "Akhiri Percakapan", "Hubungi Agent"],
-  select: "single",
-  pollname: "Pilih tindakan berikutnya",
-};
+import { sendFonnte } from "./fonnte";
+import { sendWhatsAppInteractiveButtons } from "./whatsapp";
 import { logger } from "./logger";
+
 import type { IntentResolution } from "./intent-engine";
+
+export const FORM_MENU_BUTTONS = [
+  { id: "form_menu_home", title: "Kembali Menu Awal" },
+  { id: "form_menu_end", title: "Akhiri Percakapan" },
+  { id: "form_menu_agent", title: "Hubungi Agent" },
+] as const;
+
+export async function sendFormMenu(
+  phone: string,
+  message: string,
+  companyId: string,
+  fonnteDevice?: string | null,
+): Promise<{ success: boolean; error?: string }> {
+  const interactive = await sendWhatsAppInteractiveButtons(
+    phone,
+    message,
+    [...FORM_MENU_BUTTONS],
+    companyId,
+  );
+  if (interactive.success) return interactive;
+
+  logger.warn(
+    { phone, companyId, error: interactive.error },
+    "mini-form: WhatsApp interactive buttons unavailable — sending plain Fonnte message",
+  );
+  return sendFonnte(phone, message, fonnteDevice);
+}
 
 export type FlowMode = "conversation" | "hybrid" | "mini_form";
 
@@ -139,7 +161,7 @@ export async function routeIntentToFlow({
     const resendMsg =
       `🔗 Link form pemesanan Anda:\n\n${existingFormUrl}\n\nSilakan lengkapi form data untuk melanjutkan proses. Jika ada pertanyaan, tim kami siap membantu! 🙏\n\n` +
       `Setelah form dikirim, silakan pilih tindakan berikutnya dari menu di bawah.`;
-    const resent = await sendFonnte(phone, resendMsg, fonnteDevice, FORM_MENU_OPTIONS).catch((e) => {
+    const resent = await sendFormMenu(phone, resendMsg, companyId, fonnteDevice).catch((e) => {
       logger.warn({ e, phone }, "mini-form-router: resend form link failed");
       return { success: false, error: String(e) };
     });
@@ -200,7 +222,7 @@ export async function routeIntentToFlow({
     `\n\nSetelah form dikirim, silakan pilih tindakan berikutnya dari menu di bawah.`;
 
   // Send WA link to customer — gunakan device yang sama dengan incoming message
-  const sent = await sendFonnte(phone, waMessage, fonnteDevice, FORM_MENU_OPTIONS).catch((e) => {
+  const sent = await sendFormMenu(phone, waMessage, companyId, fonnteDevice).catch((e) => {
     logger.warn({ e, phone }, "mini-form-router: sendFonnte failed");
     return { success: false, error: String(e) };
   });
@@ -233,7 +255,13 @@ export async function findFormSentSession(
   phone: string,
   companyId: string,
   intentCode?: string,
-): Promise<{ id: number; formToken: string; miniFormType: string } | null> {
+): Promise<{
+  id: number;
+  formToken: string;
+  miniFormType: string;
+  intentCode: string;
+  category: string | null;
+} | null> {
   try {
     const now = new Date();
     const [session] = await db
@@ -257,6 +285,8 @@ export async function findFormSentSession(
       id: session.id,
       formToken: session.formToken,
       miniFormType: session.miniFormType ?? "trucking",
+      intentCode: session.intentCode,
+      category: session.category,
     };
   } catch {
     return null;

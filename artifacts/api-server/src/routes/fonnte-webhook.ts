@@ -104,7 +104,12 @@ router.post("/webhook/fonnte", async (req, res): Promise<void> => {
     const device  = normPhone(rawPayload.device);  // nomor WA bisnis (perangkat kita)
     const name    = toString(rawPayload.name);
     const msgType = toMsgType(rawPayload.type);
-    const text    = toString(rawPayload.message) ?? toString(rawPayload.caption);
+    // Fonnte's button/flow reply is exposed in `text`; regular messages use
+    // `message`. Prefer `text` so a clicked menu item reaches the command router.
+    const text    =
+      toString(rawPayload.text) ??
+      toString(rawPayload.message) ??
+      toString(rawPayload.caption);
     const fileUrl = toString(rawPayload.file) ?? toString(rawPayload.url);
 
     // ── DEBUG: Log raw payload selalu (untuk diagnosa) ────────────────────
@@ -114,6 +119,7 @@ router.post("/webhook/fonnte", async (req, res): Promise<void> => {
       raw_name: rawPayload.name,
       raw_type: rawPayload.type,
       raw_quick: rawPayload.quick,
+      raw_text: String(rawPayload.text ?? "").substring(0, 80),
       raw_message: String(rawPayload.message ?? "").substring(0, 80),
       is_group: isGroupMsg,
       normalized_sender: sender,
