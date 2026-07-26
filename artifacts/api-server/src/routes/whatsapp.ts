@@ -42,6 +42,7 @@ import {
 import {
   routeIntentToFlow,
   findFormSentSession,
+  findRecentAnySession,
   FORM_MENU_BUTTONS,
   sendFormMenu,
 } from "../lib/mini-form-router";
@@ -57,10 +58,22 @@ function getFormMenuCategory(intentCode: string, sessionCategory?: string | null
   aliases: string[];
 } {
   const raw = `${intentCode} ${sessionCategory ?? ""}`.toLowerCase().replace(/-/g, "_");
-  if (/(ppjk|custom|bea_cukai)/.test(raw)) {
-    return { label: "PPJK / Customs", aliases: ["Customs", "PPJK", "Bea Cukai", "PPJK/Customs"] };
+  if (/(ppjk|custom|bea_cukai|import|ekspor|freight)/.test(raw)) {
+    return { label: "PPJK / Customs", aliases: ["Customs", "PPJK", "Bea Cukai", "PPJK/Customs", "Logistik", "Freight"] };
   }
-  return { label: "Trucking / Logistik", aliases: ["Logistik", "Trucking", "Freight", "Pengiriman", "Sea Freight", "Air Freight"] };
+  if (/(sport|lapangan|booking|futsal|badminton|basket|tenis|voli)/.test(raw)) {
+    return { label: "Sport Center", aliases: ["Sport Center", "Lapangan", "Olahraga", "Booking Lapangan"] };
+  }
+  if (/(kasbon|cash_advance|finance|keuangan|pembayaran)/.test(raw)) {
+    return { label: "Finance / Kasbon", aliases: ["Finance", "Kasbon", "Keuangan", "Pembayaran"] };
+  }
+  if (/(fleet|armada|kendaraan|driver|repair)/.test(raw)) {
+    return { label: "Fleet / Armada", aliases: ["Fleet", "Armada", "Kendaraan", "Fleet Management"] };
+  }
+  if (/(tenant|properti|sewa_properti)/.test(raw)) {
+    return { label: "Tenant / Properti", aliases: ["Tenant", "Properti", "Sewa Properti"] };
+  }
+  return { label: "Trucking / Logistik", aliases: ["Logistik", "Trucking", "Pengiriman", "Sea Freight", "Air Freight"] };
 }
 
 async function getFormAgentTargets(
@@ -763,27 +776,39 @@ async function runAiDetection({
     }
 
     // ── Step 0a-form-menu: Form menu reply gate ─────────────────────────────────
-    // Deteksi ketika pelanggan memilih salah satu polling yang ditampilkan di bawah
-    // link form. Fonnte mengirim label pilihan sebagai pesan masuk:
-    //   Kembali Menu Awal  → tampilkan menu utama + cancel semua sesi
-    //   Akhiri Percakapan  → cancel sesi + kirim pesan penutup
-    //   Hubungi Agent      → notif ke staff + ack ke pelanggan
+    // Deteksi ketika pelanggan membalas dengan salah satu pilihan menu form:
+    //   [Kembali Menu Awal]  → tampilkan menu utama + cancel semua sesi
+    //   [Akhiri Percakapan]  → cancel sesi + kirim pesan penutup
+    //   [Hubungi Agent]      → notif ke staff + ack ke pelanggan
     //
-    // Jangan gunakan angka di sini: menu greeting juga memakai angka 1-6,
-    // sedangkan pilihan form sekarang dikirim sebagai polling yang dapat ditekan.
+    // CATATAN: Fonnte poll (choices) adalah fitur voting saja — klik pada pilihan
+    // poll TIDAK mengirim pesan balik ke webhook. Menu sekarang dikirim sebagai
+    // plain text dengan instruksi "[Label]" yang user balas secara manual.
+    // Strip bracket [] dari message sebelum matching agar "[Kembali Menu Awal]" cocok.
     {
-      const normalizedMsg = bodyText.trim().toLowerCase();
+      // Hapus bracket luar [] agar "[Kembali Menu Awal]" → "kembali menu awal"
+      const normalizedMsg = bodyText.trim().toLowerCase().replace(/^\[+|\]+$/g, "").trim();
       const isOption1 = /^(form_menu_home|kembali menu awal|kembali)$/i.test(normalizedMsg);
-      const isOption2 = /^(form_menu_end|akhiri percakapan|akhiri)$/i.test(normalizedMsg);
+      const isOption2 = /^(form_menu_end|akhiri percakapan|akhiri|selesai)$/i.test(normalizedMsg);
       const isOption3 = /^(form_menu_agent|hubungi agent|hubungi agen|agent|agen)$/i.test(normalizedMsg);
 
-      // Semua opsi form hanya berlaku jika pelanggan memang sedang memiliki
-      // sesi form aktif. Guard ini mencegah label pilihan diproses di luar flow form.
+      // Guard: hanya proses jika ada sesi form aktif (form_sent) ATAU sesi apapun
+      // yang dibuat dalam 2 jam terakhir (user sudah submit form lalu klik menu).
       const isFormMenuReply = isOption1 || isOption2 || isOption3;
-      const formSentSession = isFormMenuReply
-        ? await findFormSentSession(from, companyId)
-        : null;
-      const shouldHandleFormMenu = isFormMenuReply && formSentSession !== null;
+      let formSentSession: Awaited<ReturnType<typeof findFormSentSession>> = null;
+      let recentSession: { intentCode: string; category: string | null } | null = null;
+
+      if (isFormMenuReply) {
+        formSentSession = await findFormSentSession(from, companyId);
+        if (!formSentSession) {
+          // Fallback: cek apakah ada sesi apapun dalam 2 jam terakhir
+          recentSession = await findRecentAnySession(from, companyId);
+        }
+      }
+
+      const shouldHandleFormMenu = isFormMenuReply && (formSentSession !== null || recentSession !== null);
+      // Sumber intentCode/category terbaik untuk routing Hubungi Agent
+      const sessionForAgent = formSentSession ?? recentSession;
 
       if (shouldHandleFormMenu) {
         const choice =
@@ -793,7 +818,7 @@ async function runAiDetection({
           : 0;
 
         if (choice > 0) {
-          logger.info({ from, bodyText, choice }, "form-menu: pilihan menu form terdeteksi");
+          logger.info({ from, bodyText, normalizedMsg, choice }, "form-menu: pilihan menu form terdeteksi");
 
           // Cancel semua sesi aktif (form_sent, collecting, ready_for_task)
           try {
@@ -823,7 +848,7 @@ async function runAiDetection({
               `5.❓ Pertanyaan lainnya\n` +
               `6.🎨 Layanan Kreatif / Desain AI\n\n` +
               `Tim kami siap membantu! 🙏`;
-           await sendFonnte(replyTo, menuReply, fonnteDevice).catch((e) =>
+            await sendFonnte(replyTo, menuReply, fonnteDevice).catch((e) =>
               logger.warn({ e }, "form-menu: gagal kirim menu utama"),
             );
           } else if (choice === 2) {
@@ -835,7 +860,7 @@ async function runAiDetection({
               logger.warn({ e }, "form-menu: gagal kirim pesan penutup"),
             );
           } else if (choice === 3) {
-            // Hubungi Agent — ack ke pelanggan + notif ke staff
+            // Hubungi Agent — ack ke pelanggan + notif ke staff berdasarkan kategori intent
             const agentAck =
               `Baik, kami akan segera menghubungkan Anda dengan agent kami. 🙏\n\n` +
               `Mohon tunggu sebentar, tim kami akan segera membantu!`;
@@ -843,17 +868,17 @@ async function runAiDetection({
               logger.warn({ e }, "form-menu: gagal kirim ack agent"),
             );
 
-            // Notif ke staff
+            // Routing ke divisi yang tepat (PPJK/Trucking/Sport Center/Finance/Fleet/Tenant)
             const agentTargets = await getFormAgentTargets(
               companyId,
-              formSentSession.intentCode,
-              formSentSession.category,
+              sessionForAgent?.intentCode ?? "",
+              sessionForAgent?.category,
             );
 
             const staffMsg =
               `🔔 *Permintaan Bantuan Agent*\n\n` +
               `Pelanggan *${from}*${effectiveName ? ` (${effectiveName})` : ""}` +
-              ` meminta dihubungi oleh agent ${agentTargets.label}.\n\n` +
+              ` meminta dihubungi oleh agent *${agentTargets.label}*.\n\n` +
               `Silakan segera hubungi pelanggan via WhatsApp.`;
 
             await Promise.allSettled(
@@ -864,12 +889,12 @@ async function runAiDetection({
               ),
             );
 
-            if (agentTargets.targets.length === 0) {
-              logger.warn(
-                { from, category: agentTargets.label },
-                "form-menu: penerima agent berdasarkan divisi tidak ditemukan",
-              );
-            }
+            logger.info(
+              { from, agentLabel: agentTargets.label, targetCount: agentTargets.targets.length },
+              agentTargets.targets.length > 0
+                ? "form-menu: notifikasi agent terkirim"
+                : "form-menu: tidak ada penerima agent ditemukan — periksa Notification Receivers",
+            );
           }
 
           await db

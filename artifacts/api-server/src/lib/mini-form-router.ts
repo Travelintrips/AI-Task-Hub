@@ -12,7 +12,7 @@
  *   else { ... mini form link already sent, log and return ... }
  */
 
-import { eq, and, gt } from "drizzle-orm";
+import { eq, and, gt, desc } from "drizzle-orm";
 import { db, intakeSessionsTable, dataTemplatesTable } from "@workspace/db";
 import { generateSecureToken } from "./tokens";
 import { getFormConfig, inferFormType } from "./mini-form-config";
@@ -34,6 +34,7 @@ export async function sendFormMenu(
   companyId: string,
   fonnteDevice?: string | null,
 ): Promise<{ success: boolean; error?: string }> {
+  // Coba Meta Cloud API interactive buttons dulu (perlu kredensial Meta)
   const interactive = await sendWhatsAppInteractiveButtons(
     phone,
     message,
@@ -42,11 +43,23 @@ export async function sendFormMenu(
   );
   if (interactive.success) return interactive;
 
-  logger.warn(
-    { phone, companyId, error: interactive.error },
-    "mini-form: WhatsApp interactive buttons unavailable — sending plain Fonnte message",
+  // PENTING: Fonnte poll (choices) hanya menampilkan UI voting — pilihan yang diklik
+  // TIDAK mengirim pesan balik ke webhook. Gunakan plain text dengan instruksi keyword.
+  // User membalas dengan teks [Kembali Menu Awal], [Akhiri Percakapan], atau [Hubungi Agent].
+  logger.info(
+    { phone, companyId },
+    "mini-form: Meta buttons unavailable — using plain text menu (Fonnte polls are vote-only)",
   );
-  return sendFonnte(phone, message, fonnteDevice);
+
+  const menuText =
+    message +
+    `\n\n` +
+    `Setelah form dikirim, balas dengan salah satu pilihan:\n\n` +
+    `🔄 *[Kembali Menu Awal]*\n` +
+    `🔚 *[Akhiri Percakapan]*\n` +
+    `👤 *[Hubungi Agent]*`;
+
+  return sendFonnte(phone, menuText, fonnteDevice);
 }
 
 export type FlowMode = "conversation" | "hybrid" | "mini_form";
@@ -247,6 +260,37 @@ export async function routeIntentToFlow({
     formUrl,
     waSent: sent.success,
   };
+}
+
+// ── Status check: any recent session in last 2 hours? ─────────────────────────
+// Digunakan sebagai fallback ketika form_sent session sudah tidak ada (sudah submitted/cancelled)
+// tapi user masih ingin berinteraksi dengan menu form.
+
+export async function findRecentAnySession(
+  phone: string,
+  companyId: string,
+): Promise<{ intentCode: string; category: string | null } | null> {
+  try {
+    const cutoff = new Date(Date.now() - 2 * 60 * 60 * 1000); // 2 jam terakhir
+    const [session] = await db
+      .select({
+        intentCode: intakeSessionsTable.intentCode,
+        category: intakeSessionsTable.category,
+      })
+      .from(intakeSessionsTable)
+      .where(
+        and(
+          eq(intakeSessionsTable.phone, phone),
+          eq(intakeSessionsTable.companyId, companyId),
+          gt(intakeSessionsTable.updatedAt, cutoff),
+        ),
+      )
+      .orderBy(desc(intakeSessionsTable.updatedAt))
+      .limit(1);
+    return session ?? null;
+  } catch {
+    return null;
+  }
 }
 
 // ── Status check: is session in form_sent state? ────────────────────────────────
