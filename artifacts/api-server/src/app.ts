@@ -1054,6 +1054,9 @@ if (supabasePool) {
     .catch((err: unknown) => logger.warn({ err }, "Core table migration warning"));
 }
 
+// ── Freight / PPJK bucket — pastikan bucket "exportimport" ada di Supabase Storage ──
+import("./lib/storage").then((m) => m.ensureExportImportBucket()).catch(() => {});
+
 // ── Sprint 10A-1.1 startup schema validation ───────────────────────────────────
 // Lightweight check — never fails startup, just logs drift summary.
 import("./lib/schema-startup-check").then((m) => m.runSchemaStartupCheck()).catch(() => {});

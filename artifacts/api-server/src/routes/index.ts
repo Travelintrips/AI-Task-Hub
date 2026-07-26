@@ -71,6 +71,7 @@ import creativeAiRouter from "./creative-ai";
 import notificationReceiversRouter from "./notification-receivers";
 import sportCenterRouter from "./sport-center";
 import publicSportCenterRouter from "./public-sport-center";
+import freightRouter from "./freight";
 import { extractUser } from "../middleware/auth";
 
 const router: IRouter = Router();
@@ -173,5 +174,7 @@ router.use(notificationReceiversRouter);
 // ── Sport Center Booking Management ───────────────────────────────────────────
 router.use(sportCenterRouter);
 router.use(publicSportCenterRouter);
+// ── Freight / PPJK Document Upload ────────────────────────────────────────────
+router.use(freightRouter);
 
 export default router;
