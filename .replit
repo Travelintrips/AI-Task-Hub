@@ -76,6 +76,7 @@ SC_DOMAIN = "https://sc.travelintrips.co.id"
 FONNTE_DEVICE_5 = "6281992935357"
 FONNTE_TOKEN_5 = "KHEFXba49TuoiWMuaMbr"
 OPENAI_API_KEY = "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"
+STAFF_NOTIFY_PHONES_CUSTOMS = "6281386210415"
 
 [userenv.production]
 VITE_SUPABASE_URL = "https://nzdweipzckfszczzqtuw.supabase.co"
