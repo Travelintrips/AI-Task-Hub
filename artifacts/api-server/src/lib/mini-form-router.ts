@@ -66,15 +66,15 @@ export async function sendFormMenu(
   });
   if (metaResult.success) return metaResult;
 
-  // 3. Fallback terakhir: plain text dengan instruksi manual
-  logger.info({ phone, companyId }, "sendFormMenu: semua button API gagal — menggunakan plain text");
+  // 3. Fallback terakhir: plain text dengan instruksi angka (8/9/10)
+  logger.info({ phone, companyId }, "sendFormMenu: semua button API gagal — menggunakan plain text angka");
   const menuText =
     message +
     `\n\n` +
-    `Setelah form dikirim, balas dengan salah satu pilihan:\n\n` +
-    `🔄 *[Kembali Menu Awal]*\n` +
-    `🔚 *[Akhiri Percakapan]*\n` +
-    `👤 *[Hubungi Agent]*`;
+    `Setelah form dikirim, balas dengan angka:\n\n` +
+    `8️⃣  Kembali Menu Awal\n` +
+    `9️⃣  Akhiri Percakapan\n` +
+    `🔟  Hubungi Agent`;
 
   return sendFonnte(phone, menuText, fonnteDevice);
 }

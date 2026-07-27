@@ -863,29 +863,21 @@ async function runAiDetection({
 
     // ── Step 0a-form-menu: Form menu reply gate ─────────────────────────────────
     // Deteksi ketika pelanggan membalas dengan salah satu pilihan menu form:
-    //   [Kembali Menu Awal]  → tampilkan menu utama + cancel semua sesi
-    //   [Akhiri Percakapan]  → cancel sesi + kirim pesan penutup
-    //   [Hubungi Agent]      → notif ke staff + ack ke pelanggan
-    //
-    // CATATAN: Fonnte poll (choices) adalah fitur voting saja — klik pada pilihan
-    // poll TIDAK mengirim pesan balik ke webhook. Menu sekarang dikirim sebagai
-    // plain text dengan instruksi "[Label]" yang user balas secara manual.
-    // Strip bracket [] dari message sebelum matching agar "[Kembali Menu Awal]" cocok.
+    //   8 / Kembali Menu Awal  → tampilkan menu utama + cancel semua sesi
+    //   9 / Akhiri Percakapan  → cancel sesi + kirim pesan penutup
+    //   10 / Hubungi Agent     → notif ke staff + wa.me link personal divisi ke pelanggan
     {
-      // Hapus bracket luar [] dan emoji prefix agar:
-      // "[Kembali Menu Awal]"   → "kembali menu awal"
-      // "🔄 Kembali Menu Awal"  → "kembali menu awal"
-      // "🔄 [Kembali Menu Awal]" → "kembali menu awal"
+      // Hapus bracket luar [] dan emoji prefix agar teks manual tetap cocok
       const normalizedMsg = bodyText
         .trim()
         .replace(/^[\p{Emoji_Presentation}\p{Extended_Pictographic}]\s*/gu, "") // strip leading emoji
         .replace(/^\[+|\]+$/g, "") // strip outer brackets
         .trim()
         .toLowerCase();
-      // Cocokkan ID tombol baru (btn_*) DAN keyword lama (teks manual)
-      const isOption1 = /^(btn_menu_awal|form_menu_home|kembali menu awal|kembali)$/i.test(normalizedMsg);
-      const isOption2 = /^(btn_akhiri|form_menu_end|akhiri percakapan|akhiri|selesai)$/i.test(normalizedMsg);
-      const isOption3 = /^(btn_hubungi_agent|form_menu_agent|hubungi agent|hubungi agen|agent|agen)$/i.test(normalizedMsg);
+      // Cocokkan angka shortcut (8/9/10), ID tombol (btn_*), DAN keyword teks
+      const isOption1 = /^(8|btn_menu_awal|form_menu_home|kembali menu awal|kembali)$/i.test(normalizedMsg);
+      const isOption2 = /^(9|btn_akhiri|form_menu_end|akhiri percakapan|akhiri|selesai)$/i.test(normalizedMsg);
+      const isOption3 = /^(10|btn_hubungi_agent|form_menu_agent|hubungi agent|hubungi agen|agent|agen)$/i.test(normalizedMsg);
 
       // Guard: hanya proses jika ada sesi form aktif (form_sent) ATAU sesi apapun
       // yang dibuat dalam 2 jam terakhir (user sudah submit form lalu klik menu).
@@ -958,29 +950,33 @@ async function runAiDetection({
               logger.warn({ e }, "form-menu: gagal kirim pesan penutup"),
             );
           } else if (choice === 3) {
-            // Hubungi Agent — ack ke pelanggan + wa.me link + notif ke staff
-            const adminPhone = process.env.ADMIN_AGENT_NUMBER
-              ? normalizePhone(process.env.ADMIN_AGENT_NUMBER) ?? process.env.ADMIN_AGENT_NUMBER
-              : null;
-            let agentAck =
-              `Baik, kami akan segera menghubungkan Anda dengan agent kami. 🙏\n\n` +
-              `Mohon tunggu sebentar, tim kami akan segera membantu!`;
-            if (adminPhone) {
-              agentAck +=
-                `\n\nAtau Anda dapat langsung menghubungi agent kami:\n` +
-                `👉 https://wa.me/${adminPhone}`;
-            }
-            await sendFonnte(replyTo, agentAck, fonnteDevice).catch((e) =>
-              logger.warn({ e }, "form-menu: gagal kirim ack agent"),
-            );
-
-            // Routing ke divisi yang tepat (PPJK/Trucking/Sport Center/Finance/Fleet/Tenant)
+            // Hubungi Agent — cari nomor personal divisi dari Penerima Notifikasi,
+            // kirim wa.me link ke pelanggan + notif ke staff
             const agentTargets = await getFormAgentTargets(
               companyId,
               sessionForAgent?.intentCode ?? "",
               sessionForAgent?.category,
             );
 
+            // Nomor pertama dari Penerima Notifikasi dijadikan wa.me link untuk pelanggan
+            const personalPhone = agentTargets.targets.length > 0
+              ? (normalizePhone(agentTargets.targets[0]!) ?? agentTargets.targets[0]!)
+              : null;
+
+            let agentAck =
+              `Baik, kami akan segera menghubungkan Anda dengan agent *${agentTargets.label}*. 🙏`;
+            if (personalPhone && !personalPhone.includes("@g.us")) {
+              agentAck +=
+                `\n\nSilakan hubungi langsung melalui link berikut:\n` +
+                `👉 https://wa.me/${personalPhone}`;
+            } else {
+              agentAck += `\n\nMohon tunggu sebentar, tim kami akan segera membantu!`;
+            }
+            await sendFonnte(replyTo, agentAck, fonnteDevice).catch((e) =>
+              logger.warn({ e }, "form-menu: gagal kirim ack agent"),
+            );
+
+            // Notifikasi ke semua penerima divisi (termasuk grup)
             const staffMsg =
               `🔔 *Permintaan Bantuan Agent*\n\n` +
               `Pelanggan *${from}*${effectiveName ? ` (${effectiveName})` : ""}` +
@@ -996,7 +992,7 @@ async function runAiDetection({
             );
 
             logger.info(
-              { from, agentLabel: agentTargets.label, targetCount: agentTargets.targets.length },
+              { from, agentLabel: agentTargets.label, personalPhone, targetCount: agentTargets.targets.length },
               agentTargets.targets.length > 0
                 ? "form-menu: notifikasi agent terkirim"
                 : "form-menu: tidak ada penerima agent ditemukan — periksa Notification Receivers",
