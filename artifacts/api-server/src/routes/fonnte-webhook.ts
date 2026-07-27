@@ -106,8 +106,16 @@ router.post("/webhook/fonnte", async (req, res): Promise<void> => {
     const msgType = toMsgType(rawPayload.type);
     // Fonnte's button/flow reply is exposed in `text`; regular messages use
     // `message`. Prefer `text` so a clicked menu item reaches the command router.
+    // IMPORTANT: Fonnte sends `text: "non-button message"` as an internal
+    // placeholder for regular (non-button) text messages — this is NOT the
+    // actual message content. Filter it out so we fall through to `message`.
+    const rawTextField = toString(rawPayload.text);
+    const isFonnteTextPlaceholder =
+      !rawTextField ||
+      rawTextField.toLowerCase() === "non-button message" ||
+      rawTextField.toLowerCase() === "non button message";
     const text    =
-      toString(rawPayload.text) ??
+      (isFonnteTextPlaceholder ? null : rawTextField) ??
       toString(rawPayload.message) ??
       toString(rawPayload.caption);
     const fileUrl = toString(rawPayload.file) ?? toString(rawPayload.url);
