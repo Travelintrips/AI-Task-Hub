@@ -103,7 +103,11 @@ router.post("/webhook/fonnte", async (req, res): Promise<void> => {
     const sender  = normPhone(senderRaw);
     const device  = normPhone(rawPayload.device);  // nomor WA bisnis (perangkat kita)
     const name    = toString(rawPayload.name);
-    const msgType = toMsgType(rawPayload.type);
+    // Deteksi apakah pesan ini adalah klik tombol interaktif dari Fonnte
+    const rawTypeStr = toString(rawPayload.type)?.toLowerCase();
+    const isInteractiveType = rawTypeStr === "interactive";
+    const msgType = isInteractiveType ? "text" : toMsgType(rawPayload.type);
+
     // Fonnte's button/flow reply is exposed in `text`; regular messages use
     // `message`. Prefer `text` so a clicked menu item reaches the command router.
     // IMPORTANT: Fonnte sends `text: "non-button message"` as an internal
@@ -159,7 +163,8 @@ router.post("/webhook/fonnte", async (req, res): Promise<void> => {
       echoBodyCheck.includes("Silakan ceritakan kebutuhan Anda") ||
       echoBodyCheck.includes("Tim kami siap membantu! 🙏") ||
       echoBodyCheck.includes("_AI Task Center_") ||
-      echoBodyCheck.includes("/mini-form/");
+      echoBodyCheck.includes("/mini-form/") ||
+      echoBodyCheck.includes("Powered by AI Task Hub");
     if (isBotReplyBody) {
       logger.info({ sender, snippet: echoBodyCheck.slice(0, 60) }, "Fonnte webhook: bot-reply body detected — skipping echo");
       return;
@@ -172,10 +177,20 @@ router.post("/webhook/fonnte", async (req, res): Promise<void> => {
       sender_phone: sender,
       // Preserve group JID so whatsapp.ts can reply to the GROUP, not the member
       ...(isGroupMsg ? { group_jid: rawSender } : {}),
-      type: msgType,
+      // Untuk klik tombol interaktif: pertahankan type="interactive" agar
+      // extractMessageContent di whatsapp.ts bisa membaca button_reply.id
+      type: isInteractiveType ? "interactive" : msgType,
       timestamp: Math.floor(Date.now() / 1000).toString(),
       // Embed content in the standard structure
-      ...(msgType === "text"
+      ...(isInteractiveType
+        ? {
+            // Pass through interactive data (button_reply / list_reply)
+            interactive: rawPayload.interactive ?? {
+              type: "button_reply",
+              button_reply: rawPayload.button_reply,
+            },
+          }
+        : msgType === "text"
         ? { text: { body: text ?? "" } }
         : {
             [msgType]: {

@@ -1,0 +1,65 @@
+Saya ingin mengubah pesan notifikasi WhatsApp agar memiliki 3 tombol interaktif (Clickable Buttons) yang bisa langsung diproses oleh sistem. Saat ini pesannya hanya teks biasa.
+
+Tolong update kode backend (kemungkinan di `artifacts/api-server/src/lib/whatsapp.ts` atau file handler chat AI) dengan spesifikasi berikut:
+
+1. **Ganti Pesan Teks Biasa menjadi Interactive Buttons (Fonnte API)**
+   Gunakan endpoint Fonnte untuk mengirim tombol. Jangan kirim sebagai teks biasa.
+   
+   Struktur Tombol yang diinginkan:
+   - **Header:** "Link form pemesanan Anda:" (dan link form di bawahnya)
+   - **Body Text:** "Silakan lengkapi form data... Setelah form dikirim, silakan pilih tindakan:"
+   - **Footer:** "Powered by AI Task Hub"
+   - **Buttons:**
+     1. ID: `btn_menu_awal`, Title: "🔄 Kembali Menu Awal"
+     2. ID: `btn_akhiri`, Title: "🔚 Akhiri Percakapan"
+     3. ID: `btn_hubungi_agent`, Title: "👤 Hubungi Agent"
+
+2. **Buat Webhook Handler untuk Menerima Klik Tombol**
+   Buat route baru di `artifacts/api-server/src/routes/webhooks.ts` (atau update yang ada) untuk menangani POST request dari Fonnte saat user mengklik tombol.
+   
+   Fonnte akan mengirim payload seperti:
+   {
+     "target": "628xxx",
+     "type": "interactive",
+     "interactive": {
+       "type": "button_reply",
+       "button_reply": {
+         "id": "btn_menu_awal" // atau id tombol lain
+       }
+     }
+   }
+
+3. **Implementasi Logika Respon Berdasarkan Tombol:**
+
+   **A. Jika `btn_menu_awal` diklik:**
+   - Kirim pesan teks balasan ke user:
+     "Halo! 👋 Selamat datang, ada yang bisa kami bantu?
+     
+     Silakan ceritakan kebutuhan Anda:
+     1. 🚚 Pengiriman / Freight
+     2. 📋 PPJK / Bea Cukai
+     3. 🏟️ Booking Lapangan
+     4. 💰 Kasbon
+     5. ❓ Lainnya
+     
+     Tim kami siap membantu! 🙏"
+
+   **B. Jika `btn_akhiri` diklik:**
+   - Kirim pesan teks balasan:
+     "Baik, percakapan telah diakhiri. 🙏
+     
+     Jika suatu saat membutuhkan bantuan lagi, jangan ragu menghubungi kami ya. Terima kasih!"
+   - (Opsional) Tandai sesi chat di database sebagai `closed` atau `inactive`.
+
+   **C. Jika `btn_hubungi_agent` diklik:**
+   - Ambil nomor "Penerima Notif" (Admin) dari database atau Environment Variable (misal: `ADMIN_AGENT_NUMBER`).
+   - Kirim pesan ke user berupa link WhatsApp Admin:
+     "Silakan hubungi agent kami secara langsung melalui link di bawah ini:
+     👉 https://wa.me/6281234567890"
+     *(Ganti nomor dengan variabel dinamis)*
+
+4. **Penting:**
+   - Pastikan menggunakan **Fonnte Interactive API** (bukan send text biasa). Cek dokumentasi Fonnte untuk parameter `buttons`.
+   - Pastikan Webhook URL di dashboard Fonnte sudah mengarah ke endpoint backend kita.
+
+Tolong implementasikan perubahan ini. Beritahu saya file mana yang diubah dan bagaimana cara testing tombol tersebut.

@@ -16,16 +16,16 @@ import { eq, and, gt, desc } from "drizzle-orm";
 import { db, intakeSessionsTable, dataTemplatesTable } from "@workspace/db";
 import { generateSecureToken } from "./tokens";
 import { getFormConfig, inferFormType } from "./mini-form-config";
-import { sendFonnte } from "./fonnte";
+import { sendFonnte, sendFonnteButtons } from "./fonnte";
 import { sendWhatsAppInteractiveButtons } from "./whatsapp";
 import { logger } from "./logger";
 
 import type { IntentResolution } from "./intent-engine";
 
 export const FORM_MENU_BUTTONS = [
-  { id: "form_menu_home", title: "Kembali Menu Awal" },
-  { id: "form_menu_end", title: "Akhiri Percakapan" },
-  { id: "form_menu_agent", title: "Hubungi Agent" },
+  { id: "btn_menu_awal",     title: "🔄 Kembali Menu Awal" },
+  { id: "btn_akhiri",        title: "🔚 Akhiri Percakapan" },
+  { id: "btn_hubungi_agent", title: "👤 Hubungi Agent" },
 ] as const;
 
 export async function sendFormMenu(
@@ -34,23 +34,40 @@ export async function sendFormMenu(
   companyId: string,
   fonnteDevice?: string | null,
 ): Promise<{ success: boolean; error?: string }> {
-  // Coba Meta Cloud API interactive buttons dulu (perlu kredensial Meta)
-  const interactive = await sendWhatsAppInteractiveButtons(
+  // 1. Coba Fonnte Interactive Buttons (tombol yang bisa diklik langsung)
+  const fonnteResult = await sendFonnteButtons(
     phone,
     message,
     [...FORM_MENU_BUTTONS],
+    {
+      header: "Pilihan tindakan:",
+      footer: "Powered by AI Task Hub",
+      fonnteDevice,
+    },
+  ).catch((e) => {
+    logger.warn({ e, phone }, "sendFormMenu: Fonnte buttons exception");
+    return { success: false as const, error: String(e) };
+  });
+  if (fonnteResult.success) return fonnteResult;
+
+  // 2. Fallback ke Meta Cloud API interactive buttons (jika WHATSAPP_TOKEN tersedia)
+  const metaResult = await sendWhatsAppInteractiveButtons(
+    phone,
+    message,
+    [
+      { id: "btn_menu_awal",     title: "🔄 Kembali Menu Awal" },
+      { id: "btn_akhiri",        title: "🔚 Akhiri Percakapan" },
+      { id: "btn_hubungi_agent", title: "👤 Hubungi Agent" },
+    ],
     companyId,
-  );
-  if (interactive.success) return interactive;
+  ).catch((e) => {
+    logger.warn({ e, phone }, "sendFormMenu: Meta buttons exception");
+    return { success: false as const, error: String(e) };
+  });
+  if (metaResult.success) return metaResult;
 
-  // PENTING: Fonnte poll (choices) hanya menampilkan UI voting — pilihan yang diklik
-  // TIDAK mengirim pesan balik ke webhook. Gunakan plain text dengan instruksi keyword.
-  // User membalas dengan teks [Kembali Menu Awal], [Akhiri Percakapan], atau [Hubungi Agent].
-  logger.info(
-    { phone, companyId },
-    "mini-form: Meta buttons unavailable — using plain text menu (Fonnte polls are vote-only)",
-  );
-
+  // 3. Fallback terakhir: plain text dengan instruksi manual
+  logger.info({ phone, companyId }, "sendFormMenu: semua button API gagal — menggunakan plain text");
   const menuText =
     message +
     `\n\n` +

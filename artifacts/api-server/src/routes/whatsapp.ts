@@ -874,17 +874,21 @@ async function runAiDetection({
     {
       // Hapus bracket luar [] agar "[Kembali Menu Awal]" → "kembali menu awal"
       const normalizedMsg = bodyText.trim().toLowerCase().replace(/^\[+|\]+$/g, "").trim();
-      const isOption1 = /^(form_menu_home|kembali menu awal|kembali)$/i.test(normalizedMsg);
-      const isOption2 = /^(form_menu_end|akhiri percakapan|akhiri|selesai)$/i.test(normalizedMsg);
-      const isOption3 = /^(form_menu_agent|hubungi agent|hubungi agen|agent|agen)$/i.test(normalizedMsg);
+      // Cocokkan ID tombol baru (btn_*) DAN keyword lama (teks manual)
+      const isOption1 = /^(btn_menu_awal|form_menu_home|kembali menu awal|kembali)$/i.test(normalizedMsg);
+      const isOption2 = /^(btn_akhiri|form_menu_end|akhiri percakapan|akhiri|selesai)$/i.test(normalizedMsg);
+      const isOption3 = /^(btn_hubungi_agent|form_menu_agent|hubungi agent|hubungi agen|agent|agen)$/i.test(normalizedMsg);
 
       // Guard: hanya proses jika ada sesi form aktif (form_sent) ATAU sesi apapun
       // yang dibuat dalam 2 jam terakhir (user sudah submit form lalu klik menu).
+      // EXCEPTION: Klik tombol interaktif (btn_*) selalu diproses — tombol hanya bisa
+      // diklik jika kita yang mengirimnya, jadi sesi pasti sudah ada sebelumnya.
+      const isButtonIdClick = /^(btn_menu_awal|btn_akhiri|btn_hubungi_agent)$/.test(bodyText.trim());
       const isFormMenuReply = isOption1 || isOption2 || isOption3;
       let formSentSession: Awaited<ReturnType<typeof findFormSentSession>> = null;
       let recentSession: { intentCode: string; category: string | null } | null = null;
 
-      if (isFormMenuReply) {
+      if (isFormMenuReply && !isButtonIdClick) {
         formSentSession = await findFormSentSession(from, companyId);
         if (!formSentSession) {
           // Fallback: cek apakah ada sesi apapun dalam 2 jam terakhir
@@ -892,7 +896,7 @@ async function runAiDetection({
         }
       }
 
-      const shouldHandleFormMenu = isFormMenuReply && (formSentSession !== null || recentSession !== null);
+      const shouldHandleFormMenu = isFormMenuReply && (isButtonIdClick || formSentSession !== null || recentSession !== null);
       // Sumber intentCode/category terbaik untuk routing Hubungi Agent
       const sessionForAgent = formSentSession ?? recentSession;
 
@@ -946,10 +950,18 @@ async function runAiDetection({
               logger.warn({ e }, "form-menu: gagal kirim pesan penutup"),
             );
           } else if (choice === 3) {
-            // Hubungi Agent — ack ke pelanggan + notif ke staff berdasarkan kategori intent
-            const agentAck =
+            // Hubungi Agent — ack ke pelanggan + wa.me link + notif ke staff
+            const adminPhone = process.env.ADMIN_AGENT_NUMBER
+              ? normalizePhone(process.env.ADMIN_AGENT_NUMBER) ?? process.env.ADMIN_AGENT_NUMBER
+              : null;
+            let agentAck =
               `Baik, kami akan segera menghubungkan Anda dengan agent kami. 🙏\n\n` +
               `Mohon tunggu sebentar, tim kami akan segera membantu!`;
+            if (adminPhone) {
+              agentAck +=
+                `\n\nAtau Anda dapat langsung menghubungi agent kami:\n` +
+                `👉 https://wa.me/${adminPhone}`;
+            }
             await sendFonnte(replyTo, agentAck, fonnteDevice).catch((e) =>
               logger.warn({ e }, "form-menu: gagal kirim ack agent"),
             );
