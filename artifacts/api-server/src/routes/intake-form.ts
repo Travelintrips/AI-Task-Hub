@@ -658,20 +658,49 @@ router.post(
               shipment_mode: "Moda Pengiriman",
             };
 
-            // Field yang dikecualikan dari ringkasan teks:
-            // - file fields: dikirim sebagai attachment WA (bukan teks)
+            // Field yang dikecualikan dari ringkasan teks utama:
             // - phone: sudah tampil di baris "Pelanggan:" di header notifikasi
-            const FILE_FIELD_KEYS = new Set([
-              "commercial_invoice",
-              "packing_list",
-            ]);
-            const SKIP_SUMMARY_KEYS = new Set([...FILE_FIELD_KEYS, "phone"]);
+            // - uploaded_document:... : kunci sintetis yang ditambahkan oleh loop di bawah
+            // CATATAN: File field URL TIDAK lagi dikecualikan — ditampilkan di bagian
+            // "Dokumen Terlampir:" sebagai teks sekaligus juga dicoba kirim sebagai attachment.
+            const SKIP_SUMMARY_KEYS = new Set(["phone"]);
             const isPublicUrl = (v: unknown): v is string =>
               typeof v === "string" &&
               (v.startsWith("http://") || v.startsWith("https://"));
 
+            // Label untuk file fields (agar tampil rapi di teks dokumen)
+            const fileLabelMap: Record<string, string> = {
+              commercial_invoice: "Commercial Invoice",
+              packing_list:       "Packing List",
+              attachment:         "Dokumen Pendukung",
+              photo:              "Foto Kendaraan",
+              photo_damage:       "Foto Kerusakan",
+            };
+
+            // Identifikasi semua file fields yang punya URL dari konfigurasi form
+            const fileFieldUrlEntries: Array<{ label: string; url: string }> = [];
+            for (const field of formCfg.fields) {
+              if (field.type === "file") {
+                const val = merged[field.name];
+                if (isPublicUrl(val)) {
+                  fileFieldUrlEntries.push({
+                    label: fileLabelMap[field.name] ?? field.label,
+                    url: val,
+                  });
+                }
+              }
+            }
+
             const fieldSummaryWa = Object.entries(merged)
-              .filter(([k]) => !SKIP_SUMMARY_KEYS.has(k)) // skip file fields & phone dari teks
+              .filter(([k]) => {
+                if (SKIP_SUMMARY_KEYS.has(k)) return false;
+                // skip synthetic uploaded_document:... keys
+                if (k.startsWith("uploaded_document:")) return false;
+                // skip file fields — sudah ditampilkan di bagian "Dokumen Terlampir"
+                const fieldDef = formCfg.fields.find((f) => f.name === k);
+                if (fieldDef?.type === "file") return false;
+                return true;
+              })
               .slice(0, 20)
               .map(([k, v]) => {
                 const label = fieldLabelMap[k] ?? k;
@@ -679,12 +708,22 @@ router.post(
               })
               .join("\n");
 
+            // Tambahkan bagian dokumen jika ada file yang diupload
+            const docTextSection =
+              fileFieldUrlEntries.length > 0
+                ? `\n\n*Dokumen Terlampir:*\n` +
+                  fileFieldUrlEntries
+                    .map(({ label, url }) => `• ${label}: ${url}`)
+                    .join("\n")
+                : "";
+
             const notifMsg =
               `📋 *Pesanan Baru — ${formCfg.title}*\n` +
               `No. Task: *${taskNumber}*\n` +
               `Pelanggan: ${session.phone}\n\n` +
-              `*Detail Pesanan:*\n${fieldSummaryWa}\n\n` +
-              `Mohon Segera Konfirmasi.`;
+              `*Detail Pesanan:*\n${fieldSummaryWa}` +
+              docTextSection +
+              `\n\nMohon Segera Konfirmasi.`;
 
             await Promise.allSettled(
               receivers.map((r) =>
@@ -925,28 +964,44 @@ router.post(
         }
       }
 
-      await db
-        .update(intakeSessionsTable)
-        .set({
-          collectedFields: merged,
-          missingFields: stillMissing,
-          uploadedDocuments: mergedDocs,
-          status: isComplete ? "submitted" : "ready_for_task",
-          taskId: taskId ? String(taskId) : session.taskId,
-          updatedAt: new Date(),
-        })
-        .where(eq(intakeSessionsTable.id, session.id));
-
-      logger.info(
-        {
-          sessionId: session.id,
-          type,
-          isComplete,
-          taskId,
-          missingLeft: stillMissing.length,
-        },
-        "Mini form submitted",
+      // Bersihkan kunci sintetis "uploaded_document:..." dari merged sebelum disimpan ke DB.
+      // Kunci ini ditambahkan oleh loop document attachment di atas dan tidak perlu persisten.
+      const mergedForStorage: Record<string, unknown> = Object.fromEntries(
+        Object.entries(merged).filter(([k]) => !k.startsWith("uploaded_document:")),
       );
+
+      // ── Simpan sesi — non-fatal: task sudah dibuat & WA sudah dikirim jika ada error di sini ──
+      try {
+        await db
+          .update(intakeSessionsTable)
+          .set({
+            collectedFields: mergedForStorage,
+            missingFields: stillMissing,
+            uploadedDocuments: mergedDocs,
+            status: isComplete ? "submitted" : "ready_for_task",
+            taskId: taskId ? String(taskId) : session.taskId,
+            updatedAt: new Date(),
+          })
+          .where(eq(intakeSessionsTable.id, session.id));
+
+        logger.info(
+          {
+            sessionId: session.id,
+            type,
+            isComplete,
+            taskId,
+            missingLeft: stillMissing.length,
+          },
+          "Mini form submitted",
+        );
+      } catch (updateErr) {
+        // Non-fatal: task sudah dibuat dan WA sudah terkirim.
+        // Gagal update session jangan return 500 ke user.
+        logger.error(
+          { updateErr, sessionId: session.id, taskId, isComplete },
+          "intake-form: db.update intakeSessionsTable GAGAL (non-fatal) — task tetap dibuat",
+        );
+      }
 
       const hasAttachmentFailure =
         attachmentSummary !== null && attachmentSummary.failed > 0;
