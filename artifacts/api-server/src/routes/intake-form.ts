@@ -389,6 +389,13 @@ router.post(
 
       let taskId: number | null = null;
       let taskNumber: string | null = null;
+      // Diisi saat attachment diproses dan dibaca saat membentuk response akhir.
+      // Deklarasikan di scope handler agar tetap tersedia di luar if (isComplete).
+      let attachmentSummary: {
+        total: number;
+        failed: number;
+        errors: string[];
+      } | null = null;
 
       if (isComplete) {
         const now = new Date();
@@ -486,12 +493,6 @@ router.post(
 
         // ── Kirim WA ke Penerima Notifikasi yang aktif sesuai kategori ─────────
         // Ini diisi jika ada file attachment yang dicoba dikirim, digunakan di res.json
-        let attachmentSummary: {
-          total: number;
-          failed: number;
-          errors: string[];
-        } | null = null;
-
         try {
           // Lookup kategori dari intent_master — coba heliumdb dulu, lalu Supabase
           let resolvedCategory: string | null = null;
