@@ -1408,7 +1408,7 @@ async function runAiDetection({
             "Terima kasih! Data Anda sudah lengkap. Silakan konfirmasi melalui form berikut:\n\n{mini_form_url}\n\nTim kami akan segera menindaklanjuti. 🙏";
           const waMsg =
             waTemplate.replace("{mini_form_url}", formUrl) +
-            `\n\nSetelah form dikirim, silakan pilih tindakan berikutnya dari menu di bawah.`;
+            `\nSilakan pilih tindakan berikutnya dari menu di bawah.`;
 
           await sendFormMenu(replyTo, waMsg, companyId, fonnteDevice).catch(e =>
             logger.warn({ e, from }, "hybrid: failed to send form link via Fonnte"),

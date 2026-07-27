@@ -70,8 +70,7 @@ export async function sendFormMenu(
   logger.info({ phone, companyId }, "sendFormMenu: semua button API gagal — menggunakan plain text angka");
   const menuText =
     message +
-    `\n\n` +
-    `Setelah form dikirim, balas dengan angka:\n\n` +
+    `balas dengan angka:\n\n` +
     `8️⃣  Kembali Menu Awal\n` +
     `9️⃣  Akhiri Percakapan\n` +
     `🔟  Hubungi Agent`;
@@ -190,7 +189,7 @@ export async function routeIntentToFlow({
     // Resend the existing form link (user may not have seen it or it went to wrong device)
     const resendMsg =
       `🔗 Link form pemesanan Anda:\n\n${existingFormUrl}\n\nSilakan lengkapi form data untuk melanjutkan proses. Jika ada pertanyaan, tim kami siap membantu! 🙏\n\n` +
-      `Setelah form dikirim, silakan pilih tindakan berikutnya dari menu di bawah.`;
+      `\nSilakan pilih tindakan berikutnya dari menu di bawah.`;
     const resent = await sendFormMenu(phone, resendMsg, companyId, fonnteDevice).catch((e) => {
       logger.warn({ e, phone }, "mini-form-router: resend form link failed");
       return { success: false, error: String(e) };
@@ -249,7 +248,7 @@ export async function routeIntentToFlow({
 
   const waMessage =
     template.replace("{mini_form_url}", formUrl) +
-    `\n\nSetelah form dikirim, silakan pilih tindakan berikutnya dari menu di bawah.`;
+    `\nSilakan pilih tindakan berikutnya dari menu di bawah.`;
 
   // Send WA link to customer — gunakan device yang sama dengan incoming message
   const sent = await sendFormMenu(phone, waMessage, companyId, fonnteDevice).catch((e) => {
