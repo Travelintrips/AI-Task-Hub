@@ -413,7 +413,7 @@ router.post(
               `Sumber: mini_form | Intake Session: #${session.id}\n` +
               `Diisi oleh: ${body.submittedBy ?? session.phone}\n\n` +
               `Data terkumpul:\n${fieldSummary}`,
-            status: "New Inquiry",
+            status: "new_inquiry",
             priority:
               type === "complaint" || type === "fleet-repair"
                 ? "high"
