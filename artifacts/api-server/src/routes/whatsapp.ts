@@ -872,8 +872,16 @@ async function runAiDetection({
     // plain text dengan instruksi "[Label]" yang user balas secara manual.
     // Strip bracket [] dari message sebelum matching agar "[Kembali Menu Awal]" cocok.
     {
-      // Hapus bracket luar [] agar "[Kembali Menu Awal]" → "kembali menu awal"
-      const normalizedMsg = bodyText.trim().toLowerCase().replace(/^\[+|\]+$/g, "").trim();
+      // Hapus bracket luar [] dan emoji prefix agar:
+      // "[Kembali Menu Awal]"   → "kembali menu awal"
+      // "🔄 Kembali Menu Awal"  → "kembali menu awal"
+      // "🔄 [Kembali Menu Awal]" → "kembali menu awal"
+      const normalizedMsg = bodyText
+        .trim()
+        .replace(/^[\p{Emoji_Presentation}\p{Extended_Pictographic}]\s*/gu, "") // strip leading emoji
+        .replace(/^\[+|\]+$/g, "") // strip outer brackets
+        .trim()
+        .toLowerCase();
       // Cocokkan ID tombol baru (btn_*) DAN keyword lama (teks manual)
       const isOption1 = /^(btn_menu_awal|form_menu_home|kembali menu awal|kembali)$/i.test(normalizedMsg);
       const isOption2 = /^(btn_akhiri|form_menu_end|akhiri percakapan|akhiri|selesai)$/i.test(normalizedMsg);

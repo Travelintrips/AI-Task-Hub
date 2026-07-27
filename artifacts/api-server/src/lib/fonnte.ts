@@ -406,67 +406,16 @@ export interface FonnteButton {
  * Jika Fonnte menolak (misalnya nomor tidak mendukung), otomatis fallback ke teks biasa.
  */
 export async function sendFonnteButtons(
-  to: string,
-  message: string,
-  buttons: FonnteButton[],
-  opts?: { header?: string; footer?: string; fonnteDevice?: string | null },
+  _to: string,
+  _message: string,
+  _buttons: FonnteButton[],
+  _opts?: { header?: string; footer?: string; fonnteDevice?: string | null },
 ): Promise<FonnteResult> {
-  // Grup tidak mendukung interactive buttons — langsung plain text
-  if (to.includes("@g.us")) {
-    return sendFonnte(to, message);
-  }
-
-  const token = resolveToken(to, opts?.fonnteDevice);
-  if (!token) {
-    logger.warn("FONNTE_TOKEN tidak disetel — sendFonnteButtons dilewati");
-    return { success: false, error: "FONNTE_TOKEN not configured" };
-  }
-
-  const phone = normalizePhone(to);
-  if (!phone) return { success: false, error: `Nomor tidak valid: ${to}` };
-
-  // Fonnte button format: [{ display, id, type }]
-  const buttonParam = JSON.stringify(
-    buttons.slice(0, 3).map((b) => ({ display: b.title, id: b.id, type: "reply" })),
-  );
-
-  const params: Record<string, string> = {
-    target: phone,
-    message,
-    button: buttonParam,
-  };
-  if (opts?.header) params.header = opts.header;
-  if (opts?.footer) params.footer = opts.footer;
-
-  try {
-    const res = await fetch(FONNTE_URL, {
-      method: "POST",
-      headers: {
-        Authorization: token,
-        "Content-Type": "application/x-www-form-urlencoded",
-      },
-      body: new URLSearchParams(params).toString(),
-    });
-
-    if (!res.ok) {
-      const text = await res.text();
-      logger.warn({ status: res.status, text }, "Fonnte interactive buttons: HTTP error — falling back to plain text");
-      return { success: false, error: `Fonnte HTTP ${res.status}: ${text}` };
-    }
-
-    const data = (await res.json()) as { status?: boolean; id?: string; reason?: string };
-    if (!data.status) {
-      logger.warn({ data }, "Fonnte interactive buttons: status=false — falling back to plain text");
-      return { success: false, error: data.reason ?? "Fonnte rejected buttons" };
-    }
-
-    const senderDevice = TOKEN_DEVICE_MAP.get(token);
-    logger.info({ phone, messageId: data.id, via: senderDevice ?? "default" }, "Fonnte interactive buttons sent");
-    return { success: true, messageId: data.id };
-  } catch (err) {
-    logger.error({ err }, "Gagal mengirim interactive buttons via Fonnte");
-    return { success: false, error: err instanceof Error ? err.message : "Network error" };
-  }
+  // Fonnte interactive button API sudah deprecated — selalu dikembalikan false
+  // agar caller (sendFormMenu) jatuh ke fallback plain-text dengan instruksi
+  // manual bagi user. Tombol klik nyata hanya bisa via WhatsApp Cloud API (Meta).
+  logger.info("sendFonnteButtons: fitur deprecated — skip, gunakan plain text fallback");
+  return { success: false, error: "Fonnte interactive buttons deprecated" };
 }
 
 export async function sendFonnte(
