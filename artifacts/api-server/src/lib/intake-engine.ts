@@ -276,7 +276,7 @@ const SC_PRICE_PER_JAM: Record<string, number> = {
   tennis:     100_000,
   basketball: 350_000,
   voli:       350_000,
-  gym:         50_000,
+  gym:         30_000,
   billiard:    50_000,
 };
 
@@ -297,9 +297,8 @@ export function buildSportCenterPriceListMessage(fieldType: string | null): stri
     const key = fieldType.toLowerCase().trim();
     const price = SC_PRICE_PER_JAM[key];
     const emoji = SC_EMOJI[key] ?? "🏟️";
-    const isBilliard = key === "billiard";
-    const unit = isBilliard ? "Coin" : "Jam";
-    const label = key.charAt(0).toUpperCase() + key.slice(1);
+    const unit = "Jam";
+    const label = key === "billiard" ? "Billiard (Self-Service)" : key.charAt(0).toUpperCase() + key.slice(1);
 
     if (!price) {
       return (
@@ -324,9 +323,9 @@ export function buildSportCenterPriceListMessage(fieldType: string | null): stri
   const allLines = Object.entries(SC_PRICE_PER_JAM)
     .map(([key, price]) => {
       const emoji = SC_EMOJI[key] ?? "🏟️";
-      const isBilliard = key === "billiard";
-      const unit = isBilliard ? "/koin" : "/jam";
-      const label = (key.charAt(0).toUpperCase() + key.slice(1)).padEnd(10);
+      const unit = "/jam";
+      const rawLabel = key === "billiard" ? "Billiard (Self-Service)" : key.charAt(0).toUpperCase() + key.slice(1);
+      const label = rawLabel.padEnd(10);
       return `${emoji} ${label}: Rp ${price.toLocaleString("id-ID")}${unit}`;
     })
     .join("\n");
@@ -962,8 +961,8 @@ async function runSportCenterAvailabilityGate({
     `3️⃣ Tennis\n` +
     `4️⃣ Basketball\n` +
     `5️⃣ Voli\n` +
-    `6️⃣ GYM\n` +
-    `7️⃣ Meja Billiard\n\n` +
+    `6️⃣ GYM / Fitness\n` +
+    `7️⃣ Billiard (Self-Service)\n\n` +
     `Balas dengan *nomor* atau *nama lapangan* yang Anda pilih.`;
 
   const missingSlot = !bookingDate || !startTime;
@@ -985,24 +984,21 @@ async function runSportCenterAvailabilityGate({
         tennis:     100_000,
         basketball: 350_000,
         voli:       350_000,
-        gym:         50_000,
+        gym:         30_000,
         billiard:    50_000,
       };
       const ft = fieldType.toLowerCase().trim();
       const pricePerUnit = PRICE_PER_HOUR[ft];
-      const isBilliard = ft === "billiard";
-      const unitLabel = isBilliard ? "Coin" : "Jam";
+      const unitLabel = "Jam";
       const maxUnits = 5;
       const priceLines = pricePerUnit
         ? Array.from({ length: maxUnits }, (_, i) => i + 1)
             .map((n) => `${n} ${unitLabel} = Rp ${(pricePerUnit * n).toLocaleString("id-ID")}`)
             .join("\n")
         : "";
-      const fieldLabel = isBilliard ? "Meja Billiard" : `lapangan *${fieldType}*`;
-      const itemLabel  = isBilliard ? "Jumlah Coin, Tanggal, Jam main, Nama pemesan" : "Tanggal & Bulan, Jam mulai, Durasi, Nama pemesan";
-      const example    = isBilliard
-        ? `"10 Juli jam 14:00 5 Coin Nama Ahmad"`
-        : `"5 Juli jam 10:00 Durasi 2 Jam dan Nama Ahmad"`;
+      const fieldLabel = ft === "billiard" ? "Billiard (Self-Service)" : `lapangan *${fieldType}*`;
+      const itemLabel  = "Tanggal & Bulan, Jam mulai, Durasi, Nama pemesan";
+      const example    = `"5 Juli jam 10:00 Durasi 2 Jam dan Nama Ahmad"`;
       openingQ =
         `Untuk booking ${fieldLabel}, mohon berikan:\n` +
         itemLabel.split(", ").map((item) => `* ${item}`).join("\n") + `\n` +

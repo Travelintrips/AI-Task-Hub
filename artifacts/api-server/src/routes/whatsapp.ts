@@ -1303,7 +1303,7 @@ async function runAiDetection({
         `• 📋 PPJK / Bea Cukai / Customs\n` +
         `• 🏟️ Harga Lapangan (Badminton, Futsal, Voli, Basketball, Tenis)\n` +
         `• 🏋️ GYM / Fitness\n` +
-        `• 🎱 Billiard\n` +
+        `• 🎱 Billiard (Self-Service)\n` +
         `• 🏪 Tenant / Sewa Kios\n` +
         `• 📦 Layanan lainnya\n\n` +
         `Silakan ceritakan kebutuhan Anda. 🙏`;
