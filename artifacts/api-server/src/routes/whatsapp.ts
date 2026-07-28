@@ -1162,6 +1162,20 @@ async function runAiDetection({
           .set({ aiProcessed: true, detectedIntent: "tenant_price_inquiry" })
           .where(eq(whatsappMessagesTable.id, savedMsgId))
           .catch(() => {});
+        // Simpan sesi minimal agar "Hubungi Agent" (opsi 10) diarahkan ke divisi Tenant,
+        // bukan ke divisi terakhir yang aktif (misal PPJK).
+        await db
+          .insert(intakeSessionsTable)
+          .values({
+            phone: from,
+            companyId,
+            intentCode: "info_sewa_tenant",
+            intentName: "Informasi Harga Sewa Tenant",
+            category: "Tenant",
+            status: "form_sent",
+            expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000), // 2 jam
+          })
+          .catch((e) => logger.warn({ e }, "tenant-price: gagal simpan sesi routing"));
         return;
       }
 
