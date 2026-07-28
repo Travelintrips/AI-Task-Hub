@@ -324,10 +324,10 @@ export function buildAvailableMessage(
 
   const PRICE_PER_UNIT: Record<string, number> = {
     futsal:     350_000,
-    badminton:   100_000,
+    badminton:  100_000,
     tennis:     100_000,
-    basketball: 150_000,
-    voli:       100_000,
+    basketball: 350_000,
+    voli:       350_000,
     gym:         50_000,
     billiard:    50_000,
   };
@@ -364,8 +364,8 @@ export const SC_PRICE_PER_HOUR: Record<string, number> = {
   futsal:     350_000,
   badminton:  100_000,
   tennis:     100_000,
-  basketball: 150_000,
-  voli:       100_000,
+  basketball: 350_000,
+  voli:       350_000,
   gym:         50_000,
   billiard:    50_000,
 };
