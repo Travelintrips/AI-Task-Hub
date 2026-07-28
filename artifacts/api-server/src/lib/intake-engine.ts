@@ -348,7 +348,10 @@ export function buildTenantPriceMessage(): string {
     `  • Fasilitas yang dibutuhkan\n\n` +
     `Untuk mendapatkan penawaran harga yang sesuai, silakan:\n` +
     `📞 Hubungi admin kami secara langsung, atau\n` +
-    `💬 Ceritakan kebutuhan sewa Anda (ukuran, lokasi, durasi) dan tim kami akan segera membantu. 🙏`
+    `💬 Ceritakan kebutuhan sewa Anda (ukuran, lokasi, durasi) dan tim kami akan segera membantu. 🙏\n\n` +
+    `8️⃣  Kembali Menu Awal\n` +
+    `9️⃣  Akhiri Percakapan\n` +
+    `🔟  Hubungi Agent`
   );
 }
 
