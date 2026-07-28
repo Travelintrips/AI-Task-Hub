@@ -958,7 +958,8 @@ async function runAiDetection({
         .replace(/^\[+|\]+$/g, "") // strip outer brackets
         .trim()
         .toLowerCase();
-      // Cocokkan angka shortcut (8/9/10), ID tombol (btn_*), DAN keyword teks
+      // Cocokkan angka shortcut (1/8/9/10), ID tombol (btn_*), DAN keyword teks
+      const isOption0 = /^(1|btn_isi_form|isi form|isi formulir)$/i.test(normalizedMsg);
       const isOption1 = /^(8|btn_menu_awal|form_menu_home|kembali menu awal|kembali)$/i.test(normalizedMsg);
       const isOption2 = /^(9|btn_akhiri|form_menu_end|akhiri percakapan|akhiri|selesai)$/i.test(normalizedMsg);
       const isOption3 = /^(10|btn_hubungi_agent|form_menu_agent|hubungi agent|hubungi agen|agent|agen)$/i.test(normalizedMsg);
@@ -968,7 +969,7 @@ async function runAiDetection({
       // EXCEPTION: Klik tombol interaktif (btn_*) selalu diproses — tombol hanya bisa
       // diklik jika kita yang mengirimnya, jadi sesi pasti sudah ada sebelumnya.
       const isButtonIdClick = /^(btn_menu_awal|btn_akhiri|btn_hubungi_agent)$/.test(bodyText.trim());
-      const isFormMenuReply = isOption1 || isOption2 || isOption3;
+      const isFormMenuReply = isOption0 || isOption1 || isOption2 || isOption3;
       let formSentSession: Awaited<ReturnType<typeof findFormSentSession>> = null;
       let recentSession: { intentCode: string; category: string | null } | null = null;
 
@@ -980,21 +981,64 @@ async function runAiDetection({
         }
       }
 
-      const shouldHandleFormMenu = isFormMenuReply && (isButtonIdClick || formSentSession !== null || recentSession !== null);
+      // isOption0 (Isi Form) hanya valid jika ada sesi yang bisa dijadikan konteks
+      const shouldHandleFormMenu =
+        isFormMenuReply &&
+        (isButtonIdClick || formSentSession !== null || recentSession !== null) &&
+        // "1" terlalu ambigu tanpa konteks sesi — hanya aktifkan jika ada sesi
+        (!isOption0 || formSentSession !== null || recentSession !== null);
       // Sumber intentCode/category terbaik untuk routing Hubungi Agent
       const sessionForAgent = formSentSession ?? recentSession;
 
       if (shouldHandleFormMenu) {
         const choice =
-          isOption1 ? 1
+          isOption0 ? 0
+          : isOption1 ? 1
           : isOption2 ? 2
           : isOption3 ? 3
-          : 0;
+          : -1;
 
-        if (choice > 0) {
+        if (choice >= 0) {
           logger.info({ from, bodyText, normalizedMsg, choice }, "form-menu: pilihan menu form terdeteksi");
 
-          // Cancel semua sesi aktif (form_sent, collecting, ready_for_task)
+          if (choice === 0) {
+            // ── Isi Form — generate/resend link form sesuai intent sesi ──────────
+            const intentCode = sessionForAgent?.intentCode ?? "";
+            const category = sessionForAgent?.category ?? null;
+            logger.info({ from, intentCode, category }, "form-menu: Isi Form dipilih — kirim/resend link form");
+
+            const route = await routeIntentToFlow({
+              phone: from,
+              companyId,
+              intentCode,
+              intentName: intentCode,
+              category,
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              resolution: {} as any,
+              collectedFields: {},
+              missingFields: [],
+              requiredDocuments: [],
+              fonnteDevice,
+            });
+
+            if (!route.waSent) {
+              const fallbackMsg =
+                `Baik, tim kami akan membantu Anda melanjutkan proses. 🙏\n` +
+                `Silakan ceritakan kebutuhan Anda lebih lanjut atau ketik *10* untuk langsung dihubungi agent.`;
+              await sendFonnte(replyTo, fallbackMsg, fonnteDevice).catch((e) =>
+                logger.warn({ e }, "form-menu isi-form: gagal kirim fallback"),
+              );
+            }
+
+            await db
+              .update(whatsappMessagesTable)
+              .set({ aiProcessed: true, detectedIntent: "form_menu_isi_form" })
+              .where(eq(whatsappMessagesTable.id, savedMsgId))
+              .catch((e) => logger.warn({ e }, "form-menu isi-form: gagal update aiProcessed"));
+            return;
+          }
+
+          // Cancel semua sesi aktif (form_sent, collecting, ready_for_task) untuk opsi 1/2/3
           try {
             await db
               .update(intakeSessionsTable)
@@ -1089,6 +1133,40 @@ async function runAiDetection({
             .where(eq(whatsappMessagesTable.id, savedMsgId))
             .catch((e) => logger.warn({ e }, "form-menu: gagal update aiProcessed"));
 
+          return;
+        }
+      }
+    }
+
+    // ── Step 0a-pre-affirm: "Ya" confirmation gate ─────────────────────────────
+    // Ketika user menjawab "ya"/"iya" setelah AI mendeteksi intent dan mengirim balasan
+    // konfirmasi ("Ada yang bisa kami bantu terkait X?"), tawarkan pilihan:
+    //   1. Isi Form    → resend link form sesuai intent terdeteksi sebelumnya
+    //   10. Hubungi Agent → hubungkan ke nomor personal divisi
+    // Gate hanya aktif jika ada sesi form_sent ATAU sesi apapun dalam 2 jam terakhir.
+    {
+      const isAffirmativeOnly = /^(ya|iya|yes|yap|oke|ok|siap|boleh)\s*[!.?]*$/i.test(bodyText.trim());
+      if (!isAnsweringClarification && isAffirmativeOnly && !activeSession) {
+        const affirmFormSent = await findFormSentSession(from, companyId);
+        const affirmRecent = affirmFormSent ?? await findRecentAnySession(from, companyId);
+        if (affirmRecent) {
+          logger.info(
+            { from, bodyText, hasFormSent: !!affirmFormSent, intentCode: affirmRecent.intentCode },
+            "ya-confirmation: sesi ditemukan — tampilkan pilihan form/agent",
+          );
+          const choiceMsg =
+            `Baik! Bagaimana Anda ingin melanjutkan? 😊\n\n` +
+            `*1. Isi Form* — Kami kirimkan link form untuk diisi\n` +
+            `*10. Hubungi Agent* — Hubungkan Anda dengan tim kami langsung\n\n` +
+            `Balas *1* untuk form atau *10* untuk agent.`;
+          await sendFonnte(replyTo, choiceMsg, fonnteDevice).catch((e) =>
+            logger.warn({ e }, "ya-confirmation: gagal kirim choice menu"),
+          );
+          await db
+            .update(whatsappMessagesTable)
+            .set({ aiProcessed: true, detectedIntent: "ya_confirmation" })
+            .where(eq(whatsappMessagesTable.id, savedMsgId))
+            .catch((e) => logger.warn({ e }, "ya-confirmation: gagal mark aiProcessed"));
           return;
         }
       }
