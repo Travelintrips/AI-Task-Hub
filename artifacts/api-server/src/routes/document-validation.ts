@@ -25,6 +25,55 @@ import { sendFonnte } from "../lib/fonnte";
 
 const router: IRouter = Router();
 
+// ─── Helper: kirim notifikasi hasil validasi ke grup WA PPJK ─────────────────
+
+function buildPpjkGroupNotif(
+  fileName: string,
+  documentType: string,
+  status: "valid" | "incomplete" | "invalid" | "needs_review",
+  issueSummary: string | null,
+  taskId?: number | null,
+): string {
+  const docTypeLabel = documentType.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  const taskRef = taskId ? ` (Task #${taskId})` : "";
+
+  if (status === "valid") {
+    return (
+      `✅ *Dokumen Diterima*${taskRef}\n` +
+      `📄 *${fileName}*\n` +
+      `Tipe: ${docTypeLabel}\n` +
+      `Status: Valid & siap diproses.`
+    );
+  }
+
+  const reason = issueSummary ?? "Dokumen tidak sesuai tipe yang diminta";
+  return (
+    `❌ *Validasi Dokumen Gagal*${taskRef}\n` +
+    `📄 *${fileName}*\n` +
+    `Tipe: ${docTypeLabel}\n\n` +
+    `${reason}\n` +
+    `Mohon dicek kembali.`
+  );
+}
+
+async function notifyPpjkGroup(
+  fileName: string,
+  documentType: string,
+  status: "valid" | "incomplete" | "invalid" | "needs_review",
+  issueSummary: string | null,
+  taskId?: number | null,
+): Promise<void> {
+  const groupId = process.env.PPJK_WHATSAPP_GROUP_ID;
+  if (!groupId) {
+    logger.debug("doc-validation: PPJK_WHATSAPP_GROUP_ID tidak diset — notifikasi grup dilewati");
+    return;
+  }
+  const message = buildPpjkGroupNotif(fileName, documentType, status, issueSummary, taskId);
+  await sendFonnte(groupId, message).catch((e) =>
+    logger.warn({ e, groupId }, "doc-validation: gagal kirim notifikasi ke grup PPJK (non-fatal)"),
+  );
+}
+
 // ─── POST /documents/validate ─────────────────────────────────────────────────
 
 router.post("/documents/validate", requireAuth, async (req, res): Promise<void> => {
@@ -69,6 +118,9 @@ router.post("/documents/validate", requireAuth, async (req, res): Promise<void> 
       vendorId: vendorId ?? null,
       fleetUnitId: fleetUnitId ?? null,
     });
+
+    // Kirim notifikasi ke grup WA PPJK (fire-and-forget)
+    notifyPpjkGroup(fileName, documentType, result.validationStatus, result.issueSummary, taskId ?? null).catch(() => {});
 
     res.json({ data: result });
   } catch (err) {
@@ -535,13 +587,16 @@ router.post("/intake-sessions/:id/documents", requireAuth, async (req, res): Pro
       waMessage = `${result.waReply}\n\n✅ Semua dokumen dan data sudah lengkap! Tim kami akan segera memproses permintaan Anda.`;
     }
 
-    // Send WA reply
+    // Kirim WA reply ke customer
     const phone = customerPhone ?? session.phone;
     if (phone) {
       await sendFonnte(phone, waMessage).catch((e) =>
         logger.warn({ e }, "Failed to send document validation WA reply"),
       );
     }
+
+    // Kirim notifikasi ke grup WA PPJK (fire-and-forget)
+    notifyPpjkGroup(fileName, documentType, result.validationStatus, result.issueSummary, null).catch(() => {});
 
     res.json({
       data: {
@@ -589,6 +644,9 @@ router.post("/tasks/:id/documents/validate", requireAuth, async (req, res): Prom
       objectPath,
       taskId,
     });
+
+    // Kirim notifikasi ke grup WA PPJK (fire-and-forget)
+    notifyPpjkGroup(fileName, documentType, result.validationStatus, result.issueSummary, taskId).catch(() => {});
 
     res.json({ data: result });
   } catch (err) {
