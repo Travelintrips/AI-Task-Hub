@@ -366,7 +366,9 @@ const GREETING_OPENER_PATTERNS = /^(halo|hallo|helo|hai|haii|hi|hey|hei|hello|se
 const GREETING_PREFIX_PATTERNS = /^(halo|hallo|helo|hai|haii|hi|hey|hei|hello)\b/i;
 
 // Closing phrases: user wrapping up — send simple ack, no session reset, no menu
-const CLOSING_PHRASE_PATTERNS = /^(terima kasih|terimakasih|makasih|trims|ok|oke|iya|ya|thanks|tq|thx|noted|siap|baik|oke siap|ok siap)\s*[!.?]*$/i;
+// NOTE: "ya", "iya", "oke", "ok", "siap" are intentionally excluded — they are ambiguous
+// affirmatives that should be handled by the ya-confirmation gate, not treated as closings.
+const CLOSING_PHRASE_PATTERNS = /^(terima kasih|terimakasih|makasih|trims|thanks|tq|thx|noted|baik terima kasih|oke terima kasih|ok terima kasih)\s*[!.?]*$/i;
 
 export function isGreeting(message: string): boolean {
   const cleaned = cleanInvisible(message);
@@ -412,7 +414,9 @@ export function buildSalesAiMessage(): string {
     `✍️ Copywriting — Rp 350.000\n` +
     `🖼️ Pembuatan Gambar AI — Rp 75.000\n` +
     `👗 Fashion Collection Brief — Rp 950.000\n\n` +
-    `Tim Kreatif AI kami akan segera menghubungi Anda. Mohon tunggu sebentar! 🙏`
+    `Tim Kreatif AI kami akan segera menghubungi Anda. Mohon tunggu sebentar! 🙏\n\n` +
+    `8️⃣ Kembali Menu Awal\n` +
+    `9️⃣ Akhiri Percakapan`
   );
 }
 
