@@ -102,7 +102,7 @@ function MemberFormFields({ form }: { form: ReturnType<typeof useForm<MemberForm
                   <SelectValue placeholder="Pilih divisi..." />
                 </SelectTrigger>
               </FormControl>
-              <SelectContent>
+              <SelectContent className="max-h-60 overflow-y-auto">
                 {DIVISIONS.map(d => (
                   <SelectItem key={d.value} value={d.value}>
                     <span className="flex items-center gap-2">
