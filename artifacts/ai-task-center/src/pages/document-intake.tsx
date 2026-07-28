@@ -438,6 +438,7 @@ export default function DocumentIntakePage() {
       return apiFetch(`/documents/audits${params}`);
     },
     enabled: tab !== "rules",
+    refetchInterval: 15000, // auto-refresh setiap 15 detik untuk menampilkan hasil validasi baru
   });
 
   const audits = (data?.data ?? []).filter((a) => {
@@ -453,7 +454,7 @@ export default function DocumentIntakePage() {
   const stats = {
     queue:    audits.filter(a => a.validationStatus === "needs_review" || a.validationStatus === "incomplete").length,
     valid:    audits.filter(a => a.validationStatus === "valid").length,
-    issues:   audits.filter(a => a.validationStatus === "invalid").length,
+    issues:   audits.filter(a => a.validationStatus === "invalid" || a.validationStatus === "incomplete").length,
   };
 
   return (

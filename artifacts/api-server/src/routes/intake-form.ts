@@ -791,6 +791,9 @@ router.post(
               errors: string[];
             }> = [];
 
+            // Kumpulkan dokumen yang perlu divalidasi — validasi dikirim SETELAH semua file terkirim
+            const pendingValidations: Array<{ key: string; filename: string; fileUrl: string }> = [];
+
             for (const { key, label } of docAttachments) {
               const fileUrl = merged[key];
               if (!isPublicUrl(fileUrl)) {
@@ -921,60 +924,8 @@ router.post(
 
               attachmentResults.push(docResult);
 
-              // ── Auto-validate: masukkan ke antrian Doc Validation + notif grup WA PPJK ──
-              // fire-and-forget agar tidak menghambat form submission
-              ;(async () => {
-                try {
-                  // Normalisasi key ke document type (hapus prefix timestamp & uploaded_document:)
-                  const docTypeRaw = key
-                    .replace(/^uploaded_document:.*/, "attachment")
-                    .replace(/[^a-z0-9_]/gi, "_")
-                    .toLowerCase();
-
-                  const result = await validateDocument({
-                    companyId: session.companyId,
-                    documentType: docTypeRaw,
-                    fileName: filename,
-                    fileUrl: accessibleFileUrl,
-                    taskId: taskId ?? null,
-                  });
-
-                  logger.info(
-                    { key, filename, status: result.validationStatus, auditId: result.auditId, taskId },
-                    "intake-form: auto-validate masuk antrian Doc Validation",
-                  );
-
-                  // Kirim notifikasi ke grup WA PPJK
-                  const groupId = process.env.PPJK_WHATSAPP_GROUP_ID;
-                  if (groupId) {
-                    const docTypeLabel = docTypeRaw
-                      .replace(/_/g, " ")
-                      .replace(/\b\w/g, (c) => c.toUpperCase());
-                    const taskRef = taskId ? ` (Task #${taskId})` : "";
-                    let notifMsg: string;
-                    if (result.validationStatus === "valid") {
-                      notifMsg =
-                        `✅ *Dokumen Diterima*${taskRef}\n` +
-                        `📄 *${filename}*\n` +
-                        `Tipe: ${docTypeLabel}\n` +
-                        `Status: Valid & siap diproses.`;
-                    } else {
-                      const reason = result.issueSummary ?? "Dokumen tidak sesuai tipe yang diminta";
-                      notifMsg =
-                        `❌ *Validasi Dokumen Gagal*${taskRef}\n` +
-                        `📄 *${filename}*\n` +
-                        `Tipe: ${docTypeLabel}\n\n` +
-                        `${reason}\n` +
-                        `Mohon dicek kembali.`;
-                    }
-                    await sendFonnte(groupId, notifMsg).catch((e) =>
-                      logger.warn({ e, groupId }, "intake-form: gagal notif PPJK grup (non-fatal)"),
-                    );
-                  }
-                } catch (autoErr) {
-                  logger.warn({ autoErr, key, filename }, "intake-form: auto-validate gagal (non-fatal)");
-                }
-              })();
+              // Simpan untuk validasi setelah semua file terkirim
+              pendingValidations.push({ key, filename, fileUrl: accessibleFileUrl });
             }
 
             // Log ringkasan hasil attachment
@@ -1007,6 +958,61 @@ router.post(
               },
               "intake-form: WA notifications sent to receivers",
             );
+
+            // ── Auto-validate SETELAH semua file terkirim ──
+            // Dijalankan setelah loop attachment agar urutan WA: 1) form pesanan, 2) file, 3) validasi
+            ;(async () => {
+              const groupId = process.env.PPJK_WHATSAPP_GROUP_ID;
+              for (const { key, filename, fileUrl } of pendingValidations) {
+                try {
+                  const docTypeRaw = key
+                    .replace(/^uploaded_document:.*/, "attachment")
+                    .replace(/[^a-z0-9_]/gi, "_")
+                    .toLowerCase();
+
+                  const result = await validateDocument({
+                    companyId: session.companyId,
+                    documentType: docTypeRaw,
+                    fileName: filename,
+                    fileUrl,
+                    taskId: taskId ?? null,
+                  });
+
+                  logger.info(
+                    { key, filename, status: result.validationStatus, auditId: result.auditId, taskId },
+                    "intake-form: auto-validate selesai",
+                  );
+
+                  if (groupId) {
+                    const docTypeLabel = docTypeRaw
+                      .replace(/_/g, " ")
+                      .replace(/\b\w/g, (c) => c.toUpperCase());
+                    const taskRef = taskId ? ` (Task #${taskId})` : "";
+                    let notifMsg: string;
+                    if (result.validationStatus === "valid") {
+                      notifMsg =
+                        `✅ *Dokumen Diterima*${taskRef}\n` +
+                        `📄 *${filename}*\n` +
+                        `Tipe: ${docTypeLabel}\n` +
+                        `Status: Valid & siap diproses.`;
+                    } else {
+                      const reason = result.issueSummary ?? "Dokumen tidak sesuai tipe yang diminta";
+                      notifMsg =
+                        `❌ *Validasi Dokumen Gagal*${taskRef}\n` +
+                        `📄 *${filename}*\n` +
+                        `Tipe: ${docTypeLabel}\n\n` +
+                        `${reason}\n` +
+                        `Mohon dicek kembali.`;
+                    }
+                    await sendFonnte(groupId, notifMsg).catch((e) =>
+                      logger.warn({ e, groupId }, "intake-form: gagal notif PPJK grup (non-fatal)"),
+                    );
+                  }
+                } catch (autoErr) {
+                  logger.warn({ autoErr, key, filename }, "intake-form: auto-validate gagal (non-fatal)");
+                }
+              }
+            })();
           } else {
             logger.warn(
               { companyId: session.companyId, effectiveCategory },
