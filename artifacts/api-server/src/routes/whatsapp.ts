@@ -1020,6 +1020,7 @@ async function runAiDetection({
               missingFields: [],
               requiredDocuments: [],
               fonnteDevice,
+              forceForm: true, // user explicitly chose "Isi Form" — always send form link
             });
 
             if (!route.waSent) {

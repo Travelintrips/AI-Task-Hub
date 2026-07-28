@@ -117,6 +117,7 @@ export async function routeIntentToFlow({
   requiredDocuments = [],
   fonnteDevice,
   deferFormSend = false,
+  forceForm = false,
 }: {
   phone: string;
   companyId: string;
@@ -134,6 +135,12 @@ export async function routeIntentToFlow({
    * the form later (after conversation collects required fields).
    */
   deferFormSend?: boolean;
+  /**
+   * When true, bypass conversation-mode early return and force a mini_form
+   * to be sent. Used when the user explicitly selects "Isi Form" from the
+   * choice menu, regardless of the template's intake_mode setting.
+   */
+  forceForm?: boolean;
 }): Promise<RouterResult> {
   // Look up intake_mode from data_templates (Supabase DB)
   let intakeMode: FlowMode = "conversation";
@@ -162,8 +169,15 @@ export async function routeIntentToFlow({
   }
 
   // conversation mode → caller handles existing startIntakeSession flow
+  // Exception: forceForm=true means the user explicitly requested a form link —
+  // override conversation mode and treat it as mini_form using inferFormType.
   if (intakeMode === "conversation") {
-    return { flow: "conversation", sessionId: null, formToken: null, formUrl: null, waSent: false };
+    if (!forceForm) {
+      return { flow: "conversation", sessionId: null, formToken: null, formUrl: null, waSent: false };
+    }
+    // Force mini_form: fall through with intakeMode overridden
+    intakeMode = "mini_form";
+    logger.info({ phone, intentCode }, "mini-form-router: forceForm=true — overriding conversation mode to mini_form");
   }
 
   // mini_form or hybrid → generate token + create session + send WA link
