@@ -46,3 +46,4 @@
 - [SC domain for customer links](sc-domain-links.md) — WA links used ephemeral REPLIT_DEV_DOMAIN when SC_DOMAIN unset, going dead across dev domain changes; fixed by setting SC_DOMAIN to stable prod domain.
 - [Fonnte interactive menu](fonnte-interactive-menu.md) — native buttons/lists are deprecated; use a single-choice poll and route its labels, not overlapping greeting-menu numbers.
 - [Mini-form response scope](mini-form-response-scope.md) — keep post-submit attachment summaries in handler scope; task/session can save before a late response exception.
+- [Fonnte doc message required](fonnte-doc-message-required.md) — sendFonnteDocument wajib kirim field `message` (caption) atau Fonnte tolak dengan "message cannot empty".

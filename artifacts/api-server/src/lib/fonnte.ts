@@ -235,10 +235,14 @@ async function sendDocWithToken(
   filename: string,
   token: string,
 ): Promise<FonnteResult> {
+  // Fonnte /send wajib mengisi "message" — tanpa field ini API mengembalikan
+  // {"reason":"message cannot empty","status":false} meski ada url+filename.
+  // Pakai nama file sebagai caption dokumen.
   const params = new URLSearchParams({
     target:   phone,
     url:      documentUrl,
     filename: filename,
+    message:  filename,
   });
 
   // Log payload tanpa token untuk debugging
