@@ -56,6 +56,7 @@ import {
 } from "../lib/sport-center-availability";
 import { supabaseQuery } from "../lib/supabase-db";
 import { getAccessibleUrl, extractStoragePath } from "../lib/supabase";
+import { validateDocument } from "../lib/document-validation-engine";
 
 // ── Fallback map: intent code prefix → kategori penerima notifikasi
 // Digunakan ketika intent_master lookup ke DB tidak menemukan data
@@ -919,6 +920,61 @@ router.post(
               );
 
               attachmentResults.push(docResult);
+
+              // ── Auto-validate: masukkan ke antrian Doc Validation + notif grup WA PPJK ──
+              // fire-and-forget agar tidak menghambat form submission
+              ;(async () => {
+                try {
+                  // Normalisasi key ke document type (hapus prefix timestamp & uploaded_document:)
+                  const docTypeRaw = key
+                    .replace(/^uploaded_document:.*/, "attachment")
+                    .replace(/[^a-z0-9_]/gi, "_")
+                    .toLowerCase();
+
+                  const result = await validateDocument({
+                    companyId: session.companyId,
+                    documentType: docTypeRaw,
+                    fileName: filename,
+                    fileUrl: accessibleFileUrl,
+                    taskId: taskId ?? null,
+                  });
+
+                  logger.info(
+                    { key, filename, status: result.validationStatus, auditId: result.auditId, taskId },
+                    "intake-form: auto-validate masuk antrian Doc Validation",
+                  );
+
+                  // Kirim notifikasi ke grup WA PPJK
+                  const groupId = process.env.PPJK_WHATSAPP_GROUP_ID;
+                  if (groupId) {
+                    const docTypeLabel = docTypeRaw
+                      .replace(/_/g, " ")
+                      .replace(/\b\w/g, (c) => c.toUpperCase());
+                    const taskRef = taskId ? ` (Task #${taskId})` : "";
+                    let notifMsg: string;
+                    if (result.validationStatus === "valid") {
+                      notifMsg =
+                        `✅ *Dokumen Diterima*${taskRef}\n` +
+                        `📄 *${filename}*\n` +
+                        `Tipe: ${docTypeLabel}\n` +
+                        `Status: Valid & siap diproses.`;
+                    } else {
+                      const reason = result.issueSummary ?? "Dokumen tidak sesuai tipe yang diminta";
+                      notifMsg =
+                        `❌ *Validasi Dokumen Gagal*${taskRef}\n` +
+                        `📄 *${filename}*\n` +
+                        `Tipe: ${docTypeLabel}\n\n` +
+                        `${reason}\n` +
+                        `Mohon dicek kembali.`;
+                    }
+                    await sendFonnte(groupId, notifMsg).catch((e) =>
+                      logger.warn({ e, groupId }, "intake-form: gagal notif PPJK grup (non-fatal)"),
+                    );
+                  }
+                } catch (autoErr) {
+                  logger.warn({ autoErr, key, filename }, "intake-form: auto-validate gagal (non-fatal)");
+                }
+              })();
             }
 
             // Log ringkasan hasil attachment
