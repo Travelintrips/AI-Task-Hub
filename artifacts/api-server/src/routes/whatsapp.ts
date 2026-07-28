@@ -417,6 +417,32 @@ function resolveDocumentType(mimeType: string | undefined, filename: string | un
 }
 
 /**
+ * Infer PPJK document type from caption text + filename keywords.
+ * Returns a known document_validation_rules type if matched, otherwise
+ * falls back to the generic mime-based type from resolveDocumentType.
+ */
+function inferPpjkDocumentType(
+  caption: string,
+  filename: string | undefined,
+  mimeType: string | undefined,
+): string {
+  const text = `${caption} ${filename ?? ""}`.toLowerCase();
+  if (/\bci\b|commercial.?invoice|\binvoice\b/.test(text)) return "commercial_invoice";
+  if (/\bpl\b|packing.?list|pack.*list/.test(text)) return "packing_list";
+  if (/\bbl\b|\bawb\b|bill.?of.?lading|airway.?bill|b\/l/.test(text)) return "bl_awb";
+  if (/\bhs.?code\b/.test(text)) return "hs_code";
+  if (/\bcoa\b|certificate.?of.?analysis/.test(text)) return "coa";
+  if (/\bmsds\b|safety.?data/.test(text)) return "msds";
+  if (/damage|rusak|kerusakan/.test(text)) return "damage_photo";
+  if (/\bstnk\b|\bkir\b|asuransi.?kendaraan/.test(text)) return "stnk_kir_insurance";
+  if (/\bbbm\b|\bfuel\b|bensin|solar|struk.*pompa/.test(text)) return "fuel_receipt";
+  if (/bengkel|invoice.*servis|servis.*kendaraan/.test(text)) return "maintenance_invoice";
+  if (/kasbon|cash.?advance/.test(text)) return "cash_advance_receipt";
+  // Fallback: use mime-based generic type so AI still analyzes the doc
+  return resolveDocumentType(mimeType, filename);
+}
+
+/**
  * Download a WhatsApp media file using the Media API.
  * Handles the two-step flow: get URL, then download with auth.
  */
@@ -742,6 +768,64 @@ export async function processIncomingMessage({
       } catch (attachErr) {
         logger.error({ attachErr, msgId: savedMsg.id }, "Failed to save attachment reference");
       }
+
+      // 3b. Auto-validate via Document Validation Engine (fire-and-forget)
+      // — saves result to document_intake_audits → appears in Doc Validation queue
+      // — sends notification to PPJK WA group (if PPJK_WHATSAPP_GROUP_ID is set)
+      const _autoValidate = (async () => {
+        try {
+          const docType = inferPpjkDocumentType(bodyText, attachment.filename, attachment.mimeType);
+          const fileName = attachment.filename ?? `attachment_${Date.now()}`;
+
+          // Skip voice/video — not meaningful to validate with Vision
+          if (docType === "voice" || docType === "video") return;
+
+          logger.info({ from, docType, fileName }, "auto-validate: triggering document validation");
+
+          const result = await validateDocument({
+            companyId,
+            documentType: docType,
+            fileName,
+            fileUrl: attachment.url,
+          });
+
+          logger.info(
+            { from, docType, status: result.validationStatus, auditId: result.auditId },
+            "auto-validate: validation complete",
+          );
+
+          // Notify PPJK group
+          const groupId = process.env.PPJK_WHATSAPP_GROUP_ID;
+          if (groupId) {
+            const docTypeLabel = docType.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+            const senderLabel = senderName ? `${senderName} (${from})` : from;
+            let notifMsg: string;
+            if (result.validationStatus === "valid") {
+              notifMsg =
+                `✅ *Dokumen Diterima*\n` +
+                `📄 *${fileName}*\n` +
+                `Tipe: ${docTypeLabel}\n` +
+                `Dari: ${senderLabel}\n` +
+                `Status: Valid & siap diproses.`;
+            } else {
+              const reason = result.issueSummary ?? "Dokumen tidak sesuai tipe yang diminta";
+              notifMsg =
+                `❌ *Validasi Dokumen Gagal*\n` +
+                `📄 *${fileName}*\n` +
+                `Tipe: ${docTypeLabel}\n` +
+                `Dari: ${senderLabel}\n\n` +
+                `${reason}\n` +
+                `Mohon dicek kembali.`;
+            }
+            await sendFonnte(groupId, notifMsg).catch((e) =>
+              logger.warn({ e, groupId }, "auto-validate: gagal kirim notif PPJK grup (non-fatal)"),
+            );
+          }
+        } catch (autoErr) {
+          logger.warn({ autoErr, from }, "auto-validate: validateDocument gagal (non-fatal)");
+        }
+      })();
+      void _autoValidate;
     }
 
     // 3. Log activity
