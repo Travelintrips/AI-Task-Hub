@@ -1302,6 +1302,8 @@ async function runAiDetection({
         `• 🚚 Pengiriman / Trucking / Freight\n` +
         `• 📋 PPJK / Bea Cukai / Customs\n` +
         `• 🏟️ Harga Lapangan (Badminton, Futsal, Voli, Basketball, Tenis)\n` +
+        `• 🏋️ GYM / Fitness\n` +
+        `• 🎱 Billiard\n` +
         `• 🏪 Tenant / Sewa Kios\n` +
         `• 📦 Layanan lainnya\n\n` +
         `Silakan ceritakan kebutuhan Anda. 🙏`;
