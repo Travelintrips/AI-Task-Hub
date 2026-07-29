@@ -478,6 +478,7 @@ export default function AiTaskDetail() {
   const [comment, setComment] = useState("");
   const [isUploading, setIsUploading] = useState(false);
   const [showTimeline, setShowTimeline] = useState(false);
+  const [showWaMessages, setShowWaMessages] = useState(false);
   const [showLinkGen, setShowLinkGen] = useState(false);
   const [generatedLinks, setGeneratedLinks] = useState<{ mini?: string; customer?: string }>({});
 
@@ -586,6 +587,17 @@ export default function AiTaskDetail() {
   });
 
   // ── Timeline query ─────────────────────────────────────────────────────────
+
+  // ── WA messages linked to this task ───────────────────────────────────────
+  const { data: waMessages = [], isLoading: waMessagesLoading } = useQuery<{
+    id: number; from: string; senderName: string | null; senderPhone: string | null;
+    body: string; messageText: string | null; messageType: string; direction: string;
+    detectedIntent: string | null; attachmentUrl: string | null; createdAt: string;
+  }[]>({
+    queryKey: ["ai-task-wa-messages", id],
+    queryFn: () => apiFetch(`/ai-tasks/${id}/messages`),
+    enabled: showWaMessages,
+  });
 
   const { data: timeline = [] } = useQuery<{ id: number; eventType: string; title: string; description: string | null; actor: string | null; actorType: string; createdAt: string }[]>({
     queryKey: ["ai-task-timeline", id],
@@ -746,10 +758,15 @@ export default function AiTaskDetail() {
     return (
       <div className="p-6 text-center">
         <AlertCircle className="h-12 w-12 text-red-400 mx-auto mb-3" />
-        <p className="text-gray-600">Task not found.</p>
-        <Link href="/ai-tasks">
-          <Button variant="outline" className="mt-4">Back to Board</Button>
-        </Link>
+        <p className="text-gray-600 mb-4">Task tidak ditemukan. Task mungkin sudah dihapus atau belum tersedia untuk akun ini.</p>
+        <div className="flex gap-2 justify-center">
+          <Link href="/ai-tasks">
+            <Button variant="outline">Kembali ke Board</Button>
+          </Link>
+          <Link href="/messages">
+            <Button variant="outline">Kembali ke Pesan</Button>
+          </Link>
+        </div>
       </div>
     );
   }
@@ -1409,6 +1426,71 @@ export default function AiTaskDetail() {
           void queryClient.invalidateQueries({ queryKey: ["ai-task", id] });
         }}
       />
+
+      {/* ── Percakapan WA ────────────────────────────────────────────────────── */}
+      <div className="border border-gray-200 rounded-xl overflow-hidden">
+        <button
+          onClick={() => setShowWaMessages((v) => !v)}
+          className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors text-sm font-medium text-gray-700"
+        >
+          <span className="flex items-center gap-2">
+            <MessageSquare className="h-4 w-4" /> Percakapan WA
+            {waMessages.length > 0 && (
+              <span className="ml-1 bg-blue-100 text-blue-700 text-xs font-semibold px-1.5 py-0.5 rounded-full">
+                {waMessages.length}
+              </span>
+            )}
+          </span>
+          <span className="text-gray-400">{showWaMessages ? "▲" : "▼"}</span>
+        </button>
+        {showWaMessages && (
+          <div className="p-4">
+            {waMessagesLoading ? (
+              <div className="flex justify-center py-4">
+                <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
+              </div>
+            ) : waMessages.length === 0 ? (
+              <p className="text-sm text-gray-400 italic text-center py-4">Belum ada pesan WA terhubung ke task ini.</p>
+            ) : (
+              <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
+                {waMessages.map((msg) => {
+                  const isInbound = msg.direction === "inbound";
+                  return (
+                    <div key={msg.id} className={`flex gap-2 ${isInbound ? "" : "flex-row-reverse"}`}>
+                      <div className={`max-w-[80%] rounded-2xl px-3 py-2 text-sm ${
+                        isInbound ? "bg-gray-100 text-gray-800" : "bg-blue-600 text-white ml-auto"
+                      }`}>
+                        {msg.senderName && (
+                          <p className={`text-[10px] font-semibold mb-1 ${isInbound ? "text-gray-500" : "text-blue-100"}`}>
+                            {msg.senderName}
+                          </p>
+                        )}
+                        <p className="whitespace-pre-wrap break-words">{msg.messageText ?? msg.body}</p>
+                        {msg.attachmentUrl && (
+                          <a href={msg.attachmentUrl} target="_blank" rel="noreferrer"
+                            className={`text-[11px] underline mt-1 block ${isInbound ? "text-blue-600" : "text-blue-100"}`}>
+                            📎 Lampiran
+                          </a>
+                        )}
+                        <div className="flex items-center justify-between gap-2 mt-1">
+                          {msg.detectedIntent && (
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono ${isInbound ? "bg-white text-gray-500" : "bg-blue-500 text-blue-100"}`}>
+                              {msg.detectedIntent}
+                            </span>
+                          )}
+                          <p className={`text-[10px] opacity-60 ml-auto`}>
+                            {format(new Date(msg.createdAt), "dd MMM HH:mm")}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* ── Task Timeline ─────────────────────────────────────────────────────── */}
       <div className="border border-gray-200 rounded-xl overflow-hidden">

@@ -6,6 +6,7 @@ import {
   taskCommentsTable,
   auditLogsTable,
   teamMembersTable,
+  whatsappMessagesTable,
 } from "@workspace/db";
 import { requireAuth, getCompanyId } from "../middleware/auth";
 import { logger } from "../lib/logger";
@@ -344,6 +345,41 @@ router.post("/ai-tasks/:id/comments", requireAuth, async (req: Request, res: Res
   } catch (err) {
     logger.error({ err }, "POST /ai-tasks/:id/comments failed");
     res.status(500).json({ error: "Failed to add comment" });
+  }
+});
+
+// ─── GET /ai-tasks/:id/messages ────────────────────────────────────────────────
+// Returns all WhatsApp messages linked to this task (task_id = :id).
+
+router.get("/ai-tasks/:id/messages", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const id = Number(req.params.id as string);
+    if (Number.isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+    const rows = await db
+      .select()
+      .from(whatsappMessagesTable)
+      .where(eq(whatsappMessagesTable.taskId, id))
+      .orderBy(whatsappMessagesTable.createdAt);
+
+    const mapped = rows.map((r) => ({
+      id:             r.id,
+      from:           r.from,
+      senderPhone:    r.senderPhone ?? null,
+      senderName:     r.senderName ?? null,
+      body:           r.body,
+      messageText:    r.messageText ?? null,
+      messageType:    r.messageType ?? "text",
+      direction:      r.direction ?? "inbound",
+      detectedIntent: r.detectedIntent ?? null,
+      attachmentUrl:  r.attachmentUrl ?? null,
+      createdAt:      r.createdAt.toISOString(),
+    }));
+
+    res.json(mapped);
+  } catch (err) {
+    logger.error({ err }, "GET /ai-tasks/:id/messages failed");
+    res.status(500).json({ error: "Failed to load messages" });
   }
 });
 
