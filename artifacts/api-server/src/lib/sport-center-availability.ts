@@ -124,6 +124,139 @@ export function extractDurationHours(fields: Record<string, unknown>): number {
   return 1; // default 1 hour
 }
 
+// ── Mini-form start-time availability (CST-DEV) ─────────────────────────────
+
+export interface SportCenterStartTimeAvailability {
+  checkedDate: string;
+  durationMinutes: number;
+  facilityIds: number[];
+  availableSlots: string[];
+}
+
+interface SportCenterFacilityRow {
+  id: number;
+  name: string;
+  category: string | null;
+  open_time: string | null;
+  close_time: string | null;
+}
+
+interface SportCenterBookingSlotRow {
+  facility_id: number;
+  start_time: string;
+  end_time: string | null;
+}
+
+/**
+ * Return start times that are free on at least one facility matching the
+ * selected sport. The mini-form runs in development against CST-DEV, where
+ * the source of truth is sport_center.sport_bookings.
+ */
+export async function getAvailableSportCenterStartTimes({
+  fieldType,
+  bookingDate,
+  durationHours = 1,
+}: {
+  fieldType: string;
+  bookingDate: string;
+  durationHours?: number;
+}): Promise<SportCenterStartTimeAvailability> {
+  const normalizedDate = normalizeDateString(bookingDate);
+  if (!normalizedDate) {
+    throw new Error("Format tanggal tidak valid");
+  }
+
+  const durationMinutes = Math.max(60, Math.round((durationHours || 1) * 60));
+  const facilityRows = await supabaseQueryStrict<SportCenterFacilityRow>(
+    `SELECT id, name, category, open_time, close_time
+       FROM sport_center.sport_facilities
+      WHERE is_active = true
+      ORDER BY id`,
+  );
+
+  if (facilityRows.length === 0) {
+    throw new Error("Tidak ada fasilitas olahraga aktif di CST-DEV");
+  }
+
+  const normalizedFieldType = fieldType.toLowerCase().trim();
+  const isOther = normalizedFieldType === "lainnya" || normalizedFieldType === "other";
+  const categoryAliases =
+    normalizedFieldType.includes("badminton")
+      ? ["badminton"]
+      : normalizedFieldType.includes("tenis") || normalizedFieldType.includes("tennis")
+        ? ["tenis", "tennis"]
+        : normalizedFieldType.includes("futsal") ||
+            normalizedFieldType.includes("basket") ||
+            normalizedFieldType.includes("voli") ||
+            normalizedFieldType.includes("sepak bola")
+          ? ["multi guna", "multiguna", "futsal", "basket", "voli", "sepak bola"]
+          : normalizedFieldType.includes("gym")
+            ? ["gym"]
+            : normalizedFieldType.includes("billiard")
+              ? ["billiard"]
+              : [normalizedFieldType];
+
+  const facilities = facilityRows.filter((facility) => {
+    if (isOther) return true;
+    const category = (facility.category ?? "").toLowerCase().trim();
+    const name = facility.name.toLowerCase();
+    return categoryAliases.some(
+      (alias) => category === alias || category.includes(alias) || name.includes(alias),
+    );
+  });
+
+  if (facilities.length === 0) {
+    throw new Error(`Fasilitas untuk jenis lapangan "${fieldType}" tidak ditemukan`);
+  }
+
+  const facilityIds = facilities.map((facility) => facility.id);
+  const bookings = await supabaseQueryStrict<SportCenterBookingSlotRow>(
+    `SELECT facility_id, start_time, end_time
+       FROM sport_center.sport_bookings
+      WHERE booking_date = $1
+        AND facility_id = ANY($2)
+        AND COALESCE(CAST(status AS TEXT), '') NOT IN
+            ('cancelled', 'rejected', 'expired', 'completed')`,
+    [normalizedDate, facilityIds],
+  );
+
+  const bookingsByFacility = new Map<number, Array<{ start: number; end: number }>>();
+  for (const booking of bookings) {
+    const start = timeToMinutes(booking.start_time);
+    const end = booking.end_time
+      ? timeToMinutes(booking.end_time)
+      : start + 60;
+    if (start < 0 || end <= start) continue;
+    const existing = bookingsByFacility.get(booking.facility_id) ?? [];
+    existing.push({ start, end });
+    bookingsByFacility.set(booking.facility_id, existing);
+  }
+
+  // Keep the same hourly choices as the existing form, but do not offer a
+  // start time whose requested duration would pass the facility's closing time.
+  const availableSlots: string[] = [];
+  for (let hour = OPEN_HOUR; hour < CLOSE_HOUR; hour++) {
+    const start = hour * 60;
+    const end = start + durationMinutes;
+    const hasFreeFacility = facilities.some((facility) => {
+      const open = timeToMinutes(facility.open_time ?? `${OPEN_HOUR}:00`);
+      const close = timeToMinutes(facility.close_time ?? `${CLOSE_HOUR}:00`);
+      if (start < open || end > close) return false;
+      return !(bookingsByFacility.get(facility.id) ?? []).some(
+        (booking) => start < booking.end && end > booking.start,
+      );
+    });
+    if (hasFreeFacility) availableSlots.push(minutesToTime(start));
+  }
+
+  return {
+    checkedDate: normalizedDate,
+    durationMinutes,
+    facilityIds,
+    availableSlots,
+  };
+}
+
 // ── Booker name validation ──────────────────────────────────────────────────────
 
 const NAME_BLACKLIST = new Set([

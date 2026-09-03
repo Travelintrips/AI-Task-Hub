@@ -1,10 +1,17 @@
 import pg from "pg";
 import { logger } from "./logger";
 
+// Development must use CST-DEV even when production variables are also
+// present in the workspace environment. Production keeps the production
+// Supabase database as its first choice.
 const connectionString =
-  process.env.SUPABASE_DATABASE_URL ??
-  process.env.SUPABASE_DATABASE_URL_DEV ??
-  process.env.DATABASE_URL;
+  process.env.NODE_ENV === "production"
+    ? process.env.SUPABASE_DATABASE_URL ??
+      process.env.SUPABASE_DATABASE_URL_DEV ??
+      process.env.DATABASE_URL
+    : process.env.SUPABASE_DATABASE_URL_DEV ??
+      process.env.SUPABASE_DATABASE_URL ??
+      process.env.DATABASE_URL;
 
 if (!connectionString) {
   logger.warn(

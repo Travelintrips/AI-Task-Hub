@@ -53,6 +53,7 @@ import {
   saveSportCenterBooking,
   extractDurationHours,
   bridgeToSportBookings,
+  getAvailableSportCenterStartTimes,
 } from "../lib/sport-center-availability";
 import { supabaseQuery } from "../lib/supabase-db";
 import { getAccessibleUrl, extractStoragePath } from "../lib/supabase";
@@ -266,6 +267,59 @@ router.get(
   },
 );
 
+// ── GET /public/mini-form/:type/:token/availability ──────────────────────────
+// Checks CST-DEV before the public form renders the Jam Mulai options.
+
+router.get(
+  "/public/mini-form/:type/:token/availability",
+  async (req, res): Promise<void> => {
+    try {
+      const { type, token } = req.params as { type: string; token: string };
+      const formCfg = getFormConfig(type);
+      if (!formCfg || type.replace(/_/g, "-") !== "field-booking") {
+        res.status(404).json({ error: "Availability hanya tersedia untuk form booking lapangan" });
+        return;
+      }
+
+      const [session] = await db
+        .select()
+        .from(intakeSessionsTable)
+        .where(eq(intakeSessionsTable.formToken, token))
+        .limit(1);
+      if (!session) {
+        res.status(404).json({ error: "Form tidak ditemukan" });
+        return;
+      }
+      if (["submitted", "cancelled", "expired"].includes(session.status)) {
+        res.status(410).json({ error: "Sesi form sudah tidak aktif" });
+        return;
+      }
+
+      const queryString = (value: unknown): string =>
+        typeof value === "string" ? value : "";
+      const fieldType = queryString(req.query["fieldType"]);
+      const bookingDate = queryString(req.query["bookingDate"]);
+      const duration = queryString(req.query["duration"]) || "1 jam";
+      if (!fieldType || !bookingDate) {
+        res.status(400).json({ error: "Jenis lapangan dan tanggal wajib dipilih terlebih dahulu" });
+        return;
+      }
+
+      const availability = await getAvailableSportCenterStartTimes({
+        fieldType,
+        bookingDate,
+        durationHours: extractDurationHours({ duration }),
+      });
+      res.json(availability);
+    } catch (err) {
+      logger.error({ err }, "GET /public/mini-form/:type/:token/availability failed");
+      res.status(503).json({
+        error: "Jadwal belum dapat diperiksa dari CST-DEV. Silakan coba lagi.",
+      });
+    }
+  },
+);
+
 // ── POST /public/mini-form/:type/:token ───────────────────────────────────────
 
 router.post(
@@ -387,6 +441,26 @@ router.post(
       const mergedDocs = Array.from(new Set([...prevDocs, ...newDocs]));
 
       const isComplete = stillMissing.length === 0;
+
+      // Re-check at submit time so a slot booked after the form loaded cannot
+      // be submitted through a stale browser tab.
+      if (isComplete && type.replace(/_/g, "-") === "field-booking") {
+        const availability = await getAvailableSportCenterStartTimes({
+          fieldType: String(merged.field_type ?? merged.field_name ?? ""),
+          bookingDate: String(merged.booking_date ?? ""),
+          durationHours: extractDurationHours(merged),
+        });
+        const selectedStart = String(merged.start_time ?? "");
+        if (!availability.availableSlots.includes(selectedStart)) {
+          res.status(409).json({
+            ok: false,
+            isComplete: false,
+            message: "Jam tersebut baru saja terisi atau tidak tersedia. Silakan pilih jam lain.",
+            missingFields: ["start_time"],
+          });
+          return;
+        }
+      }
 
       let taskId: number | null = null;
       let taskNumber: string | null = null;

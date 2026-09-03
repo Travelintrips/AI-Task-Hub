@@ -36,6 +36,21 @@ Private keys managed by the gate (prefixed `_`, excluded from form/task):
 - Slot outside operating hours (07:00-22:00) → rejects with message
 - Field matching: strips generic words ("lapangan", "court") before ILIKE
 
+## Mini-form availability source
+For the public field-booking mini-form, the development source of truth is
+`sport_center.sport_bookings` in CST-DEV. Its date column is `booking_date` (text),
+and facility matching comes from active rows in `sport_center.sport_facilities`.
+For categories with multiple facilities (such as Badminton), a start time stays
+available when at least one matching facility is free. Reservations with statuses
+`cancelled`, `rejected`, `expired`, or `completed` do not block a slot.
+
+**Why:** The public form must not show stale static times, and the imported project
+has separate development and production Supabase connections.
+
+**How to apply:** Keep development reads on `SUPABASE_DATABASE_URL_DEV`; validate
+the selected start time again on submit because availability can change after the
+form loads.
+
 **Why:** User requirement: AI should check availability before sending form, not immediately send form link when "Booking Lapangan Olahraga" is received.
 
 ## Fix: wait-message ordering + booker name in confirmation (2026-07-06)

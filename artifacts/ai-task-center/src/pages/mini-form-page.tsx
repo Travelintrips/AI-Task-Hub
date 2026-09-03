@@ -4,7 +4,7 @@
  * No authentication required — token-based access
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 
@@ -119,11 +119,13 @@ function FormField({
   value,
   onChange,
   hasError,
+  disabled = false,
 }: {
   field: ReturnType<typeof normalizeField>;
   value: string;
   onChange: (v: string) => void;
   hasError: boolean;
+  disabled?: boolean;
 }) {
   const base = `w-full rounded-lg border px-3 py-2.5 text-sm outline-none transition ${
     hasError
@@ -141,15 +143,16 @@ function FormField({
       />
     );
   }
-  if (field.type === "select" && field.options) {
+  if (field.type === "select") {
     return (
       <select
         className={base}
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
       >
         <option value="">— Pilih —</option>
-        {field.options.map((o) => (
+        {(field.options ?? []).map((o) => (
           <option key={o} value={o}>
             {o}
           </option>
@@ -327,6 +330,57 @@ export default function MiniFormPage() {
     enabled: isPreview ? !!(templateId || token) : !!(type && token),
   });
 
+  const selectedFieldType =
+    values.field_type ??
+    String(data?.collectedFields?.field_type ?? data?.collectedFields?.field_name ?? "");
+  const selectedBookingDate =
+    values.booking_date ?? String(data?.collectedFields?.booking_date ?? "");
+  const selectedDuration =
+    values.duration ?? String(data?.collectedFields?.duration ?? "1 jam");
+  const isFieldBookingForm =
+    !isPreview && type?.replace(/_/g, "-") === "field-booking";
+
+  const availabilityQuery = useQuery<{
+    checkedDate: string;
+    durationMinutes: number;
+    facilityIds: number[];
+    availableSlots: string[];
+  }>({
+    queryKey: [
+      "mini-form-availability",
+      token,
+      selectedFieldType,
+      selectedBookingDate,
+      selectedDuration,
+    ],
+    queryFn: () => {
+      const params = new URLSearchParams({
+        fieldType: selectedFieldType,
+        bookingDate: selectedBookingDate,
+        duration: selectedDuration,
+      });
+      return apiFetch(
+        `/public/mini-form/${type}/${token}/availability?${params.toString()}`,
+      );
+    },
+    enabled:
+      isFieldBookingForm &&
+      !!type &&
+      !!token &&
+      !!selectedFieldType &&
+      !!selectedBookingDate,
+    retry: false,
+    staleTime: 15_000,
+  });
+
+  useEffect(() => {
+    const selectedStart =
+      values.start_time ?? String(data?.collectedFields?.start_time ?? "");
+    const available = availabilityQuery.data?.availableSlots;
+    if (!available || !selectedStart || available.includes(selectedStart)) return;
+    setValues((previous) => ({ ...previous, start_time: "" }));
+  }, [availabilityQuery.data?.availableSlots, data?.collectedFields?.start_time, values.start_time]);
+
   const mutation = useMutation({
     mutationFn: (payload: {
       fields: Record<string, string>;
@@ -384,7 +438,13 @@ export default function MiniFormPage() {
   const merged = { ...prefilled, ...values };
 
   function handleChange(name: string, val: string) {
-    setValues((p) => ({ ...p, [name]: val }));
+    setValues((p) => ({
+      ...p,
+      [name]: val,
+      ...(name === "field_type" || name === "booking_date" || name === "duration"
+        ? { start_time: "" }
+        : {}),
+    }));
   }
 
   function handleBlur(name: string) {
@@ -492,6 +552,15 @@ export default function MiniFormPage() {
                   );
                 }
 
+                const isStartTimeField =
+                  isFieldBookingForm && field.name === "start_time";
+                const renderedField = isStartTimeField
+                  ? {
+                      ...field,
+                      options: availabilityQuery.data?.availableSlots ?? [],
+                    }
+                  : field;
+
                 return (
                   <div key={field.name} className="space-y-1.5">
                     <label className="block text-sm font-medium text-gray-700">
@@ -502,10 +571,18 @@ export default function MiniFormPage() {
                     </label>
                     <div onBlur={() => handleBlur(field.name)}>
                       <FormField
-                        field={field}
+                        field={renderedField}
                         value={val}
                         onChange={(v) => handleChange(field.name, v)}
                         hasError={hasError}
+                        disabled={
+                          isStartTimeField &&
+                          (availabilityQuery.isLoading ||
+                            !selectedFieldType ||
+                            !selectedBookingDate ||
+                            availabilityQuery.isError ||
+                            (availabilityQuery.data?.availableSlots.length ?? 0) === 0)
+                        }
                       />
                     </div>
                     {hasError && (
@@ -516,6 +593,23 @@ export default function MiniFormPage() {
                     {!hasError && field.helpText && field.type !== "file" && (
                       <p className="text-xs text-gray-400">{field.helpText}</p>
                     )}
+                    {isStartTimeField && availabilityQuery.isLoading && (
+                      <p className="text-xs text-blue-600">
+                        Memeriksa slot tersedia...
+                      </p>
+                    )}
+                    {isStartTimeField && availabilityQuery.isError && (
+                      <p className="text-xs text-red-500">
+                        Slot belum dapat diperiksa dari CST-DEV. Silakan pilih ulang tanggal.
+                      </p>
+                    )}
+                    {isStartTimeField &&
+                      availabilityQuery.data &&
+                      availabilityQuery.data.availableSlots.length === 0 && (
+                        <p className="text-xs text-orange-600">
+                          Tidak ada jam tersedia untuk tanggal, lapangan, dan durasi tersebut.
+                        </p>
+                      )}
                   </div>
                 );
               })}
