@@ -373,6 +373,7 @@ export default function MiniFormPage() {
       });
       return apiFetch(
         `/public/mini-form/${type}/${token}/availability?${params.toString()}`,
+        { cache: "no-store" },
       );
     },
     enabled:
@@ -382,7 +383,10 @@ export default function MiniFormPage() {
       !!selectedFieldType &&
       !!selectedBookingDate,
     retry: false,
-    staleTime: 15_000,
+    staleTime: 0,
+    refetchInterval: 15_000,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
   });
 
   useEffect(() => {

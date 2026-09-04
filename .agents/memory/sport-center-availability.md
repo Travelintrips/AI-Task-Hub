@@ -71,6 +71,17 @@ mask a correct server response.
 HTTP response cache and the client query cache; never use the old category list
 as a fallback.
 
+Availability requests in the public form bypass HTTP cache and refresh while the
+form remains open, so a newly created booking can remove a slot without requiring
+a new link. A booking is blocked when its interval overlaps the requested
+duration, including `pending_payment` and `waiting_admin_approval` statuses.
+
+**Why:** A slot can become occupied after the customer first loads the form;
+excluding only approved bookings would allow duplicate reservations.
+
+**How to apply:** Keep the availability query no-store with periodic refresh, and
+reset a selected start time when the refreshed slot list no longer contains it.
+
 Notifikasi group setelah mini-form booking lapangan harus memakai urutan eksplisit:
 Nama Pemesan, Jenis Lapangan, Tanggal Main, Durasi Sewa, Jam Mulai, Jam Selesai,
 Metode Pembayaran, Catatan. Gunakan `field_type` sebagai sumber utama dan jangan

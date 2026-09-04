@@ -296,6 +296,7 @@ router.get(
   "/public/mini-form/:type/:token/availability",
   async (req, res): Promise<void> => {
     try {
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
       const { type, token } = req.params as { type: string; token: string };
       const formCfg = getFormConfig(type);
       if (!formCfg || type.replace(/_/g, "-") !== "field-booking") {
