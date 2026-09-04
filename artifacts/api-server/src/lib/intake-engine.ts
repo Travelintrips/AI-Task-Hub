@@ -43,6 +43,7 @@ import {
   isValidBookerName,
   formatDateIndo,
   normalizeDateString,
+  getSportCenterFacilityOptions,
 } from "./sport-center-availability";
 import { sendFonnte } from "./fonnte";
 import { generateSecureToken } from "./tokens";
@@ -948,28 +949,25 @@ async function runSportCenterAvailabilityGate({
   ]);
   const isGenericFieldType = !fieldType || GENERIC_FIELD_TYPES.has(fieldType.toLowerCase().trim());
 
-  // ── Numbered menu for lapangan selection ──────────────────────────────────
-  const FIELD_MENU_OPTIONS: Record<string, string> = {
-    "1": "Badminton",
-    "2": "Futsal",
-    "3": "Tennis",
-    "4": "Basketball",
-    "5": "Voli",
-    "6": "GYM",
-    "7": "Billiard",
-  };
-  const FIELD_MENU_TEXT =
-    `🏟️ Pilih lapangan/Fasilitas yang ingin Anda booking:\n\n` +
-    `1️⃣ Badminton\n` +
-    `2️⃣ Futsal\n` +
-    `3️⃣ Tennis\n` +
-    `4️⃣ Basketball\n` +
-    `5️⃣ Voli\n` +
-    `6️⃣ GYM / Fitness\n` +
-    `7️⃣ Billiard (Self-Service)\n\n` +
-    `Balas dengan *nomor* atau *nama lapangan* yang Anda pilih.`;
-
   const missingSlot = !bookingDate || !startTime;
+  let facilityMenuOptions: string[] = [];
+  if (missingSlot && !prevAvailStatus && isGenericFieldType) {
+    try {
+      facilityMenuOptions = await getSportCenterFacilityOptions();
+    } catch (err) {
+      logger.error({ err, companyId, sessionId: session.id }, "SportCenterGate: failed to load facility menu");
+    }
+  }
+
+  const FIELD_MENU_TEXT = facilityMenuOptions.length > 0
+    ? `🏟️ Pilih lapangan/Fasilitas yang ingin Anda booking:\n\n` +
+      facilityMenuOptions
+        .map((name, index) => `${index + 1}️⃣ ${name}`)
+        .join("\n") +
+      `\n\nBalas dengan *nomor* atau *nama lapangan* yang Anda pilih.`
+    : `🏟️ Daftar lapangan belum dapat dimuat dari database Sport Center.\n\n` +
+      `Silakan coba lagi beberapa saat lagi.`;
+
   if (missingSlot && !prevAvailStatus) {
     // Build a tailored question depending on what's already known
     let openingQ: string;
@@ -1568,14 +1566,6 @@ export async function processIntakeMessage({
     ? `Pertanyaan sebelumnya: "${session.lastQuestion}"`
     : "";
 
-  // ── Pre-process: map numbered menu reply → lapangan name for sport center ──
-  // If the last question was the lapangan menu and user replied with "1"–"6",
-  // inject directly WITHOUT calling OpenAI to avoid loop when key is invalid.
-  const FIELD_MENU_MAP: Record<string, string> = {
-    "1": "Badminton", "2": "Futsal", "3": "Tennis",
-    "4": "Basketball", "5": "Voli", "6": "GYM", "7": "Billiard",
-  };
-
   // Keywords that mark a field_type as already-specific (user has chosen a real lapangan).
   // Uses substring/contains matching so "lapangan futsal", "main futsal", etc. are caught.
   const SPECIFIC_LAPANGAN_KEYWORDS = ["badminton", "futsal", "tennis", "basketball", "voli", "gym", "billiard"];
@@ -1622,12 +1612,26 @@ export async function processIntakeMessage({
     !availAlreadyChecked &&
     /^[1-5]$/.test(trimmedMsg);
 
-  const menuLapangan = (isMenuQuestion || isDigitMenuReply) ? (FIELD_MENU_MAP[trimmedMsg] ?? null) : null;
+  // Use the same active facility names as the public mini-form. This keeps a
+  // WhatsApp numbered selection tied to the exact facility_id used by
+  // availability checks instead of a broader sport/category label.
+  const fieldMenuOptions =
+    isMenuQuestion || isDigitMenuReply
+      ? await getSportCenterFacilityOptions().catch((err) => {
+          logger.error({ err, sessionId: session.id }, "IntakeEngine: failed to load facility menu for reply");
+          return [];
+        })
+      : [];
+  const fieldMenuMap: Record<string, string> = Object.fromEntries(
+    fieldMenuOptions.map((name, index) => [String(index + 1), name]),
+  );
+
+  const menuLapangan = (isMenuQuestion || isDigitMenuReply) ? (fieldMenuMap[trimmedMsg] ?? null) : null;
 
   // Also try to match by name directly (e.g. user types "Futsal" instead of "2")
   // Also applies when isMenuQuestion=true even for named values
   const namedLapangan = (isMenuQuestion || isDigitMenuReply) && !menuLapangan
-    ? Object.values(FIELD_MENU_MAP).find(
+    ? fieldMenuOptions.find(
         (v) => v.toLowerCase() === trimmedMsg.toLowerCase(),
       ) ?? null
     : null;
