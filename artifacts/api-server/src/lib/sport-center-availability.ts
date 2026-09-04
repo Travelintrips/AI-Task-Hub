@@ -654,6 +654,39 @@ export function getScDomain(): string {
 
 // ── Bank/payment settings ─────────────────────────────────────────────────────
 
+export interface SportCenterPaymentSettings {
+  bankName: string | null;
+  bankAccount: string | null;
+  bankAccountName: string | null;
+  qrisImageUrl: string | null;
+}
+
+export async function getSportCenterPaymentSettings(): Promise<SportCenterPaymentSettings> {
+  const rows = await supabaseQuery<{
+    bank_name: string | null;
+    bank_account: string | null;
+    bank_account_name: string | null;
+    qris_image_url: string | null;
+  }>(
+    `SELECT bank_name, bank_account, bank_account_name, qris_image_url
+     FROM sport_center.sport_settings
+     ORDER BY id
+     LIMIT 1`,
+  );
+  const settings = rows[0];
+  const rawQrisImageUrl = settings?.qris_image_url?.trim() || null;
+  return {
+    bankName: settings?.bank_name?.trim() || null,
+    bankAccount: settings?.bank_account?.trim() || null,
+    bankAccountName: settings?.bank_account_name?.trim() || null,
+    qrisImageUrl: rawQrisImageUrl
+      ? rawQrisImageUrl.startsWith("http")
+        ? rawQrisImageUrl
+        : `${getScDomain()}/${rawQrisImageUrl.replace(/^\/+/, "")}`
+      : null,
+  };
+}
+
 export function getPaymentInfo(): { bankName: string; bankAccount: string; bankHolder: string } {
   return {
     bankName:    process.env.SC_BANK_NAME    ?? "Bank Mandiri",

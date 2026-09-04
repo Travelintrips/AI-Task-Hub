@@ -55,6 +55,7 @@ import {
   bridgeToSportBookings,
   getAvailableSportCenterStartTimes,
   getSportCenterFacilityOptions,
+  getSportCenterPaymentSettings,
 } from "../lib/sport-center-availability";
 import { supabaseQuery } from "../lib/supabase-db";
 import { getAccessibleUrl, extractStoragePath } from "../lib/supabase";
@@ -146,6 +147,10 @@ router.get(
         formType.replace(/_/g, "-") === "field-booking"
           ? await getSportCenterFacilityOptions()
           : null;
+      const paymentSettings =
+        formType.replace(/_/g, "-") === "field-booking"
+          ? await getSportCenterPaymentSettings()
+          : null;
 
       res.json({
         preview: true,
@@ -167,6 +172,7 @@ router.get(
               : field,
           ) ?? [],
         facilityOptions,
+        paymentSettings,
         customFields: dbFields,
         collectedFields: {},
         missingFields: [],
@@ -262,6 +268,10 @@ router.get(
         type.replace(/_/g, "-") === "field-booking"
           ? await getSportCenterFacilityOptions()
           : null;
+      const paymentSettings =
+        type.replace(/_/g, "-") === "field-booking"
+          ? await getSportCenterPaymentSettings()
+          : null;
 
       res.json({
         status: session.status,
@@ -276,6 +286,7 @@ router.get(
             : field,
         ),
         facilityOptions,
+        paymentSettings,
         customFields,
         collectedFields,
         missingFields,
@@ -442,7 +453,7 @@ router.post(
 
       // Calculate missing required fields from builtin + missing list
       const requiredBuiltinNames = formCfg.fields
-        .filter((f: MiniFormFieldDef) => f.required && f.type !== "file")
+        .filter((f: MiniFormFieldDef) => f.required)
         .map((f: MiniFormFieldDef) => f.name);
 
       // "phone" is always provided by the WA session — remove it from the required list.
@@ -747,6 +758,7 @@ router.post(
               end_time: "Jam Selesai",
               durasi: "Durasi Sewa",
               payment_method: "Metode Pembayaran",
+              payment_proof: "Upload Bukti Pembayaran",
               notes: "Catatan",
               contact_person: "Nama Kontak",
               contact_phone: "No. Kontak",

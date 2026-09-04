@@ -57,6 +57,12 @@ interface FormData {
   builtinFields: FieldDef[];
   customFields: FieldDef[];
   facilityOptions?: string[];
+  paymentSettings?: {
+    bankName: string | null;
+    bankAccount: string | null;
+    bankAccountName: string | null;
+    qrisImageUrl: string | null;
+  } | null;
   collectedFields: Record<string, unknown>;
   missingFields: string[];
   requiredDocuments: string[];
@@ -100,6 +106,70 @@ function normalizeSportCenterField(field: ReturnType<typeof normalizeField>) {
     return { ...field, name: "duration" };
   }
   return field;
+}
+
+function SportCenterPaymentDetails({
+  method,
+  settings,
+}: {
+  method: string;
+  settings?: FormData["paymentSettings"];
+}) {
+  if (method === "Transfer Bank") {
+    if (!settings?.bankName && !settings?.bankAccount && !settings?.bankAccountName) {
+      return (
+        <div className="rounded-xl border border-orange-200 bg-orange-50 p-3 text-sm text-orange-700">
+          Informasi rekening belum tersedia. Silakan hubungi admin Sport Center.
+        </div>
+      );
+    }
+    return (
+      <div className="rounded-xl border border-blue-100 bg-blue-50 p-4 space-y-1.5">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-blue-500">
+          Transfer Bank
+        </p>
+        {settings.bankName && (
+          <p className="text-sm font-bold text-gray-800">{settings.bankName.toUpperCase()}</p>
+        )}
+        {settings.bankAccount && (
+          <p className="font-mono text-lg tracking-wide text-gray-900">{settings.bankAccount}</p>
+        )}
+        {settings.bankAccountName && (
+          <p className="text-sm text-gray-700">a.n. {settings.bankAccountName}</p>
+        )}
+      </div>
+    );
+  }
+
+  if (method === "QRIS / E-Wallet") {
+    if (!settings?.qrisImageUrl) {
+      return (
+        <div className="rounded-xl border border-orange-200 bg-orange-50 p-3 text-sm text-orange-700">
+          QRIS belum tersedia. Silakan pilih metode pembayaran lain atau hubungi admin.
+        </div>
+      );
+    }
+    const qrisUrl = settings.qrisImageUrl.startsWith("http")
+      ? settings.qrisImageUrl
+      : `${BASE}${settings.qrisImageUrl}`;
+    return (
+      <div className="rounded-xl border border-gray-200 bg-white p-3 text-center">
+        <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+          Scan QRIS
+        </p>
+        <img
+          src={qrisUrl}
+          alt="QRIS Sport Center"
+          className="mx-auto max-h-72 w-full rounded-lg object-contain"
+        />
+        <p className="mt-2 text-xs text-gray-500">
+          Scan dengan aplikasi e-wallet atau m-banking Anda
+        </p>
+      </div>
+    );
+  }
+
+  return null;
 }
 
 function Spinner() {
@@ -215,15 +285,24 @@ function FileFieldRenderer({
   currentValue,
   isUploading,
   uploadError,
+  hasError,
   onFileChange,
 }: {
   field: ReturnType<typeof normalizeField>;
   currentValue: string;
   isUploading: boolean;
   uploadError?: string;
+  hasError: boolean;
   onFileChange: (file: File) => void;
 }) {
   const isUploaded = currentValue.startsWith("http");
+  const isPaymentProof = field.name === "payment_proof";
+  const acceptedFormats = isPaymentProof
+    ? "JPG, PNG, WebP, PDF — maksimal 10 MB"
+    : field.helpText ?? "PDF, JPG, PNG — maks. 10 MB";
+  const acceptedFiles = isPaymentProof
+    ? ".jpg,.jpeg,.png,.webp,.pdf"
+    : ".jpg,.jpeg,.png,.pdf,.doc,.docx";
   return (
     <div className="space-y-2">
       <label className="block text-sm font-medium text-gray-700">
@@ -242,7 +321,7 @@ function FileFieldRenderer({
             <input
               type="file"
               className="hidden"
-              accept=".jpg,.jpeg,.png,.pdf,.doc,.docx"
+                accept={acceptedFiles}
               onChange={(e) => {
                 const f = e.target.files?.[0];
                 if (f) onFileChange(f);
@@ -256,16 +335,22 @@ function FileFieldRenderer({
           <span>Mengupload...</span>
         </div>
       ) : (
-        <label className="block w-full cursor-pointer rounded-lg border-2 border-dashed border-gray-200 px-4 py-4 text-center hover:border-blue-400 hover:bg-blue-50 transition-colors">
+        <label
+          className={`block w-full cursor-pointer rounded-lg border-2 border-dashed px-4 py-4 text-center transition-colors ${
+            hasError
+              ? "border-red-300 bg-red-50 hover:border-red-400"
+              : "border-gray-200 hover:border-blue-400 hover:bg-blue-50"
+          }`}
+        >
           <div className="text-2xl mb-1">📎</div>
           <p className="text-sm text-gray-500">Pilih atau seret file ke sini</p>
           <p className="text-xs text-gray-400 mt-0.5">
-            {field.helpText ?? "PDF, JPG, PNG — maks. 10 MB"}
+             {acceptedFormats}
           </p>
           <input
             type="file"
             className="hidden"
-            accept=".jpg,.jpeg,.png,.pdf,.doc,.docx"
+             accept={acceptedFiles}
             onChange={(e) => {
               const f = e.target.files?.[0];
               if (f) onFileChange(f);
@@ -275,6 +360,9 @@ function FileFieldRenderer({
       )}
 
       {uploadError && <p className="text-xs text-red-500">⚠️ {uploadError}</p>}
+      {hasError && !uploadError && (
+        <p className="text-xs text-red-500">File bukti pembayaran wajib diunggah</p>
+      )}
     </div>
   );
 }
@@ -303,6 +391,35 @@ export default function MiniFormPage() {
   const [uploadErrors, setUploadErrors] = useState<Record<string, string>>({});
 
   async function handleFileUpload(fieldName: string, file: File) {
+    if (fieldName === "payment_proof") {
+      const allowedMimeTypes = new Set([
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+        "application/pdf",
+      ]);
+      const allowedExtensions = new Set(["jpg", "jpeg", "png", "webp", "pdf"]);
+      const extension = file.name.toLowerCase().split(".").pop() ?? "";
+
+      if (file.size > 10 * 1024 * 1024) {
+        setUploadErrors((prev) => ({
+          ...prev,
+          [fieldName]: "Ukuran file maksimal 10 MB",
+        }));
+        return;
+      }
+      if (
+        !allowedExtensions.has(extension) ||
+        !allowedMimeTypes.has(file.type)
+      ) {
+        setUploadErrors((prev) => ({
+          ...prev,
+          [fieldName]: "Format yang diterima hanya JPG, PNG, WebP, atau PDF",
+        }));
+        return;
+      }
+    }
+
     setUploadingFields((prev) => new Set(prev).add(fieldName));
     setUploadErrors((prev) => {
       const n = { ...prev };
@@ -310,6 +427,26 @@ export default function MiniFormPage() {
       return n;
     });
     try {
+      if (fieldName === "payment_proof") {
+        const uploadBody = new FormData();
+        uploadBody.append("file", file);
+        uploadBody.append("token", token ?? "");
+        uploadBody.append("fieldName", fieldName);
+        const uploadResponse = await fetch(`${BASE}/api/public/mini-form-upload`, {
+          method: "POST",
+          body: uploadBody,
+        });
+        const uploadResult = (await uploadResponse.json().catch(() => ({}))) as {
+          publicUrl?: string;
+          error?: string;
+        };
+        if (!uploadResponse.ok || !uploadResult.publicUrl) {
+          throw new Error(uploadResult.error ?? `Upload gagal (${uploadResponse.status})`);
+        }
+        setValues((prev) => ({ ...prev, [fieldName]: uploadResult.publicUrl! }));
+        return;
+      }
+
       // 1. Dapatkan signed upload URL dari server
       const urlRes = (await apiFetch("/public/mini-form-upload-url", {
         method: "POST",
@@ -369,6 +506,9 @@ export default function MiniFormPage() {
     normalizeSportCenterDuration(
       values.duration ?? data?.collectedFields?.duration ?? "1 jam",
     );
+  const selectedPaymentMethod =
+    values.payment_method ??
+    String(data?.collectedFields?.payment_method ?? "");
   const isFieldBookingForm =
     !isPreview && type?.replace(/_/g, "-") === "field-booking";
 
@@ -569,7 +709,7 @@ export default function MiniFormPage() {
   }
 
   const requiredFields = allFields.filter(
-    (f) => f.required && f.type !== "file",
+    (f) => f.required,
   );
   const filledRequired = requiredFields.filter(
     (f) => (merged[f.name] ?? "").trim() !== "",
@@ -633,10 +773,9 @@ export default function MiniFormPage() {
                 const hasError =
                   isTouched &&
                   field.required &&
-                  field.type !== "file" &&
                   !val.trim();
 
-                // File fields pakai FileFieldRenderer khusus (upload ke Supabase)
+                // File fields pakai FileFieldRenderer khusus (upload ke server/storage)
                 if (field.type === "file") {
                   return (
                     <FileFieldRenderer
@@ -645,6 +784,7 @@ export default function MiniFormPage() {
                       currentValue={val}
                       isUploading={uploadingFields.has(field.name)}
                       uploadError={uploadErrors[field.name]}
+                      hasError={hasError}
                       onFileChange={(file) =>
                         handleFileUpload(field.name, file)
                       }
@@ -721,6 +861,14 @@ export default function MiniFormPage() {
                           Tidak ada jam tersedia untuk tanggal, lapangan, dan durasi tersebut.
                         </p>
                       )}
+                     {isFieldBookingForm &&
+                       field.name === "payment_method" &&
+                       selectedPaymentMethod && (
+                         <SportCenterPaymentDetails
+                           method={selectedPaymentMethod}
+                           settings={data.paymentSettings}
+                         />
+                       )}
                   </div>
                 );
               })}
