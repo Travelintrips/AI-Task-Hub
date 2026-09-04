@@ -42,7 +42,9 @@ For the public field-booking mini-form, the development source of truth is
 and facility matching comes from active rows in `sport_center.sport_facilities`.
 For categories with multiple facilities (such as Badminton), a start time stays
 available when at least one matching facility is free. Reservations with statuses
-`cancelled`, `rejected`, `expired`, or `completed` do not block a slot.
+`cancelled`, `rejected`, `expired`, or `refunded` do not block a slot; all other
+statuses block overlapping intervals. Explicit `sport_center.blocked_schedules`
+rows also block by `facility_id`, `date`, `start_time`, and `end_time`.
 The mini-form allows start times through 23:00; the legacy facility rows may still
 advertise a 22:00 close, so midnight is used as the mini-form's effective close.
 The frontend should identify the dynamic start-time field by both canonical name
@@ -82,7 +84,7 @@ excluding only approved bookings would allow duplicate reservations.
 **How to apply:** Keep the availability query no-store with periodic refresh, and
 reset a selected start time when the refreshed slot list no longer contains it.
 
-Availability reads must compare the first 10 characters of `booking_date` and normalize status case/whitespace. Ignore `cancelled`, `expired`, `rejected`, `refunded`, and `completed`; all other statuses block overlapping intervals.
+Availability reads must compare the first 10 characters of `booking_date` and normalize status case/whitespace. Ignore only `cancelled`, `expired`, `rejected`, and `refunded`; all other statuses block overlapping intervals.
 
 **Why:** Development and production `sport_center.sport_bookings` schemas can contain either date-like text or date values, and older rows may retain an ISO timestamp string. Exact equality or case-sensitive status checks can show already-booked hours as available.
 

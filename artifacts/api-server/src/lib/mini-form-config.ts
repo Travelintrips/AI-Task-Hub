@@ -138,7 +138,7 @@ export const MINI_FORM_CONFIGS: Record<string, MiniFormConfig> = {
       { name: "field_type",     label: "Jenis Lapangan",        type: "select",   required: true,  options: ["Lapangan Badminton A", "Lapangan Badminton B", "Lapangan Tenis", "Lapangan Multi Guna", "GYM", "Meja Billiard"] },
       { name: "booking_date",   label: "Tanggal Main",          type: "date",     required: true },
       { name: "start_time",     label: "Jam Mulai",             type: "select",   required: true,  options: ["07:00", "08:00", "09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00", "20:00", "21:00", "22:00", "23:00"] },
-      { name: "duration",       label: "Durasi Sewa",           type: "select",   required: true,  options: ["1 jam", "1,5 jam", "2 jam", "3 jam", "Full Day"] },
+      { name: "duration",       label: "Durasi Sewa",           type: "select",   required: true,  options: ["1 jam", "2 jam", "3 jam", "Full Day"] },
       { name: "payment_method", label: "Metode Pembayaran",     type: "select",   required: true,  options: ["Transfer Bank", "Cash", "QRIS / E-Wallet"] },
       { name: "notes",          label: "Catatan Tambahan",      type: "textarea", required: false, placeholder: "Butuh perlengkapan tambahan, dll." },
     ],

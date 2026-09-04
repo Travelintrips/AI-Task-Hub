@@ -177,7 +177,6 @@ const NON_BLOCKING_BOOKING_STATUSES = [
   "expired",
   "rejected",
   "refunded",
-  "completed",
 ];
 
 function sportCenterDatabaseLabel(): string {
@@ -254,6 +253,9 @@ export async function getAvailableSportCenterStartTimes({
   }
 
   const facilityIds = facilities.map((facility) => facility.id);
+  // A booking blocks only its own facility. The facility_id comparison is
+  // intentional: matching by display name can incorrectly leave a booked
+  // facility available when names/categories change.
   const bookings = await supabaseQueryStrict<SportCenterBookingSlotRow>(
     `SELECT facility_id, start_time, end_time
        FROM sport_center.sport_bookings
@@ -263,8 +265,18 @@ export async function getAvailableSportCenterStartTimes({
     [normalizedDate, facilityIds, NON_BLOCKING_BOOKING_STATUSES],
   );
 
+  // Explicitly blocked schedules are also occupied intervals, regardless of
+  // booking status. They use date (not booking_date) in the CST schema.
+  const blockedSchedules = await supabaseQueryStrict<SportCenterBookingSlotRow>(
+    `SELECT facility_id, start_time, end_time
+       FROM sport_center.blocked_schedules
+      WHERE LEFT(CAST("date" AS TEXT), 10) = $1
+        AND facility_id = ANY($2)`,
+    [normalizedDate, facilityIds],
+  );
+
   const bookingsByFacility = new Map<number, Array<{ start: number; end: number }>>();
-  for (const booking of bookings) {
+  for (const booking of [...bookings, ...blockedSchedules]) {
     const start = timeToMinutes(booking.start_time);
     const end = booking.end_time
       ? timeToMinutes(booking.end_time)
@@ -408,45 +420,17 @@ export async function checkSportCenterAvailability({
   }
 
   const dateIndo = formatDateIndo(normalizedDate);
-  // Normalize field_type: strip generic prefix words ("lapangan"), use the sport name
-  // e.g. "Lapangan Badminton" → "badminton", "Futsal" → "futsal"
-  const STRIP_WORDS = new Set(["lapangan", "court", "area", "sport", "center"]);
-  const keywords = fieldType.toLowerCase().split(/\s+/).filter(w => !STRIP_WORDS.has(w));
-  const rawKeyword = keywords[0] ?? fieldType.toLowerCase();
-
-  // Futsal, basket/basketball, voli/volleyball → disimpan sebagai "Lapangan Multiguna" di sport_bookings
-  const MULTIGUNA_SPORTS = new Set(["futsal", "basket", "basketball", "voli", "volley", "volleyball", "bola voli"]);
-  const fieldKeyword = MULTIGUNA_SPORTS.has(rawKeyword) ? "multiguna" : rawKeyword;
-
   try {
-    // Query dari public.sport_bookings di Supabase — sumber kebenaran ketersediaan lapangan
-    interface BookingRow { start_time: string; end_time: string | null }
-    const rows = await supabaseQuery<BookingRow>(`
-      SELECT start_time::text, end_time::text
-      FROM   public.sport_bookings
-      WHERE  company_id   = 1
-        AND  booking_date = $1
-        AND  (LOWER(facility_name) ILIKE $2 OR $3 = 'all')
-        AND  status NOT IN ('cancelled','rejected')
-    `, [normalizedDate, `%${fieldKeyword}%`, fieldKeyword === "all" ? "all" : "no"]);
-
-    // Build list of booked minute-ranges
-    const booked = rows.map((r) => ({
-      s: timeToMinutes(r.start_time),
-      e: r.end_time ? timeToMinutes(r.end_time) : timeToMinutes(r.start_time) + 60,
-    }));
-
-    // Determine free 1-hour slots for the day
-    const freeSlots: string[] = [];
-    for (let h = OPEN_HOUR; h < CLOSE_HOUR; h++) {
-      const s = h * 60;
-      const e = s + 60;
-      const isBooked = booked.some((b) => s < b.e && e > b.s);
-      if (!isBooked) freeSlots.push(minutesToTime(s));
-    }
-
-    // Check if requested slot overlaps any booking
-    const hasConflict = booked.some((b) => reqStartMin < b.e && reqEndMin > b.s);
+    // Keep the conversational WA check on the same source of truth as the
+    // mini-form: facility_id + date + time ranges, plus blocked schedules.
+    const schedule = await getAvailableSportCenterStartTimes({
+      fieldType,
+      bookingDate: normalizedDate,
+      durationHours,
+    });
+    const freeSlots = schedule.availableSlots;
+    const requestedSlot = minutesToTime(reqStartMin);
+    const hasConflict = !freeSlots.includes(requestedSlot);
 
     if (!hasConflict) {
       return {
