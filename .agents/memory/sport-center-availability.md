@@ -40,8 +40,11 @@ Private keys managed by the gate (prefixed `_`, excluded from form/task):
 For the public field-booking mini-form, the development source of truth is
 `sport_center.sport_bookings` in CST-DEV. Its date column is `booking_date` (text),
 and facility matching comes from active rows in `sport_center.sport_facilities`.
-For categories with multiple facilities (such as Badminton), a start time stays
-available when at least one matching facility is free. Reservations with statuses
+For WhatsApp/category-level checks with multiple facilities (such as Badminton),
+a start time stays available when at least one matching facility is free.
+The public mini-form is stricter: it requires an exact active facility name so
+availability is evaluated against one `facility_id`, not another free facility
+in the same category. Reservations with statuses
 `cancelled`, `rejected`, `expired`, or `refunded` do not block a slot; all other
 statuses block overlapping intervals. Explicit `sport_center.blocked_schedules`
 rows also block by `facility_id`, `date`, `start_time`, and `end_time`.

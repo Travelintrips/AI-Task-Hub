@@ -332,6 +332,7 @@ router.get(
         fieldType,
         bookingDate,
         durationHours: extractDurationHours({ duration }),
+        requireExactFacility: true,
       });
       res.json(availability);
     } catch (err) {
@@ -475,6 +476,7 @@ router.post(
           fieldType: String(merged.field_type ?? merged.field_name ?? ""),
           bookingDate: String(merged.booking_date ?? ""),
           durationHours: extractDurationHours(merged),
+          requireExactFacility: true,
         });
         const selectedStart = String(merged.start_time ?? "");
         if (!availability.availableSlots.includes(selectedStart)) {

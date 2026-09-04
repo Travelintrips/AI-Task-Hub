@@ -192,10 +192,16 @@ export async function getAvailableSportCenterStartTimes({
   fieldType,
   bookingDate,
   durationHours = 1,
+  requireExactFacility = false,
 }: {
   fieldType: string;
   bookingDate: string;
   durationHours?: number;
+  /**
+   * The public mini-form selects one named facility. When enabled, never
+   * widen that selection to every facility in the same category.
+   */
+  requireExactFacility?: boolean;
 }): Promise<SportCenterStartTimeAvailability> {
   const normalizedDate = normalizeDateString(bookingDate);
   if (!normalizedDate) {
@@ -234,22 +240,31 @@ export async function getAvailableSportCenterStartTimes({
               ? ["billiard"]
               : [normalizedFieldType];
 
-  const exactFacility = facilityRows.find(
+  const exactFacilityRow = facilityRows.find(
     (facility) => facility.name.trim().toLowerCase() === normalizedFieldType,
   );
-  const facilities = exactFacility
-    ? [exactFacility]
-    : facilityRows.filter((facility) => {
-    if (isOther) return true;
-    const category = (facility.category ?? "").toLowerCase().trim();
-    const name = facility.name.toLowerCase();
-    return categoryAliases.some(
-      (alias) => category === alias || category.includes(alias) || name.includes(alias),
-    );
-      });
+  const facilities = exactFacilityRow
+    ? [exactFacilityRow]
+    : requireExactFacility
+      ? []
+      : facilityRows.filter((facility) => {
+          if (isOther) return true;
+          const category = (facility.category ?? "").toLowerCase().trim();
+          const name = facility.name.toLowerCase();
+          return categoryAliases.some(
+            (alias) =>
+              category === alias ||
+              category.includes(alias) ||
+              name.includes(alias),
+          );
+        });
 
   if (facilities.length === 0) {
-    throw new Error(`Fasilitas untuk jenis lapangan "${fieldType}" tidak ditemukan`);
+    throw new Error(
+      requireExactFacility
+        ? `Fasilitas "${fieldType}" tidak ditemukan`
+        : `Fasilitas untuk jenis lapangan "${fieldType}" tidak ditemukan`,
+    );
   }
 
   const facilityIds = facilities.map((facility) => facility.id);
