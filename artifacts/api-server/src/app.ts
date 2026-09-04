@@ -13,6 +13,7 @@ import { startFleetScheduler } from "./lib/fleet-scheduler";
 import { startExecutiveBriefingScheduler } from "./lib/executive-briefing";
 import { refreshSlaStatuses } from "./lib/sla";
 import { expireOldIntakeSessions } from "./lib/intake-engine";
+import { ensurePaymentProofBucket } from "./lib/supabase";
 import { supabasePool } from "./lib/supabase-db";
 
 const app: Express = express();
@@ -1056,6 +1057,11 @@ if (supabasePool) {
 
 // ── Freight / PPJK bucket — pastikan bucket "exportimport" ada di Supabase Storage ──
 import("./lib/storage").then((m) => m.ensureExportImportBucket()).catch(() => {});
+
+// ── Sport Center bucket — pastikan bucket "payment-proofs" ada di project aktif ──
+ensurePaymentProofBucket().catch((err: unknown) => {
+  logger.warn({ err }, "storage: payment-proofs bucket check failed (non-fatal)");
+});
 
 // ── Sprint 10A-1.1 startup schema validation ───────────────────────────────────
 // Lightweight check — never fails startup, just logs drift summary.

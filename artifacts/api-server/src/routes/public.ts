@@ -1,6 +1,7 @@
 import { Router, type IRouter, type NextFunction, type Request, type Response } from "express";
 import { eq, desc } from "drizzle-orm";
 import multer from "multer";
+import { randomUUID } from "node:crypto";
 import {
   db,
   aiTasksTable,
@@ -13,7 +14,12 @@ import { validateToken, createPublicToken } from "../lib/tokens";
 import { logTimeline } from "../lib/timeline";
 import { runAuditForTask } from "../lib/run-audit";
 import { sendWhatsAppNotification } from "../lib/whatsapp-sender";
-import { getUploadUrl, ensureBucket, uploadBuffer } from "../lib/supabase";
+import {
+  getUploadUrl,
+  ensureBucket,
+  ensurePaymentProofBucket,
+  uploadPaymentProofBuffer,
+} from "../lib/supabase";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -632,11 +638,12 @@ router.post(
         return;
       }
 
-      await ensureBucket();
-      const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_");
-      const stored = await uploadBuffer(
+      await ensurePaymentProofBucket();
+      const storageExtension = extension === ".jpeg" ? ".jpg" : extension;
+      const objectPath = `proof-${randomUUID()}${storageExtension}`;
+      const stored = await uploadPaymentProofBuffer(
         file.buffer,
-        `payment-proofs/${session.id}/${Date.now()}_${safeName}`,
+        objectPath,
         file.mimetype,
       );
 

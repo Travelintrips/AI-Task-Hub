@@ -4,13 +4,11 @@ import { logger } from "./logger";
 
 import { config } from "../config";
 
-const supabaseUrl =
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-    ? config.supabase.url
-    : config.supabase.urlDev;
-const supabaseServiceKey =
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
-  process.env.SUPABASE_SERVICE_ROLE_KEY_DEV;
+const isProduction = process.env.NODE_ENV === "production";
+const supabaseUrl = isProduction ? config.supabase.url : config.supabase.urlDev;
+const supabaseServiceKey = isProduction
+  ? process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY_DEV
+  : process.env.SUPABASE_SERVICE_ROLE_KEY_DEV || process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!supabaseUrl || !supabaseServiceKey) {
   logger.warn("Supabase credentials not set — storage features will be unavailable");
@@ -23,6 +21,7 @@ export const supabase = supabaseUrl && supabaseServiceKey
   : null;
 
 const BUCKET = "ai-task-center-documents";
+export const PAYMENT_PROOF_BUCKET = "payment-proofs";
 
 export async function ensureBucket(): Promise<void> {
   if (!supabase) return;
@@ -35,6 +34,32 @@ export async function ensureBucket(): Promise<void> {
     } else {
       logger.info({ bucket: BUCKET }, "Created Supabase storage bucket");
     }
+  }
+}
+
+/**
+ * Pastikan bucket bukti pembayaran ada di project Supabase aktif.
+ * Project aktif otomatis mengikuti environment server:
+ * CST-DEV saat development dan Supabase Production saat production.
+ */
+export async function ensurePaymentProofBucket(): Promise<void> {
+  if (!supabase) return;
+  const { data: buckets, error: listError } = await supabase.storage.listBuckets();
+  if (listError) {
+    throw new Error(`Gagal memeriksa bucket ${PAYMENT_PROOF_BUCKET}: ${listError.message}`);
+  }
+
+  const exists = buckets?.some((bucket) => bucket.name === PAYMENT_PROOF_BUCKET);
+  if (!exists) {
+    const { error } = await supabase.storage.createBucket(PAYMENT_PROOF_BUCKET, {
+      public: true,
+      fileSizeLimit: 10 * 1024 * 1024,
+      allowedMimeTypes: ["application/pdf", "image/jpeg", "image/png", "image/webp"],
+    });
+    if (error) {
+      throw new Error(`Gagal membuat bucket ${PAYMENT_PROOF_BUCKET}: ${error.message}`);
+    }
+    logger.info({ bucket: PAYMENT_PROOF_BUCKET }, "Created payment proof storage bucket");
   }
 }
 
@@ -149,5 +174,24 @@ export async function uploadBuffer(
   if (error) throw new Error(`Upload failed: ${error.message}`);
 
   const { data: publicData } = supabase.storage.from(BUCKET).getPublicUrl(objectPath);
+  return { publicUrl: publicData.publicUrl, path: objectPath };
+}
+
+export async function uploadPaymentProofBuffer(
+  buffer: Buffer,
+  objectPath: string,
+  mimeType: string,
+): Promise<{ publicUrl: string; path: string }> {
+  if (!supabase) throw new Error("Supabase not configured");
+
+  const { error } = await supabase.storage
+    .from(PAYMENT_PROOF_BUCKET)
+    .upload(objectPath, buffer, { contentType: mimeType, upsert: false });
+
+  if (error) throw new Error(`Payment proof upload failed: ${error.message}`);
+
+  const { data: publicData } = supabase.storage
+    .from(PAYMENT_PROOF_BUCKET)
+    .getPublicUrl(objectPath);
   return { publicUrl: publicData.publicUrl, path: objectPath };
 }
