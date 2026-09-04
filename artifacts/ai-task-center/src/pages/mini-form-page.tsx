@@ -83,6 +83,25 @@ function normalizeField(f: FieldDef): {
   };
 }
 
+function normalizeSportCenterField(field: ReturnType<typeof normalizeField>) {
+  const label = field.label.trim().toLowerCase();
+  const name = field.name.trim().toLowerCase();
+
+  if (label === "jenis lapangan" || name === "field_name") {
+    return { ...field, name: "field_type" };
+  }
+  if (label === "tanggal main") {
+    return { ...field, name: "booking_date" };
+  }
+  if (label === "jam mulai") {
+    return { ...field, name: "start_time" };
+  }
+  if (label === "durasi sewa") {
+    return { ...field, name: "duration" };
+  }
+  return field;
+}
+
 function Spinner() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100">
@@ -465,6 +484,9 @@ export default function MiniFormPage() {
     ...data.builtinFields.map(normalizeField),
     ...data.customFields.map(normalizeField),
   ]
+    .map((field) =>
+      isFieldBookingForm ? normalizeSportCenterField(field) : field,
+    )
     .map((field) =>
       isFieldBookingForm &&
       (field.name === "duration" ||
