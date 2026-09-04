@@ -10,6 +10,15 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
+const SPORT_CENTER_FACILITY_OPTIONS = [
+  "Lapangan Badminton A",
+  "Lapangan Badminton B",
+  "Lapangan Tenis",
+  "Lapangan Multi Guna",
+  "GYM",
+  "Meja Billiard",
+];
+
 async function apiFetch(path: string, init?: RequestInit) {
   const res = await fetch(`${BASE}/api${path}`, {
     ...init,
@@ -327,7 +336,9 @@ export default function MiniFormPage() {
     ],
     queryFn: () => apiFetch(apiPath),
     retry: false,
-    staleTime: Infinity,
+    staleTime: 0,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: false,
     enabled: isPreview ? !!(templateId || token) : !!(type && token),
   });
 
@@ -375,7 +386,12 @@ export default function MiniFormPage() {
   });
 
   useEffect(() => {
-    const options = data?.facilityOptions;
+    const options =
+      data?.facilityOptions?.length
+        ? data.facilityOptions
+        : isFieldBookingForm
+          ? SPORT_CENTER_FACILITY_OPTIONS
+          : undefined;
     const current = values.field_type ?? String(data?.collectedFields?.field_type ?? "");
     if (!isFieldBookingForm || !options?.length || !current || options.includes(current)) {
       return;
@@ -601,8 +617,14 @@ export default function MiniFormPage() {
                       type: "select",
                       options: availabilityQuery.data?.availableSlots ?? [],
                     }
-                  : isFacilityTypeField && data.facilityOptions?.length
-                    ? { ...field, options: data.facilityOptions }
+                  : isFacilityTypeField
+                    ? {
+                        ...field,
+                        options:
+                          data.facilityOptions?.length
+                            ? data.facilityOptions
+                            : SPORT_CENTER_FACILITY_OPTIONS,
+                      }
                   : field;
 
                 return (

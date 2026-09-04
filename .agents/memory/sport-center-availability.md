@@ -59,6 +59,18 @@ has separate development and production Supabase connections.
 the selected start time again on submit because availability can change after the
 form loads.
 
+Public mini-form responses must send `Cache-Control: no-store`, and the frontend
+must refetch the form on mount. A previously opened WhatsApp link can otherwise
+keep rendering the old static sport categories even after the database-backed
+facility list is fixed.
+
+**Why:** The public link is reused across sessions and stale API/browser data can
+mask a correct server response.
+
+**How to apply:** When changing server-owned form options, invalidate both the
+HTTP response cache and the client query cache; never use the old category list
+as a fallback.
+
 **Why:** User requirement: AI should check availability before sending form, not immediately send form link when "Booking Lapangan Olahraga" is received.
 
 ## Fix: wait-message ordering + booker name in confirmation (2026-07-06)

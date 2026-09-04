@@ -116,6 +116,7 @@ router.get(
   "/public/mini-form/preview/:templateId",
   async (req, res): Promise<void> => {
     try {
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
       const templateId = parseInt(req.params["templateId"] as string, 10);
       if (isNaN(templateId)) {
         res.status(400).json({ error: "templateId tidak valid" });
@@ -183,6 +184,7 @@ router.get(
   "/public/mini-form/:type/:token",
   async (req, res): Promise<void> => {
     try {
+      res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
       const { type, token } = req.params as { type: string; token: string };
       if (!token || token.length < 16) {
         res.status(400).json({ error: "Token tidak valid" });

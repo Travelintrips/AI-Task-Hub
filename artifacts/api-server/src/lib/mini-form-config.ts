@@ -132,7 +132,10 @@ export const MINI_FORM_CONFIGS: Record<string, MiniFormConfig> = {
     fields: [
       { name: "booker_name",    label: "Nama Pemesan",          type: "text",     required: true,  placeholder: "Budi Santoso" },
       { name: "phone",          label: "Nomor WhatsApp",        type: "text",     required: true,  placeholder: "08123456789" },
-      { name: "field_type",     label: "Jenis Lapangan",        type: "select",   required: true,  options: ["Futsal", "Badminton", "Basket", "Tenis", "Voli", "Sepak Bola", "Lainnya"] },
+      // The live public form replaces these with active CST-DEV facilities.
+      // Keep the same exact names here so a stale/partial response can never
+      // bring back the old sport-category options.
+      { name: "field_type",     label: "Jenis Lapangan",        type: "select",   required: true,  options: ["Lapangan Badminton A", "Lapangan Badminton B", "Lapangan Tenis", "Lapangan Multi Guna", "GYM", "Meja Billiard"] },
       { name: "booking_date",   label: "Tanggal Main",          type: "date",     required: true },
       { name: "start_time",     label: "Jam Mulai",             type: "select",   required: true,  options: ["07:00", "08:00", "09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00", "19:00", "20:00", "21:00", "22:00", "23:00"] },
       { name: "duration",       label: "Durasi Sewa",           type: "select",   required: true,  options: ["1 jam", "1,5 jam", "2 jam", "3 jam", "Full Day"] },
