@@ -54,6 +54,7 @@ import {
   extractDurationHours,
   bridgeToSportBookings,
   getAvailableSportCenterStartTimes,
+  getSportCenterFacilityOptions,
 } from "../lib/sport-center-availability";
 import { supabaseQuery } from "../lib/supabase-db";
 import { getAccessibleUrl, extractStoragePath } from "../lib/supabase";
@@ -140,6 +141,10 @@ router.get(
 
       const formType = tpl.miniFormType ?? "trucking";
       const builtinCfg = getFormConfig(formType);
+      const facilityOptions =
+        formType.replace(/_/g, "-") === "field-booking"
+          ? await getSportCenterFacilityOptions()
+          : null;
 
       res.json({
         preview: true,
@@ -154,7 +159,12 @@ router.get(
         },
         formTitle: builtinCfg?.title ?? tpl.name,
         formDescription: builtinCfg?.description ?? tpl.description,
-        builtinFields: builtinCfg?.fields ?? [],
+        builtinFields:
+          builtinCfg?.fields.map((field) =>
+            field.name === "field_type" && facilityOptions
+              ? { ...field, options: facilityOptions }
+              : field,
+          ) ?? [],
         customFields: dbFields,
         collectedFields: {},
         missingFields: [],
@@ -245,6 +255,10 @@ router.get(
       const missingFields = ((session.missingFields ?? []) as string[]).filter(
         (f) => f !== "phone",
       );
+      const facilityOptions =
+        type.replace(/_/g, "-") === "field-booking"
+          ? await getSportCenterFacilityOptions()
+          : null;
 
       res.json({
         status: session.status,
@@ -253,7 +267,11 @@ router.get(
         category: session.category,
         formTitle: formCfg.title,
         formDescription: formCfg.description,
-        builtinFields: formCfg.fields,
+        builtinFields: formCfg.fields.map((field) =>
+          field.name === "field_type" && facilityOptions
+            ? { ...field, options: facilityOptions }
+            : field,
+        ),
         customFields,
         collectedFields,
         missingFields,

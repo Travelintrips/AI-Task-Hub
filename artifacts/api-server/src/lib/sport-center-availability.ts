@@ -141,6 +141,29 @@ interface SportCenterFacilityRow {
   close_time: string | null;
 }
 
+export async function getSportCenterFacilityOptions(): Promise<string[]> {
+  const facilityRows = await supabaseQueryStrict<
+    Pick<SportCenterFacilityRow, "name" | "category">
+  >(
+    `SELECT name, category
+       FROM sport_center.sport_facilities
+      WHERE is_active = true
+      ORDER BY id`,
+  );
+
+  const options = Array.from(
+    new Set(
+      facilityRows
+        .map((facility) => (facility.category ?? facility.name).trim())
+        .filter(Boolean),
+    ),
+  );
+  if (options.length === 0) {
+    throw new Error("Tidak ada jenis lapangan aktif di CST-DEV");
+  }
+  return options;
+}
+
 interface SportCenterBookingSlotRow {
   facility_id: number;
   start_time: string;
