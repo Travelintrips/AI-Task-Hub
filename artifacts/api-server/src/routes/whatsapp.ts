@@ -129,6 +129,12 @@ const phoneQueues = new Map<string, Promise<void>>();
 // question can be classified and routed to the right notification recipient.
 const generalInquiryPending = new Set<string>();
 
+// Tracks phones that were just shown the greeting menu. This closes the race
+// between the greeting webhook cancelling an old intake session and the next
+// webhook carrying the user's numeric menu selection.
+const mainMenuPending = new Map<string, number>();
+const MAIN_MENU_PENDING_WINDOW_MS = 10 * 60_000;
+
 // ─── Incoming-message dedup cache ────────────────────────────────────────────
 // Fonnte has multiple configured devices. When a message arrives it can be
 // forwarded by several devices to our webhook concurrently, producing multiple
@@ -686,8 +692,12 @@ export async function processIncomingMessage({
       // Greeting gate (also matches short messages starting with greeting word e.g. "hallo ai task")
       if (!answeringClarification && isGreeting(trimmed)) {
         logger.info({ from, msg: trimmed }, "processIncomingMessage: greeting pre-gate — sending menu");
-        // Cancel any stale intake sessions (fire-and-forget)
-        db.update(intakeSessionsTable)
+        // Remember that the next numeric reply belongs to this main menu. The
+        // next webhook can arrive before the cancellation query finishes.
+        mainMenuPending.set(from, Date.now());
+        // Cancel stale intake sessions before returning so a quick menu reply
+        // cannot accidentally continue an old conversation.
+        await db.update(intakeSessionsTable)
           .set({ status: "cancelled", updatedAt: new Date() })
           .where(and(
             eq(intakeSessionsTable.phone, from),
@@ -933,7 +943,7 @@ async function runAiDetection({
     // ── Step 0: Check for active intake session ────────────────────────────────
     // If customer is mid-conversation collecting data, continue that session
     // instead of detecting a new intent.
-    const activeSession = await findActiveIntakeSession(from, companyId);
+    let activeSession = await findActiveIntakeSession(from, companyId);
 
     // ── Step 0a-clarify: "Pertanyaan lainnya" pending check ───────────────────
     // If this phone was previously asked "Boleh saya tau apa yang ingin ditanyakan?",
@@ -944,6 +954,38 @@ async function runAiDetection({
     if (isAnsweringClarification) {
       generalInquiryPending.delete(from);
       logger.info({ from, msg: bodyText }, "General inquiry clarification answer received — routing to AI pipeline");
+    }
+
+    // A greeting and its numeric response are separate webhooks. If the user
+    // replies quickly, the initial session lookup may still see the old
+    // session. Prefer the explicitly selected main menu item over stale
+    // session context, but never apply this to ordinary numeric replies.
+    const menuKeyBeforeExpansion = bodyText.trim();
+    const pendingMenuAt = mainMenuPending.get(from);
+    const isRecentMainMenu =
+      pendingMenuAt !== undefined &&
+      Date.now() - pendingMenuAt <= MAIN_MENU_PENDING_WINDOW_MS;
+    const isMainMenuNumber = messageType === "text" && /^[1-6]$/.test(menuKeyBeforeExpansion);
+    if (pendingMenuAt !== undefined && (!isRecentMainMenu || isMainMenuNumber)) {
+      mainMenuPending.delete(from);
+    }
+    if (isRecentMainMenu && isMainMenuNumber && activeSession) {
+      await db
+        .update(intakeSessionsTable)
+        .set({ status: "cancelled", updatedAt: new Date() })
+        .where(
+          and(
+            eq(intakeSessionsTable.phone, from),
+            eq(intakeSessionsTable.companyId, companyId),
+            inArray(intakeSessionsTable.status, ["collecting", "ready_for_task"]),
+          ),
+        )
+        .catch((error: unknown) => logger.warn({ error }, "main-menu selection: failed to cancel stale session"));
+      activeSession = null;
+      logger.info(
+        { from, digit: menuKeyBeforeExpansion },
+        "Main menu selection overrides stale active intake session",
+      );
     }
 
     // ── Step 0a-form-menu: Form menu reply gate ─────────────────────────────────
@@ -1431,7 +1473,7 @@ async function runAiDetection({
       const menuExpand: Record<string, string> = {
         "1": "saya butuh layanan pengiriman trucking sea air freight logistik",
         "2": "saya butuh layanan PPJK bea cukai customs kepabeanan",
-        "3": "saya mau booking lapangan olahraga futsal badminton",
+        "3": "saya mau booking lapangan olahraga di sport center",
         "4": "saya butuh kasbon pembayaran uang muka",
       };
       const expanded = isMenuEligible ? menuExpand[menuKey] : undefined;

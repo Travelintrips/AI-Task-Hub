@@ -18,3 +18,10 @@ Replaced exact absence check with keyword-contains specificity check:
 
 **Why:** Generic field values from initial AI extraction must not block the belt-and-suspenders menu detection.
 **How to apply:** Any time digit interception logic is extended, use keyword-contains not exact equality for lapangan detection.
+
+# Main Menu Reset Race
+The greeting menu and the next numeric reply arrive as separate webhooks. A stale active intake session can still be visible when the user quickly replies with a main-menu digit.
+
+**Why:** Cancelling the old session asynchronously allows the numeric reply to continue the wrong intent instead of selecting the requested top-level service.
+
+**How to apply:** When a greeting shows the main menu, retain short-lived menu context and let digits 1–6 override/cancel stale intake state; do not apply that override to numeric replies during a normal active sport-center flow.
