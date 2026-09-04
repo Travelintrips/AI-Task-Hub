@@ -43,6 +43,8 @@ and facility matching comes from active rows in `sport_center.sport_facilities`.
 For categories with multiple facilities (such as Badminton), a start time stays
 available when at least one matching facility is free. Reservations with statuses
 `cancelled`, `rejected`, `expired`, or `completed` do not block a slot.
+The mini-form allows start times through 23:00; the legacy facility rows may still
+advertise a 22:00 close, so midnight is used as the mini-form's effective close.
 
 **Why:** The public form must not show stale static times, and the imported project
 has separate development and production Supabase connections.

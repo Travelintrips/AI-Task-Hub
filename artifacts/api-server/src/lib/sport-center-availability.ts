@@ -147,6 +147,9 @@ interface SportCenterBookingSlotRow {
   end_time: string | null;
 }
 
+const MINI_FORM_LATEST_START_HOUR = 23;
+const MINI_FORM_EFFECTIVE_CLOSE_MINUTES = 24 * 60;
+
 /**
  * Return start times that are free on at least one facility matching the
  * selected sport. The mini-form runs in development against CST-DEV, where
@@ -235,12 +238,18 @@ export async function getAvailableSportCenterStartTimes({
   // Keep the same hourly choices as the existing form, but do not offer a
   // start time whose requested duration would pass the facility's closing time.
   const availableSlots: string[] = [];
-  for (let hour = OPEN_HOUR; hour < CLOSE_HOUR; hour++) {
+  for (let hour = OPEN_HOUR; hour <= MINI_FORM_LATEST_START_HOUR; hour++) {
     const start = hour * 60;
     const end = start + durationMinutes;
     const hasFreeFacility = facilities.some((facility) => {
       const open = timeToMinutes(facility.open_time ?? `${OPEN_HOUR}:00`);
-      const close = timeToMinutes(facility.close_time ?? `${CLOSE_HOUR}:00`);
+      // The customer-facing mini-form accepts starts through 23:00. Treat
+      // midnight as the effective close for this form even though the legacy
+      // facility rows still contain close_time=22:00.
+      const configuredClose = timeToMinutes(
+        facility.close_time ?? `${CLOSE_HOUR}:00`,
+      );
+      const close = Math.max(configuredClose, MINI_FORM_EFFECTIVE_CLOSE_MINUTES);
       if (start < open || end > close) return false;
       return !(bookingsByFacility.get(facility.id) ?? []).some(
         (booking) => start < booking.end && end > booking.start,
