@@ -170,8 +170,6 @@ interface SportCenterBookingSlotRow {
   end_time: string | null;
 }
 
-const MINI_FORM_LATEST_START_HOUR = 23;
-const MINI_FORM_EFFECTIVE_CLOSE_MINUTES = 24 * 60;
 const NON_BLOCKING_BOOKING_STATUSES = [
   "cancelled",
   "expired",
@@ -304,22 +302,32 @@ export async function getAvailableSportCenterStartTimes({
     bookingsByFacility.set(facilityId, existing);
   }
 
-  // Keep the same hourly choices as the existing form, but do not offer a
-  // start time whose requested duration would pass the facility's closing time.
+  // Build the hourly grid from each facility's own operating hours. A slot
+  // starts at open_time and advances by one hour; the requested duration must
+  // fit fully before close_time. This intentionally does not use a global
+  // 07:00–22:00 range because facilities can have different schedules.
+  const candidateStarts = new Set<number>();
+  for (const facility of facilities) {
+    const open = timeToMinutes(facility.open_time ?? "");
+    const close = timeToMinutes(facility.close_time ?? "");
+    if (open < 0 || close <= open) continue;
+
+    for (
+      let start = open;
+      start + durationMinutes <= close;
+      start += 60
+    ) {
+      candidateStarts.add(start);
+    }
+  }
+
   const availableSlots: string[] = [];
-  for (let hour = OPEN_HOUR; hour <= MINI_FORM_LATEST_START_HOUR; hour++) {
-    const start = hour * 60;
+  for (const start of Array.from(candidateStarts).sort((a, b) => a - b)) {
     const end = start + durationMinutes;
     const hasFreeFacility = facilities.some((facility) => {
-      const open = timeToMinutes(facility.open_time ?? `${OPEN_HOUR}:00`);
-      // The customer-facing mini-form accepts starts through 23:00. Treat
-      // midnight as the effective close for this form even though the legacy
-      // facility rows still contain close_time=22:00.
-      const configuredClose = timeToMinutes(
-        facility.close_time ?? `${CLOSE_HOUR}:00`,
-      );
-      const close = Math.max(configuredClose, MINI_FORM_EFFECTIVE_CLOSE_MINUTES);
-      if (start < open || end > close) return false;
+      const open = timeToMinutes(facility.open_time ?? "");
+      const close = timeToMinutes(facility.close_time ?? "");
+      if (open < 0 || close <= open || start < open || end > close) return false;
       return !(bookingsByFacility.get(facility.id) ?? []).some(
         (booking) => start < booking.end && end > booking.start,
       );
@@ -474,13 +482,15 @@ export async function checkSportCenterAvailability({
         altList,
     };
   } catch (err) {
-    logger.warn({ err, companyId, fieldType, bookingDate: normalizedDate }, "sport-center-availability: DB query failed — assuming available");
+    logger.error({ err, companyId, fieldType, bookingDate: normalizedDate }, "sport-center-availability: DB query failed");
     return {
-      isAvailable: true,
+      isAvailable: false,
       checkedDate: normalizedDate,
       checkedDateIndo: dateIndo,
       availableSlots: [],
-      message: buildAvailableMessage(fieldType, dateIndo, startTime, minutesToTime(reqEndMin), durationHours, bookerName),
+      message:
+        "Jadwal belum dapat diperiksa dari database Sport Center. " +
+        "Silakan coba lagi beberapa saat lagi.",
     };
   }
 }

@@ -10,14 +10,6 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-const SPORT_CENTER_FACILITY_OPTIONS = [
-  "Lapangan Badminton A",
-  "Lapangan Badminton B",
-  "Lapangan Tenis",
-  "Lapangan Multi Guna",
-  "GYM",
-  "Meja Billiard",
-];
 const SPORT_CENTER_DURATION_OPTIONS = ["1 jam", "2 jam", "3 jam", "Full Day"];
 
 function normalizeSportCenterDuration(value: unknown): string {
@@ -400,11 +392,7 @@ export default function MiniFormPage() {
 
   useEffect(() => {
     const options =
-      data?.facilityOptions?.length
-        ? data.facilityOptions
-        : isFieldBookingForm
-          ? SPORT_CENTER_FACILITY_OPTIONS
-          : undefined;
+      isFieldBookingForm ? data?.facilityOptions : undefined;
     const current = values.field_type ?? String(data?.collectedFields?.field_type ?? "");
     if (!isFieldBookingForm || !options?.length || !current || options.includes(current)) {
       return;
@@ -658,9 +646,7 @@ export default function MiniFormPage() {
                     ? {
                         ...field,
                         options:
-                          data.facilityOptions?.length
-                            ? data.facilityOptions
-                            : SPORT_CENTER_FACILITY_OPTIONS,
+                          data.facilityOptions ?? [],
                       }
                   : field;
 

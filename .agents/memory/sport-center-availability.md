@@ -31,7 +31,7 @@ Private keys managed by the gate (prefixed `_`, excluded from form/task):
 
 ## Edge cases handled
 - User changes date/time → ALL three keys cleared → re-check runs (even if previously confirmed)
-- No DB connection → assumes available, warns in log
+- No DB connection/query failure → fail closed; never present a slot as available when occupancy cannot be verified.
 - Invalid date/time format → returns error message to user
 - Slot outside operating hours (07:00-22:00) → rejects with message
 - Field matching: strips generic words ("lapangan", "court") before ILIKE
@@ -48,8 +48,9 @@ in the same category. Reservations with statuses
 `cancelled`, `rejected`, `expired`, or `refunded` do not block a slot; all other
 statuses block overlapping intervals. Explicit `sport_center.blocked_schedules`
 rows also block by `facility_id`, `date`, `start_time`, and `end_time`.
-The mini-form allows start times through 23:00; the legacy facility rows may still
-advertise a 22:00 close, so midnight is used as the mini-form's effective close.
+Start-time availability is generated per facility from `open_time` through
+`close_time`; requested duration must fit before `close_time`, without extending
+legacy hours to midnight or using a global latest start time.
 The frontend should identify the dynamic start-time field by both canonical name
 and visible label, because imported/custom field definitions can retain an older
 field name while still rendering as “Jam Mulai”.
