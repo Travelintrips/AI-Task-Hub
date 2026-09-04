@@ -423,12 +423,28 @@ export default function MiniFormPage() {
     </div>
   ) : null;
 
-  const allFields = [
+  let allFields = [
     ...data.builtinFields.map(normalizeField),
     ...data.customFields.map(normalizeField),
   ]
     .filter((f, i, arr) => arr.findIndex((x) => x.name === f.name) === i) // dedupe
     .filter((f) => f.name.trim() !== "" && f.label.trim() !== ""); // remove empty/unnamed fields
+
+  // Keep the booking flow in the natural order: duration determines which
+  // start times can still fit before midnight.
+  if (isFieldBookingForm) {
+    const durationIndex = allFields.findIndex((field) => field.name === "duration");
+    const startTimeIndex = allFields.findIndex(
+      (field) =>
+        field.name === "start_time" ||
+        field.label.trim().toLowerCase() === "jam mulai",
+    );
+    if (durationIndex >= 0 && startTimeIndex >= 0 && durationIndex > startTimeIndex) {
+      const durationField = allFields[durationIndex];
+      allFields = allFields.filter((_, index) => index !== durationIndex);
+      allFields.splice(startTimeIndex, 0, durationField!);
+    }
+  }
 
   // Pre-fill from already collected fields
   const prefilled: Record<string, string> = {};
@@ -553,10 +569,13 @@ export default function MiniFormPage() {
                 }
 
                 const isStartTimeField =
-                  isFieldBookingForm && field.name === "start_time";
+                  isFieldBookingForm &&
+                  (field.name === "start_time" ||
+                    field.label.trim().toLowerCase() === "jam mulai");
                 const renderedField = isStartTimeField
                   ? {
                       ...field,
+                      type: "select",
                       options: availabilityQuery.data?.availableSlots ?? [],
                     }
                   : field;
