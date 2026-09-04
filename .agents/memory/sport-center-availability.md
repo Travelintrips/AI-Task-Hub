@@ -96,6 +96,12 @@ Legacy mini-form sessions can contain stale duration values or cached field defi
 
 **How to apply:** Keep the duration allowlist enforced at render and prefill time, and bypass HTTP cache for both the form definition and availability requests.
 
+When availability refresh removes a previously collected `start_time`, skip that stale value during prefill; otherwise merging `collectedFields` can reinsert the unavailable time after the UI clears it.
+
+**Why:** React state can be cleared correctly while the later `{...prefilled, ...values}` merge restores the old session value.
+
+**How to apply:** Treat `availableSlots` as the authority for both select options and prefilled start-time values.
+
 Notifikasi group setelah mini-form booking lapangan harus memakai urutan eksplisit:
 Nama Pemesan, Jenis Lapangan, Tanggal Main, Durasi Sewa, Jam Mulai, Jam Selesai,
 Metode Pembayaran, Catatan. Gunakan `field_type` sebagai sumber utama dan jangan

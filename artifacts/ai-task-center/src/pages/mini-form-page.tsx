@@ -508,7 +508,16 @@ export default function MiniFormPage() {
 
   // Pre-fill from already collected fields
   const prefilled: Record<string, string> = {};
+  const availableStartTimes = availabilityQuery.data?.availableSlots;
   for (const [k, v] of Object.entries(data.collectedFields ?? {})) {
+    if (
+      isFieldBookingForm &&
+      k === "start_time" &&
+      availableStartTimes &&
+      !availableStartTimes.includes(String(v))
+    ) {
+      continue;
+    }
     if (!values[k] && v) {
       prefilled[k] =
         isFieldBookingForm && k === "duration"
