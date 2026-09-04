@@ -337,7 +337,10 @@ router.get(
     } catch (err) {
       logger.error({ err }, "GET /public/mini-form/:type/:token/availability failed");
       res.status(503).json({
-        error: "Jadwal belum dapat diperiksa dari CST-DEV. Silakan coba lagi.",
+        error:
+          process.env.NODE_ENV === "production"
+            ? "Jadwal belum dapat diperiksa dari database produksi. Silakan coba lagi."
+            : "Jadwal belum dapat diperiksa dari CST-DEV. Silakan coba lagi.",
       });
     }
   },

@@ -82,6 +82,12 @@ excluding only approved bookings would allow duplicate reservations.
 **How to apply:** Keep the availability query no-store with periodic refresh, and
 reset a selected start time when the refreshed slot list no longer contains it.
 
+Availability reads must compare the first 10 characters of `booking_date` and normalize status case/whitespace. Ignore `cancelled`, `expired`, `rejected`, `refunded`, and `completed`; all other statuses block overlapping intervals.
+
+**Why:** Development and production `sport_center.sport_bookings` schemas can contain either date-like text or date values, and older rows may retain an ISO timestamp string. Exact equality or case-sensitive status checks can show already-booked hours as available.
+
+**How to apply:** Keep the same query behavior in both environments; the selected Supabase connection is controlled by `NODE_ENV` (`SUPABASE_DATABASE_URL_DEV` in development, production URL in production).
+
 Notifikasi group setelah mini-form booking lapangan harus memakai urutan eksplisit:
 Nama Pemesan, Jenis Lapangan, Tanggal Main, Durasi Sewa, Jam Mulai, Jam Selesai,
 Metode Pembayaran, Catatan. Gunakan `field_type` sebagai sumber utama dan jangan

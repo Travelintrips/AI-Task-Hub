@@ -670,7 +670,7 @@ export default function MiniFormPage() {
                     )}
                     {isStartTimeField && availabilityQuery.isError && (
                       <p className="text-xs text-red-500">
-                        Slot belum dapat diperiksa dari CST-DEV. Silakan pilih ulang tanggal.
+                        Slot belum dapat diperiksa dari database Sport Center. Silakan pilih ulang tanggal.
                       </p>
                     )}
                     {isStartTimeField &&

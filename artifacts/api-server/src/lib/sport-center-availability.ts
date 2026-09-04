@@ -165,13 +165,24 @@ export async function getSportCenterFacilityOptions(): Promise<string[]> {
 }
 
 interface SportCenterBookingSlotRow {
-  facility_id: number;
+  facility_id: number | string;
   start_time: string;
   end_time: string | null;
 }
 
 const MINI_FORM_LATEST_START_HOUR = 23;
 const MINI_FORM_EFFECTIVE_CLOSE_MINUTES = 24 * 60;
+const NON_BLOCKING_BOOKING_STATUSES = [
+  "cancelled",
+  "expired",
+  "rejected",
+  "refunded",
+  "completed",
+];
+
+function sportCenterDatabaseLabel(): string {
+  return process.env.NODE_ENV === "production" ? "produksi" : "CST-DEV";
+}
 
 /**
  * Return start times that are free on at least one facility matching the
@@ -201,7 +212,9 @@ export async function getAvailableSportCenterStartTimes({
   );
 
   if (facilityRows.length === 0) {
-    throw new Error("Tidak ada fasilitas olahraga aktif di CST-DEV");
+    throw new Error(
+      `Tidak ada fasilitas olahraga aktif di database ${sportCenterDatabaseLabel()}`,
+    );
   }
 
   const normalizedFieldType = fieldType.toLowerCase().trim();
@@ -244,11 +257,10 @@ export async function getAvailableSportCenterStartTimes({
   const bookings = await supabaseQueryStrict<SportCenterBookingSlotRow>(
     `SELECT facility_id, start_time, end_time
        FROM sport_center.sport_bookings
-      WHERE booking_date = $1
+      WHERE LEFT(CAST(booking_date AS TEXT), 10) = $1
         AND facility_id = ANY($2)
-        AND COALESCE(CAST(status AS TEXT), '') NOT IN
-            ('cancelled', 'rejected', 'expired', 'completed')`,
-    [normalizedDate, facilityIds],
+        AND LOWER(TRIM(COALESCE(CAST(status AS TEXT), ''))) <> ALL($3)`,
+    [normalizedDate, facilityIds, NON_BLOCKING_BOOKING_STATUSES],
   );
 
   const bookingsByFacility = new Map<number, Array<{ start: number; end: number }>>();
@@ -258,9 +270,11 @@ export async function getAvailableSportCenterStartTimes({
       ? timeToMinutes(booking.end_time)
       : start + 60;
     if (start < 0 || end <= start) continue;
-    const existing = bookingsByFacility.get(booking.facility_id) ?? [];
+    const facilityId = Number(booking.facility_id);
+    if (!Number.isFinite(facilityId)) continue;
+    const existing = bookingsByFacility.get(facilityId) ?? [];
     existing.push({ start, end });
-    bookingsByFacility.set(booking.facility_id, existing);
+    bookingsByFacility.set(facilityId, existing);
   }
 
   // Keep the same hourly choices as the existing form, but do not offer a
