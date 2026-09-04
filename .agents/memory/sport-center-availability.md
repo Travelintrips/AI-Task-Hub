@@ -71,6 +71,17 @@ mask a correct server response.
 HTTP response cache and the client query cache; never use the old category list
 as a fallback.
 
+Notifikasi group setelah mini-form booking lapangan harus memakai urutan eksplisit:
+Nama Pemesan, Jenis Lapangan, Tanggal Main, Durasi Sewa, Jam Mulai, Jam Selesai,
+Metode Pembayaran, Catatan. Gunakan `field_type` sebagai sumber utama dan jangan
+tampilkan alias `field_name` sebagai baris kedua.
+
+**Why:** Properti `merged` mengikuti urutan data masuk, bukan urutan form, dan
+session lama dapat menyimpan kedua alias lapangan sekaligus.
+
+**How to apply:** Bangun ringkasan booking dari daftar field terurut, bukan langsung
+dari `Object.entries(merged)`.
+
 **Why:** User requirement: AI should check availability before sending form, not immediately send form link when "Booking Lapangan Olahraga" is received.
 
 ## Fix: wait-message ordering + booker name in confirmation (2026-07-06)

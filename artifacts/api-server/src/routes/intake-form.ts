@@ -789,7 +789,21 @@ router.post(
               }
             }
 
-            const fieldSummaryWa = Object.entries(merged)
+            const isFieldBookingForm = type.replace(/_/g, "-") === "field-booking";
+            const summaryEntries: Array<[string, unknown]> = isFieldBookingForm
+              ? [
+                  ["booker_name", merged.booker_name],
+                  ["field_type", merged.field_type ?? merged.field_name],
+                  ["booking_date", merged.booking_date],
+                  ["duration", merged.duration ?? merged.durasi],
+                  ["start_time", merged.start_time],
+                  ["end_time", merged.end_time],
+                  ["payment_method", merged.payment_method],
+                  ["notes", merged.notes],
+                ]
+              : Object.entries(merged).slice(0, 20);
+
+            const fieldSummaryWa = summaryEntries
               .filter(([k]) => {
                 if (SKIP_SUMMARY_KEYS.has(k)) return false;
                 // skip synthetic uploaded_document:... keys
@@ -799,10 +813,10 @@ router.post(
                 if (fieldDef?.type === "file") return false;
                 return true;
               })
-              .slice(0, 20)
               .map(([k, v]) => {
                 const label = fieldLabelMap[k] ?? k;
-                return `• ${label}: ${String(v)}`;
+                const displayValue = String(v ?? "").trim() || "-";
+                return `• ${label}: ${displayValue}`;
               })
               .join("\n");
 
