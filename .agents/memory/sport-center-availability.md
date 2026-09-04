@@ -90,6 +90,12 @@ Availability reads must compare the first 10 characters of `booking_date` and no
 
 **How to apply:** Keep the same query behavior in both environments; the selected Supabase connection is controlled by `NODE_ENV` (`SUPABASE_DATABASE_URL_DEV` in development, production URL in production).
 
+Legacy mini-form sessions can contain stale duration values or cached field definitions. The client must normalize field-booking duration options and use no-store form reads so old session/template data cannot restore `1,5 jam`.
+
+**Why:** The availability API can be correct while an already-open public form continues rendering options from an older response or collected field state.
+
+**How to apply:** Keep the duration allowlist enforced at render and prefill time, and bypass HTTP cache for both the form definition and availability requests.
+
 Notifikasi group setelah mini-form booking lapangan harus memakai urutan eksplisit:
 Nama Pemesan, Jenis Lapangan, Tanggal Main, Durasi Sewa, Jam Mulai, Jam Selesai,
 Metode Pembayaran, Catatan. Gunakan `field_type` sebagai sumber utama dan jangan

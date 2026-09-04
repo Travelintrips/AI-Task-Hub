@@ -18,9 +18,16 @@ const SPORT_CENTER_FACILITY_OPTIONS = [
   "GYM",
   "Meja Billiard",
 ];
+const SPORT_CENTER_DURATION_OPTIONS = ["1 jam", "2 jam", "3 jam", "Full Day"];
+
+function normalizeSportCenterDuration(value: unknown): string {
+  const duration = String(value ?? "").trim();
+  return SPORT_CENTER_DURATION_OPTIONS.includes(duration) ? duration : "1 jam";
+}
 
 async function apiFetch(path: string, init?: RequestInit) {
   const res = await fetch(`${BASE}/api${path}`, {
+    cache: "no-store",
     ...init,
     headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
   });
@@ -348,7 +355,9 @@ export default function MiniFormPage() {
   const selectedBookingDate =
     values.booking_date ?? String(data?.collectedFields?.booking_date ?? "");
   const selectedDuration =
-    values.duration ?? String(data?.collectedFields?.duration ?? "1 jam");
+    normalizeSportCenterDuration(
+      values.duration ?? data?.collectedFields?.duration ?? "1 jam",
+    );
   const isFieldBookingForm =
     !isPreview && type?.replace(/_/g, "-") === "field-booking";
 
@@ -468,6 +477,16 @@ export default function MiniFormPage() {
     ...data.builtinFields.map(normalizeField),
     ...data.customFields.map(normalizeField),
   ]
+    .map((field) =>
+      isFieldBookingForm &&
+      (field.name === "duration" ||
+        field.label.trim().toLowerCase() === "durasi sewa")
+        ? {
+            ...field,
+            options: SPORT_CENTER_DURATION_OPTIONS,
+          }
+        : field,
+    )
     .filter((f, i, arr) => arr.findIndex((x) => x.name === f.name) === i) // dedupe
     .filter((f) => f.name.trim() !== "" && f.label.trim() !== ""); // remove empty/unnamed fields
 
@@ -490,7 +509,12 @@ export default function MiniFormPage() {
   // Pre-fill from already collected fields
   const prefilled: Record<string, string> = {};
   for (const [k, v] of Object.entries(data.collectedFields ?? {})) {
-    if (!values[k] && v) prefilled[k] = String(v);
+    if (!values[k] && v) {
+      prefilled[k] =
+        isFieldBookingForm && k === "duration"
+          ? normalizeSportCenterDuration(v)
+          : String(v);
+    }
   }
   const merged = { ...prefilled, ...values };
 
