@@ -48,6 +48,7 @@ interface FormData {
   formDescription?: string;
   builtinFields: FieldDef[];
   customFields: FieldDef[];
+  facilityOptions?: string[];
   collectedFields: Record<string, unknown>;
   missingFields: string[];
   requiredDocuments: string[];
@@ -374,6 +375,26 @@ export default function MiniFormPage() {
   });
 
   useEffect(() => {
+    const options = data?.facilityOptions;
+    const current = values.field_type ?? String(data?.collectedFields?.field_type ?? "");
+    if (!isFieldBookingForm || !options?.length || !current || options.includes(current)) {
+      return;
+    }
+    const currentLower = current.toLowerCase();
+    const compatibleOption = options.find((option) =>
+      option.toLowerCase().includes(currentLower),
+    );
+    if (compatibleOption) {
+      setValues((previous) => ({ ...previous, field_type: compatibleOption }));
+    }
+  }, [
+    data?.facilityOptions,
+    data?.collectedFields?.field_type,
+    isFieldBookingForm,
+    values.field_type,
+  ]);
+
+  useEffect(() => {
     const selectedStart =
       values.start_time ?? String(data?.collectedFields?.start_time ?? "");
     const available = availabilityQuery.data?.availableSlots;
@@ -572,12 +593,16 @@ export default function MiniFormPage() {
                   isFieldBookingForm &&
                   (field.name === "start_time" ||
                     field.label.trim().toLowerCase() === "jam mulai");
+                const isFacilityTypeField =
+                  isFieldBookingForm && field.name === "field_type";
                 const renderedField = isStartTimeField
                   ? {
                       ...field,
                       type: "select",
                       options: availabilityQuery.data?.availableSlots ?? [],
                     }
+                  : isFacilityTypeField && data.facilityOptions?.length
+                    ? { ...field, options: data.facilityOptions }
                   : field;
 
                 return (

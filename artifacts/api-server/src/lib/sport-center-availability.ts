@@ -154,7 +154,7 @@ export async function getSportCenterFacilityOptions(): Promise<string[]> {
   const options = Array.from(
     new Set(
       facilityRows
-        .map((facility) => (facility.category ?? facility.name).trim())
+        .map((facility) => facility.name.trim())
         .filter(Boolean),
     ),
   );
@@ -222,14 +222,19 @@ export async function getAvailableSportCenterStartTimes({
               ? ["billiard"]
               : [normalizedFieldType];
 
-  const facilities = facilityRows.filter((facility) => {
+  const exactFacility = facilityRows.find(
+    (facility) => facility.name.trim().toLowerCase() === normalizedFieldType,
+  );
+  const facilities = exactFacility
+    ? [exactFacility]
+    : facilityRows.filter((facility) => {
     if (isOther) return true;
     const category = (facility.category ?? "").toLowerCase().trim();
     const name = facility.name.toLowerCase();
     return categoryAliases.some(
       (alias) => category === alias || category.includes(alias) || name.includes(alias),
     );
-  });
+      });
 
   if (facilities.length === 0) {
     throw new Error(`Fasilitas untuk jenis lapangan "${fieldType}" tidak ditemukan`);
@@ -536,13 +541,26 @@ export const SC_PRICE_PER_HOUR: Record<string, number> = {
 };
 
 export function calcTotalPrice(fieldType: string, durationHours: number): number {
-  const ft = fieldType.toLowerCase().trim();
-  const price = SC_PRICE_PER_HOUR[ft] ?? 100_000;
+  const price = getPricePerHour(fieldType);
   return Math.round(price * Math.max(durationHours, 1));
 }
 
 export function getPricePerHour(fieldType: string): number {
-  return SC_PRICE_PER_HOUR[fieldType.toLowerCase().trim()] ?? 100_000;
+  const ft = fieldType.toLowerCase().trim();
+  if (SC_PRICE_PER_HOUR[ft] !== undefined) return SC_PRICE_PER_HOUR[ft]!;
+  if (ft.includes("badminton")) return SC_PRICE_PER_HOUR.badminton!;
+  if (ft.includes("tenis") || ft.includes("tennis")) return SC_PRICE_PER_HOUR.tennis!;
+  if (
+    ft.includes("multi guna") ||
+    ft.includes("futsal") ||
+    ft.includes("basket") ||
+    ft.includes("voli")
+  ) {
+    return SC_PRICE_PER_HOUR.futsal!;
+  }
+  if (ft.includes("gym")) return SC_PRICE_PER_HOUR.gym!;
+  if (ft.includes("billiard")) return SC_PRICE_PER_HOUR.billiard!;
+  return 100_000;
 }
 
 // ── Reserve a booking code early (during availability check) ─────────────────
@@ -861,18 +879,28 @@ export async function saveSportCenterBooking(params: {
 
 const SC_FACILITY_MAP: Record<string, number> = {
   badminton: 5,                                              // Badminton Court A
+  "lapangan badminton a": 1,
+  "lapangan badminton b": 2,
   tenis: 4, tennis: 4,                                      // Lapangan Tennis Outdoor
+  "lapangan tenis": 3,
   gym: 6,                                                    // Gym / Fitness Center
   billiard: 7,                                               // Billiard Coins
+  "meja billiard": 7,
   futsal: 1, "multi guna": 1, basketball: 1, basket: 1, voli: 1, // Lapangan Multiguna
+  "lapangan multi guna": 5,
 };
 
 const PUB_FACILITY_MAP: Record<string, number | null> = {
   badminton: 5,                                              // Badminton Court A
+  "lapangan badminton a": 5,
+  "lapangan badminton b": 3,
   tenis: 4, tennis: 4,                                      // Lapangan Tennis Outdoor
+  "lapangan tenis": 4,
   gym: 1,                                                    // Gym / Fitness Center
   billiard: 6,                                               // Billiard Coins
+  "meja billiard": 6,
   futsal: 2, "multi guna": 2, basketball: 2, basket: 2, voli: 2, // Lapangan Multiguna
+  "lapangan multi guna": 2,
 };
 
 export async function bridgeToSportBookings(params: {

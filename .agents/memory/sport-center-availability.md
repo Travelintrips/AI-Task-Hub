@@ -48,8 +48,9 @@ advertise a 22:00 close, so midnight is used as the mini-form's effective close.
 The frontend should identify the dynamic start-time field by both canonical name
 and visible label, because imported/custom field definitions can retain an older
 field name while still rendering as “Jam Mulai”.
-Jenis Lapangan pada mini-form berasal dari kategori unik fasilitas aktif di
-`sport_center.sport_facilities`, bukan daftar olahraga statis dari konfigurasi.
+Jenis Lapangan pada mini-form berasal dari nama unik fasilitas aktif di
+`sport_center.sport_facilities`, bukan daftar olahraga statis dari konfigurasi;
+nama yang dipilih dicocokkan ke `facility_id` spesifik sebelum availability dibaca.
 
 **Why:** The public form must not show stale static times, and the imported project
 has separate development and production Supabase connections.

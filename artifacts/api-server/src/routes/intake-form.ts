@@ -165,6 +165,7 @@ router.get(
               ? { ...field, options: facilityOptions }
               : field,
           ) ?? [],
+        facilityOptions,
         customFields: dbFields,
         collectedFields: {},
         missingFields: [],
@@ -272,6 +273,7 @@ router.get(
             ? { ...field, options: facilityOptions }
             : field,
         ),
+        facilityOptions,
         customFields,
         collectedFields,
         missingFields,
