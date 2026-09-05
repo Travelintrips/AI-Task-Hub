@@ -572,6 +572,28 @@ export function calcTotalPrice(fieldType: string, durationHours: number): number
   return Math.round(price * Math.max(durationHours, 1));
 }
 
+/**
+ * Sport Center prices are tax-inclusive. Keep the effective database rate at
+ * 11%: the displayed 12% VAT is represented by DPP Nilai Lain (11/12 of
+ * DPP), which produces the same tax amount without changing accounting's
+ * inclusive-price formula.
+ */
+export function calculateInclusivePpn(grandTotal: number): {
+  dpp: number;
+  ppnRate: number;
+  ppnAmount: number;
+  grandTotal: number;
+} {
+  const normalizedTotal = Math.max(0, Math.round(Number(grandTotal) || 0));
+  const dpp = Math.round(normalizedTotal / 1.11);
+  return {
+    dpp,
+    ppnRate: 11,
+    ppnAmount: normalizedTotal - dpp,
+    grandTotal: normalizedTotal,
+  };
+}
+
 export function getPricePerHour(fieldType: string): number {
   const ft = fieldType.toLowerCase().trim();
   if (SC_PRICE_PER_HOUR[ft] !== undefined) return SC_PRICE_PER_HOUR[ft]!;
@@ -991,9 +1013,23 @@ export async function bridgeToSportBookings(params: {
   const durationInt   = Math.round(params.saved.durationHours ?? 1);
   const bookingNumber = params.saved.bookingNumber;
   const customerName  = params.saved.bookerName ?? "Customer WA";
+  const pricing       = calculateInclusivePpn(params.saved.totalPrice);
 
   logger.info(
-    { bookingNumber, normalizedType, scFacilityId, pubFacilityId, bookingDateNorm, startTimeNorm, endTimeNorm, durationInt },
+    {
+      bookingNumber,
+      normalizedType,
+      scFacilityId,
+      pubFacilityId,
+      bookingDateNorm,
+      startTimeNorm,
+      endTimeNorm,
+      durationInt,
+      totalPrice: pricing.grandTotal,
+      dpp: pricing.dpp,
+      ppnRate: pricing.ppnRate,
+      ppnAmount: pricing.ppnAmount,
+    },
     "bridgeToSportBookings: starting sync",
   );
 
@@ -1007,11 +1043,13 @@ export async function bridgeToSportBookings(params: {
       `INSERT INTO sport_center.sport_bookings
          (order_number, customer_name, customer_email, customer_phone,
           facility_id, booking_date, start_time, end_time, duration_hours,
-          total_price, base_price, discount_amount,
-          status, source, notes,
+           total_price, base_price, discount_amount,
+           ppn_rate, ppn_amount, grand_total, dpp,
+           status, source, notes,
           payment_deadline, payment_required_now)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10,0,
-               'confirmed','wa',$11,$12,false)
+                $11,$12,$13,$14,
+                'confirmed','wa',$15,$16,false)
        ON CONFLICT (order_number) DO NOTHING
        RETURNING id`,
       [
@@ -1024,9 +1062,13 @@ export async function bridgeToSportBookings(params: {
         startTimeNorm,                    // $7  start_time   (TEXT col — HH:MM)
         endTimeNorm,                      // $8  end_time     (TEXT col — HH:MM)
         durationInt,                      // $9  duration_hours (INTEGER)
-        params.saved.totalPrice,          // $10 total_price & base_price
-        params.notes ?? null,             // $11 notes
-        params.saved.paymentDeadline,     // $12 payment_deadline
+         pricing.grandTotal,               // $10 total_price & base_price
+         pricing.ppnRate,                  // $11 ppn_rate (effective inclusive rate)
+         pricing.ppnAmount,                // $12 ppn_amount
+         pricing.grandTotal,               // $13 grand_total
+         pricing.dpp,                      // $14 dpp
+         params.notes ?? null,             // $15 notes
+         params.saved.paymentDeadline,     // $16 payment_deadline
       ],
     );
     scBookingId = rows[0]?.id ?? null;
@@ -1061,10 +1103,10 @@ export async function bridgeToSportBookings(params: {
        `INSERT INTO public.sport_bookings
          (company_id, booking_number, customer_name, customer_phone, customer_email,
           facility_id, facility_name, booking_date, start_time, end_time, duration_hours,
-          status, payment_status, base_amount, discount_amount, total_amount,
-          notes, sc_booking_id)
+           status, payment_status, base_amount, discount_amount, total_amount,
+           tax_rate, tax_amount, notes, sc_booking_id)
        VALUES (1,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
-                'confirmed','paid',$11,0,$11,$12,$13)
+                'confirmed','paid',$11,0,$11,$12,$13,$14,$15)
        ON CONFLICT (booking_number) DO UPDATE
          SET sc_booking_id = COALESCE(public.sport_bookings.sc_booking_id, EXCLUDED.sc_booking_id),
               status = 'confirmed',
@@ -1082,9 +1124,11 @@ export async function bridgeToSportBookings(params: {
         startTimeNorm,                    // $8  start_time    (TIME col — HH:MM)
         endTimeNorm,                      // $9  end_time      (TIME col — HH:MM)
         durationInt,                      // $10 duration_hours
-        params.saved.totalPrice,          // $11 base_amount & total_amount
-        params.notes ?? null,             // $12 notes
-        scBookingId,                      // $13 sc_booking_id
+         pricing.grandTotal,               // $11 base_amount & total_amount (inclusive)
+         pricing.ppnRate,                  // $12 tax_rate (effective inclusive rate)
+         pricing.ppnAmount,                // $13 tax_amount
+         params.notes ?? null,             // $14 notes
+         scBookingId,                      // $15 sc_booking_id
       ],
     );
     publicBookingId = rows[0]?.id ?? null;

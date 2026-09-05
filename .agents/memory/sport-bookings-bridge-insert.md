@@ -39,3 +39,20 @@ description: bridgeToSportBookings() Step 2 (public.sport_bookings) was silently
   - Normalizes `bookingDate` to `YYYY-MM-DD` (strips ISO timestamp T-suffix)
   - Normalizes `startTime`/`endTime` to `HH:MM` (first 5 chars)
   - Removed all `::date`, `::time`, `::integer` SQL cast syntax
+
+### Inclusive PPN mapping
+Sport Center booking prices are inclusive: for `grand_total`, calculate
+`dpp = round(grand_total / 1.11)` and `ppn_amount = grand_total - dpp`, while
+persisting `ppn_rate = 11`. The canonical table stores `total_price` and
+`base_price` as the inclusive total plus `grand_total`, `dpp`, and PPN fields.
+The public table follows existing web-booking semantics: `base_amount` and
+`total_amount` remain the inclusive total, while `tax_rate = 11` and
+`tax_amount = ppn_amount`.
+
+**Why:** accounting expects the effective 11% rate for inclusive prices; changing
+the stored rate to 12% makes its `total / 1.12` calculation disagree with the
+customer-facing DPP Nilai Lain (11/12) display.
+
+**How to apply:** use the shared inclusive calculation for every mini-form
+bridge insert; do not derive DPP with `total / 1.12` or store the display rate
+12% in the accounting columns.
