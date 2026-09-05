@@ -1059,84 +1059,92 @@ router.post(
                 );
               }
 
-              logger.info(
-                {
+              // Link bukti pembayaran sudah ada di ringkasan pesanan. Jangan
+              // kirim attachment kedua ke group karena Fonnte wajib memiliki
+              // caption dan akan menampilkan teks "Bukti Pembayaran".
+              if (key === "payment_proof") {
+                logger.info(
+                  { key, filename, receiverCount: receivers.length },
+                  "intake-form: bukti pembayaran tidak dikirim sebagai attachment group — link tetap ada di ringkasan",
+                );
+              } else {
+                logger.info(
+                  {
+                    key,
+                    filename,
+                    originalUrl: fileUrl,
+                    accessibleUrl: accessibleFileUrl,
+                    urlMode,
+                    receiverCount: receivers.length,
+                    receivers: receivers.map((r) => r.phone),
+                  },
+                  "intake-form: mulai kirim WA document attachment ke semua receiver",
+                );
+
+                const docResult = {
                   key,
                   filename,
-                  originalUrl: fileUrl,
-                  accessibleUrl: accessibleFileUrl,
                   urlMode,
-                  receiverCount: receivers.length,
-                  receivers: receivers.map((r) => r.phone),
-                },
-                "intake-form: mulai kirim WA document attachment ke semua receiver",
-              );
+                  successCount: 0,
+                  failCount: 0,
+                  errors: [] as string[],
+                };
 
-              const docResult = {
-                key,
-                filename,
-                urlMode,
-                successCount: 0,
-                failCount: 0,
-                errors: [] as string[],
-              };
-
-              await Promise.allSettled(
-                receivers.map(async (r) => {
-                  logger.info(
-                    {
-                      target: r.phone,
-                      filename,
-                      url: accessibleFileUrl,
-                      urlMode,
-                    },
-                    "intake-form: [Fonnte doc payload] target/url/filename (token disembunyikan)",
-                  );
-
-                  const result = await sendFonnteDocument(
-                    r.phone,
-                    accessibleFileUrl,
-                    filename,
-                    undefined,
-                    key === "payment_proof" ? "Bukti Pembayaran" : undefined,
-                  ).catch((e: unknown) => {
-                    logger.warn(
-                      { e, phone: r.phone, key, filename },
-                      "intake-form: sendFonnteDocument threw exception",
-                    );
-                    return { success: false, error: String(e) };
-                  });
-
-                  if (!result.success) {
-                    docResult.failCount++;
-                    docResult.errors.push(`${r.phone}: ${result.error ?? "unknown"}`);
-                    logger.warn(
-                      {
-                        phone: r.phone,
-                        key,
-                        filename,
-                        accessibleUrl: accessibleFileUrl,
-                        urlMode,
-                        error: result.error,
-                      },
-                      "intake-form: WA document attachment GAGAL",
-                    );
-                  } else {
-                    docResult.successCount++;
+                await Promise.allSettled(
+                  receivers.map(async (r) => {
                     logger.info(
                       {
-                        phone: r.phone,
-                        key,
+                        target: r.phone,
                         filename,
-                        messageId: "messageId" in result ? result.messageId : undefined,
+                        url: accessibleFileUrl,
+                        urlMode,
                       },
-                      "intake-form: WA document attachment BERHASIL",
+                      "intake-form: [Fonnte doc payload] target/url/filename (token disembunyikan)",
                     );
-                  }
-                }),
-              );
 
-              attachmentResults.push(docResult);
+                    const result = await sendFonnteDocument(
+                      r.phone,
+                      accessibleFileUrl,
+                      filename,
+                    ).catch((e: unknown) => {
+                      logger.warn(
+                        { e, phone: r.phone, key, filename },
+                        "intake-form: sendFonnteDocument threw exception",
+                      );
+                      return { success: false, error: String(e) };
+                    });
+
+                    if (!result.success) {
+                      docResult.failCount++;
+                      docResult.errors.push(`${r.phone}: ${result.error ?? "unknown"}`);
+                      logger.warn(
+                        {
+                          phone: r.phone,
+                          key,
+                          filename,
+                          accessibleUrl: accessibleFileUrl,
+                          urlMode,
+                          error: result.error,
+                        },
+                        "intake-form: WA document attachment GAGAL",
+                      );
+                    } else {
+                      docResult.successCount++;
+                      logger.info(
+                        {
+                          phone: r.phone,
+                          key,
+                          filename,
+                          messageId: "messageId" in result ? result.messageId : undefined,
+                        },
+                        "intake-form: WA document attachment BERHASIL",
+                      );
+                    }
+                  }),
+                );
+
+                attachmentResults.push(docResult);
+              }
 
               // Simpan untuk validasi setelah semua file terkirim
               pendingValidations.push({ key, filename, fileUrl: accessibleFileUrl });
