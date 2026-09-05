@@ -828,9 +828,9 @@ router.post(
           if (receivers.length > 0) {
             const fieldLabelMap: Record<string, string> = {
               booker_name: "Nama Pemesan",
-              phone: "No. HP",
-              field_name: "Jenis Lapangan",
-              field_type: "Jenis Lapangan",
+              phone: "No.Pelanggan",
+              field_name: "Jenis Fasilitas",
+              field_type: "Jenis Fasilitas",
               duration: "Durasi Sewa",
               booking_date: "Tanggal Main",
               start_time: "Jam Mulai",
@@ -851,11 +851,11 @@ router.post(
               volume: "Volume (m³)",
               incoterm: "Incoterm",
               shipment_mode: "Moda Pengiriman",
-               total_price: "Total",
+              total_price: "Total",
             };
 
             // Field yang dikecualikan dari ringkasan teks utama:
-            // - phone: sudah tampil di baris "Pelanggan:" di header notifikasi
+            // - phone: ditampilkan khusus pada detail booking fasilitas
             // - uploaded_document:... : kunci sintetis yang ditambahkan oleh loop di bawah
             // File field URL tidak masuk ke detail utama; file dikirim sebagai attachment.
             const SKIP_SUMMARY_KEYS = new Set(["phone"]);
@@ -890,20 +890,21 @@ router.post(
             const summaryEntries: Array<[string, unknown]> = isFieldBookingForm
               ? [
                   ["booker_name", merged.booker_name],
+                  ["phone", session.phone],
                   ["field_type", merged.field_type ?? merged.field_name],
                   ["booking_date", merged.booking_date],
                   ["duration", merged.duration ?? merged.durasi],
                   ["start_time", merged.start_time],
                   ["end_time", merged.end_time],
                   ["payment_method", merged.payment_method],
-                   ["total_price", sportCenterTotalPrice],
+                  ["total_price", sportCenterTotalPrice],
                   ["notes", merged.notes],
                 ]
               : Object.entries(merged).slice(0, 20);
 
             const fieldSummaryWa = summaryEntries
               .filter(([k]) => {
-                if (SKIP_SUMMARY_KEYS.has(k)) return false;
+                if (SKIP_SUMMARY_KEYS.has(k) && !(isFieldBookingForm && k === "phone")) return false;
                 // skip synthetic uploaded_document:... keys
                 if (k.startsWith("uploaded_document:")) return false;
                 // skip file fields — sudah ditampilkan di bagian "Dokumen Terlampir"
@@ -931,10 +932,9 @@ router.post(
                 : "";
 
             const notifMsg =
-              `📋 *Pesanan Baru — ${formCfg.title}*\n` +
+              `📋 *Pesanan Baru — ${isFieldBookingForm ? "Form Pemesanan Fasilitas" : formCfg.title}*\n` +
               `No. Task: *${taskNumber}*\n` +
-              `Pelanggan: ${session.phone}\n\n` +
-              `*Detail Pesanan:*\n${fieldSummaryWa}` +
+              `\n*Detail Pesanan:*\n${fieldSummaryWa}` +
               docTextSection;
 
             await Promise.allSettled(
@@ -1342,7 +1342,8 @@ function buildFieldBookingCustomerMessage(params: {
       : "-";
   const details = [
     ["Nama Pemesan", get("booker_name")],
-    ["Jenis Lapangan", get("field_type") !== "-" ? get("field_type") : get("field_name")],
+    ["No.Pelanggan", params.phone],
+    ["Jenis Fasilitas", get("field_type") !== "-" ? get("field_type") : get("field_name")],
     ["Tanggal Main", get("booking_date")],
     ["Durasi Sewa", get("duration") !== "-" ? get("duration") : get("durasi")],
     ["Jam Mulai", get("start_time")],
@@ -1355,10 +1356,9 @@ function buildFieldBookingCustomerMessage(params: {
     .join("\n");
 
   return (
-    `Pemesanan Lapangan\n` +
+    `Pemesanan Fasilitas\n` +
     `No. Task: ${params.taskNumber}\n` +
-    `Pelanggan: ${params.phone}\n\n` +
-    `Detail Pesanan:\n${details}\n\n` +
+    `\nDetail Pesanan:\n${details}\n\n` +
     `Terima kasih.`
   );
 }
