@@ -227,7 +227,7 @@ function SportCenterPaymentDetails({
     );
   }
 
-  if (method === "QRIS / E-Wallet") {
+  if (method === "QRIS") {
     if (!settings?.qrisImageUrl) {
       return (
         <div className="rounded-xl border border-orange-200 bg-orange-50 p-3 text-sm text-orange-700">
