@@ -60,6 +60,39 @@ function formatRupiah(value: number): string {
   return `Rp ${value.toLocaleString("id-ID")}`;
 }
 
+function formatSportCenterTimeRange(
+  startTime: string,
+  duration: string,
+): string {
+  if (!startTime) return "-";
+  const match = startTime.match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return startTime;
+
+  const startHour = Number(match[1]);
+  const startMinute = Number(match[2]);
+  if (
+    !Number.isInteger(startHour) ||
+    !Number.isInteger(startMinute) ||
+    startHour > 23 ||
+    startMinute > 59
+  ) {
+    return startTime;
+  }
+
+  const endMinutes =
+    (startHour * 60 +
+      startMinute +
+      getSportCenterDurationHours(duration) * 60) %
+    (24 * 60);
+  const endHour = Math.floor(endMinutes / 60);
+  const endMinute = endMinutes % 60;
+  const formattedEnd = `${String(endHour).padStart(2, "0")}:${String(
+    endMinute,
+  ).padStart(2, "0")}`;
+
+  return `${startTime} - ${formattedEnd}`;
+}
+
 async function apiFetch(path: string, init?: RequestInit) {
   const res = await fetch(`${BASE}/api${path}`, {
     cache: "no-store",
@@ -219,10 +252,12 @@ function SportCenterBookingSummary({
   fieldType,
   bookingDate,
   duration,
+  startTime,
 }: {
   fieldType: string;
   bookingDate: string;
   duration: string;
+  startTime: string;
 }) {
   const totalPrice =
     getSportCenterPricePerHour(fieldType) *
@@ -239,6 +274,12 @@ function SportCenterBookingSummary({
         <span className="text-gray-500">Tanggal</span>
         <span className="font-medium text-gray-800">
           {formatSportCenterDate(bookingDate)}
+        </span>
+        <span className="text-gray-500">Durasi</span>
+        <span className="font-medium text-gray-800">{duration || "-"}</span>
+        <span className="text-gray-500">Waktu</span>
+        <span className="font-medium text-gray-800">
+          {formatSportCenterTimeRange(startTime, duration)}
         </span>
         <span className="text-gray-500">Total</span>
         <span className="font-semibold text-indigo-700">
@@ -583,6 +624,8 @@ export default function MiniFormPage() {
     normalizeSportCenterDuration(
       values.duration ?? data?.collectedFields?.duration ?? "1 jam",
     );
+  const selectedStartTime =
+    values.start_time ?? String(data?.collectedFields?.start_time ?? "");
   const selectedPaymentMethod =
     values.payment_method ??
     String(data?.collectedFields?.payment_method ?? "");
@@ -950,6 +993,7 @@ export default function MiniFormPage() {
                               fieldType={selectedFieldType}
                               bookingDate={selectedBookingDate}
                               duration={selectedDuration}
+                              startTime={selectedStartTime}
                             />
                           </>
                        )}
