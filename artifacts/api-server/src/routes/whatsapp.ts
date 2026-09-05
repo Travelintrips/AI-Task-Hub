@@ -716,7 +716,7 @@ export async function processIncomingMessage({
           `5.❓ Pertanyaan lainnya\n` +
           `6.🎨 Layanan Kreatif / Desain AI\n\n` +
           `Tim kami siap membantu! 🙏\n` +
-          `atau ketik angka.`;
+          `atau ketik Nomor.`;
         await sendFonnte(replyTo, greetingReply, fonnteDevice ?? null).catch((e) =>
           logger.warn({ e }, "greeting pre-gate: failed to send reply"),
         );
@@ -1115,7 +1115,7 @@ async function runAiDetection({
               `5.❓ Pertanyaan lainnya\n` +
               `6.🎨 Layanan Kreatif / Desain AI\n\n` +
               `Tim kami siap membantu! 🙏\n` +
-              `atau ketik angka.`;
+              `atau ketik Nomor.`;
             await sendFonnte(replyTo, menuReply, fonnteDevice).catch((e) =>
               logger.warn({ e }, "form-menu: gagal kirim menu utama"),
             );
@@ -1305,7 +1305,7 @@ async function runAiDetection({
         `5.❓ Pertanyaan lainnya\n` +
         `6.🎨 Layanan Kreatif / Desain AI\n\n` +
         `Tim kami siap membantu! 🙏\n` +
-        `atau ketik angka.`;
+        `atau ketik Nomor.`;
       await sendFonnte(replyTo, greetingReply, fonnteDevice).catch((e) =>
         logger.warn({ e }, "greeting: failed to send canned reply"),
       );

@@ -964,7 +964,10 @@ async function runSportCenterAvailabilityGate({
       facilityMenuOptions
         .map((name, index) => `${index + 1}️⃣ ${name}`)
         .join("\n") +
-      `\n\nBalas dengan *nomor* atau *nama lapangan* yang Anda pilih.`
+      `\n\nBalas dengan *nomor* atau *nama lapangan* yang Anda pilih.\n\n` +
+      `8️⃣  Kembali Menu Awal\n` +
+      `9️⃣  Akhiri Percakapan\n` +
+      `🔟  Hubungi Agent`
     : `🏟️ Daftar lapangan belum dapat dimuat dari database Sport Center.\n\n` +
       `Silakan coba lagi beberapa saat lagi.`;
 
