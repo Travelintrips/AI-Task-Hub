@@ -26,3 +26,9 @@ Payment proofs are OCR-validated before the field-booking task/payment is create
 **Why:** the owner selected strict validation so unreadable or invalid receipts cannot auto-confirm a booking.
 
 **How to apply:** keep OCR failure user-visible and leave the session retryable; do not mark payment or booking confirmed until the OCR gate passes. Scanned PDFs without selectable text require a clearer image or a future PDF-rendering fallback.
+
+The OCR service depends on a valid `OPENAI_API_KEY` in Replit Secrets. An invalid key must be reported as OCR service unavailable (not as an invalid customer document), while the form remains retryable.
+
+**Why:** a rejected OpenAI credential previously surfaced to customers as an unhelpful generic HTTP 422.
+
+**How to apply:** keep API errors detailed in the UI without exposing credentials, and return a service-unavailable response for provider authentication failures.
