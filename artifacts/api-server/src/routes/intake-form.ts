@@ -519,13 +519,17 @@ router.post(
           expectedAmount,
         });
         if (!paymentProofOcr.valid) {
-          res.status(422).json({
+          res.status(paymentProofOcr.serviceUnavailable ? 503 : 422).json({
             ok: false,
             isComplete: false,
             message:
-              `Bukti pembayaran tidak lolos validasi OCR: ` +
+              (paymentProofOcr.serviceUnavailable
+                ? "Layanan validasi bukti pembayaran sedang tidak tersedia. Silakan coba lagi setelah layanan OCR dikonfigurasi."
+                : `Bukti pembayaran tidak lolos validasi OCR: `) +
               `${paymentProofOcr.failureReason ?? "hasil OCR tidak valid"}. ` +
-              "Silakan unggah bukti transfer yang lebih jelas.",
+              (paymentProofOcr.serviceUnavailable
+                ? ""
+                : " Silakan unggah bukti transfer yang lebih jelas."),
             missingFields: ["payment_proof"],
           });
           return;

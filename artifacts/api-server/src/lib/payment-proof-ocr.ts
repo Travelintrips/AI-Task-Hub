@@ -13,6 +13,7 @@ const MIN_CONFIDENCE = 0.65;
 
 export interface PaymentProofOcrResult {
   valid: boolean;
+  serviceUnavailable: boolean;
   confidence: number;
   payerName: string | null;
   amount: number | null;
@@ -230,6 +231,7 @@ export async function extractPaymentProofOcr(params: {
 
     return {
       valid: reasons.length === 0,
+      serviceUnavailable: false,
       confidence,
       payerName,
       amount,
@@ -242,9 +244,15 @@ export async function extractPaymentProofOcr(params: {
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : "OCR gagal diproses";
+    const isAuthenticationError =
+      typeof err === "object" &&
+      err !== null &&
+      "status" in err &&
+      Number((err as { status?: unknown }).status) === 401;
     logger.error({ err }, "Payment proof OCR failed");
     return {
       valid: false,
+      serviceUnavailable: isAuthenticationError,
       confidence: 0,
       payerName: null,
       amount: null,
@@ -252,11 +260,17 @@ export async function extractPaymentProofOcr(params: {
       reference: null,
       bankName: null,
       rawText: "",
-      failureReason: message,
+      failureReason: isAuthenticationError
+        ? "Layanan OCR belum terhubung dengan kredensial yang valid"
+        : message,
       data: {
         ...baseData,
-        validation_status: "ocr_failed",
-        validation_notes: message,
+        validation_status: isAuthenticationError
+          ? "ocr_unavailable"
+          : "ocr_failed",
+        validation_notes: isAuthenticationError
+          ? "Kredensial layanan OCR tidak valid"
+          : message,
       },
     };
   }

@@ -101,7 +101,17 @@ async function apiFetch(path: string, init?: RequestInit) {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error((err as { error?: string }).error ?? `Error ${res.status}`);
+    const errorBody = err as {
+      error?: string;
+      message?: string;
+      detail?: string;
+    };
+    throw new Error(
+      errorBody.error ??
+        errorBody.message ??
+        errorBody.detail ??
+        `Error ${res.status}`,
+    );
   }
   return res.json();
 }
