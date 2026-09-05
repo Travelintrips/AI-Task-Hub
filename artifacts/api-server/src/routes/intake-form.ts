@@ -53,6 +53,7 @@ import {
   saveSportCenterBooking,
   extractDurationHours,
   bridgeToSportBookings,
+  finalizeSportCenterBookingPayment,
   getAvailableSportCenterStartTimes,
   getSportCenterFacilityOptions,
   getSportCenterPaymentSettings,
@@ -559,6 +560,7 @@ router.post(
           session.intentCode.toLowerCase().includes("sport_center")
         ) {
           const endTime = String(merged.end_time ?? "").trim() || undefined;
+          const isFieldBookingForm = type.replace(/_/g, "-") === "field-booking";
           const savedFormBooking = await saveSportCenterBooking({
             companyId: session.companyId,
             aiTaskId: taskId,
@@ -572,27 +574,44 @@ router.post(
             phone: session.phone,
             notes: String(merged.notes ?? "").trim() || null,
           }).catch((e) => {
-            logger.warn(
+            logger.error(
               { e },
-              "intake-form: saveSportCenterBooking failed (non-fatal)",
+              "intake-form: saveSportCenterBooking failed",
             );
+            if (isFieldBookingForm) throw e;
             return null;
           });
 
-          // Bridge ke public.sport_bookings agar data form customer tersimpan di tabel utama
+          // Bridge ke tabel Sport Center canonical/public. Untuk field-booking,
+          // payment dan status booking harus diselesaikan setelah bridge selesai,
+          // bukan dijalankan async/non-fatal, supaya payment tidak kehilangan FK booking.
           if (savedFormBooking) {
-            bridgeToSportBookings({
+            const bridged = await bridgeToSportBookings({
               saved: savedFormBooking,
               fieldType: String(
                 merged.field_type ?? merged.field_name ?? "Umum",
               ),
               notes: String(merged.notes ?? "").trim() || null,
-            }).catch((e) =>
-              logger.warn(
-                { e },
-                "intake-form: bridgeToSportBookings failed (non-fatal)",
-              ),
-            );
+            });
+
+            if (isFieldBookingForm) {
+              const paymentProofUrl = String(merged.payment_proof ?? "").trim();
+              const paymentMethod = String(merged.payment_method ?? "").trim();
+              if (!paymentProofUrl || !paymentMethod) {
+                throw new Error(
+                  "Bukti pembayaran dan metode pembayaran wajib tersedia untuk menyelesaikan booking lapangan",
+                );
+              }
+
+              await finalizeSportCenterBookingPayment({
+                saved: savedFormBooking,
+                canonicalBookingId: bridged.canonicalBookingId,
+                publicBookingId: bridged.publicBookingId,
+                paymentMethod,
+                paymentProofUrl,
+                notes: String(merged.notes ?? "").trim() || null,
+              });
+            }
           }
         }
 

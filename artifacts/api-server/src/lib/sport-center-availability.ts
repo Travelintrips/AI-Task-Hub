@@ -800,6 +800,11 @@ export interface SavedBooking {
   status: string;
 }
 
+export interface BridgedSportBooking {
+  canonicalBookingId: number;
+  publicBookingId: number;
+}
+
 export async function saveSportCenterBooking(params: {
   companyId: string;
   aiTaskId?: number | null;
@@ -963,7 +968,7 @@ export async function bridgeToSportBookings(params: {
   saved: SavedBooking;
   fieldType: string;
   notes?: string | null;
-}): Promise<void> {
+}): Promise<BridgedSportBooking> {
   const normalizedType = params.saved.fieldType.toLowerCase().trim();
   const scFacilityId  = SC_FACILITY_MAP[normalizedType] ?? 1;   // Lapangan Multiguna as fallback (prod id=1)
   const pubFacilityId = PUB_FACILITY_MAP[normalizedType] ?? null;
@@ -1021,6 +1026,16 @@ export async function bridgeToSportBookings(params: {
       ],
     );
     scBookingId = rows[0]?.id ?? null;
+    if (scBookingId === null) {
+      const existing = await supabaseQueryStrict<{ id: number }>(
+        `SELECT id FROM sport_center.sport_bookings WHERE order_number = $1 LIMIT 1`,
+        [bookingNumber],
+      );
+      scBookingId = existing[0]?.id ?? null;
+    }
+    if (scBookingId === null) {
+      throw new Error(`Canonical Sport Center booking tidak ditemukan untuk ${bookingNumber}`);
+    }
     logger.info({ bookingNumber, scBookingId }, "bridgeToSportBookings: sport_center.sport_bookings OK");
   } catch (err) {
     const e = err as { message?: string; code?: string; detail?: string };
@@ -1028,16 +1043,17 @@ export async function bridgeToSportBookings(params: {
       { bookingNumber, msg: e.message, code: e.code, detail: e.detail },
       "bridgeToSportBookings: sport_center.sport_bookings INSERT failed",
     );
-    // Continue — step 2 runs independently even if step 1 fails
+    throw err;
   }
 
-  // ── 2. Insert into public.sport_bookings (runs independently of step 1) ──
+  // ── 2. Insert into public.sport_bookings after canonical booking exists ──
   // booking_date is DATE col, start_time/end_time are TIME cols.
   // Data is pre-normalized above (bookingDateNorm = YYYY-MM-DD, times = HH:MM)
   // so no explicit SQL type cast needed — node-postgres handles JS string → pg type coercion.
   // Avoid :: cast syntax: PgBouncer transaction mode (port 6543) can fail on it with parameterized queries.
+  let publicBookingId: number | null = null;
   try {
-    await supabaseQueryStrict(
+    const rows = await supabaseQueryStrict<{ id: number }>(
       `INSERT INTO public.sport_bookings
          (company_id, booking_number, customer_name, customer_phone, customer_email,
           facility_id, facility_name, booking_date, start_time, end_time, duration_hours,
@@ -1045,7 +1061,10 @@ export async function bridgeToSportBookings(params: {
           notes, sc_booking_id)
        VALUES (1,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
                'pending','unpaid',$11,0,$11,$12,$13)
-       ON CONFLICT (booking_number) DO NOTHING`,
+       ON CONFLICT (booking_number) DO UPDATE
+         SET sc_booking_id = COALESCE(public.sport_bookings.sc_booking_id, EXCLUDED.sc_booking_id),
+             updated_at = NOW()
+       RETURNING id`,
       [
         bookingNumber,                    // $1  booking_number
         customerName,                     // $2  customer_name
@@ -1062,6 +1081,17 @@ export async function bridgeToSportBookings(params: {
         scBookingId,                      // $13 sc_booking_id
       ],
     );
+    publicBookingId = rows[0]?.id ?? null;
+    if (publicBookingId === null) {
+      const existing = await supabaseQueryStrict<{ id: number }>(
+        `SELECT id FROM public.sport_bookings WHERE booking_number = $1 LIMIT 1`,
+        [bookingNumber],
+      );
+      publicBookingId = existing[0]?.id ?? null;
+    }
+    if (publicBookingId === null) {
+      throw new Error(`Public Sport Center booking tidak ditemukan untuk ${bookingNumber}`);
+    }
     logger.info({ bookingNumber, scBookingId }, "bridgeToSportBookings: public.sport_bookings OK");
   } catch (err) {
     const e = err as { message?: string; code?: string; detail?: string };
@@ -1069,6 +1099,238 @@ export async function bridgeToSportBookings(params: {
       { bookingNumber, msg: e.message, code: e.code, detail: e.detail },
       "bridgeToSportBookings: public.sport_bookings INSERT failed",
     );
+    throw err;
+  }
+
+  return { canonicalBookingId: scBookingId, publicBookingId };
+}
+
+/**
+ * Finalize a field booking submitted through the mini-form.
+ *
+ * The uploaded proof URL is stored as metadata in the canonical payment row.
+ * This intentionally uses the existing manual-payment provider path
+ * (`unknown`) so the database's confirmed-payment trigger does not invent a
+ * processor settlement rule for a manually uploaded receipt.
+ */
+export async function finalizeSportCenterBookingPayment(params: {
+  saved: SavedBooking;
+  canonicalBookingId: number;
+  publicBookingId: number;
+  paymentMethod: string;
+  paymentProofUrl: string;
+  notes?: string | null;
+}): Promise<{ paymentId: number }> {
+  const pool = supabasePool;
+  if (!pool) throw new Error("Database Sport Center tidak tersedia");
+  if (!params.paymentProofUrl.trim()) {
+    throw new Error("URL bukti pembayaran wajib diisi");
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const bookingResult = await client.query<{
+      id: number;
+      facility_id: number;
+      order_number: string;
+      total_price: string | number | null;
+    }>(
+      `SELECT id, facility_id, order_number, total_price
+         FROM sport_center.sport_bookings
+        WHERE id = $1
+        FOR UPDATE`,
+      [params.canonicalBookingId],
+    );
+    const booking = bookingResult.rows[0];
+    if (!booking) {
+      throw new Error(`Canonical booking ${params.canonicalBookingId} tidak ditemukan`);
+    }
+
+    const publicBookingResult = await client.query<{
+      id: number;
+      sc_booking_id: number | null;
+    }>(
+      `SELECT id, sc_booking_id
+         FROM public.sport_bookings
+        WHERE id = $1
+        FOR UPDATE`,
+      [params.publicBookingId],
+    );
+    const publicBooking = publicBookingResult.rows[0];
+    if (!publicBooking) {
+      throw new Error(`Public booking ${params.publicBookingId} tidak ditemukan`);
+    }
+    if (
+      publicBooking.sc_booking_id !== null &&
+      Number(publicBooking.sc_booking_id) !== params.canonicalBookingId
+    ) {
+      throw new Error(
+        `Public booking ${params.publicBookingId} tidak cocok dengan canonical booking ${params.canonicalBookingId}`,
+      );
+    }
+    if (publicBooking.sc_booking_id === null) {
+      await client.query(
+        `UPDATE public.sport_bookings
+            SET sc_booking_id = $1, updated_at = NOW()
+          WHERE id = $2`,
+        [params.canonicalBookingId, params.publicBookingId],
+      );
+    }
+
+    const metadataResult = await client.query<{
+      company_id: number | null;
+      bank_account_id: string | null;
+    }>(
+      `SELECT MIN(fcm.company_id)::integer AS company_id,
+              (SELECT ss.bank_account
+                 FROM sport_center.sport_settings ss
+                WHERE NULLIF(BTRIM(ss.bank_account), '') IS NOT NULL
+                ORDER BY ss.id
+                LIMIT 1) AS bank_account_id
+         FROM sport_center.facility_company_mappings fcm
+        WHERE fcm.facility_id = $1
+          AND fcm.is_active = TRUE
+          AND fcm.approval_status = 'OWNER_APPROVED'`,
+      [booking.facility_id],
+    );
+    const metadata = metadataResult.rows[0];
+    if (!metadata?.company_id || !metadata.bank_account_id) {
+      throw new Error(
+        `Metadata payment belum lengkap untuk facility ${booking.facility_id}`,
+      );
+    }
+
+    const paymentData = {
+      amount: Number(booking.total_price ?? params.saved.totalPrice ?? 0),
+      proofUrl: params.paymentProofUrl.trim(),
+      paymentMethod: params.paymentMethod.trim(),
+      companyId: metadata.company_id,
+      bankAccountId: metadata.bank_account_id.trim(),
+      providerId: `mini-form:${booking.order_number}`,
+      note:
+        params.notes?.trim() ||
+        "Auto-confirmed dari upload bukti pembayaran mini-form",
+    };
+
+    const existingPaymentResult = await client.query<{ id: number }>(
+      `SELECT id
+         FROM sport_center.sport_payments
+        WHERE booking_id = $1
+        ORDER BY id DESC
+        LIMIT 1
+        FOR UPDATE`,
+      [params.canonicalBookingId],
+    );
+
+    let paymentId: number;
+    if (existingPaymentResult.rows[0]) {
+      paymentId = existingPaymentResult.rows[0].id;
+      await client.query(
+        `UPDATE sport_center.sport_payments
+            SET amount = $1,
+                proof_url = $2,
+                payment_method = $3,
+                status = 'confirmed',
+                confirmed_at = NOW(),
+                paid_at = NOW(),
+                company_id = $4,
+                payment_provider = 'unknown',
+                provider_name = 'manual',
+                provider_id = $5,
+                bank_account_id = $6,
+                notes = $7,
+                updated_at = NOW()
+          WHERE id = $8`,
+        [
+          paymentData.amount,
+          paymentData.proofUrl,
+          paymentData.paymentMethod,
+          paymentData.companyId,
+          paymentData.providerId,
+          paymentData.bankAccountId,
+          paymentData.note,
+          paymentId,
+        ],
+      );
+    } else {
+      const insertedPayment = await client.query<{ id: number }>(
+        `INSERT INTO sport_center.sport_payments
+           (booking_id, amount, proof_url, payment_method, status,
+            confirmed_at, paid_at, company_id, payment_provider,
+            provider_name, provider_id, bank_account_id, payment_type, notes)
+         VALUES ($1,$2,$3,$4,'confirmed',NOW(),NOW(),$5,'unknown',
+                 'manual',$6,$7,'full_payment',$8)
+         RETURNING id`,
+        [
+          params.canonicalBookingId,
+          paymentData.amount,
+          paymentData.proofUrl,
+          paymentData.paymentMethod,
+          paymentData.companyId,
+          paymentData.providerId,
+          paymentData.bankAccountId,
+          paymentData.note,
+        ],
+      );
+      paymentId = insertedPayment.rows[0]!.id;
+    }
+
+    // "completed" is the requested booking status after a valid proof upload.
+    // Keep all three Sport Center booking representations aligned.
+    await client.query(
+      `UPDATE sport_center.sport_bookings
+          SET status = 'completed',
+              payment_required_now = FALSE,
+              billing_status = 'paid',
+              paid_at = NOW(),
+              completed_at = COALESCE(completed_at, NOW()),
+              updated_at = NOW()
+        WHERE id = $1`,
+      [params.canonicalBookingId],
+    );
+    await client.query(
+      `UPDATE public.sport_bookings
+          SET status = 'completed',
+              payment_status = 'paid',
+              updated_at = NOW()
+        WHERE id = $1`,
+      [params.publicBookingId],
+    );
+    const legacyBooking = await client.query<{ id: number }>(
+      `UPDATE public.sport_center_bookings
+          SET status = 'completed',
+              payment_status = 'paid',
+              payment_proof_url = $1,
+              updated_at = NOW()
+        WHERE booking_number = $2
+        RETURNING id`,
+      [paymentData.proofUrl, booking.order_number],
+    );
+    if (!legacyBooking.rows[0]) {
+      throw new Error(
+        `Legacy booking ${booking.order_number} tidak ditemukan saat finalisasi`,
+      );
+    }
+
+    await client.query("COMMIT");
+    logger.info(
+      {
+        bookingNumber: booking.order_number,
+        canonicalBookingId: params.canonicalBookingId,
+        publicBookingId: params.publicBookingId,
+        paymentId,
+      },
+      "Sport Center mini-form booking/payment finalized",
+    );
+    return { paymentId };
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    logger.error({ err, bookingId: params.canonicalBookingId }, "Sport Center mini-form finalization failed");
+    throw err;
+  } finally {
+    client.release();
   }
 }
 
