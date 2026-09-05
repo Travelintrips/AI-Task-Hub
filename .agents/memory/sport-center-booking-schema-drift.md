@@ -18,3 +18,11 @@ Manual payment proofs still require a non-null `sport_center.sport_payments.prov
 **Why:** a real mini-form submission reached the bridge successfully but payment insert failed on the provider-order constraint, leaving the booking in an intermediate approval state.
 
 **How to apply:** whenever adding or changing manual-payment inserts, satisfy every NOT NULL provider metadata field before updating booking status, and keep the proof-upload finalization idempotent.
+
+## Strict payment-proof OCR
+
+Payment proofs are OCR-validated before the field-booking task/payment is created: the document must be recognized as a payment proof, confidence must be at least 0.65, the amount must be readable, and it must match the booking total. Valid OCR is persisted to the nullable `ocr_name`, `ocr_amount`, `ocr_date`, `ocr_raw`, and `ocr_data` columns.
+
+**Why:** the owner selected strict validation so unreadable or invalid receipts cannot auto-confirm a booking.
+
+**How to apply:** keep OCR failure user-visible and leave the session retryable; do not mark payment or booking confirmed until the OCR gate passes. Scanned PDFs without selectable text require a clearer image or a future PDF-rendering fallback.

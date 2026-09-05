@@ -52,12 +52,17 @@ import { sendFonnte, sendFonnteDocument } from "../lib/fonnte";
 import {
   saveSportCenterBooking,
   extractDurationHours,
+  calcTotalPrice,
   bridgeToSportBookings,
   finalizeSportCenterBookingPayment,
   getAvailableSportCenterStartTimes,
   getSportCenterFacilityOptions,
   getSportCenterPaymentSettings,
 } from "../lib/sport-center-availability";
+import {
+  extractPaymentProofOcr,
+  type PaymentProofOcrResult,
+} from "../lib/payment-proof-ocr";
 import { supabaseQuery } from "../lib/supabase-db";
 import { getAccessibleUrl, extractStoragePath } from "../lib/supabase";
 import { validateDocument } from "../lib/document-validation-engine";
@@ -502,6 +507,31 @@ router.post(
         }
       }
 
+      let paymentProofOcr: PaymentProofOcrResult | null = null;
+      if (isComplete && type.replace(/_/g, "-") === "field-booking") {
+        const paymentProofUrl = String(merged.payment_proof ?? "").trim();
+        const expectedAmount = calcTotalPrice(
+          String(merged.field_type ?? merged.field_name ?? ""),
+          extractDurationHours(merged),
+        );
+        paymentProofOcr = await extractPaymentProofOcr({
+          fileUrl: paymentProofUrl,
+          expectedAmount,
+        });
+        if (!paymentProofOcr.valid) {
+          res.status(422).json({
+            ok: false,
+            isComplete: false,
+            message:
+              `Bukti pembayaran tidak lolos validasi OCR: ` +
+              `${paymentProofOcr.failureReason ?? "hasil OCR tidak valid"}. ` +
+              "Silakan unggah bukti transfer yang lebih jelas.",
+            missingFields: ["payment_proof"],
+          });
+          return;
+        }
+      }
+
       let taskId: number | null = null;
       let taskNumber: string | null = null;
       // Diisi saat attachment diproses dan dibaca saat membentuk response akhir.
@@ -609,6 +639,7 @@ router.post(
                 publicBookingId: bridged.publicBookingId,
                 paymentMethod,
                 paymentProofUrl,
+                paymentProofOcr: paymentProofOcr ?? undefined,
                 notes: String(merged.notes ?? "").trim() || null,
               });
             }

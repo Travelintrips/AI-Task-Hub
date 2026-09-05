@@ -11,6 +11,10 @@
 
 import { supabasePool, supabaseQuery, supabaseQueryStrict } from "./supabase-db";
 import { logger } from "./logger";
+import {
+  extractPaymentProofOcr,
+  type PaymentProofOcrResult,
+} from "./payment-proof-ocr";
 
 // ── Intent detection ───────────────────────────────────────────────────────────
 
@@ -1121,12 +1125,25 @@ export async function finalizeSportCenterBookingPayment(params: {
   publicBookingId: number;
   paymentMethod: string;
   paymentProofUrl: string;
+  paymentProofOcr?: PaymentProofOcrResult;
   notes?: string | null;
 }): Promise<{ paymentId: number }> {
   const pool = supabasePool;
   if (!pool) throw new Error("Database Sport Center tidak tersedia");
   if (!params.paymentProofUrl.trim()) {
     throw new Error("URL bukti pembayaran wajib diisi");
+  }
+
+  const paymentProofOcr =
+    params.paymentProofOcr ??
+    (await extractPaymentProofOcr({
+      fileUrl: params.paymentProofUrl.trim(),
+      expectedAmount: Number(params.saved.totalPrice),
+    }));
+  if (!paymentProofOcr.valid) {
+    throw new Error(
+      `Bukti pembayaran gagal divalidasi OCR: ${paymentProofOcr.failureReason ?? "hasil OCR tidak valid"}`,
+    );
   }
 
   const client = await pool.connect();
@@ -1244,6 +1261,11 @@ export async function finalizeSportCenterBookingPayment(params: {
                  provider_id = $5,
                  bank_account_id = $6,
                  notes = $7,
+                 ocr_name = $9,
+                 ocr_amount = $10,
+                 ocr_date = $11,
+                 ocr_raw = $12,
+                 ocr_data = $13,
                  updated_at = NOW()
            WHERE id = $8`,
         [
@@ -1255,6 +1277,11 @@ export async function finalizeSportCenterBookingPayment(params: {
           paymentData.bankAccountId,
           paymentData.note,
           paymentId,
+          paymentProofOcr.payerName,
+          paymentProofOcr.amount,
+          paymentProofOcr.transactionDate,
+          paymentProofOcr.rawText,
+          JSON.stringify(paymentProofOcr.data),
         ],
       );
     } else {
@@ -1263,9 +1290,10 @@ export async function finalizeSportCenterBookingPayment(params: {
             (booking_id, amount, proof_url, payment_method, status,
             confirmed_at, paid_at, company_id, payment_provider,
              provider_name, provider_order_id, provider_id, bank_account_id,
-             payment_type, notes)
+             payment_type, notes, ocr_name, ocr_amount, ocr_date, ocr_raw,
+             ocr_data)
          VALUES ($1,$2,$3,$4,'confirmed',NOW(),NOW(),$5,'unknown',
-                  'manual',$6,$6,$7,'full_payment',$8)
+                  'manual',$6,$6,$7,'full_payment',$8,$9,$10,$11,$12,$13)
          RETURNING id`,
         [
           params.canonicalBookingId,
@@ -1276,6 +1304,11 @@ export async function finalizeSportCenterBookingPayment(params: {
           paymentData.providerId,
           paymentData.bankAccountId,
           paymentData.note,
+          paymentProofOcr.payerName,
+          paymentProofOcr.amount,
+          paymentProofOcr.transactionDate,
+          paymentProofOcr.rawText,
+          JSON.stringify(paymentProofOcr.data),
         ],
       );
       paymentId = insertedPayment.rows[0]!.id;
