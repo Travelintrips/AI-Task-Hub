@@ -1049,7 +1049,7 @@ export async function bridgeToSportBookings(params: {
           payment_deadline, payment_required_now)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10,0,
                 $11,$12,$13,$14,
-                'confirmed','wa',$15,$16,false)
+                'pending_payment','wa',$15,$16,false)
        ON CONFLICT (order_number) DO NOTHING
        RETURNING id`,
       [
@@ -1106,11 +1106,9 @@ export async function bridgeToSportBookings(params: {
            status, payment_status, base_amount, discount_amount, total_amount,
            tax_rate, tax_amount, notes, sc_booking_id)
        VALUES (1,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
-                'confirmed','paid',$11,0,$11,$12,$13,$14,$15)
+                'pending','unpaid',$11,0,$11,$12,$13,$14,$15)
        ON CONFLICT (booking_number) DO UPDATE
          SET sc_booking_id = COALESCE(public.sport_bookings.sc_booking_id, EXCLUDED.sc_booking_id),
-              status = 'confirmed',
-              payment_status = 'paid',
              updated_at = NOW()
        RETURNING id`,
       [
@@ -1159,9 +1157,8 @@ export async function bridgeToSportBookings(params: {
  * Finalize a field booking submitted through the mini-form.
  *
  * The uploaded proof URL is stored as metadata in the canonical payment row.
- * This intentionally uses the existing manual-payment provider path
- * (`unknown`) so the database's confirmed-payment trigger does not invent a
- * processor settlement rule for a manually uploaded receipt.
+ * Manual proof uploads still need a real provider code because the database
+ * trigger resolves the payment against an owner-approved settlement rule.
  */
 export async function finalizeSportCenterBookingPayment(params: {
   saved: SavedBooking;
@@ -1299,8 +1296,8 @@ export async function finalizeSportCenterBookingPayment(params: {
                 confirmed_at = NOW(),
                 paid_at = NOW(),
                 company_id = $4,
-                payment_provider = 'unknown',
-                provider_name = 'manual',
+                 payment_provider = 'mandiri_direct',
+                 provider_name = 'mandiri_direct',
                  provider_order_id = $5,
                  provider_id = $5,
                  bank_account_id = $6,
@@ -1336,8 +1333,8 @@ export async function finalizeSportCenterBookingPayment(params: {
              provider_name, provider_order_id, provider_id, bank_account_id,
              payment_type, notes, ocr_name, ocr_amount, ocr_date, ocr_raw,
              ocr_data)
-         VALUES ($1,$2,$3,$4,'confirmed',NOW(),NOW(),$5,'unknown',
-                  'manual',$6,$6,$7,'full_payment',$8,$9,$10,$11,$12,$13)
+          VALUES ($1,$2,$3,$4,'confirmed',NOW(),NOW(),$5,'mandiri_direct',
+                   'mandiri_direct',$6,$6,$7,'full_payment',$8,$9,$10,$11,$12,$13)
          RETURNING id`,
         [
           params.canonicalBookingId,
