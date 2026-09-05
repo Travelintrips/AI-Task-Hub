@@ -17,6 +17,49 @@ function normalizeSportCenterDuration(value: unknown): string {
   return SPORT_CENTER_DURATION_OPTIONS.includes(duration) ? duration : "1 jam";
 }
 
+function getSportCenterPricePerHour(fieldType: string): number {
+  const normalized = fieldType.toLowerCase().trim();
+  if (normalized.includes("gym")) return 50_000;
+  if (normalized.includes("billiard")) return 50_000;
+  if (normalized.includes("badminton")) return 100_000;
+  if (normalized.includes("tenis") || normalized.includes("tennis")) {
+    return 100_000;
+  }
+  if (
+    normalized.includes("multi guna") ||
+    normalized.includes("futsal") ||
+    normalized.includes("basket") ||
+    normalized.includes("voli")
+  ) {
+    return 350_000;
+  }
+  return 100_000;
+}
+
+function getSportCenterDurationHours(duration: string): number {
+  const normalized = duration.toLowerCase().trim();
+  if (normalized === "2 jam") return 2;
+  if (normalized === "3 jam") return 3;
+  // Keep this aligned with the API's current fallback for "Full Day".
+  return 1;
+}
+
+function formatSportCenterDate(value: string): string {
+  if (!value) return "-";
+  const parsed = new Date(`${value}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return new Intl.DateTimeFormat("id-ID", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(parsed);
+}
+
+function formatRupiah(value: number): string {
+  return `Rp ${value.toLocaleString("id-ID")}`;
+}
+
 async function apiFetch(path: string, init?: RequestInit) {
   const res = await fetch(`${BASE}/api${path}`, {
     cache: "no-store",
@@ -170,6 +213,40 @@ function SportCenterPaymentDetails({
   }
 
   return null;
+}
+
+function SportCenterBookingSummary({
+  fieldType,
+  bookingDate,
+  duration,
+}: {
+  fieldType: string;
+  bookingDate: string;
+  duration: string;
+}) {
+  const totalPrice =
+    getSportCenterPricePerHour(fieldType) *
+    getSportCenterDurationHours(duration);
+
+  return (
+    <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3">
+      <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-indigo-500">
+        Ringkasan Booking
+      </p>
+      <div className="grid grid-cols-[88px_1fr] gap-x-3 gap-y-1 text-sm">
+        <span className="text-gray-500">Fasilitas</span>
+        <span className="font-medium text-gray-800">{fieldType || "-"}</span>
+        <span className="text-gray-500">Tanggal</span>
+        <span className="font-medium text-gray-800">
+          {formatSportCenterDate(bookingDate)}
+        </span>
+        <span className="text-gray-500">Total</span>
+        <span className="font-semibold text-indigo-700">
+          {formatRupiah(totalPrice)}
+        </span>
+      </div>
+    </div>
+  );
 }
 
 function Spinner() {
@@ -864,10 +941,17 @@ export default function MiniFormPage() {
                      {isFieldBookingForm &&
                        field.name === "payment_method" &&
                        selectedPaymentMethod && (
-                         <SportCenterPaymentDetails
-                           method={selectedPaymentMethod}
-                           settings={data.paymentSettings}
-                         />
+                          <>
+                            <SportCenterPaymentDetails
+                              method={selectedPaymentMethod}
+                              settings={data.paymentSettings}
+                            />
+                            <SportCenterBookingSummary
+                              fieldType={selectedFieldType}
+                              bookingDate={selectedBookingDate}
+                              duration={selectedDuration}
+                            />
+                          </>
                        )}
                   </div>
                 );
