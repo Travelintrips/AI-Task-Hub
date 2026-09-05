@@ -1029,7 +1029,12 @@ async function runAiDetection({
         isFormMenuReply &&
         (isButtonIdClick || formSentSession !== null || recentSession !== null) &&
         // "1" terlalu ambigu tanpa konteks sesi — hanya aktifkan jika ada sesi
-        (!isOption0 || formSentSession !== null || recentSession !== null);
+        (!isOption0 || formSentSession !== null || recentSession !== null) &&
+        // A customer who is actively answering a collecting intake session
+        // must be allowed to use "1" as that flow's answer (e.g. facility
+        // number 1 in the Sport Center menu). A stale form_sent session must
+        // not hijack the reply and resend an unrelated form.
+        (!isOption0 || !activeSession || isButtonIdClick);
       // Sumber intentCode/category terbaik untuk routing Hubungi Agent
       const sessionForAgent = formSentSession ?? recentSession;
 

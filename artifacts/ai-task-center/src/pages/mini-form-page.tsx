@@ -625,6 +625,34 @@ export default function MiniFormPage() {
     enabled: isPreview ? !!(templateId || token) : !!(type && token),
   });
 
+  // Hydrate the controlled form state from the WhatsApp intake session as
+  // soon as the session data arrives. Sport Center sessions historically used
+  // both field_name and field_type for "Jenis Lapangan"; normalize that alias
+  // here so a numbered WhatsApp choice is not merely displayed as a fallback
+  // value, but is also present in the submitted form state.
+  useEffect(() => {
+    if (!data?.collectedFields) return;
+
+    setValues((previous) => {
+      const next = { ...previous };
+      let changed = false;
+
+      for (const [key, rawValue] of Object.entries(data.collectedFields)) {
+        if (rawValue === null || rawValue === undefined || rawValue === "") continue;
+        const normalizedKey =
+          !isPreview && type?.replace(/_/g, "-") === "field-booking" && key === "field_name"
+            ? "field_type"
+            : key;
+        if (!next[normalizedKey]) {
+          next[normalizedKey] = String(rawValue);
+          changed = true;
+        }
+      }
+
+      return changed ? next : previous;
+    });
+  }, [data, isPreview, type]);
+
   const selectedFieldType =
     values.field_type ??
     String(data?.collectedFields?.field_type ?? data?.collectedFields?.field_name ?? "");
