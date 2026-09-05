@@ -128,7 +128,7 @@ export const MINI_FORM_CONFIGS: Record<string, MiniFormConfig> = {
     title: "Form Pemesanan Lapangan",
     description: "Isi data pemesanan lapangan olahraga Anda",
     waMessageTemplate:
-      "Halo! Untuk mempercepat proses booking lapangan, mohon isi form berikut:\n\n{mini_form_url}\n\nSetelah form dikirim, tim kami akan segera mengkonfirmasi ketersediaan lapangan. Terima kasih!",
+      "Halo! Untuk mempercepat proses booking lapangan, mohon isi form berikut:\n\n{mini_form_url}\n\nSetelah form dikirim, booking Anda akan otomatis dikonfirmasi oleh sistem. Detail booking akan kami kirimkan setelah proses berhasil. Terima kasih!",
     fields: [
       { name: "booker_name",    label: "Nama Pemesan",          type: "text",     required: true,  placeholder: "Budi Santoso" },
       { name: "phone",          label: "Nomor WhatsApp",        type: "text",     required: true,  placeholder: "08123456789" },
