@@ -1007,7 +1007,7 @@ export async function bridgeToSportBookings(params: {
           status, source, notes,
           payment_deadline, payment_required_now)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10,0,
-               'waiting_admin_approval','wa',$11,$12,true)
+               'confirmed','wa',$11,$12,false)
        ON CONFLICT (order_number) DO NOTHING
        RETURNING id`,
       [
@@ -1054,15 +1054,17 @@ export async function bridgeToSportBookings(params: {
   let publicBookingId: number | null = null;
   try {
     const rows = await supabaseQueryStrict<{ id: number }>(
-      `INSERT INTO public.sport_bookings
+       `INSERT INTO public.sport_bookings
          (company_id, booking_number, customer_name, customer_phone, customer_email,
           facility_id, facility_name, booking_date, start_time, end_time, duration_hours,
           status, payment_status, base_amount, discount_amount, total_amount,
           notes, sc_booking_id)
        VALUES (1,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
-               'pending','unpaid',$11,0,$11,$12,$13)
+                'confirmed','paid',$11,0,$11,$12,$13)
        ON CONFLICT (booking_number) DO UPDATE
          SET sc_booking_id = COALESCE(public.sport_bookings.sc_booking_id, EXCLUDED.sc_booking_id),
+              status = 'confirmed',
+              payment_status = 'paid',
              updated_at = NOW()
        RETURNING id`,
       [
@@ -1232,17 +1234,18 @@ export async function finalizeSportCenterBookingPayment(params: {
             SET amount = $1,
                 proof_url = $2,
                 payment_method = $3,
-                status = 'confirmed',
+                 status = 'confirmed',
                 confirmed_at = NOW(),
                 paid_at = NOW(),
                 company_id = $4,
                 payment_provider = 'unknown',
                 provider_name = 'manual',
-                provider_id = $5,
-                bank_account_id = $6,
-                notes = $7,
-                updated_at = NOW()
-          WHERE id = $8`,
+                 provider_order_id = $5,
+                 provider_id = $5,
+                 bank_account_id = $6,
+                 notes = $7,
+                 updated_at = NOW()
+           WHERE id = $8`,
         [
           paymentData.amount,
           paymentData.proofUrl,
@@ -1257,11 +1260,12 @@ export async function finalizeSportCenterBookingPayment(params: {
     } else {
       const insertedPayment = await client.query<{ id: number }>(
         `INSERT INTO sport_center.sport_payments
-           (booking_id, amount, proof_url, payment_method, status,
+            (booking_id, amount, proof_url, payment_method, status,
             confirmed_at, paid_at, company_id, payment_provider,
-            provider_name, provider_id, bank_account_id, payment_type, notes)
+             provider_name, provider_order_id, provider_id, bank_account_id,
+             payment_type, notes)
          VALUES ($1,$2,$3,$4,'confirmed',NOW(),NOW(),$5,'unknown',
-                 'manual',$6,$7,'full_payment',$8)
+                  'manual',$6,$6,$7,'full_payment',$8)
          RETURNING id`,
         [
           params.canonicalBookingId,
@@ -1277,11 +1281,11 @@ export async function finalizeSportCenterBookingPayment(params: {
       paymentId = insertedPayment.rows[0]!.id;
     }
 
-    // "completed" is the requested booking status after a valid proof upload.
+    // "confirmed" is the requested booking status after a valid proof upload.
     // Keep all three Sport Center booking representations aligned.
     await client.query(
       `UPDATE sport_center.sport_bookings
-          SET status = 'completed',
+           SET status = 'confirmed',
               payment_required_now = FALSE,
               billing_status = 'paid',
               paid_at = NOW(),
@@ -1292,7 +1296,7 @@ export async function finalizeSportCenterBookingPayment(params: {
     );
     await client.query(
       `UPDATE public.sport_bookings
-          SET status = 'completed',
+           SET status = 'confirmed',
               payment_status = 'paid',
               updated_at = NOW()
         WHERE id = $1`,
@@ -1300,7 +1304,7 @@ export async function finalizeSportCenterBookingPayment(params: {
     );
     const legacyBooking = await client.query<{ id: number }>(
       `UPDATE public.sport_center_bookings
-          SET status = 'completed',
+           SET status = 'confirmed',
               payment_status = 'paid',
               payment_proof_url = $1,
               updated_at = NOW()
