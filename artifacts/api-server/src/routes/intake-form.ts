@@ -549,6 +549,9 @@ router.post(
         failed: number;
         errors: string[];
       } | null = null;
+      // Reuse the amount persisted with the Sport Center booking in both
+      // WhatsApp summaries so they cannot drift apart.
+      let sportCenterTotalPrice: number | null = null;
 
       if (isComplete) {
         const now = new Date();
@@ -619,6 +622,7 @@ router.post(
             if (isFieldBookingForm) throw e;
             return null;
           });
+          sportCenterTotalPrice = savedFormBooking?.totalPrice ?? null;
 
           // Bridge ke tabel Sport Center canonical/public. Untuk field-booking,
           // payment dan status booking harus diselesaikan setelah bridge selesai,
@@ -661,6 +665,7 @@ router.post(
             taskNumber,
             phone: session.phone,
             fields: merged,
+            totalPrice: sportCenterTotalPrice,
           });
           await sendFonnte(session.phone, customerMsg).catch((e) =>
             logger.warn(
@@ -846,6 +851,7 @@ router.post(
               volume: "Volume (m³)",
               incoterm: "Incoterm",
               shipment_mode: "Moda Pengiriman",
+               total_price: "Total",
             };
 
             // Field yang dikecualikan dari ringkasan teks utama:
@@ -890,6 +896,7 @@ router.post(
                   ["start_time", merged.start_time],
                   ["end_time", merged.end_time],
                   ["payment_method", merged.payment_method],
+                   ["total_price", sportCenterTotalPrice],
                   ["notes", merged.notes],
                 ]
               : Object.entries(merged).slice(0, 20);
@@ -906,7 +913,10 @@ router.post(
               })
               .map(([k, v]) => {
                 const label = fieldLabelMap[k] ?? k;
-                const displayValue = String(v ?? "").trim() || "-";
+                const displayValue =
+                  k === "total_price" && v != null && Number.isFinite(Number(v))
+                    ? `Rp ${Number(v).toLocaleString("id-ID")}`
+                    : String(v ?? "").trim() || "-";
                 return `• ${label}: ${displayValue}`;
               })
               .join("\n");
@@ -1323,8 +1333,13 @@ function buildFieldBookingCustomerMessage(params: {
   taskNumber: string;
   phone: string;
   fields: Record<string, unknown>;
+  totalPrice?: number | null;
 }): string {
   const get = (key: string) => String(params.fields[key] ?? "").trim() || "-";
+  const total =
+    params.totalPrice != null
+      ? `Rp ${params.totalPrice.toLocaleString("id-ID")}`
+      : "-";
   const details = [
     ["Nama Pemesan", get("booker_name")],
     ["Jenis Lapangan", get("field_type") !== "-" ? get("field_type") : get("field_name")],
@@ -1333,6 +1348,7 @@ function buildFieldBookingCustomerMessage(params: {
     ["Jam Mulai", get("start_time")],
     ["Jam Selesai", get("end_time")],
     ["Metode Pembayaran", get("payment_method")],
+    ["Total", total],
     ["Catatan", get("notes")],
   ]
     .map(([label, value]) => `* ${label}: ${value}`)
