@@ -1885,16 +1885,15 @@ async function runAiDetection({
       previousIntents: parsedPrevIntents,
     }, savedMsgId);
 
-    // ── Sport Center booking: ALWAYS conversation-first (never send form immediately) ──
-    // Even if hasMissingFields=false or intake_mode="mini_form" in DB, we must:
-    //   1. Ask: lapangan apa, tanggal berapa, jam berapa?
-    //   2. Check availability via sport-center-availability gate
-    //   3. Show slot result + ask user to confirm with "ya"
-    //   4. Ask booker name + phone
-    //   5. THEN send the mini-form link
+    // ── Sport Center booking: choose facility, then continue in mini form ─────
+    // The facility menu is handled by the intake engine. Once the customer
+    // selects a numbered facility, the engine stores that exact name and
+    // returns send_form so the public form opens with "Jenis Lapangan"
+    // pre-filled. Other sport-center messages still use the existing intake
+    // and availability flow.
     const isGenInquiryIntent = result.intent === "general_inquiry";
     if (!isGenInquiryIntent && result._resolution && isSportCenterBookingIntent(result.intent)) {
-      logger.info({ from, intent: result.intent }, "Sport Center booking detected — forcing conversation-first flow");
+      logger.info({ from, intent: result.intent }, "Sport Center booking detected — starting facility-selection intake flow");
 
       // Safety guard: re-check for an active session here. The initial check at
       // Step 0 (line ~559) might have returned null due to a race condition or

@@ -1,7 +1,7 @@
 /**
  * Sport Center Availability Engine
  *
- * Checks field booking availability before sending the mini-form.
+ * Supplies availability checks for the field-booking mini-form.
  * Flow:
  *   1. User provides field_type + booking_date + start_time
  *   2. We query sport_center_bookings for conflicts

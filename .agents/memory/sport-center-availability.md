@@ -1,15 +1,14 @@
 ---
 name: Sport Center Availability Check
-description: Pre-form availability check for booking_lapangan intents; table, gate logic, and flow details.
+description: Availability behavior for booking_lapangan intents, including the mini-form flow and table details.
 ---
 
 ## What was built
 For sport center booking intents (booking_lapangan, sport_center_booking, field_booking), the WA AI now:
-1. Asks for field_type + booking_date + start_time (normal intake flow)
-2. Runs `checkSportCenterAvailability()` once all three are present
-3. Replies with ✅ available (asks "balas ya") OR ❌ unavailable (shows free slots)
-4. Waits for user confirmation ("ya"/"oke"/etc.) before sending form link
-5. If user changes date/time at any point → re-runs availability check (resets `_avail_confirmed`)
+1. Shows the active facility menu.
+2. Sends the field-booking mini-form immediately after a numbered/named facility is selected.
+3. Hydrates the form's `Jenis Lapangan` field from the exact selected facility name.
+4. The public form performs the availability check while the customer chooses a date/time.
 
 ## New table: sport_center_bookings
 Created via `runCoreMigrations()` in `artifacts/api-server/src/app.ts`:
@@ -117,7 +116,7 @@ session lama dapat menyimpan kedua alias lapangan sekaligus.
 **How to apply:** Bangun ringkasan booking dari daftar field terurut, bukan langsung
 dari `Object.entries(merged)`.
 
-**Why:** User requirement: AI should check availability before sending form, not immediately send form link when "Booking Lapangan Olahraga" is received.
+**Why:** The customer selects a concrete facility first; the form owns the remaining booking details and availability check, so WhatsApp no longer asks for those fields before showing the form.
 
 ## Fix: wait-message ordering + booker name in confirmation (2026-07-06)
 - Bug: the "Mohon ditunggu, kami cek dulu..." text was returned as `preReply` alongside `replyToUser` in the SAME IntakeResult, so it was only ever displayed by the caller AFTER the (already-completed) availability check — never truly sent first.

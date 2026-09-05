@@ -1861,6 +1861,11 @@ export async function processIntakeMessage({
   const completeness = calculateCompleteness(requiredFieldNames, newCollected, session.intentCode);
   const isComplete = completeness.isReady;
   const hasTemplateFields = dataFields.length > 0;
+  const isDirectSportCenterFacilitySelection =
+    isSportCenterBookingIntent(session.intentCode) &&
+    Boolean(menuLapangan || namedLapangan) &&
+    Boolean(session.miniFormType) &&
+    session.status !== "form_sent";
 
   // Write audit log for field collection
   try {
@@ -1883,6 +1888,40 @@ export async function processIntakeMessage({
   } catch { /* non-fatal */ }
 
   const now = new Date();
+
+  // A numbered facility choice is an explicit request to continue in the
+  // field-booking form. Send that form immediately and let the public form
+  // collect date, time, duration, payment, and name. The selected facility is
+  // already in newCollected, so the form can hydrate "Jenis Lapangan".
+  if (isDirectSportCenterFacilitySelection) {
+    const [updated] = await db
+      .update(intakeSessionsTable)
+      .set({
+        status:           "form_sent",
+        collectedFields:  newCollected,
+        missingFields:    stillMissing,
+        requiredFields:   requiredFieldNames,
+        requiredDocuments: stillMissingDocs,
+        uploadedDocuments: uploadedDocs,
+        completionPct:    String(completeness.completionPct),
+        lastMessage:      message,
+        lastMessageAt:    now,
+        updatedAt:        now,
+        expiresAt:        new Date(Date.now() + 24 * 60 * 60 * 1000),
+      })
+      .where(eq(intakeSessionsTable.id, session.id))
+      .returning();
+
+    return {
+      action: "send_form",
+      session: updated!,
+      replyToUser: "",
+      collectedFields: newCollected,
+      missingFields: stillMissing,
+      requiredDocuments: stillMissingDocs,
+      formType: session.miniFormType!,
+    };
+  }
 
   // ── 6-SPORT: Sport Center availability gate ────────────────────────────────
   // Runs for booking_lapangan / sport_center_booking intents BEFORE the
