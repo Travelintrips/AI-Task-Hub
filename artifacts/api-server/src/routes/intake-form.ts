@@ -654,6 +654,22 @@ router.post(
           }
         }
 
+        // Kirim ringkasan langsung ke customer tanpa bergantung pada konfigurasi
+        // penerima notifikasi grup. File bukti tidak dikirim ulang ke customer.
+        if (type.replace(/_/g, "-") === "field-booking") {
+          const customerMsg = buildFieldBookingCustomerMessage({
+            taskNumber,
+            phone: session.phone,
+            fields: merged,
+          });
+          await sendFonnte(session.phone, customerMsg).catch((e) =>
+            logger.warn(
+              { e, phone: session.phone, taskNumber },
+              "intake-form: WA ringkasan ke customer gagal",
+            ),
+          );
+        }
+
         await createAdminNotification({
           type: "new_inquiry",
           title: `📋 Mini Form Disubmit — ${formCfg.title}`,
@@ -816,7 +832,7 @@ router.post(
               end_time: "Jam Selesai",
               durasi: "Durasi Sewa",
               payment_method: "Metode Pembayaran",
-              payment_proof: "Upload Bukti Pembayaran",
+              payment_proof: "Bukti Pembayaran",
               notes: "Catatan",
               contact_person: "Nama Kontak",
               contact_phone: "No. Kontak",
@@ -835,8 +851,7 @@ router.post(
             // Field yang dikecualikan dari ringkasan teks utama:
             // - phone: sudah tampil di baris "Pelanggan:" di header notifikasi
             // - uploaded_document:... : kunci sintetis yang ditambahkan oleh loop di bawah
-            // CATATAN: File field URL TIDAK lagi dikecualikan — ditampilkan di bagian
-            // "Dokumen Terlampir:" sebagai teks sekaligus juga dicoba kirim sebagai attachment.
+            // File field URL tidak masuk ke detail utama; file dikirim sebagai attachment.
             const SKIP_SUMMARY_KEYS = new Set(["phone"]);
             const isPublicUrl = (v: unknown): v is string =>
               typeof v === "string" &&
@@ -910,8 +925,7 @@ router.post(
               `No. Task: *${taskNumber}*\n` +
               `Pelanggan: ${session.phone}\n\n` +
               `*Detail Pesanan:*\n${fieldSummaryWa}` +
-              docTextSection +
-              `\n\nMohon Segera Konfirmasi.`;
+              docTextSection;
 
             await Promise.allSettled(
               receivers.map((r) =>
@@ -1083,6 +1097,8 @@ router.post(
                     r.phone,
                     accessibleFileUrl,
                     filename,
+                    undefined,
+                    key === "payment_proof" ? "Bukti Pembayaran" : undefined,
                   ).catch((e: unknown) => {
                     logger.warn(
                       { e, phone: r.phone, key, filename },
@@ -1294,6 +1310,34 @@ router.post(
 );
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+function buildFieldBookingCustomerMessage(params: {
+  taskNumber: string;
+  phone: string;
+  fields: Record<string, unknown>;
+}): string {
+  const get = (key: string) => String(params.fields[key] ?? "").trim() || "-";
+  const details = [
+    ["Nama Pemesan", get("booker_name")],
+    ["Jenis Lapangan", get("field_type") !== "-" ? get("field_type") : get("field_name")],
+    ["Tanggal Main", get("booking_date")],
+    ["Durasi Sewa", get("duration") !== "-" ? get("duration") : get("durasi")],
+    ["Jam Mulai", get("start_time")],
+    ["Jam Selesai", get("end_time")],
+    ["Metode Pembayaran", get("payment_method")],
+    ["Catatan", get("notes")],
+  ]
+    .map(([label, value]) => `* ${label}: ${value}`)
+    .join("\n");
+
+  return (
+    `Pemesanan Lapangan\n` +
+    `No. Task: ${params.taskNumber}\n` +
+    `Pelanggan: ${params.phone}\n\n` +
+    `Detail Pesanan:\n${details}\n\n` +
+    `Terima kasih.`
+  );
+}
 
 function buildTaskTitle(
   type: string,

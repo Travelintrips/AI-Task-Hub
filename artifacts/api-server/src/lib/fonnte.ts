@@ -186,7 +186,10 @@ export async function sendFonnteDocument(
   documentUrl: string,
   filename: string,
   fonnteDevice?: string | null,
+  caption?: string,
 ): Promise<FonnteResult> {
+  const documentCaption = caption ?? filename;
+
   // Grup: coba semua token
   if (to.includes("@g.us")) {
     const allTokens: string[] = [];
@@ -200,7 +203,7 @@ export async function sendFonnteDocument(
     logger.info({ groupJid: to, filename, documentUrl, tokenCount: allTokens.length }, "sendFonnteDocument: mencoba kirim dokumen ke grup");
     let lastError = "Semua device gagal mengirim dokumen ke grup";
     for (const t of allTokens) {
-      const r = await sendDocWithToken(to, documentUrl, filename, t);
+      const r = await sendDocWithToken(to, documentUrl, filename, documentCaption, t);
       if (r.success) {
         logger.info({ groupJid: to, filename, messageId: r.messageId }, "sendFonnteDocument: dokumen berhasil dikirim ke grup");
         return r;
@@ -223,7 +226,7 @@ export async function sendFonnteDocument(
     return { success: false, error: `Nomor tidak valid: ${to}` };
   }
 
-  return sendDocWithToken(phone, documentUrl, filename, token);
+  return sendDocWithToken(phone, documentUrl, filename, documentCaption, token);
 }
 
 /**
@@ -233,16 +236,18 @@ async function sendDocWithToken(
   phone: string,
   documentUrl: string,
   filename: string,
+  caption: string,
   token: string,
 ): Promise<FonnteResult> {
   // Fonnte /send wajib mengisi "message" — tanpa field ini API mengembalikan
   // {"reason":"message cannot empty","status":false} meski ada url+filename.
-  // Pakai nama file sebagai caption dokumen.
+  // Fonnte tetap membutuhkan field message, tetapi caption tidak harus
+  // menampilkan nama file mentah kepada penerima.
   const params = new URLSearchParams({
     target:   phone,
     url:      documentUrl,
     filename: filename,
-    message:  filename,
+    message:  caption,
   });
 
   // Log payload tanpa token untuk debugging
@@ -252,6 +257,7 @@ async function sendDocWithToken(
         target: phone,
         url: documentUrl,
         filename: filename,
+        caption,
         tokenPrefix: token.slice(0, 8) + "…",
       },
     },
