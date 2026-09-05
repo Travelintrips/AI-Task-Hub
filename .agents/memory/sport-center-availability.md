@@ -57,6 +57,20 @@ Jenis Lapangan pada mini-form berasal dari nama unik fasilitas aktif di
 `sport_center.sport_facilities`, bukan daftar olahraga statis dari konfigurasi;
 nama yang dipilih dicocokkan ke `facility_id` spesifik sebelum availability dibaca.
 
+Payment-proof files use the separate Supabase Storage bucket `payment-proofs`, while
+other uploaded documents use `ai-task-center-documents`. Any helper that converts a
+public Storage URL to a signed URL must detect the bucket from the URL and sign
+against that same bucket.
+
+**Why:** Fonnte downloads attachments without the application's Supabase service
+credentials. Signing a payment-proof path against the general document bucket
+produces an unusable URL, so the form can succeed while WhatsApp document delivery
+fails.
+
+**How to apply:** Keep bucket detection and signed-URL generation together in the
+Storage helper; do not assume every `/object/public/...` URL belongs to the default
+document bucket.
+
 **Why:** The public form must not show stale static times, and the imported project
 has separate development and production Supabase connections.
 

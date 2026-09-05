@@ -64,7 +64,11 @@ import {
   type PaymentProofOcrResult,
 } from "../lib/payment-proof-ocr";
 import { supabaseQuery } from "../lib/supabase-db";
-import { getAccessibleUrl, extractStoragePath } from "../lib/supabase";
+import {
+  getAccessibleUrl,
+  extractStorageBucket,
+  extractStoragePath,
+} from "../lib/supabase";
 import { validateDocument } from "../lib/document-validation-engine";
 
 // ── Fallback map: intent code prefix → kategori penerima notifikasi
@@ -1004,16 +1008,28 @@ router.post(
               // getPublicUrl() Supabase SELALU mengembalikan URL bahkan jika bucket private.
               // HEAD check memastikan Fonnte bisa download file tanpa auth.
               const storagePath = extractStoragePath(fileUrl);
+              const storageBucket = extractStorageBucket(fileUrl);
               let accessibleFileUrl = fileUrl;
               let urlMode = "original";
 
               if (storagePath) {
                 try {
-                  const accessible = await getAccessibleUrl(storagePath, fileUrl);
+                  const accessible = await getAccessibleUrl(
+                    storagePath,
+                    fileUrl,
+                    storageBucket ?? undefined,
+                  );
                   accessibleFileUrl = accessible.url;
                   urlMode = accessible.mode;
                   logger.info(
-                    { key, filename, storagePath, urlMode, accessibleFileUrl },
+                    {
+                      key,
+                      filename,
+                      storagePath,
+                      storageBucket,
+                      urlMode,
+                      accessibleFileUrl,
+                    },
                     "intake-form: URL accessibility check selesai",
                   );
                 } catch (accessErr) {

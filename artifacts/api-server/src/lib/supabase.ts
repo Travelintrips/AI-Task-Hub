@@ -103,6 +103,7 @@ export async function getUploadUrl(filename: string, _mimeType: string): Promise
 export async function getAccessibleUrl(
   storagePath: string,
   originalUrl: string,
+  bucketName: string = BUCKET,
 ): Promise<{ url: string; mode: "public" | "signed" | "original" }> {
   if (!supabase) {
     return { url: originalUrl, mode: "original" };
@@ -128,7 +129,7 @@ export async function getAccessibleUrl(
 
   // 2. Fallback: signed URL 7 hari (dapat diakses Fonnte tanpa auth)
   const { data: signedData, error: signedErr } = await supabase.storage
-    .from(BUCKET)
+    .from(bucketName)
     .createSignedUrl(storagePath, 60 * 60 * 24 * 7);
 
   if (!signedErr && signedData?.signedUrl) {
@@ -150,11 +151,30 @@ export async function getAccessibleUrl(
  */
 export function extractStoragePath(publicUrl: string): string | null {
   try {
-    const marker = `/object/public/${BUCKET}/`;
+    const bucketName = extractStorageBucket(publicUrl);
+    if (!bucketName) return null;
+    const marker = `/object/public/${bucketName}/`;
     const idx = publicUrl.indexOf(marker);
     if (idx === -1) return null;
     const pathWithQuery = publicUrl.slice(idx + marker.length);
     return pathWithQuery.split("?")[0] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Return the Supabase Storage bucket encoded in a public object URL.
+ * Payment proofs use a separate bucket from the regular task documents.
+ */
+export function extractStorageBucket(publicUrl: string): string | null {
+  try {
+    for (const bucketName of [BUCKET, PAYMENT_PROOF_BUCKET]) {
+      if (publicUrl.includes(`/object/public/${bucketName}/`)) {
+        return bucketName;
+      }
+    }
+    return null;
   } catch {
     return null;
   }
