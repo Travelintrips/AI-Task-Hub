@@ -1,0 +1,50 @@
+PROMPT: AI Task Center Hybrid Flow & Form Field Check
+
+Context:
+- Sistem saat ini menggunakan mode hybrid: AI Task + Mini Form.
+- User bisa memulai percakapan via WhatsApp, AI menanggapi secara percakapan dan jika perlu mengirim mini form.
+- Backend dan frontend sudah ada, struktur tabel/field tidak boleh diubah.
+- Intent: booking sport center, logistics, PPJK, customs, vendor, cash advance, complaint.
+
+Scenario Example:
+1. User: "Hallo"
+   AI Task: "Halo Robby! Ada yang bisa kami bantu hari ini?"
+
+2. User: "Saya ingin memesan lapangan tenis"
+   AI Task: "Boleh tahu kapan dan berapa durasi jamnya?"
+
+3. User: "Tanggal 30, durasi 3 jam"
+   AI Task: 
+   - Tampilkan jadwal yang sudah ada (booking/pesan)
+   - Tanyakan: "Apakah ingin mengganti jadwal?"
+   - Tunggu jawaban user
+
+4. Setelah user setuju, AI Task mengirim **mini form field** sesuai kategori:
+
+   - Sport Center: tanggal, durasi, facility, customer info, promo
+   - Logistics: origin, destination, item, weight, shipping date, delivery date
+   - PPJK: document type, requestor, cargo, vendor
+   - Customs: HS code, invoice, packing list, quantity, consignee
+   - Vendor: company name, NPWP, NIB, contact, document uploads
+   - Cash Advance: amount, purpose, date
+   - Complaint: issue type, description, photos, affected items
+
+Task:
+1. Simulasikan flow di atas untuk kategori Sport Center, Logistics, PPJK, Customs.
+2. Periksa setiap form field apakah sudah ada di database/data template.
+3. Validasi mapping AI → field, cek missing field, cek tipe data sesuai Supabase.
+4. Identifikasi inkonsistensi intake_mode, field name mismatch, atau field yang tidak terkirim saat WA conversation.
+5. Tampilkan rekomendasi perbaikan untuk field mapping / template / intake_mode agar hybrid flow berjalan mulus.
+6. Jangan mengubah struktur database, hanya validasi, simulasi dan rekomendasi.
+7. Hasilkan output dalam format JSON yang memuat:
+   - flowSimulations: [contoh percakapan + AI response + form sent]
+   - fieldCheck: [field name, category, status: valid/missing/mismatch]
+   - recommendations: [perbaikan saran untuk intake_mode, form fields, mapping]
+
+Constraints:
+- Jangan menulis query SQL apapun.
+- Jangan mengubah table/column.
+- Hanya validasi dan rekomendasi.
+- Simulasikan seperti user test WA real.
+
+End Prompt.

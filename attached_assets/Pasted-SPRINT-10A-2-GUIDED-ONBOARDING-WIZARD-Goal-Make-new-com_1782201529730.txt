@@ -1,0 +1,290 @@
+SPRINT 10A-2 — GUIDED ONBOARDING WIZARD
+
+Goal:
+Make new company setup simple, guided, and non-technical.
+
+Do not change AI core.
+Do not change WhatsApp command router.
+Do not change fleet/purchasing/business logic.
+
+Use existing:
+- GET /api/system/onboarding-status
+- GET /api/system/whatsapp-health
+- GET /api/settings with profileCompletionPct
+- suppliers as vendor master
+- fleet_units as fleet master
+
+====================================================
+A. ONBOARDING ROUTES
+====================================================
+
+Create frontend routes:
+
+/onboarding
+/onboarding/company
+/onboarding/whatsapp
+/onboarding/team
+/onboarding/customer
+/onboarding/vendor
+/onboarding/fleet
+/onboarding/test
+/onboarding/done
+
+All routes require auth.
+
+Only:
+super_admin
+owner
+company_admin
+
+can complete onboarding.
+
+Supervisor can view onboarding status but cannot modify company settings.
+
+====================================================
+B. ONBOARDING ENTRY LOGIC
+====================================================
+
+After login:
+
+If onboardingStatus.overall < 80%
+and user role is super_admin / owner / company_admin
+
+show:
+
+- redirect to /onboarding
+or
+- dashboard banner: "Setup belum lengkap"
+
+Do not block app usage completely.
+
+Allow "Skip for now".
+
+====================================================
+C. STEP 1 — COMPANY PROFILE
+====================================================
+
+Fields:
+
+- company_name
+- company_phone
+- company_email
+- industry_type
+
+Validation:
+All required.
+
+Use existing settings API.
+
+Show:
+profileCompletionPct
+missing fields
+
+====================================================
+D. STEP 2 — WHATSAPP HEALTH
+====================================================
+
+Show:
+
+- Fonnte token configured?
+- Meta configured?
+- webhook URL
+- last incoming message
+- last outgoing delivery
+
+Actions:
+
+- test WhatsApp message
+- copy webhook URL
+- open Fonnte dashboard link
+
+Use:
+
+GET /api/system/whatsapp-health
+
+====================================================
+E. STEP 3 — TEAM SETUP
+====================================================
+
+Show existing team_members.
+
+Require at least:
+
+- 1 supervisor
+or
+- 1 staff
+
+Fields:
+
+- name
+- role
+- division
+- phone
+
+Do not require email for team member if WhatsApp exists.
+
+====================================================
+F. STEP 4 — CUSTOMER SETUP
+====================================================
+
+Show customer readiness:
+
+- total customers
+- customers with WhatsApp
+- missing phone count
+
+Actions:
+
+- create customer
+- import sample customer
+- fix missing phone
+
+Customer WhatsApp is required.
+
+Use existing CRM endpoint.
+
+====================================================
+G. STEP 5 — VENDOR SETUP
+====================================================
+
+Show:
+
+- total suppliers
+- vendors with service type
+- vendors missing documents
+
+Actions:
+
+- create vendor
+- send vendor onboarding form
+- view vendor memory
+
+Use suppliers as source of truth.
+
+====================================================
+H. STEP 6 — FLEET SETUP
+====================================================
+
+Show:
+
+- total fleet units
+- drivers
+- documents
+- missing documents
+
+Actions:
+
+- add vehicle
+- add driver
+- add document
+
+Use fleet_units, not fleet_vehicles.
+
+====================================================
+I. STEP 7 — FIRST AI TEST
+====================================================
+
+Inline simulator:
+
+Example messages:
+
+- Saya mau trucking Jakarta Surabaya
+- Saya mau kasbon
+- Barang saya pecah
+- STATUS WA-xxxxx
+
+Show:
+
+- detected intent
+- intake mode
+- missing fields
+- whether task would be created
+- whether mini form would be sent
+
+Test mode only:
+Do not send real WhatsApp.
+Do not create real task.
+
+====================================================
+J. STEP 8 — DONE
+====================================================
+
+Show checklist:
+
+- company profile complete
+- WhatsApp healthy
+- team member ready
+- customer ready
+- vendor ready
+- fleet ready
+- AI test passed
+
+Button:
+
+"Mulai Operasi"
+
+Redirect to dashboard.
+
+====================================================
+K. DASHBOARD BANNER
+====================================================
+
+If onboarding incomplete:
+
+Show banner:
+
+"Setup belum lengkap — selesaikan onboarding agar semua fitur aktif."
+
+Button:
+"Lanjutkan Setup"
+
+Show only to:
+super_admin
+owner
+company_admin
+
+====================================================
+L. EMPTY STATE IMPROVEMENT
+====================================================
+
+Add contextual empty guidance to:
+
+Dashboard
+AI Tasks
+Messages
+Team
+Customers
+Vendors
+Fleet Units
+
+Example:
+
+"No fleet units yet. Add your first vehicle so Fleet Intelligence can calculate risk and cost per KM."
+
+====================================================
+M. VALIDATION
+====================================================
+
+Test:
+
+1. onboarding page loads
+2. company profile save
+3. whatsapp health displays
+4. team setup works
+5. customer creation requires WhatsApp
+6. vendor creation uses suppliers
+7. fleet setup uses fleet_units
+8. AI simulator does not create task
+9. done page checklist works
+10. dashboard banner appears when incomplete
+11. dashboard banner disappears when complete
+12. RBAC enforced
+
+Output:
+- pages created
+- APIs used
+- onboarding status before/after
+- screenshots/status
+- typecheck result
+- readiness score
+- updated onboarding score

@@ -1,0 +1,999 @@
+/**
+ * IntentEngine — Knowledge Base–Driven Intent Resolution
+ *
+ * Replaces hardcoded intent detection rules with DB-driven lookup:
+ *   intent_master  → available intent codes, SLA, routing
+ *   keyword_rules  → weighted keyword pre-scoring
+ *   data_templates → required data fields per intent/category
+ *   document_templates → required documents per intent/category
+ *   service_catalog → matching services for the detected intent
+ *
+ * All DB lookups are served from an in-memory TTL cache (5 min).
+ * Every decision is recorded in audit_logs.
+ * Fallback is always general_inquiry — never throws.
+ */
+
+import { createHash } from "crypto";
+import { eq, and } from "drizzle-orm";
+import {
+  db,
+  intentMasterTable,
+  keywordRulesTable,
+  dataTemplatesTable,
+  dataTemplateFieldsTable,
+  documentTemplatesTable,
+  documentTemplateFieldsTable,
+  serviceCatalogTable,
+  auditLogsTable,
+  predictionLogsTable,
+  promptVersionsTable,
+  customerMemorySnapshotsTable,
+  type IntentMaster,
+  type KeywordRule,
+  type DataTemplate,
+  type DataTemplateField,
+  type DocumentTemplate,
+  type DocumentTemplateField,
+  type ServiceCatalog,
+} from "@workspace/db";
+import { openai } from "./openai";
+import { logger } from "./logger";
+
+// ─── Public Types ──────────────────────────────────────────────────────────────
+
+export interface IntentResolution {
+  intentCode: string;
+  intentName: string;
+  matchedIntentId: number | null;
+  fallbackUsed: boolean;
+
+  category: string;
+  division: string | null;
+  priority: "low" | "medium" | "high" | "urgent";
+  slaHours: number | null;
+
+  routingCode: string | null;
+  needsApproval: boolean;
+  approvalType: string | null;
+
+  customerName: string | null;
+  customerPhone: string | null;
+  commodity: string | null;
+  origin: string | null;
+  destination: string | null;
+  shipmentType: string | null;
+  requestedDate: string | null;
+
+  requiredDataFields: Array<{
+    fieldName: string;
+    fieldLabel: string;
+    fieldType: string;
+    isRequired: boolean;
+    sortOrder: number;
+  }>;
+  missingDataKeys: string[];
+  matchedDataTemplateId: number | null;
+
+  requiredDocuments: Array<{
+    documentName: string;
+    documentType: string | null;
+    isRequired: boolean;
+    sortOrder: number;
+  }>;
+  missingDocuments: string[];
+  matchedDocTemplateId: number | null;
+
+  matchedServices: Array<{
+    id: number;
+    serviceName: string;
+    serviceCode: string | null;
+    basePrice: string | null;
+    currency: string | null;
+    slaHours: string | null;
+  }>;
+
+  needsQuotation: boolean;
+  needsDocumentAudit: boolean;
+  needsAdminReview: boolean;
+
+  confidenceScore: "high" | "medium" | "low";
+  keywordScore: number;
+  customerSentiment: "positive" | "neutral" | "negative" | "urgent";
+
+  suggestedReply: string;
+  suggestedTeam: string;
+}
+
+// ─── Cache internals ──────────────────────────────────────────────────────────
+
+interface CacheEntry<T> { data: T; expiresAt: number }
+
+const CACHE_TTL_MS = 5 * 60 * 1_000;
+
+const intentCache  = new Map<string, CacheEntry<IntentMaster[]>>();
+const keywordCache = new Map<string, CacheEntry<KeywordRule[]>>();
+const dtCache      = new Map<string, CacheEntry<(DataTemplate & { fields: DataTemplateField[] }) | null>>();
+const docCache     = new Map<string, CacheEntry<(DocumentTemplate & { fields: DocumentTemplateField[] }) | null>>();
+const svcCache     = new Map<string, CacheEntry<ServiceCatalog[]>>();
+
+interface ActivePromptVersion { id: number; systemPrompt: string; promptHash: string | null; model: string }
+const promptVersionCache = new Map<string, CacheEntry<ActivePromptVersion | null>>();
+
+function isFresh<T>(entry: CacheEntry<T> | undefined): entry is CacheEntry<T> {
+  return !!entry && Date.now() < entry.expiresAt;
+}
+
+// ─── Customer Memory Loader ────────────────────────────────────────────────────
+
+const memoryCache = new Map<string, CacheEntry<string | null>>();
+const MEMORY_TTL_MS = 10 * 60 * 1_000; // 10-min TTL
+
+/**
+ * Load the latest non-stale AI context block for a customer.
+ * Returns null if no valid snapshot exists or if validUntil has passed.
+ * Results cached 10 min per companyId+customerId.
+ */
+export async function loadCustomerMemory(companyId: string, customerId: number): Promise<string | null> {
+  const key = `${companyId}:${customerId}`;
+  const cached = memoryCache.get(key);
+  if (isFresh(cached)) return cached.data;
+
+  try {
+    const { desc } = await import("drizzle-orm");
+    const [snapshot] = await db
+      .select({
+        aiContextBlock: customerMemorySnapshotsTable.aiContextBlock,
+        isStale: customerMemorySnapshotsTable.isStale,
+        validUntil: customerMemorySnapshotsTable.validUntil,
+      })
+      .from(customerMemorySnapshotsTable)
+      .where(and(eq(customerMemorySnapshotsTable.companyId, companyId), eq(customerMemorySnapshotsTable.customerId, customerId), eq(customerMemorySnapshotsTable.isStale, false)))
+      .orderBy(desc(customerMemorySnapshotsTable.createdAt))
+      .limit(1);
+
+    // Treat expired snapshots (validUntil passed) as if they don't exist
+    const isExpired = snapshot?.validUntil ? new Date(snapshot.validUntil) < new Date() : false;
+    const value = (snapshot && !isExpired) ? snapshot.aiContextBlock : null;
+    memoryCache.set(key, { data: value, expiresAt: Date.now() + MEMORY_TTL_MS });
+    return value;
+  } catch {
+    return null;
+  }
+}
+
+/** Invalidate cached customer memory (call when new snapshot is generated). */
+export function invalidateCustomerMemoryCache(companyId: string, customerId: number): void {
+  memoryCache.delete(`${companyId}:${customerId}`);
+}
+
+// ─── Vendor Memory (Sprint 5B) — re-exported from vendor-memory.ts ────────────
+// These are thin re-exports so other modules can import from one place.
+export { loadVendorMemory, invalidateVendorMemoryCache } from "./vendor-memory";
+
+// ─── Cache loaders ────────────────────────────────────────────────────────────
+
+async function loadIntents(companyId: string): Promise<IntentMaster[]> {
+  const cached = intentCache.get(companyId);
+  if (isFresh(cached)) return cached.data;
+
+  const rows = await db
+    .select()
+    .from(intentMasterTable)
+    .where(
+      and(eq(intentMasterTable.companyId, "default"), eq(intentMasterTable.isActive, true)),
+    )
+    .orderBy(intentMasterTable.intentCode);
+
+  intentCache.set(companyId, { data: rows, expiresAt: Date.now() + CACHE_TTL_MS });
+  return rows;
+}
+
+async function loadKeywords(companyId: string): Promise<KeywordRule[]> {
+  const cached = keywordCache.get(companyId);
+  if (isFresh(cached)) return cached.data;
+
+  const rows = await db
+    .select()
+    .from(keywordRulesTable)
+    .where(
+      and(eq(keywordRulesTable.companyId, "default"), eq(keywordRulesTable.isActive, true)),
+    );
+
+  keywordCache.set(companyId, { data: rows, expiresAt: Date.now() + CACHE_TTL_MS });
+  return rows;
+}
+
+async function loadDataTemplate(
+  companyId: string,
+  intentCode: string,
+  category: string,
+): Promise<(DataTemplate & { fields: DataTemplateField[] }) | null> {
+  const key = `${companyId}:dt:${intentCode}:${category}`;
+  const cached = dtCache.get(key);
+  if (isFresh(cached)) return cached.data;
+
+  // 1. Try exact intentCode match first
+  let [tpl] = await db
+    .select()
+    .from(dataTemplatesTable)
+    .where(
+      and(
+        eq(dataTemplatesTable.companyId, "default"),
+        eq(dataTemplatesTable.intentCode, intentCode),
+        eq(dataTemplatesTable.isActive, true),
+      ),
+    )
+    .limit(1);
+
+  // 2. Fall back to category match
+  if (!tpl && category) {
+    [tpl] = await db
+      .select()
+      .from(dataTemplatesTable)
+      .where(
+        and(
+          eq(dataTemplatesTable.companyId, "default"),
+          eq(dataTemplatesTable.category, category),
+          eq(dataTemplatesTable.isActive, true),
+        ),
+      )
+      .limit(1);
+  }
+
+  if (!tpl) {
+    dtCache.set(key, { data: null, expiresAt: Date.now() + CACHE_TTL_MS });
+    return null;
+  }
+
+  const fields = await db
+    .select()
+    .from(dataTemplateFieldsTable)
+    .where(eq(dataTemplateFieldsTable.templateId, tpl.id))
+    .orderBy(dataTemplateFieldsTable.sortOrder);
+
+  const result = { ...tpl, fields };
+  dtCache.set(key, { data: result, expiresAt: Date.now() + CACHE_TTL_MS });
+  return result;
+}
+
+async function loadDocTemplate(
+  companyId: string,
+  intentCode: string,
+  category: string,
+): Promise<(DocumentTemplate & { fields: DocumentTemplateField[] }) | null> {
+  const key = `${companyId}:doc:${intentCode}:${category}`;
+  const cached = docCache.get(key);
+  if (isFresh(cached)) return cached.data;
+
+  let [tpl] = await db
+    .select()
+    .from(documentTemplatesTable)
+    .where(
+      and(
+        eq(documentTemplatesTable.companyId, "default"),
+        eq(documentTemplatesTable.intentCode, intentCode),
+        eq(documentTemplatesTable.isActive, true),
+      ),
+    )
+    .limit(1);
+
+  if (!tpl && category) {
+    [tpl] = await db
+      .select()
+      .from(documentTemplatesTable)
+      .where(
+        and(
+          eq(documentTemplatesTable.companyId, "default"),
+          eq(documentTemplatesTable.category, category),
+          eq(documentTemplatesTable.isActive, true),
+        ),
+      )
+      .limit(1);
+  }
+
+  if (!tpl) {
+    docCache.set(key, { data: null, expiresAt: Date.now() + CACHE_TTL_MS });
+    return null;
+  }
+
+  const fields = await db
+    .select()
+    .from(documentTemplateFieldsTable)
+    .where(eq(documentTemplateFieldsTable.templateId, tpl.id))
+    .orderBy(documentTemplateFieldsTable.sortOrder);
+
+  const result = { ...tpl, fields };
+  docCache.set(key, { data: result, expiresAt: Date.now() + CACHE_TTL_MS });
+  return result;
+}
+
+// ─── Prompt version loader ────────────────────────────────────────────────────
+
+async function loadActivePromptVersion(companyId: string): Promise<ActivePromptVersion | null> {
+  const cached = promptVersionCache.get(companyId);
+  if (isFresh(cached)) return cached.data;
+
+  try {
+    const [row] = await db
+      .select({ id: promptVersionsTable.id, systemPrompt: promptVersionsTable.systemPrompt, promptHash: promptVersionsTable.promptHash, model: promptVersionsTable.model })
+      .from(promptVersionsTable)
+      .where(and(eq(promptVersionsTable.companyId, companyId), eq(promptVersionsTable.status, "active")))
+      .limit(1);
+
+    const result = row ?? null;
+    promptVersionCache.set(companyId, { data: result, expiresAt: Date.now() + CACHE_TTL_MS });
+    return result;
+  } catch (err) {
+    logger.warn({ err }, "IntentEngine: loadActivePromptVersion failed — using built prompt");
+    promptVersionCache.set(companyId, { data: null, expiresAt: Date.now() + 30_000 });
+    return null;
+  }
+}
+
+// ─── Prediction log writer (fire-and-forget) ──────────────────────────────────
+
+function writePredictionLog(args: {
+  companyId: string;
+  taskId: number;
+  promptVersionId: number | null;
+  promptHash: string;
+  model: string;
+  experimentId?: number | null;
+  experimentGroup?: string | null;
+  resolution: IntentResolution;
+  llmLatencyMs: number;
+  totalLatencyMs: number;
+}): void {
+  const { companyId, taskId, promptVersionId, promptHash, model, experimentId, experimentGroup, resolution, llmLatencyMs, totalLatencyMs } = args;
+  const confNumeric = resolution.confidenceScore === "high" ? "90.00" : resolution.confidenceScore === "low" ? "35.00" : "65.00";
+
+  db.insert(predictionLogsTable).values({
+    companyId,
+    taskId: taskId > 0 ? taskId : null,
+    promptVersionId,
+    promptHash,
+    model,
+    experimentId: experimentId ?? null,
+    experimentGroup: experimentGroup ?? null,
+    predictedIntent: resolution.intentCode,
+    predictedCategory: resolution.category,
+    predictedPriority: resolution.priority,
+    predictedConfidence: resolution.confidenceScore,
+    predictedConfidenceNumeric: confNumeric,
+    predictedRouting: resolution.routingCode,
+    predictedApproval: resolution.needsApproval,
+    isFallback: resolution.fallbackUsed,
+    keywordScore: resolution.keywordScore.toFixed(3),
+    llmLatencyMs,
+    totalLatencyMs,
+  }).catch((err) => logger.warn({ err }, "IntentEngine: writePredictionLog failed (ignored)"));
+}
+
+async function loadServiceCatalog(companyId: string, category: string): Promise<ServiceCatalog[]> {
+  const key = `${companyId}:svc:${category}`;
+  const cached = svcCache.get(key);
+  if (isFresh(cached)) return cached.data;
+
+  const rows = await db
+    .select()
+    .from(serviceCatalogTable)
+    .where(
+      and(
+        eq(serviceCatalogTable.companyId, "default"),
+        eq(serviceCatalogTable.category, category),
+        eq(serviceCatalogTable.isActive, true),
+      ),
+    );
+
+  svcCache.set(key, { data: rows, expiresAt: Date.now() + CACHE_TTL_MS });
+  return rows;
+}
+
+// ─── Keyword scoring ──────────────────────────────────────────────────────────
+
+function scoreKeywords(
+  message: string,
+  rules: KeywordRule[],
+): Map<string, number> {
+  const msgLower = message.toLowerCase();
+  const raw = new Map<string, number>();
+
+  for (const rule of rules) {
+    if (msgLower.includes(rule.keyword.toLowerCase())) {
+      raw.set(rule.intentCode, (raw.get(rule.intentCode) ?? 0) + rule.weight);
+    }
+  }
+
+  // Normalise to 0–1
+  const maxScore = Math.max(...raw.values(), 1);
+  const normalised = new Map<string, number>();
+  for (const [code, score] of raw) {
+    normalised.set(code, parseFloat((score / maxScore).toFixed(3)));
+  }
+  return normalised;
+}
+
+function topHints(
+  scores: Map<string, number>,
+  n = 3,
+): Array<{ intentCode: string; score: number }> {
+  return [...scores.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, n)
+    .map(([intentCode, score]) => ({ intentCode, score }));
+}
+
+// ─── Dynamic prompt builder ───────────────────────────────────────────────────
+
+function buildPrompt(
+  intents: IntentMaster[],
+  hints: Array<{ intentCode: string; score: number }>,
+): string {
+  const intentList = intents
+    .map(
+      (i) =>
+        `- ${i.intentCode}: ${i.intentName}` +
+        ` (category: ${i.category ?? "-"}, suggestedPriority: ${i.suggestedPriority ?? "medium"})`,
+    )
+    .join("\n");
+
+  const hintBlock =
+    hints.length > 0
+      ? `\n## Keyword Pre-Analysis (soft bias only — use when message is ambiguous)\n` +
+        hints.map((h) => `- ${h.intentCode}: score=${h.score}`).join("\n") +
+        "\n"
+      : "";
+
+  return `You are an AI assistant for an operations platform in Indonesia that serves THREE business verticals:
+1. **Logistik & Freight Forwarding** — pengiriman barang, trucking, customs clearance, importir/eksportir
+2. **Sport Center** — booking lapangan olahraga (badminton, futsal, tenis, basket, voli, bola/sepak bola, panahan), membership gym/sport, jadwal fasilitas
+3. **Sewa Tenant / Kios** — penyewaan kios, ruko, atau tenant di dalam venue sport center
+
+Analyse the incoming WhatsApp message and return ONLY a valid JSON object — no markdown, no explanation, no code fences.
+
+## Available Intents — pick exactly one intentCode from this list
+${intentList}
+
+${hintBlock}
+## Priority Rules (apply strictly)
+- "urgent" → segera, urgent, hari ini, darurat, deadline, cepat, sekarang
+- "high"   → complaint, keluhan, terlambat, delay, overdue, rusak, hilang, batal, cancel, bayar segera
+- "medium" → booking lapangan, sewa kios, konfirmasi bayar, daftar member, perpanjang, pengiriman, quotation, pickup
+- "low"    → tanya jadwal, tanya info, tanya harga, greetings, feedback, informasi umum
+
+## Business Rules
+1. NEVER include or suggest a price/tariff. If pricing asked → set needsQuotation=true, needsAdminReview=true.
+2. ALWAYS set needsAdminReview=true for: quotation needed, customs decision, category Customs/Finance, pembayaran, or low confidence.
+3. needsDocumentAudit=true when customer mentions or sends a document (invoice, BL, packing list, bukti transfer, struk pembayaran, KTP, dll.).
+4. suggestedReply must be Bahasa Indonesia, friendly and professional. For sport center: cheerful and welcoming tone. For tenant: formal and professional.
+5. Return null for any field you cannot determine.
+6. missingDataKeys: machine-readable field keys the customer has NOT provided yet. Use the exact field_name keys from the data template (e.g. field_name, booking_date, start_time, end_time, booker_name, phone for sport_center_booking; nama_tenant, business_category for daftar_tenant).
+7. missingDocuments: document names the customer has NOT provided yet.
+
+## Sport Center Rules
+- For sport_center_booking: identify facility (field_name), booking_date, start_time, end_time, booker_name, phone in missingDataKeys if absent.
+  - If customer says "lapangan futsal", "lapangan bola", "lapangan badminton" etc → field "field_name" IS provided (value = "futsal"/"sepak bola"/etc). Only mark as missing if truly unspecified.
+  - "lapangan futsal" = field_name:"futsal". "lapangan bola"/"sepak bola" = field_name:"sepak bola". Do NOT ask again if already stated.
+  - "tanggal X" → booking_date is provided. "jam X" → start_time is provided. Do NOT mark as missing if stated.
+- For daftar_membership / perpanjang_membership: identify member name, phone, duration.
+- For konfirmasi_pembayaran_sport: always set needsDocumentAudit=true (need payment proof photo).
+
+## Tenant / Kios Rules
+- For daftar_tenant / info_sewa_tenant: identify business_name, owner_name, business_category, desired_area.
+- For konfirmasi_pembayaran_tenant: always set needsDocumentAudit=true.
+- For laporan_masalah_tenant: set priority to "high" and needsAdminReview=true.
+
+## Logistik Rules
+- For permintaan_penawaran: identify commodity, origin, destination, shipment_type.
+- For cek_status_pengiriman: identify order_number or tracking_number.
+
+## Confidence Score Rules
+- "high"   → message is clear and intent unambiguous
+- "medium" → fairly clear but some ambiguity
+- "low"    → very short, greeting only, or cannot classify confidently
+
+## Customer Sentiment
+- "urgent"   → segera, urgent, hari ini, cepat, darurat, deadline
+- "negative" → complaint, kecewa, marah, tidak puas, masalah, lambat, rusak
+- "positive" → terima kasih, bagus, puas, senang, mantap, sip
+- "neutral"  → standard inquiry
+
+## JSON Schema (return exactly these keys, no extras)
+{
+  "intentCode": string,
+  "category": string,
+  "division": string | null,
+  "priority": "urgent" | "high" | "medium" | "low",
+  "customerName": string | null,
+  "customerPhone": string | null,
+  "commodity": string | null,
+  "origin": string | null,
+  "destination": string | null,
+  "shipmentType": string | null,
+  "requestedDate": string | null,
+  "missingDataKeys": string[],
+  "missingDocuments": string[],
+  "needsQuotation": boolean,
+  "needsDocumentAudit": boolean,
+  "needsAdminReview": boolean,
+  "suggestedReply": string,
+  "suggestedTeam": string,
+  "confidenceScore": "high" | "medium" | "low",
+  "customerSentiment": "positive" | "neutral" | "negative" | "urgent"
+}`;
+}
+
+// ─── Fallback ─────────────────────────────────────────────────────────────────
+
+function buildFallback(
+  name?: string | null,
+  phone?: string | null,
+): IntentResolution {
+  return {
+    intentCode: "general_inquiry",
+    intentName: "Pertanyaan Umum",
+    matchedIntentId: null,
+    fallbackUsed: true,
+    category: "Umum",
+    division: null,
+    priority: "low",
+    slaHours: 24,
+    routingCode: null,
+    needsApproval: false,
+    approvalType: null,
+    customerName: name ?? null,
+    customerPhone: phone ?? null,
+    commodity: null,
+    origin: null,
+    destination: null,
+    shipmentType: null,
+    requestedDate: null,
+    requiredDataFields: [],
+    missingDataKeys: [],
+    matchedDataTemplateId: null,
+    requiredDocuments: [],
+    missingDocuments: [],
+    matchedDocTemplateId: null,
+    matchedServices: [],
+    needsQuotation: false,
+    needsDocumentAudit: false,
+    needsAdminReview: true,
+    confidenceScore: "low",
+    keywordScore: 0,
+    customerSentiment: "neutral",
+    suggestedReply:
+      "Terima kasih telah menghubungi kami. Tim kami akan segera membantu Anda. Mohon tunggu sebentar.",
+    suggestedTeam: "Customer Service",
+  };
+}
+
+// ─── Audit logger ─────────────────────────────────────────────────────────────
+
+async function logDecision(
+  companyId: string,
+  messageId: number,
+  msgLen: number,
+  res: IntentResolution,
+): Promise<void> {
+  try {
+    await db.insert(auditLogsTable).values({
+      companyId,
+      action: "intent_detected",
+      module: "intent_engine",
+      entityId: messageId > 0 ? messageId : null,
+      entityType: "whatsapp_message",
+      before: JSON.stringify({ messageLength: msgLen }),
+      after: JSON.stringify({
+        intentCode:       res.intentCode,
+        category:         res.category,
+        priority:         res.priority,
+        confidenceScore:  res.confidenceScore,
+        keywordScore:     res.keywordScore,
+        fallbackUsed:     res.fallbackUsed,
+        matchedIntentId:  res.matchedIntentId,
+        slaHours:         res.slaHours,
+        missingDataCount: res.missingDataKeys.length,
+        missingDocCount:  res.missingDocuments.length,
+      }),
+    });
+  } catch (err) {
+    logger.error({ err }, "IntentEngine: audit log write failed");
+  }
+}
+
+// ─── Main: resolveIntent ──────────────────────────────────────────────────────
+
+export async function resolveIntent({
+  messageText,
+  companyId = "default",
+  messageId = 0,
+  customerName,
+  customerPhone,
+  customerId,
+  taskId,
+  experimentId,
+  experimentGroup,
+  promptOverride,
+}: {
+  messageText: string;
+  companyId?: string;
+  messageId?: number;
+  customerName?: string | null;
+  customerPhone?: string | null;
+  customerId?: number | null;
+  taskId?: number | null;
+  experimentId?: number | null;
+  experimentGroup?: string | null;
+  promptOverride?: string | null;
+}): Promise<IntentResolution> {
+  const t0 = Date.now();
+  const fallback = buildFallback(customerName, customerPhone);
+
+  try {
+    // ── 1. Load cache + active prompt version in parallel ─────────────────────
+    const [intents, keywords, activeVersion] = await Promise.all([
+      loadIntents(companyId),
+      loadKeywords(companyId),
+      loadActivePromptVersion(companyId),
+    ]);
+
+    if (intents.length === 0) {
+      logger.warn({ companyId }, "IntentEngine: no active intents — fallback");
+      await logDecision(companyId, messageId, messageText.length, fallback);
+      return fallback;
+    }
+
+    // ── 2. Keyword pre-scoring ─────────────────────────────────────────────────
+    const scores = scoreKeywords(messageText, keywords);
+    const hints  = topHints(scores, 3);
+    const topKwScore = hints[0]?.score ?? 0;
+
+    // ── 3. AI classification ───────────────────────────────────────────────────
+    // Use prompt override > active DB version > dynamically built prompt (fallback-safe)
+    const effectiveVersion = promptOverride
+      ? { id: null as number | null, systemPrompt: promptOverride, promptHash: createHash("sha256").update(promptOverride).digest("hex"), model: "gpt-4o-mini" }
+      : activeVersion;
+    const systemPrompt = effectiveVersion?.systemPrompt ?? buildPrompt(intents, hints);
+    const promptHash = effectiveVersion?.promptHash ?? createHash("sha256").update(systemPrompt).digest("hex");
+    const promptVersionId = effectiveVersion?.id ?? null;
+    const modelToUse = effectiveVersion?.model ?? "gpt-4o-mini";
+
+    // ── Customer memory injection (Sprint 5A) ──────────────────────────────────
+    let customerMemoryBlock: string | null = null;
+    if (customerId) {
+      customerMemoryBlock = await loadCustomerMemory(companyId, customerId).catch(() => null);
+    }
+
+    const userContent = [
+      `Message: ${messageText}`,
+      customerName  ? `Customer name: ${customerName}`   : null,
+      customerPhone ? `Customer phone: ${customerPhone}` : null,
+      customerMemoryBlock
+        ? `\n## Customer Memory (from previous interactions)\n${customerMemoryBlock}`
+        : null,
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    let raw: string | null = null;
+    const llmStart = Date.now();
+    let llmLatencyMs = 0;
+    try {
+      const resp = await openai.chat.completions.create({
+        model: modelToUse,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user",   content: userContent },
+        ],
+        max_tokens: 800,
+        temperature: 0.15,
+        response_format: { type: "json_object" },
+      });
+      llmLatencyMs = Date.now() - llmStart;
+      raw = resp.choices[0]?.message?.content?.trim() ?? null;
+    } catch (aiErr) {
+      logger.error({ aiErr }, "IntentEngine: OpenAI call failed — trying keyword-only routing");
+
+      // ── Keyword-only routing when AI unavailable ───────────────────────────
+      // Jika ada keyword match yang jelas (score >= 0.3), gunakan itu
+      // daripada langsung fallback ke generic "Terima kasih..."
+      if (hints.length > 0 && (hints[0]?.score ?? 0) >= 0.3) {
+        const kwIntent = intents.find((i) => i.intentCode === hints[0].intentCode) ?? null;
+        if (kwIntent) {
+          logger.info(
+            { intentCode: kwIntent.intentCode, score: hints[0].score },
+            "IntentEngine: keyword-only routing (no AI)",
+          );
+          const kwCategory = kwIntent.category ?? "Umum";
+          const [kwDataTpl, kwDocTpl] = await Promise.all([
+            loadDataTemplate(companyId, kwIntent.intentCode, kwCategory).catch(() => null),
+            loadDocTemplate(companyId, kwIntent.intentCode, kwCategory).catch(() => null),
+          ]);
+          const kwPriority = (["low","medium","high","urgent"].includes(kwIntent.suggestedPriority ?? "") ? kwIntent.suggestedPriority : "medium") as IntentResolution["priority"];
+          const kwDocFields = kwDocTpl?.fields ?? [];
+          const kwRes: IntentResolution = {
+            intentCode:           kwIntent.intentCode,
+            intentName:           kwIntent.intentName,
+            matchedIntentId:      kwIntent.id,
+            fallbackUsed:         false,
+            category:             kwCategory,
+            division:             kwIntent.suggestedDivision ?? null,
+            priority:             kwPriority,
+            slaHours:             kwIntent.slaHours ?? 24,
+            routingCode:          kwIntent.intentCode,
+            needsApproval:        false,
+            approvalType:         null,
+            customerName:         customerName ?? null,
+            customerPhone:        customerPhone ?? null,
+            commodity:            null,
+            origin:               null,
+            destination:          null,
+            shipmentType:         null,
+            requestedDate:        null,
+            requiredDataFields:   kwDataTpl?.fields ?? [],
+            missingDataKeys:      kwDataTpl?.fields.map((f) => f.fieldName) ?? [],
+            matchedDataTemplateId: kwDataTpl?.id ?? null,
+            requiredDocuments:    kwDocFields.map((d) => ({
+              documentName: d.fieldLabel ?? d.fieldName,
+              documentType: null,
+              isRequired: d.isRequired ?? true,
+              sortOrder: d.sortOrder ?? 0,
+            })),
+            missingDocuments:     kwDocFields.map((d) => d.fieldLabel ?? d.fieldName),
+            matchedDocTemplateId: kwDocTpl?.id ?? null,
+            matchedServices:      [],
+            needsQuotation:       false,
+            needsDocumentAudit:   false,
+            needsAdminReview:     false,
+            confidenceScore:      "low",
+            keywordScore:         hints[0].score,
+            customerSentiment:    "neutral",
+            suggestedReply:       `Halo! Kami menerima permintaan Anda. Mohon ceritakan lebih lanjut kebutuhan Anda agar tim kami dapat membantu dengan tepat. 🙏`,
+            suggestedTeam:        "Customer Service",
+          };
+          await logDecision(companyId, messageId, messageText.length, kwRes);
+          return kwRes;
+        }
+      }
+
+      await logDecision(companyId, messageId, messageText.length, fallback);
+      return fallback;
+    }
+
+    if (!raw) {
+      await logDecision(companyId, messageId, messageText.length, fallback);
+      return fallback;
+    }
+
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      logger.error({ raw }, "IntentEngine: JSON parse failed — fallback");
+      await logDecision(companyId, messageId, messageText.length, fallback);
+      return fallback;
+    }
+
+    // ── 4. Match AI intentCode → intent_master ─────────────────────────────────
+    const aiCode       = (parsed.intentCode as string | undefined) ?? "";
+    const matchedIntent: IntentMaster | null = intents.find((i) => i.intentCode === aiCode) ?? null;
+    const usesFallback = !matchedIntent;
+
+    const intentCode = matchedIntent?.intentCode ?? "general_inquiry";
+    const intentName = matchedIntent?.intentName ?? "Pertanyaan Umum";
+
+    // ── 5. Confidence scoring ──────────────────────────────────────────────────
+    const aiConf = (parsed.confidenceScore as string | undefined) ?? "medium";
+    let confidenceScore: "high" | "medium" | "low" =
+      aiConf === "high" ? "high" : aiConf === "low" ? "low" : "medium";
+    if (!matchedIntent)               confidenceScore = "low";
+    if (topKwScore > 0.6 && matchedIntent) confidenceScore = "high";
+
+    // ── 6. Category, division, priority ───────────────────────────────────────
+    const category = (parsed.category as string | undefined) ??
+      matchedIntent?.suggestedCategory ?? matchedIntent?.category ?? "Umum";
+    const division = (parsed.division as string | undefined) ??
+      matchedIntent?.suggestedDivision ?? null;
+
+    const rawPriority  = (parsed.priority as string | undefined) ??
+      matchedIntent?.suggestedPriority ?? "low";
+    let priority: "low" | "medium" | "high" | "urgent" = (
+      ["low", "medium", "high", "urgent"].includes(rawPriority) ? rawPriority : "medium"
+    ) as "low" | "medium" | "high" | "urgent";
+
+    // Hard override from message keywords
+    if (/segera|urgent|hari ini|darurat|deadline|cepat/i.test(messageText)) priority = "urgent";
+    else if (/complaint|keluhan|terlambat|delay|overdue|besok|tomorrow/i.test(messageText) &&
+             priority !== "urgent") priority = "high";
+
+    // ── 7. Load templates + service catalog in parallel ────────────────────────
+    const [dataTemplate, docTemplate, matchedSvcs] = await Promise.all([
+      loadDataTemplate(companyId, intentCode, category),
+      loadDocTemplate(companyId, intentCode, category),
+      loadServiceCatalog(companyId, category),
+    ]);
+
+    // ── 8. Required data fields + missing keys ─────────────────────────────────
+    const requiredDataFields = (dataTemplate?.fields ?? []).map((f) => ({
+      fieldName: f.fieldName,
+      fieldLabel: f.fieldLabel,
+      fieldType: f.fieldType,
+      isRequired: f.isRequired,
+      sortOrder: f.sortOrder,
+    }));
+
+    const aiMissingKeys  = Array.isArray(parsed.missingDataKeys)
+      ? (parsed.missingDataKeys as string[]) : [];
+    const reqFieldNames  = requiredDataFields.filter((f) => f.isRequired).map((f) => f.fieldName);
+
+    // If AI told us what's missing, intersect with template required fields.
+    // If AI was silent, assume all required fields are missing.
+    // "phone" is always known from the WA sender — never include it as missing.
+    const missingDataKeys = (aiMissingKeys.length > 0
+      ? aiMissingKeys.filter((k) => reqFieldNames.includes(k))
+      : reqFieldNames
+    ).filter((k) => k !== "phone");
+
+    // ── 9. Required documents + missing docs ───────────────────────────────────
+    const requiredDocuments = (docTemplate?.fields ?? []).map((f) => ({
+      documentName: f.documentName,
+      documentType: f.documentType,
+      isRequired: f.isRequired,
+      sortOrder: f.sortOrder,
+    }));
+
+    const aiMissingDocs  = Array.isArray(parsed.missingDocuments)
+      ? (parsed.missingDocuments as string[]) : [];
+    const missingDocuments = aiMissingDocs.length > 0
+      ? aiMissingDocs
+      : requiredDocuments.filter((d) => d.isRequired).map((d) => d.documentName);
+
+    // ── 10. Business flags ─────────────────────────────────────────────────────
+    // NEEDS_QUOTATION_INTENTS, NEEDS_ADMIN_REVIEW_INTENTS, APPROVAL_INTENTS
+    // were removed — now governed by approval_rules DB table via resolveApproval().
+    const needsQuotation    = Boolean(parsed.needsQuotation);
+    const needsDocumentAudit = Boolean(parsed.needsDocumentAudit) || missingDocuments.length > 0;
+    const needsAdminReview  = Boolean(parsed.needsAdminReview) || confidenceScore === "low";
+
+    // ── 11. Routing / approval (governance-driven) ─────────────────────────────
+    const routingCode   = matchedIntent?.intentCode ?? null;
+
+    // Resolve approval via governance engine (specificity cascade)
+    const { resolveApproval } = await import("./governance-resolver");
+    const approvalResolution = await resolveApproval(
+      companyId,
+      intentCode ?? null,
+      (parsed.category as string | null | undefined) ?? category ?? null,
+      matchedIntent?.suggestedPriority ?? null,
+    ).catch(() => ({ needsApproval: false, approvalType: null, approverRole: null, requiresNote: false, timeoutHours: 24, ruleId: null, specificity: -1 }));
+
+    const needsApproval = needsAdminReview || approvalResolution.needsApproval;
+    const approvalType  = approvalResolution.approvalType ?? (needsApproval ? "admin_approval" : null);
+
+    // ── 12. Service catalog ────────────────────────────────────────────────────
+    const matchedServices = matchedSvcs.map((s) => ({
+      id: s.id,
+      serviceName: s.serviceName,
+      serviceCode: s.serviceCode,
+      basePrice: s.basePrice,
+      currency: s.currency,
+      slaHours: s.slaHours,
+    }));
+
+    // ── 13. Assemble resolution ────────────────────────────────────────────────
+
+    // Build smart follow-up reply when there are missing required data fields.
+    // The AI doesn't know the template field labels (templates are loaded post-AI),
+    // so we override suggestedReply here with a structured question in Bahasa Indonesia.
+    let finalSuggestedReply = (parsed.suggestedReply as string | undefined) ??
+      "Terima kasih, tim kami akan segera menghubungi Anda.";
+
+    if (missingDataKeys.length > 0 && requiredDataFields.length > 0) {
+      const missingFields = requiredDataFields.filter(
+        (f) => missingDataKeys.includes(f.fieldName),
+      );
+      if (missingFields.length > 0) {
+        const greeting = customerName ? `Halo *${customerName}*! ` : "Halo! ";
+        const intentLabel = matchedIntent?.intentName ?? intentName;
+        const fieldLines = missingFields
+          .map((f, i) => `${i + 1}. ${f.fieldLabel}`)
+          .join("\n");
+        finalSuggestedReply =
+          `${greeting}Terima kasih atas permintaan *${intentLabel}* Anda. 🙏\n\n` +
+          `Untuk memproses permintaan ini, kami memerlukan beberapa informasi berikut:\n\n` +
+          `${fieldLines}\n\n` +
+          `Mohon balas dengan informasi di atas agar kami dapat segera menindaklanjuti. ✅`;
+      }
+    }
+
+    const resolution: IntentResolution = {
+      intentCode,
+      intentName,
+      matchedIntentId:   matchedIntent?.id ?? null,
+      fallbackUsed:      usesFallback,
+      category,
+      division,
+      priority,
+      slaHours:          matchedIntent?.slaHours ?? null,
+      routingCode,
+      needsApproval,
+      approvalType,
+      customerName:    (parsed.customerName  as string | null | undefined) ?? customerName  ?? null,
+      customerPhone:   (parsed.customerPhone as string | null | undefined) ?? customerPhone ?? null,
+      commodity:       (parsed.commodity     as string | null | undefined) ?? null,
+      origin:          (parsed.origin        as string | null | undefined) ?? null,
+      destination:     (parsed.destination   as string | null | undefined) ?? null,
+      shipmentType:    (parsed.shipmentType  as string | null | undefined) ?? null,
+      requestedDate:   (parsed.requestedDate as string | null | undefined) ?? null,
+      requiredDataFields,
+      missingDataKeys,
+      matchedDataTemplateId: dataTemplate?.id ?? null,
+      requiredDocuments,
+      missingDocuments,
+      matchedDocTemplateId:  docTemplate?.id ?? null,
+      matchedServices,
+      needsQuotation,
+      needsDocumentAudit,
+      needsAdminReview,
+      confidenceScore,
+      keywordScore:    topKwScore,
+      customerSentiment: (["positive", "neutral", "negative", "urgent"].includes(
+        parsed.customerSentiment as string,
+      )
+        ? (parsed.customerSentiment as "positive" | "neutral" | "negative" | "urgent")
+        : "neutral"),
+      suggestedReply: finalSuggestedReply,
+      suggestedTeam: (parsed.suggestedTeam as string | undefined) ?? "Customer Service",
+    };
+
+    logger.info(
+      {
+        intentCode:      resolution.intentCode,
+        category:        resolution.category,
+        priority:        resolution.priority,
+        confidence:      resolution.confidenceScore,
+        kwScore:         resolution.keywordScore,
+        fallback:        resolution.fallbackUsed,
+        slaHours:        resolution.slaHours,
+        missingData:     resolution.missingDataKeys.length,
+        missingDocs:     resolution.missingDocuments.length,
+        matchedServices: resolution.matchedServices.length,
+      },
+      "IntentEngine: resolved",
+    );
+
+    await logDecision(companyId, messageId, messageText.length, resolution);
+
+    // Fire-and-forget: write prediction log for training feedback loop
+    writePredictionLog({
+      companyId,
+      taskId: taskId ?? messageId ?? 0,
+      promptVersionId,
+      promptHash,
+      model: modelToUse,
+      experimentId,
+      experimentGroup,
+      resolution,
+      llmLatencyMs,
+      totalLatencyMs: Date.now() - t0,
+    });
+
+    return resolution;
+  } catch (err) {
+    logger.error({ err }, "IntentEngine.resolveIntent: unhandled error — fallback");
+    await logDecision(companyId, messageId, messageText.length, fallback).catch(() => {});
+    return fallback;
+  }
+}
+
+// ─── Cache invalidation (public) ──────────────────────────────────────────────
+
+export function invalidateIntentCache(companyId: string): void {
+  intentCache.delete(companyId);
+  keywordCache.delete(companyId);
+  promptVersionCache.delete(companyId);
+  for (const key of dtCache.keys())  if (key.startsWith(companyId)) dtCache.delete(key);
+  for (const key of docCache.keys()) if (key.startsWith(companyId)) docCache.delete(key);
+  for (const key of svcCache.keys()) if (key.startsWith(companyId)) svcCache.delete(key);
+  logger.info({ companyId }, "IntentEngine: cache invalidated");
+}

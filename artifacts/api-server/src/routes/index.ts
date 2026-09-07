@@ -25,6 +25,53 @@ import shipmentRouter from "./shipment";
 import customersCrmRouter from "./customers-crm";
 import portalRouter from "./portal";
 import dispatcherRouter from "./dispatcher";
+import knowledgeBaseRouter from "./knowledge-base";
+import governanceRouter from "./governance";
+import trainingRouter from "./training";
+import observabilityRouter from "./observability";
+import customerMemoryRouter from "./customer-memory";
+import vendorMemoryRouter from "./vendor-memory";
+import intelRouter from "./intel";
+import purchasingRequestsRouter from "./purchasing-requests";
+import purchasingBenchmarkRouter from "./purchasing-benchmark";
+import purchasingBudgetRouter from "./purchasing-budget";
+import purchasingMarginRouter from "./purchasing-margin";
+import purchasingApprovalRouter from "./purchasing-approval";
+import executiveIntelligenceRouter from "./executive-intelligence";
+import executiveCommandRouter from "./executive-command";
+import fleetUnitsRouter from "./fleet-units";
+import fleetDriversRouter from "./fleet-drivers";
+import fleetDocumentsRouter from "./fleet-documents";
+import fleetMaintenanceRouter from "./fleet-maintenance";
+import fleetFuelRouter from "./fleet-fuel";
+import fleetTiresRouter from "./fleet-tires";
+import fleetUtilizationRouter from "./fleet-utilization";
+import fleetRiskRouter from "./fleet-risk";
+import fleetCostRouter from "./fleet-cost";
+import fleetRouteProfitabilityRouter from "./fleet-route-profitability";
+import fleetDriverMemoryRouter from "./fleet-driver-memory";
+import fleetReportsRouter from "./fleet-reports";
+import intakeSessionsRouter from "./intake-sessions";
+import intakeFormRouter from "./intake-form";
+import miniFormConfigRouter from "./mini-form-config";
+import documentValidationRouter from "./document-validation";
+import readinessRouter from "./readiness";
+import conversationTestsRouter from "./conversation-tests";
+import qualityGateRouter from "./quality-gate";
+import waCommandsRouter from "./wa-commands";
+import vendorsRouter from "./vendors";
+import vendorPortalRouter from "./vendor-portal";
+import driverPortalRouter from "./driver-portal";
+import systemRouter from "./system";
+import companyGovernanceRouter from "./company-governance";
+import { companyOnboardingRouter } from "./company-onboarding";
+import holdingDashboardRouter from "./holding-dashboard";
+import aiOperationsRouter from "./ai-operations";
+import creativeAiRouter from "./creative-ai";
+import notificationReceiversRouter from "./notification-receivers";
+import sportCenterRouter from "./sport-center";
+import publicSportCenterRouter from "./public-sport-center";
+import freightRouter from "./freight";
 import { extractUser } from "../middleware/auth";
 
 const router: IRouter = Router();
@@ -40,6 +87,8 @@ router.use(healthRouter);
 router.use(tasksRouter);
 router.use(teamRouter);
 router.use(messagesRouter);
+// ── Sprint 9C — Document Validation (must come BEFORE documentsRouter to avoid GET /documents/:id conflict) ──
+router.use(documentValidationRouter);
 router.use(documentsRouter);
 router.use(dashboardRouter);
 router.use(whatsappRouter);
@@ -61,5 +110,71 @@ router.use(shipmentRouter);
 router.use(customersCrmRouter);
 router.use(portalRouter);
 router.use(dispatcherRouter);
+router.use(knowledgeBaseRouter);
+router.use(governanceRouter);
+router.use(trainingRouter);
+router.use(observabilityRouter);
+router.use(customerMemoryRouter);
+router.use(vendorMemoryRouter);
+router.use(intelRouter);
+router.use(purchasingRequestsRouter);
+router.use(purchasingBenchmarkRouter);
+router.use(purchasingBudgetRouter);
+router.use(purchasingMarginRouter);
+router.use(purchasingApprovalRouter);
+router.use(executiveIntelligenceRouter);
+// ── Sprint 8B — Executive Command Center ──────────────────────────────────────
+router.use(executiveCommandRouter);
+// ── Sprint 7B — Fleet Foundation ──────────────────────────────────────────────
+router.use(fleetUnitsRouter);
+router.use(fleetDriversRouter);
+router.use(fleetDocumentsRouter);
+router.use(fleetMaintenanceRouter);
+// ── Sprint 7C — Fuel Intelligence, Tire Lifecycle, Utilization ────────────────
+router.use(fleetFuelRouter);
+router.use(fleetTiresRouter);
+router.use(fleetUtilizationRouter);
+// ── Sprint 7D — Fleet Risk, Cost, Dashboard, WhatsApp Reporting ───────────────
+router.use(fleetRiskRouter);
+router.use(fleetCostRouter);
+router.use(fleetRouteProfitabilityRouter);
+router.use(fleetDriverMemoryRouter);
+router.use(fleetReportsRouter);
+// ── AI Intake Sessions & Mini Form ────────────────────────────────────────────
+router.use(intakeSessionsRouter);
+router.use(intakeFormRouter);
+router.use(miniFormConfigRouter);
+// ── Sprint 8D — Memory Readiness ──────────────────────────────────────────────
+router.use(readinessRouter);
+// ── Sprint 9D — Conversation Test Suite & AI Quality Gate ─────────────────────
+router.use(conversationTestsRouter);
+// ── Sprint 9D — Quality Gate & Certification ───────────────────────────────────
+router.use(qualityGateRouter);
+// ── Sprint 10A-1 — WhatsApp First Operations ──────────────────────────────────
+router.use(waCommandsRouter);
+// ── Sprint 10A-1.2 — Onboarding Readiness Hardening ───────────────────────────
+router.use(vendorsRouter);
+// ── Sprint 10A-3 — Vendor Self-Service Portal ──────────────────────────────────
+router.use(vendorPortalRouter);
+// ── Sprint 10A-4 — Driver Self-Service Portal ──────────────────────────────────
+router.use(driverPortalRouter);
+router.use(systemRouter);
+// ── Sprint 10B-1 — Multi-Company Scaling Foundation ───────────────────────────
+router.use(companyGovernanceRouter);
+// ── Sprint 10B-2 — Company Onboarding Factory ──────────────────────────────────
+router.use(companyOnboardingRouter);
+// ── Sprint 10B-3 — Cross-Company Consolidation: Holding Dashboard ───────────────
+router.use(holdingDashboardRouter);
+// ── Sprint 10B-4 — AI Operations Center ────────────────────────────────────────
+router.use(aiOperationsRouter);
+// ── Creative AI — Logo Generation via Together.ai / FLUX.1 ────────────────────
+router.use(creativeAiRouter);
+// ── Notification Receivers ────────────────────────────────────────────────────
+router.use(notificationReceiversRouter);
+// ── Sport Center Booking Management ───────────────────────────────────────────
+router.use(sportCenterRouter);
+router.use(publicSportCenterRouter);
+// ── Freight / PPJK Document Upload ────────────────────────────────────────────
+router.use(freightRouter);
 
 export default router;

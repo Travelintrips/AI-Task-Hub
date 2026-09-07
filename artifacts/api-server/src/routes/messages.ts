@@ -11,24 +11,34 @@ const router: IRouter = Router();
 
 router.get("/messages", requireAuth, async (req, res): Promise<void> => {
   try {
-    const companyId = getCompanyId(req) ?? "default";
+    // super_admin: getCompanyId returns null → no company filter (sees ALL messages)
+    // other roles: returns their own companyId
+    const companyId = getCompanyId(req);
     const processedFilter = req.query.processed as string | undefined;
 
     let rows = await db
       .select()
       .from(whatsappMessagesTable)
       .where(
-        processedFilter === "true"
-          ? and(
-              eq(whatsappMessagesTable.companyId, companyId),
-              eq(whatsappMessagesTable.processed, true),
-            )
-          : processedFilter === "false"
+        companyId === null
+          // super_admin: only filter by processed status if requested, no company scope
+          ? processedFilter === "true"
+            ? eq(whatsappMessagesTable.processed, true)
+            : processedFilter === "false"
+              ? eq(whatsappMessagesTable.processed, false)
+              : undefined
+          // regular user: always scope by companyId
+          : processedFilter === "true"
             ? and(
                 eq(whatsappMessagesTable.companyId, companyId),
-                eq(whatsappMessagesTable.processed, false),
+                eq(whatsappMessagesTable.processed, true),
               )
-            : eq(whatsappMessagesTable.companyId, companyId),
+            : processedFilter === "false"
+              ? and(
+                  eq(whatsappMessagesTable.companyId, companyId),
+                  eq(whatsappMessagesTable.processed, false),
+                )
+              : eq(whatsappMessagesTable.companyId, companyId),
       )
       .orderBy(desc(whatsappMessagesTable.createdAt))
       .limit(300);
@@ -36,14 +46,20 @@ router.get("/messages", requireAuth, async (req, res): Promise<void> => {
     const mapped = rows.map((r) => ({
       id:             r.id,
       from:           r.from,
+      senderPhone:    r.senderPhone ?? null,
       senderName:     r.senderName ?? null,
       body:           r.body,
+      messageText:    r.messageText ?? null,
+      messageType:    r.messageType ?? null,
+      direction:      r.direction ?? null,
       processed:      r.processed,
+      aiProcessed:    r.aiProcessed ?? false,
       detectedIntent: r.detectedIntent ?? null,
       taskId:         r.taskId ?? null,
       wamid:          r.wamid ?? null,
       timestamp:      r.timestamp,
       createdAt:      r.createdAt.toISOString(),
+      attachmentUrl:  r.attachmentUrl ?? null,
       repliedAt:      null as string | null,
       replyMessage:   null as string | null,
     }));

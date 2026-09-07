@@ -2,12 +2,11 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { count, eq, ne, desc, sql } from "drizzle-orm";
 import {
   db,
-  tasksTable,
   aiTasksTable,
   whatsappMessagesTable,
   documentsTable,
   teamMembersTable,
-  activityTable,
+  auditLogsTable,
 } from "@workspace/db";
 import { requireAuth, getCompanyId } from "../middleware/auth";
 import { logger } from "../lib/logger";
@@ -18,12 +17,11 @@ const router: IRouter = Router();
 
 router.get("/dashboard/stats", requireAuth, async (_req: Request, res: Response): Promise<void> => {
   try {
-    const [totalTasks] = await db.select({ count: count() }).from(tasksTable);
-    const [pendingTasks] = await db.select({ count: count() }).from(tasksTable).where(eq(tasksTable.status, "pending"));
-    const [completedTasks] = await db.select({ count: count() }).from(tasksTable).where(eq(tasksTable.status, "completed"));
-    const [urgentTasks] = await db.select({ count: count() }).from(tasksTable).where(eq(tasksTable.priority, "urgent"));
+    const [totalTasks] = await db.select({ count: count() }).from(aiTasksTable);
+    const [pendingTasks] = await db.select({ count: count() }).from(aiTasksTable).where(ne(aiTasksTable.status, "completed"));
+    const [completedTasks] = await db.select({ count: count() }).from(aiTasksTable).where(eq(aiTasksTable.status, "completed"));
+    const [urgentTasks] = await db.select({ count: count() }).from(aiTasksTable).where(eq(aiTasksTable.priority, "urgent"));
 
-    const [totalAiTasks] = await db.select({ count: count() }).from(aiTasksTable);
     const [activeAiTasks] = await db.select({ count: count() }).from(aiTasksTable).where(ne(aiTasksTable.status, "completed"));
 
     const [totalMessages] = await db.select({ count: count() }).from(whatsappMessagesTable);
@@ -44,7 +42,7 @@ router.get("/dashboard/stats", requireAuth, async (_req: Request, res: Response)
       totalDocuments:   totalDocuments.count,
       auditedDocuments: auditedDocuments.count,
       teamSize:         teamSize.count,
-      totalAiTasks:     totalAiTasks.count,
+      totalAiTasks:     totalTasks.count,
       activeAiTasks:    activeAiTasks.count,
     });
   } catch (err) {
@@ -59,15 +57,15 @@ router.get("/dashboard/activity", requireAuth, async (_req: Request, res: Respon
   try {
     const rows = await db
       .select()
-      .from(activityTable)
-      .orderBy(desc(activityTable.createdAt))
+      .from(auditLogsTable)
+      .orderBy(desc(auditLogsTable.createdAt))
       .limit(20);
 
     res.json(
       rows.map((r, i) => ({
         id:          r.id ?? i + 1,
-        type:        r.type,
-        description: r.description,
+        type:        r.action,
+        description: r.before ?? "",
         entityId:    r.entityId,
         createdAt:   r.createdAt.toISOString(),
       })),

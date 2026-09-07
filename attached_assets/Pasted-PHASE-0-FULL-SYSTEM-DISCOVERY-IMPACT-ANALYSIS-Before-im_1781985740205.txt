@@ -1,0 +1,182 @@
+PHASE 0 — FULL SYSTEM DISCOVERY & IMPACT ANALYSIS
+
+Before implementing AI Task Center, perform a complete audit of the existing system.
+
+DO NOT create any new tables, routes, pages, components, or features yet.
+
+Your task is to understand the current architecture first.
+
+Generate a complete audit report covering:
+
+SECTION A — FRONTEND MODULE INVENTORY
+
+Scan all routes, menus, pages, sidebar items, and navigation structures.
+
+For every module provide:
+
+* Module Name
+* Route Path
+* Parent Menu
+* Child Menu
+* Purpose
+* Current Status
+* Related API Endpoints
+* Related Database Tables
+
+Examples:
+
+* Dashboard
+* CRM
+* Sales
+* Logistics
+* Warehouse
+* Procurement
+* Purchasing
+* Fleet
+* Expense
+* Kasbon
+* Finance
+* Accounting
+* HR
+* Vendor
+* Customer Portal
+* RFQ
+* Quotation
+* Shipment
+* Invoice
+* Payment
+* Bank Reconciliation
+* Trading
+* CMS
+* AI Modules
+* Any hidden routes
+
+SECTION B — DATABASE INVENTORY
+
+Scan Supabase database schema.
+
+For every table provide:
+
+* Table Name
+* Purpose
+* Row Count
+* Primary Key
+* Foreign Keys
+* Related Module
+* Active Usage
+* Deprecated Usage
+
+Identify:
+
+* Purchasing tables
+* Expense tables
+* Kasbon tables
+* Vehicle/Fleet tables
+* Logistics tables
+* Customer tables
+* Vendor tables
+* Finance tables
+* Accounting tables
+* Workflow tables
+
+SECTION C — API INVENTORY
+
+Scan all backend routes.
+
+For every endpoint provide:
+
+* Endpoint
+* Method
+* Purpose
+* Authentication
+* Related Module
+
+Identify duplicate or unused endpoints.
+
+SECTION D — WORKFLOW INVENTORY
+
+Document all existing workflows.
+
+Examples:
+
+Customer Order
+→ RFQ
+→ Vendor
+→ Approval
+→ Shipment
+→ Invoice
+→ Payment
+
+Kasbon Workflow
+
+Expense Workflow
+
+Procurement Workflow
+
+Fleet Maintenance Workflow
+
+Complaint Workflow
+
+Warehouse Workflow
+
+Finance Approval Workflow
+
+SECTION E — WHATSAPP & COMMUNICATION INVENTORY
+
+Identify:
+
+* Fonnte integration
+* WAHA integration
+* WhatsApp webhook endpoints
+* Notification services
+* Email services
+* Existing chat modules
+
+SECTION F — DUPLICATION ANALYSIS
+
+Identify:
+
+1. Existing features that already solve part of AI Task Center.
+2. Features that should be reused.
+3. Features that should not be duplicated.
+4. Existing task-like systems already present.
+
+SECTION G — IMPACT ANALYSIS
+
+For each proposed AI Task Center feature determine:
+
+* Reuse Existing
+* Extend Existing
+* Create New
+
+Feature List:
+
+* WhatsApp Inbox
+* AI Intent Detection
+* AI Task
+* Document Audit
+* OCR
+* Assignment
+* Approval Workflow
+* Customer Mini Form
+* Team Mini Form
+* Notification Center
+* AI Training
+* AI Configuration
+
+SECTION H — RECOMMENDATION REPORT
+
+Provide final recommendation:
+
+1. What should be reused.
+2. What should be extended.
+3. What should be created new.
+4. Estimated number of new tables required.
+5. Estimated number of new pages required.
+6. Estimated number of new APIs required.
+7. Risks of implementation.
+8. Suggested implementation phases.
+
+Do not modify code.
+
+Output audit report only.

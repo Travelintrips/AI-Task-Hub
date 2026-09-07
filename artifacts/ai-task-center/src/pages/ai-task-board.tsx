@@ -751,13 +751,18 @@ export default function AiTaskBoard() {
             <tbody>
               <tr>
                 <td colSpan={11} className="px-3 py-16 text-center">
-                  <div className="flex flex-col items-center gap-2 text-gray-400">
-                    <Search className="w-8 h-8 opacity-40" />
-                    <p className="text-sm">
-                      {hasFilters
-                        ? "Tidak ada task yang sesuai filter."
-                        : "Belum ada task. Buat task pertama!"}
-                    </p>
+                  <div className="flex flex-col items-center gap-3 text-gray-400">
+                    <Search className="w-10 h-10 opacity-25" />
+                    <div>
+                      <p className="text-sm font-medium text-gray-500">
+                        {hasFilters ? "Tidak ada task yang sesuai filter" : "Belum ada task"}
+                      </p>
+                      <p className="text-xs text-gray-400 mt-1 text-center">
+                        {hasFilters
+                          ? "Coba ubah atau hapus filter untuk melihat semua task"
+                          : "Task dibuat otomatis ketika pesan WA masuk dan terdeteksi oleh AI, atau buat manual dengan tombol di kanan atas"}
+                      </p>
+                    </div>
                     {hasFilters && (
                       <Button variant="ghost" size="sm" onClick={resetAllFilters} className="text-xs">
                         Hapus semua filter

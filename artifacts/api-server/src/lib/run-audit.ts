@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { db, taskAttachmentsTable, documentAuditsTable, activityTable, adminNotificationsTable } from "@workspace/db";
+import { db, taskAttachmentsTable, documentAuditsTable, auditLogsTable, adminNotificationsTable } from "@workspace/db";
 import { runImportAuditChecks, runCrossDocumentValidation, generateAuditNarrative, buildAuditResult } from "./audit";
 import { logTimeline } from "./timeline";
 import { logger } from "./logger";
@@ -35,9 +35,10 @@ export async function runAuditForTask(taskId: number): Promise<typeof documentAu
     })
     .returning();
 
-  await db.insert(activityTable).values({
-    type: "task_updated",
-    description: `Document audit run for task ${taskId} — status: ${audit.auditStatus}`,
+  await db.insert(auditLogsTable).values({
+    action: "document_audited",
+    module: "documents",
+    before: `Document audit run for task ${taskId} — status: ${audit.auditStatus}`,
     entityId: taskId,
   });
 

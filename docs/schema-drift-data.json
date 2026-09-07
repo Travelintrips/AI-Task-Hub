@@ -1,0 +1,4869 @@
+{
+  "tableMissing": [
+    {
+      "table": "routing_rules",
+      "col": "*",
+      "issue": "TABLE_MISSING_IN_DB",
+      "drizzle": "exists",
+      "actual": "MISSING"
+    },
+    {
+      "table": "sla_matrix",
+      "col": "*",
+      "issue": "TABLE_MISSING_IN_DB",
+      "drizzle": "exists",
+      "actual": "MISSING"
+    },
+    {
+      "table": "escalation_rules",
+      "col": "*",
+      "issue": "TABLE_MISSING_IN_DB",
+      "drizzle": "exists",
+      "actual": "MISSING"
+    },
+    {
+      "table": "escalation_logs",
+      "col": "*",
+      "issue": "TABLE_MISSING_IN_DB",
+      "drizzle": "exists",
+      "actual": "MISSING"
+    },
+    {
+      "table": "correction_queue",
+      "col": "*",
+      "issue": "TABLE_MISSING_IN_DB",
+      "drizzle": "exists",
+      "actual": "MISSING"
+    },
+    {
+      "table": "correction_sessions",
+      "col": "*",
+      "issue": "TABLE_MISSING_IN_DB",
+      "drizzle": "exists",
+      "actual": "MISSING"
+    },
+    {
+      "table": "training_dataset",
+      "col": "*",
+      "issue": "TABLE_MISSING_IN_DB",
+      "drizzle": "exists",
+      "actual": "MISSING"
+    },
+    {
+      "table": "dataset_exports",
+      "col": "*",
+      "issue": "TABLE_MISSING_IN_DB",
+      "drizzle": "exists",
+      "actual": "MISSING"
+    },
+    {
+      "table": "accuracy_snapshots",
+      "col": "*",
+      "issue": "TABLE_MISSING_IN_DB",
+      "drizzle": "exists",
+      "actual": "MISSING"
+    },
+    {
+      "table": "prompt_test_results",
+      "col": "*",
+      "issue": "TABLE_MISSING_IN_DB",
+      "drizzle": "exists",
+      "actual": "MISSING"
+    },
+    {
+      "table": "ai_experiments",
+      "col": "*",
+      "issue": "TABLE_MISSING_IN_DB",
+      "drizzle": "exists",
+      "actual": "MISSING"
+    },
+    {
+      "table": "experiment_observations",
+      "col": "*",
+      "issue": "TABLE_MISSING_IN_DB",
+      "drizzle": "exists",
+      "actual": "MISSING"
+    },
+    {
+      "table": "experiment_results",
+      "col": "*",
+      "issue": "TABLE_MISSING_IN_DB",
+      "drizzle": "exists",
+      "actual": "MISSING"
+    },
+    {
+      "table": "prediction_logs",
+      "col": "*",
+      "issue": "TABLE_MISSING_IN_DB",
+      "drizzle": "exists",
+      "actual": "MISSING"
+    },
+    {
+      "table": "performance_daily",
+      "col": "*",
+      "issue": "TABLE_MISSING_IN_DB",
+      "drizzle": "exists",
+      "actual": "MISSING"
+    },
+    {
+      "table": "performance_by_intent",
+      "col": "*",
+      "issue": "TABLE_MISSING_IN_DB",
+      "drizzle": "exists",
+      "actual": "MISSING"
+    }
+  ],
+  "missing": [
+    {
+      "table": "approval_rules",
+      "col": "intent_code",
+      "issue": "COLUMN_MISSING_IN_DB",
+      "drizzle": "text",
+      "actual": "MISSING"
+    },
+    {
+      "table": "approval_rules",
+      "col": "category",
+      "issue": "COLUMN_MISSING_IN_DB",
+      "drizzle": "text",
+      "actual": "MISSING"
+    },
+    {
+      "table": "approval_rules",
+      "col": "priority",
+      "issue": "COLUMN_MISSING_IN_DB",
+      "drizzle": "text",
+      "actual": "MISSING"
+    },
+    {
+      "table": "approval_rules",
+      "col": "approval_type",
+      "issue": "COLUMN_MISSING_IN_DB",
+      "drizzle": "text",
+      "actual": "MISSING"
+    },
+    {
+      "table": "approval_rules",
+      "col": "approver_role",
+      "issue": "COLUMN_MISSING_IN_DB",
+      "drizzle": "text",
+      "actual": "MISSING"
+    },
+    {
+      "table": "approval_rules",
+      "col": "requires_note",
+      "issue": "COLUMN_MISSING_IN_DB",
+      "drizzle": "boolean",
+      "actual": "MISSING"
+    },
+    {
+      "table": "approval_rules",
+      "col": "timeout_hours",
+      "issue": "COLUMN_MISSING_IN_DB",
+      "drizzle": "integer",
+      "actual": "MISSING"
+    },
+    {
+      "table": "approval_requests",
+      "col": "task_id",
+      "issue": "COLUMN_MISSING_IN_DB",
+      "drizzle": "integer",
+      "actual": "MISSING"
+    },
+    {
+      "table": "approval_requests",
+      "col": "rule_id",
+      "issue": "COLUMN_MISSING_IN_DB",
+      "drizzle": "integer",
+      "actual": "MISSING"
+    },
+    {
+      "table": "approval_requests",
+      "col": "approver_role",
+      "issue": "COLUMN_MISSING_IN_DB",
+      "drizzle": "text",
+      "actual": "MISSING"
+    },
+    {
+      "table": "approval_requests",
+      "col": "approval_type",
+      "issue": "COLUMN_MISSING_IN_DB",
+      "drizzle": "text",
+      "actual": "MISSING"
+    },
+    {
+      "table": "approval_requests",
+      "col": "decided_by",
+      "issue": "COLUMN_MISSING_IN_DB",
+      "drizzle": "text",
+      "actual": "MISSING"
+    },
+    {
+      "table": "approval_requests",
+      "col": "decided_at",
+      "issue": "COLUMN_MISSING_IN_DB",
+      "drizzle": "timestamp",
+      "actual": "MISSING"
+    },
+    {
+      "table": "task_attachments",
+      "col": "customer_id",
+      "issue": "COLUMN_MISSING_IN_DB",
+      "drizzle": "integer",
+      "actual": "MISSING"
+    },
+    {
+      "table": "task_attachments",
+      "col": "is_reusable",
+      "issue": "COLUMN_MISSING_IN_DB",
+      "drizzle": "boolean",
+      "actual": "MISSING"
+    },
+    {
+      "table": "task_attachments",
+      "col": "reuse_notes",
+      "issue": "COLUMN_MISSING_IN_DB",
+      "drizzle": "text",
+      "actual": "MISSING"
+    },
+    {
+      "table": "prompt_versions",
+      "col": "version_label",
+      "issue": "COLUMN_MISSING_IN_DB",
+      "drizzle": "text",
+      "actual": "MISSING"
+    },
+    {
+      "table": "prompt_versions",
+      "col": "prompt_diff",
+      "issue": "COLUMN_MISSING_IN_DB",
+      "drizzle": "text",
+      "actual": "MISSING"
+    },
+    {
+      "table": "prompt_versions",
+      "col": "changelog",
+      "issue": "COLUMN_MISSING_IN_DB",
+      "drizzle": "text",
+      "actual": "MISSING"
+    },
+    {
+      "table": "prompt_versions",
+      "col": "parent_version_id",
+      "issue": "COLUMN_MISSING_IN_DB",
+      "drizzle": "integer",
+      "actual": "MISSING"
+    },
+    {
+      "table": "prompt_versions",
+      "col": "experiment_id",
+      "issue": "COLUMN_MISSING_IN_DB",
+      "drizzle": "integer",
+      "actual": "MISSING"
+    },
+    {
+      "table": "prompt_versions",
+      "col": "accuracy_at_activation",
+      "issue": "COLUMN_MISSING_IN_DB",
+      "drizzle": "numeric",
+      "actual": "MISSING"
+    }
+  ],
+  "typeMismatch": [
+    {
+      "table": "audit_logs",
+      "col": "entity_id",
+      "issue": "TYPE_MISMATCH",
+      "drizzle": "integer",
+      "actual": "text",
+      "severity": "HIGH"
+    },
+    {
+      "table": "customer_memory_snapshots",
+      "col": "last_n_intents",
+      "issue": "TYPE_MISMATCH",
+      "drizzle": "text",
+      "actual": "ARRAY",
+      "severity": "HIGH"
+    },
+    {
+      "table": "customer_memory_snapshots",
+      "col": "missing_docs_list",
+      "issue": "TYPE_MISMATCH",
+      "drizzle": "text",
+      "actual": "ARRAY",
+      "severity": "HIGH"
+    },
+    {
+      "table": "customer_memory_snapshots",
+      "col": "frequent_services",
+      "issue": "TYPE_MISMATCH",
+      "drizzle": "text",
+      "actual": "ARRAY",
+      "severity": "HIGH"
+    },
+    {
+      "table": "customers",
+      "col": "company_id",
+      "issue": "TYPE_MISMATCH",
+      "drizzle": "text",
+      "actual": "integer",
+      "severity": "HIGH"
+    },
+    {
+      "table": "document_audits",
+      "col": "complete_fields",
+      "issue": "TYPE_MISMATCH",
+      "drizzle": "text",
+      "actual": "ARRAY",
+      "severity": "HIGH"
+    },
+    {
+      "table": "document_audits",
+      "col": "missing_fields",
+      "issue": "TYPE_MISMATCH",
+      "drizzle": "text",
+      "actual": "ARRAY",
+      "severity": "HIGH"
+    },
+    {
+      "table": "document_audits",
+      "col": "mismatch_fields",
+      "issue": "TYPE_MISMATCH",
+      "drizzle": "text",
+      "actual": "ARRAY",
+      "severity": "HIGH"
+    },
+    {
+      "table": "document_audits",
+      "col": "unclear_fields",
+      "issue": "TYPE_MISMATCH",
+      "drizzle": "text",
+      "actual": "ARRAY",
+      "severity": "HIGH"
+    },
+    {
+      "table": "document_audits",
+      "col": "cross_doc_warnings",
+      "issue": "TYPE_MISMATCH",
+      "drizzle": "text",
+      "actual": "ARRAY",
+      "severity": "HIGH"
+    },
+    {
+      "table": "document_validation_rules",
+      "col": "required_fields",
+      "issue": "TYPE_MISMATCH",
+      "drizzle": "text",
+      "actual": "ARRAY",
+      "severity": "HIGH"
+    },
+    {
+      "table": "document_validation_rules",
+      "col": "optional_fields",
+      "issue": "TYPE_MISMATCH",
+      "drizzle": "text",
+      "actual": "ARRAY",
+      "severity": "HIGH"
+    },
+    {
+      "table": "document_validation_rules",
+      "col": "is_active",
+      "issue": "TYPE_MISMATCH",
+      "drizzle": "text",
+      "actual": "boolean",
+      "severity": "HIGH"
+    },
+    {
+      "table": "documents",
+      "col": "audit_issues",
+      "issue": "TYPE_MISMATCH",
+      "drizzle": "text",
+      "actual": "ARRAY",
+      "severity": "HIGH"
+    },
+    {
+      "table": "approval_rules",
+      "col": "company_id",
+      "issue": "TYPE_MISMATCH",
+      "drizzle": "text",
+      "actual": "integer",
+      "severity": "HIGH"
+    },
+    {
+      "table": "approval_requests",
+      "col": "company_id",
+      "issue": "TYPE_MISMATCH",
+      "drizzle": "text",
+      "actual": "integer",
+      "severity": "HIGH"
+    },
+    {
+      "table": "intel_readiness_scores",
+      "col": "top_flags",
+      "issue": "TYPE_MISMATCH",
+      "drizzle": "text",
+      "actual": "ARRAY",
+      "severity": "HIGH"
+    },
+    {
+      "table": "users",
+      "col": "id",
+      "issue": "TYPE_MISMATCH",
+      "drizzle": "serial",
+      "actual": "text",
+      "severity": "HIGH"
+    },
+    {
+      "table": "users",
+      "col": "company_id",
+      "issue": "TYPE_MISMATCH",
+      "drizzle": "text",
+      "actual": "integer",
+      "severity": "HIGH"
+    },
+    {
+      "table": "vendor_capabilities",
+      "col": "origin_cities",
+      "issue": "TYPE_MISMATCH",
+      "drizzle": "text",
+      "actual": "ARRAY",
+      "severity": "HIGH"
+    },
+    {
+      "table": "vendor_capabilities",
+      "col": "destination_cities",
+      "issue": "TYPE_MISMATCH",
+      "drizzle": "text",
+      "actual": "ARRAY",
+      "severity": "HIGH"
+    },
+    {
+      "table": "vendor_capabilities",
+      "col": "vehicle_types",
+      "issue": "TYPE_MISMATCH",
+      "drizzle": "text",
+      "actual": "ARRAY",
+      "severity": "HIGH"
+    },
+    {
+      "table": "vendor_capabilities",
+      "col": "certifications",
+      "issue": "TYPE_MISMATCH",
+      "drizzle": "text",
+      "actual": "ARRAY",
+      "severity": "HIGH"
+    },
+    {
+      "table": "vendor_memory_snapshots",
+      "col": "top_service_types",
+      "issue": "TYPE_MISMATCH",
+      "drizzle": "text",
+      "actual": "ARRAY",
+      "severity": "HIGH"
+    },
+    {
+      "table": "vendor_memory_snapshots",
+      "col": "best_routes",
+      "issue": "TYPE_MISMATCH",
+      "drizzle": "text",
+      "actual": "ARRAY",
+      "severity": "HIGH"
+    },
+    {
+      "table": "vendor_memory_snapshots",
+      "col": "missing_docs_list",
+      "issue": "TYPE_MISMATCH",
+      "drizzle": "text",
+      "actual": "ARRAY",
+      "severity": "HIGH"
+    }
+  ],
+  "extra": [
+    {
+      "table": "admin_notifications",
+      "col": "order_id",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "admin_notifications",
+      "col": "order_number",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "admin_notifications",
+      "col": "company_name",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "admin_notifications",
+      "col": "payload",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "jsonb",
+      "severity": "INFO"
+    },
+    {
+      "table": "admin_notifications",
+      "col": "read_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "ai_tasks",
+      "col": "sla_hours",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "ai_tasks",
+      "col": "overdue_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "ai_tasks",
+      "col": "completed_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "ai_tasks",
+      "col": "sla_status",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "ai_tasks",
+      "col": "last_customer_reply_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "ai_tasks",
+      "col": "follow_up_count",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "ai_tasks",
+      "col": "ai_summary",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "ai_tasks",
+      "col": "ai_intent",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "ai_tasks",
+      "col": "missing_data",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "ai_tasks",
+      "col": "required_action",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "ai_tasks",
+      "col": "admin_notes",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "ai_tasks",
+      "col": "ai_confidence_score",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "ai_tasks",
+      "col": "customer_sentiment",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "ai_tasks",
+      "col": "created_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "ai_tasks",
+      "col": "updated_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "audit_logs",
+      "col": "before_data",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "jsonb",
+      "severity": "INFO"
+    },
+    {
+      "table": "audit_logs",
+      "col": "after_data",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "jsonb",
+      "severity": "INFO"
+    },
+    {
+      "table": "audit_logs",
+      "col": "site_id",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "audit_logs",
+      "col": "site_code",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "audit_logs",
+      "col": "tenant_id",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "company_settings",
+      "col": "updated_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "conversation_test_cases",
+      "col": "expected_intent_code",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "conversation_test_cases",
+      "col": "expected_intake_mode",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "conversation_test_cases",
+      "col": "expected_task_created",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "boolean",
+      "severity": "INFO"
+    },
+    {
+      "table": "conversation_test_cases",
+      "col": "expected_mini_form_sent",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "boolean",
+      "severity": "INFO"
+    },
+    {
+      "table": "conversation_test_cases",
+      "col": "expected_admin_handoff",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "boolean",
+      "severity": "INFO"
+    },
+    {
+      "table": "conversation_test_cases",
+      "col": "expected_missing_fields",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "jsonb",
+      "severity": "INFO"
+    },
+    {
+      "table": "conversation_test_cases",
+      "col": "is_critical",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "boolean",
+      "severity": "INFO"
+    },
+    {
+      "table": "conversation_test_cases",
+      "col": "is_active",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "boolean",
+      "severity": "INFO"
+    },
+    {
+      "table": "conversation_test_cases",
+      "col": "created_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "conversation_test_cases",
+      "col": "updated_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "conversation_test_runs",
+      "col": "started_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "conversation_test_runs",
+      "col": "finished_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "conversation_test_runs",
+      "col": "created_by",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "customer_preferences",
+      "col": "inferred_from_count",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "customer_preferences",
+      "col": "created_by",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "customer_preferences",
+      "col": "last_confirmed_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "customer_preferences",
+      "col": "superseded_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "customer_preferences",
+      "col": "superseded_by",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "customer_preferences",
+      "col": "created_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "customer_preferences",
+      "col": "updated_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "customer_risk_assessments",
+      "col": "assessed_by",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "customer_risk_assessments",
+      "col": "risk_score",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "customer_risk_assessments",
+      "col": "tier",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "customer_risk_assessments",
+      "col": "previous_tier",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "customer_risk_assessments",
+      "col": "credit_limit",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "numeric",
+      "severity": "INFO"
+    },
+    {
+      "table": "customer_risk_assessments",
+      "col": "factors",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "jsonb",
+      "severity": "INFO"
+    },
+    {
+      "table": "customer_risk_assessments",
+      "col": "recommendations",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "customer_risk_assessments",
+      "col": "notes",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "customer_risk_assessments",
+      "col": "expires_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "date",
+      "severity": "INFO"
+    },
+    {
+      "table": "customer_risk_assessments",
+      "col": "is_active",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "boolean",
+      "severity": "INFO"
+    },
+    {
+      "table": "customer_risk_assessments",
+      "col": "archived_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "customer_risk_assessments",
+      "col": "archived_by_assessment_id",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "customer_memory_snapshots",
+      "col": "freshness_score",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "smallint",
+      "severity": "INFO"
+    },
+    {
+      "table": "customer_memory_snapshots",
+      "col": "created_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "customer_memory_events",
+      "col": "notes",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "customer_memory_events",
+      "col": "created_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "customer_document_registry",
+      "col": "expiry_date",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "date",
+      "severity": "INFO"
+    },
+    {
+      "table": "customer_document_registry",
+      "col": "tags",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "ARRAY",
+      "severity": "INFO"
+    },
+    {
+      "table": "customer_document_registry",
+      "col": "notes",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "customer_document_registry",
+      "col": "uploaded_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "customer_document_registry",
+      "col": "uploaded_by",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "customer_document_registry",
+      "col": "created_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "customers",
+      "col": "name",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "customers",
+      "col": "phone",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "customers",
+      "col": "tax_id",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "customers",
+      "col": "default_sales_tax_id",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "customers",
+      "col": "created_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp without time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "customers",
+      "col": "preferred_channel",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "customers",
+      "col": "preferred_language",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "customers",
+      "col": "typical_cargo_types",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "customers",
+      "col": "typical_routes",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "customers",
+      "col": "risk_score",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "customers",
+      "col": "risk_tier",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "customers",
+      "col": "memory_updated_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "customers",
+      "col": "updated_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "data_templates",
+      "col": "updated_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "dispatcher_logs",
+      "col": "created_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "document_audits",
+      "col": "updated_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "document_templates",
+      "col": "updated_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "document_intake_audits",
+      "col": "required_fields",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "jsonb",
+      "severity": "INFO"
+    },
+    {
+      "table": "document_intake_audits",
+      "col": "missing_fields",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "ARRAY",
+      "severity": "INFO"
+    },
+    {
+      "table": "document_intake_audits",
+      "col": "validation_status",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "document_intake_audits",
+      "col": "confidence_score",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "numeric",
+      "severity": "INFO"
+    },
+    {
+      "table": "document_intake_audits",
+      "col": "issue_summary",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "document_intake_audits",
+      "col": "ai_notes",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "document_intake_audits",
+      "col": "reviewed_by",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "document_intake_audits",
+      "col": "reviewed_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "document_intake_audits",
+      "col": "created_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "document_intake_audits",
+      "col": "updated_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "document_validation_rules",
+      "col": "updated_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "documents",
+      "col": "updated_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_units",
+      "col": "updated_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_documents",
+      "col": "issued_date",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "date",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_documents",
+      "col": "expired_date",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "date",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_documents",
+      "col": "updated_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_drivers",
+      "col": "license_expired",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "date",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_drivers",
+      "col": "join_date",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "date",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_drivers",
+      "col": "updated_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_driver_performance",
+      "col": "created_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_maintenance_records",
+      "col": "service_date",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "date",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_maintenance_records",
+      "col": "rejected_by",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_maintenance_records",
+      "col": "rejected_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_maintenance_records",
+      "col": "rejection_reason",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_maintenance_records",
+      "col": "completion_date",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "date",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_maintenance_records",
+      "col": "next_service_km",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_maintenance_records",
+      "col": "next_service_date",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "date",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_maintenance_records",
+      "col": "parts_used",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "jsonb",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_maintenance_records",
+      "col": "invoice_url",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_maintenance_records",
+      "col": "notes",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_maintenance_records",
+      "col": "created_by",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_maintenance_records",
+      "col": "created_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_maintenance_records",
+      "col": "updated_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_maintenance_schedules",
+      "col": "last_done_date",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "date",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_maintenance_schedules",
+      "col": "next_due_date",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "date",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_maintenance_schedules",
+      "col": "updated_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_gps_logs",
+      "col": "latitude",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_gps_logs",
+      "col": "longitude",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_gps_logs",
+      "col": "speed_kmh",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_gps_logs",
+      "col": "heading_deg",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_gps_logs",
+      "col": "odometer_km",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_gps_logs",
+      "col": "engine_on",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "boolean",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_gps_logs",
+      "col": "source",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_gps_logs",
+      "col": "raw_payload",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "jsonb",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_gps_logs",
+      "col": "created_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_driver_incidents",
+      "col": "incident_date",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "date",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_driver_incidents",
+      "col": "attachments",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "jsonb",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_driver_incidents",
+      "col": "notes",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_driver_incidents",
+      "col": "created_by",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_driver_incidents",
+      "col": "created_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_driver_incidents",
+      "col": "updated_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_fuel_benchmarks",
+      "col": "updated_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_fuel_logs",
+      "col": "odometer_km",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_fuel_logs",
+      "col": "liters_filled",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_fuel_logs",
+      "col": "fuel_type",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_fuel_logs",
+      "col": "price_per_liter",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_fuel_logs",
+      "col": "total_cost",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_fuel_logs",
+      "col": "station_name",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_fuel_logs",
+      "col": "km_since_last_fill",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_fuel_logs",
+      "col": "km_per_liter",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_fuel_logs",
+      "col": "is_anomaly",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "boolean",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_fuel_logs",
+      "col": "anomaly_reason",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_fuel_logs",
+      "col": "anomaly_score",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_fuel_logs",
+      "col": "notes",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_fuel_logs",
+      "col": "created_by",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_fuel_logs",
+      "col": "created_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_tires",
+      "col": "install_date",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "date",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_tires",
+      "col": "replaced_reason",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_tires",
+      "col": "is_active",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "boolean",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_tires",
+      "col": "notes",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_tires",
+      "col": "created_by",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_tires",
+      "col": "created_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_tires",
+      "col": "updated_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_tire_rotations",
+      "col": "rotation_date",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "date",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_utilization_logs",
+      "col": "actual_departure",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_utilization_logs",
+      "col": "planned_arrival",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_utilization_logs",
+      "col": "actual_arrival",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_utilization_logs",
+      "col": "delay_minutes",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_utilization_logs",
+      "col": "capacity_used_pct",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_utilization_logs",
+      "col": "cargo_weight_kg",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_utilization_logs",
+      "col": "status",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_utilization_logs",
+      "col": "cancel_reason",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_utilization_logs",
+      "col": "notes",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_utilization_logs",
+      "col": "created_by",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_utilization_logs",
+      "col": "created_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "fleet_utilization_logs",
+      "col": "updated_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "approval_rules",
+      "col": "name",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "approval_rules",
+      "col": "module",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "USER-DEFINED",
+      "severity": "INFO"
+    },
+    {
+      "table": "approval_rules",
+      "col": "scope",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "USER-DEFINED",
+      "severity": "INFO"
+    },
+    {
+      "table": "approval_rules",
+      "col": "branch_id",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "approval_rules",
+      "col": "division_id",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "approval_rules",
+      "col": "department_id",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "approval_rules",
+      "col": "amount_threshold",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "numeric",
+      "severity": "INFO"
+    },
+    {
+      "table": "approval_rules",
+      "col": "approver_role_id",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "approval_rules",
+      "col": "approver_user_id",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "approval_rules",
+      "col": "level",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "approval_rules",
+      "col": "description",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "approval_rules",
+      "col": "updated_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "approval_requests",
+      "col": "module",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "approval_requests",
+      "col": "doc_type",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "approval_requests",
+      "col": "doc_id",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "approval_requests",
+      "col": "doc_number",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "approval_requests",
+      "col": "requested_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "approval_requests",
+      "col": "approved_by",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "approval_requests",
+      "col": "approved_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "approval_requests",
+      "col": "rejected_by",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "approval_requests",
+      "col": "rejected_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "approval_requests",
+      "col": "note",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "approval_requests",
+      "col": "metadata",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "jsonb",
+      "severity": "INFO"
+    },
+    {
+      "table": "approval_requests",
+      "col": "notified",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "boolean",
+      "severity": "INFO"
+    },
+    {
+      "table": "conversation_intake_sessions",
+      "col": "missing_fields",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "jsonb",
+      "severity": "INFO"
+    },
+    {
+      "table": "conversation_intake_sessions",
+      "col": "required_documents",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "jsonb",
+      "severity": "INFO"
+    },
+    {
+      "table": "conversation_intake_sessions",
+      "col": "uploaded_documents",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "jsonb",
+      "severity": "INFO"
+    },
+    {
+      "table": "conversation_intake_sessions",
+      "col": "last_question",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "conversation_intake_sessions",
+      "col": "last_message",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "conversation_intake_sessions",
+      "col": "task_id",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "conversation_intake_sessions",
+      "col": "expires_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "conversation_intake_sessions",
+      "col": "created_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "conversation_intake_sessions",
+      "col": "updated_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "conversation_intake_sessions",
+      "col": "mini_form_type",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "conversation_intake_sessions",
+      "col": "form_token",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "conversation_intake_sessions",
+      "col": "form_sent_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "conversation_intake_sessions",
+      "col": "confidence_score",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "numeric",
+      "severity": "INFO"
+    },
+    {
+      "table": "conversation_intake_sessions",
+      "col": "completion_pct",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "numeric",
+      "severity": "INFO"
+    },
+    {
+      "table": "conversation_intake_sessions",
+      "col": "needs_admin_review",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "boolean",
+      "severity": "INFO"
+    },
+    {
+      "table": "conversation_intake_sessions",
+      "col": "ai_summary",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "conversation_intake_sessions",
+      "col": "last_message_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_routes",
+      "col": "period_start",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "date",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_routes",
+      "col": "period_end",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "date",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_routes",
+      "col": "source_count",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "smallint",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_routes",
+      "col": "task_count",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_routes",
+      "col": "unique_customers",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_routes",
+      "col": "repeat_customer_rate",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_routes",
+      "col": "avg_tasks_per_month",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_routes",
+      "col": "avg_eta_days",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_routes",
+      "col": "avg_actual_days",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_routes",
+      "col": "on_time_delivery_rate",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_routes",
+      "col": "catalog_estimated_days",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_routes",
+      "col": "catalog_base_price",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_routes",
+      "col": "avg_quoted_amount",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_routes",
+      "col": "avg_actual_cost",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_routes",
+      "col": "avg_actual_revenue",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_routes",
+      "col": "avg_margin_pct",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_routes",
+      "col": "cost_variance_pct",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_routes",
+      "col": "price_signal_count",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_routes",
+      "col": "vendor_count",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_routes",
+      "col": "avg_vendor_selection_rate",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_routes",
+      "col": "top_vendor_ids",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "ARRAY",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_routes",
+      "col": "avg_customer_satisfaction",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_routes",
+      "col": "success_rate",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_routes",
+      "col": "readiness_score",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "smallint",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_routes",
+      "col": "confidence_tier",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_routes",
+      "col": "readiness_flags",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "ARRAY",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_routes",
+      "col": "refreshed_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_routes",
+      "col": "is_stale",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "boolean",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_routes",
+      "col": "created_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "period_start",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "date",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "period_end",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "date",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "source_count",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "smallint",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "service_types",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "ARRAY",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "cargo_types",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "ARRAY",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "coverage_origins",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "ARRAY",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "coverage_destinations",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "ARRAY",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "certifications",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "ARRAY",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "has_hazmat",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "boolean",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "has_cold_chain",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "boolean",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "on_time_rate",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "response_rate",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "document_accuracy",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "cancel_rate",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "performance_score",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "performance_grade",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "avg_response_hours",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "jobs_total",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "jobs_completed",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "risk_score",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "risk_tier",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "risk_factor_codes",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "ARRAY",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "risk_assessment_age",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "document_completeness",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "expired_doc_count",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "missing_doc_types",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "ARRAY",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "critical_docs_missing",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "boolean",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "times_recommended",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "times_recommended_rank1",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "times_selected",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "selection_rate",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "rank1_acceptance_rate",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "avg_cmm_composite_score",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "recommendation_acceptance_rate",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "recommendation_win_rate",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "purchasing_signal_count",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "avg_actual_cost",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "avg_margin_pct",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "cost_std_dev",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "cost_predictability_tier",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "avg_customer_satisfaction",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "satisfaction_sample_count",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "readiness_score",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "smallint",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "confidence_tier",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "readiness_flags",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "ARRAY",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "refreshed_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "is_stale",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "boolean",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_vendors",
+      "col": "created_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_customers",
+      "col": "period_start",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "date",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_customers",
+      "col": "period_end",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "date",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_customers",
+      "col": "source_count",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "smallint",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_customers",
+      "col": "tier",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_customers",
+      "col": "industry",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_customers",
+      "col": "preferred_channel",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_customers",
+      "col": "preferred_language",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_customers",
+      "col": "frequent_services",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "ARRAY",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_customers",
+      "col": "typical_routes",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "ARRAY",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_customers",
+      "col": "typical_cargo_types",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "ARRAY",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_customers",
+      "col": "avg_tasks_per_month",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_customers",
+      "col": "task_count",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_customers",
+      "col": "last_task_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_customers",
+      "col": "days_since_last_task",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_customers",
+      "col": "completion_rate",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_customers",
+      "col": "on_track_rate",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_customers",
+      "col": "sla_breach_rate",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_customers",
+      "col": "avg_follow_up_count",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_customers",
+      "col": "sentiment_trend",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_customers",
+      "col": "avg_sentiment_score",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_customers",
+      "col": "positive_sentiment_pct",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_customers",
+      "col": "risk_score",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_customers",
+      "col": "risk_tier",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_customers",
+      "col": "credit_limit",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_customers",
+      "col": "risk_factor_codes",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "ARRAY",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_customers",
+      "col": "risk_assessment_age",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_customers",
+      "col": "avg_customer_satisfaction",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_customers",
+      "col": "satisfaction_sample_count",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_customers",
+      "col": "satisfaction_trend",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_customers",
+      "col": "missing_doc_frequency",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_customers",
+      "col": "typical_missing_docs",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "ARRAY",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_customers",
+      "col": "readiness_score",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "smallint",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_customers",
+      "col": "confidence_tier",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_customers",
+      "col": "readiness_flags",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "ARRAY",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_customers",
+      "col": "refreshed_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_customers",
+      "col": "is_stale",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "boolean",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_customers",
+      "col": "created_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_profit",
+      "col": "period_start",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "date",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_profit",
+      "col": "period_end",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "date",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_profit",
+      "col": "source_count",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "smallint",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_profit",
+      "col": "signal_count",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_profit",
+      "col": "task_count",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_profit",
+      "col": "quotation_count",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_profit",
+      "col": "quotation_accepted_count",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_profit",
+      "col": "quotation_win_rate",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_profit",
+      "col": "total_quoted_amount",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_profit",
+      "col": "total_actual_revenue",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_profit",
+      "col": "avg_revenue_per_task",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_profit",
+      "col": "total_actual_cost",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_profit",
+      "col": "avg_cost_per_task",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_profit",
+      "col": "catalog_base_price",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_profit",
+      "col": "cost_vs_catalog_pct",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_profit",
+      "col": "total_actual_margin",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_profit",
+      "col": "avg_margin_pct",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_profit",
+      "col": "median_margin_pct",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_profit",
+      "col": "p10_margin_pct",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_profit",
+      "col": "p90_margin_pct",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_profit",
+      "col": "margin_std_dev",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_profit",
+      "col": "below_floor_count",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_profit",
+      "col": "below_floor_pct",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_profit",
+      "col": "below_margin_floor_count",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_profit",
+      "col": "avg_profit_variance",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_profit",
+      "col": "positive_profit_variance_pct",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_profit",
+      "col": "revenue_growth_pct",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_profit",
+      "col": "margin_growth_pct",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_profit",
+      "col": "prev_period_avg_margin_pct",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_profit",
+      "col": "readiness_score",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "smallint",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_profit",
+      "col": "confidence_tier",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_profit",
+      "col": "readiness_flags",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "ARRAY",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_profit",
+      "col": "refreshed_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_profit",
+      "col": "is_stale",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "boolean",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_profit",
+      "col": "created_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_quotations",
+      "col": "period_start",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "date",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_quotations",
+      "col": "period_end",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "date",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_quotations",
+      "col": "source_count",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "smallint",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_quotations",
+      "col": "quotations_issued",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_quotations",
+      "col": "quotations_sent",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_quotations",
+      "col": "quotations_accepted",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_quotations",
+      "col": "quotations_rejected",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_quotations",
+      "col": "win_rate",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_quotations",
+      "col": "ai_generated_count",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_quotations",
+      "col": "manual_count",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_quotations",
+      "col": "avg_total_amount",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_quotations",
+      "col": "median_total_amount",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_quotations",
+      "col": "p10_total_amount",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_quotations",
+      "col": "p90_total_amount",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_quotations",
+      "col": "catalog_base_price",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_quotations",
+      "col": "avg_premium_over_catalog",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_quotations",
+      "col": "avg_profit_variance",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_quotations",
+      "col": "quotes_too_low",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_quotations",
+      "col": "quotes_too_low_pct",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_quotations",
+      "col": "quotes_too_high",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_quotations",
+      "col": "avg_hours_to_send",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_quotations",
+      "col": "avg_hours_to_respond",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_quotations",
+      "col": "avg_total_cycle_days",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_quotations",
+      "col": "ai_win_rate",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_quotations",
+      "col": "manual_win_rate",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_quotations",
+      "col": "ai_avg_amount",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_quotations",
+      "col": "manual_avg_amount",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_quotations",
+      "col": "ai_avg_hours_to_send",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_quotations",
+      "col": "manual_avg_hours_to_send",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_quotations",
+      "col": "avg_intent_confidence_at_quote",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_quotations",
+      "col": "high_confidence_win_rate",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_quotations",
+      "col": "low_confidence_win_rate",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_quotations",
+      "col": "readiness_score",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "smallint",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_quotations",
+      "col": "confidence_tier",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_quotations",
+      "col": "readiness_flags",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "ARRAY",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_quotations",
+      "col": "refreshed_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_quotations",
+      "col": "is_stale",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "boolean",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_quotations",
+      "col": "created_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_readiness_scores",
+      "col": "period_start",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "date",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_readiness_scores",
+      "col": "period_end",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "date",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_readiness_scores",
+      "col": "overall_readiness_score",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "smallint",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_readiness_scores",
+      "col": "created_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_refresh_log",
+      "col": "period_start",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "date",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_refresh_log",
+      "col": "period_end",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "date",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_refresh_log",
+      "col": "completed_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "intel_refresh_log",
+      "col": "created_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "intent_master",
+      "col": "updated_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "operational_checklists",
+      "col": "done_by",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "operational_checklists",
+      "col": "notes",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "operational_checklists",
+      "col": "sort_order",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "operational_checklists",
+      "col": "created_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "public_tokens",
+      "col": "used_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "public_tokens",
+      "col": "is_revoked",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "boolean",
+      "severity": "INFO"
+    },
+    {
+      "table": "public_tokens",
+      "col": "created_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "logistic_purchase_requests",
+      "col": "ai_risk_score",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "smallint",
+      "severity": "INFO"
+    },
+    {
+      "table": "logistic_purchase_requests",
+      "col": "supabase_approval_request_id",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "logistic_purchase_requests",
+      "col": "approved_by",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "logistic_purchase_requests",
+      "col": "approved_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "logistic_purchase_requests",
+      "col": "rejected_by",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "logistic_purchase_requests",
+      "col": "rejected_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "logistic_purchase_requests",
+      "col": "rejected_reason",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "logistic_purchase_requests",
+      "col": "notes",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "logistic_purchase_requests",
+      "col": "created_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "logistic_purchase_requests",
+      "col": "updated_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "purchasing_signals",
+      "col": "created_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "purchasing_price_benchmarks",
+      "col": "contract_rate_valid_until",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "date",
+      "severity": "INFO"
+    },
+    {
+      "table": "purchasing_price_benchmarks",
+      "col": "period_start",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "date",
+      "severity": "INFO"
+    },
+    {
+      "table": "purchasing_price_benchmarks",
+      "col": "period_end",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "date",
+      "severity": "INFO"
+    },
+    {
+      "table": "purchasing_price_benchmarks",
+      "col": "is_stale",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "boolean",
+      "severity": "INFO"
+    },
+    {
+      "table": "purchasing_price_benchmarks",
+      "col": "created_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "purchasing_price_benchmarks",
+      "col": "updated_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "purchasing_intel_signals",
+      "col": "score",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "smallint",
+      "severity": "INFO"
+    },
+    {
+      "table": "purchasing_intel_signals",
+      "col": "composite_risk_score",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "smallint",
+      "severity": "INFO"
+    },
+    {
+      "table": "purchasing_intel_signals",
+      "col": "data_snapshot",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "jsonb",
+      "severity": "INFO"
+    },
+    {
+      "table": "purchasing_intel_signals",
+      "col": "clarification_questions",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "ARRAY",
+      "severity": "INFO"
+    },
+    {
+      "table": "purchasing_intel_signals",
+      "col": "acknowledged",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "boolean",
+      "severity": "INFO"
+    },
+    {
+      "table": "purchasing_intel_signals",
+      "col": "acknowledged_by",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "purchasing_intel_signals",
+      "col": "acknowledged_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "purchasing_intel_signals",
+      "col": "acknowledgement_note",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "purchasing_intel_signals",
+      "col": "created_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "purchasing_budget_tracker",
+      "col": "created_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "purchasing_budget_tracker",
+      "col": "updated_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_contract_rates",
+      "col": "valid_from",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "date",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_contract_rates",
+      "col": "valid_until",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "date",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_contract_rates",
+      "col": "updated_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "quotations",
+      "col": "status",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "quotations",
+      "col": "notes",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "quotations",
+      "col": "ai_generated",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "quotations",
+      "col": "sent_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "quotations",
+      "col": "responded_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "quotations",
+      "col": "created_by",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "quotations",
+      "col": "created_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "quotations",
+      "col": "updated_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "service_catalog",
+      "col": "updated_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "shipment_trackings",
+      "col": "eta",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "shipment_trackings",
+      "col": "atd",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "shipment_trackings",
+      "col": "ata",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "shipment_trackings",
+      "col": "current_status",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "shipment_trackings",
+      "col": "current_location",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "shipment_trackings",
+      "col": "last_updated_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "shipment_trackings",
+      "col": "raw_data",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "shipment_trackings",
+      "col": "created_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "shipment_trackings",
+      "col": "updated_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "shipment_events",
+      "col": "event_code",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "shipment_events",
+      "col": "event_description",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "shipment_events",
+      "col": "location",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "shipment_events",
+      "col": "created_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "team_members",
+      "col": "updated_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "prompt_versions",
+      "col": "version",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "prompt_versions",
+      "col": "created_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "prompt_versions",
+      "col": "updated_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "users",
+      "col": "created_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp without time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "users",
+      "col": "first_name",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "users",
+      "col": "last_name",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "users",
+      "col": "profile_image_url",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "users",
+      "col": "updated_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp without time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "users",
+      "col": "custom_role_id",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "users",
+      "col": "branch_id",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "users",
+      "col": "department",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "users",
+      "col": "division_id",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "users",
+      "col": "department_id",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "users",
+      "col": "section_id",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "users",
+      "col": "default_branch_id",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "users",
+      "col": "system_role",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "users",
+      "col": "phone_number",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "users",
+      "col": "phone_verified_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "users",
+      "col": "status",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "users",
+      "col": "avatar_url",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "users",
+      "col": "force_logout_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_preferences",
+      "col": "inferred_from_count",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_preferences",
+      "col": "created_by",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_preferences",
+      "col": "superseded_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_preferences",
+      "col": "superseded_by",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_preferences",
+      "col": "created_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_preferences",
+      "col": "updated_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_risk_assessments",
+      "col": "assessed_by",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_risk_assessments",
+      "col": "assess_type",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_risk_assessments",
+      "col": "risk_score",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_risk_assessments",
+      "col": "tier",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_risk_assessments",
+      "col": "previous_tier",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_risk_assessments",
+      "col": "credit_limit",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "numeric",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_risk_assessments",
+      "col": "payment_terms_days",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_risk_assessments",
+      "col": "outstanding_payable",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "numeric",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_risk_assessments",
+      "col": "factors",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "jsonb",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_risk_assessments",
+      "col": "recommendations",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_risk_assessments",
+      "col": "notes",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_risk_assessments",
+      "col": "expires_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "date",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_risk_assessments",
+      "col": "is_active",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "boolean",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_risk_assessments",
+      "col": "archived_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_risk_assessments",
+      "col": "archived_by_assessment_id",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_performance_snapshots",
+      "col": "snapshot_date",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "date",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_performance_snapshots",
+      "col": "total_cost",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "numeric",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_performance_snapshots",
+      "col": "total_margin",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "numeric",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_performance_snapshots",
+      "col": "outstanding_payable",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "numeric",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_performance_snapshots",
+      "col": "invoice_dispute_count",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_performance_snapshots",
+      "col": "pod_completeness_score",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_performance_snapshots",
+      "col": "eta_accuracy_score",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_performance_snapshots",
+      "col": "cancel_rate",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_performance_snapshots",
+      "col": "customer_complaint_count",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_performance_snapshots",
+      "col": "performance_score",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_performance_snapshots",
+      "col": "performance_grade",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_performance_snapshots",
+      "col": "readiness_score",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "real",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_performance_snapshots",
+      "col": "vendor_grade",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_performance_snapshots",
+      "col": "created_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_capabilities",
+      "col": "updated_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_document_registry",
+      "col": "expiry_date",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "date",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_document_registry",
+      "col": "verification_notes",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_document_registry",
+      "col": "risk_level",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_document_registry",
+      "col": "tags",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "ARRAY",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_document_registry",
+      "col": "notes",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_document_registry",
+      "col": "uploaded_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_document_registry",
+      "col": "uploaded_by",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_document_registry",
+      "col": "created_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_memory_snapshots",
+      "col": "readiness_score",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "smallint",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_memory_snapshots",
+      "col": "recent_issues",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "ARRAY",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_memory_snapshots",
+      "col": "frequent_services",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "ARRAY",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_memory_snapshots",
+      "col": "ai_context_block",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_memory_snapshots",
+      "col": "token_count",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_memory_snapshots",
+      "col": "source_fulfillment_count",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_memory_snapshots",
+      "col": "source_rfq_count",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_memory_snapshots",
+      "col": "source_invoice_count",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "integer",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_memory_snapshots",
+      "col": "freshness_score",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "smallint",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_memory_snapshots",
+      "col": "is_stale",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "boolean",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_memory_snapshots",
+      "col": "stale_reason",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "text",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_memory_snapshots",
+      "col": "valid_until",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "vendor_memory_snapshots",
+      "col": "created_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    },
+    {
+      "table": "whatsapp_notifications",
+      "col": "created_at",
+      "issue": "COLUMN_EXTRA_IN_DB",
+      "drizzle": "MISSING",
+      "actual": "timestamp with time zone",
+      "severity": "INFO"
+    }
+  ],
+  "generatedAt": "2026-06-23T06:18:24.623Z"
+}

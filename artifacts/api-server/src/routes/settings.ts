@@ -18,36 +18,67 @@ router.get("/settings", requireAuth, async (req: Request, res: Response): Promis
       .where(eq(companySettingsTable.companyId, companyId))
       .limit(1);
 
+    // Fallback ke env var jika DB belum ada token
+    const envFonnteToken = process.env.FONNTE_TOKEN ?? null;
+    const envWaToken = process.env.WHATSAPP_TOKEN ?? null;
+    const envWaPhoneId = process.env.WHATSAPP_PHONE_NUMBER_ID ?? null;
+
     if (!row) {
+      const fonnteConfigured = !!envFonnteToken;
+      const whatsappConfigured = !!envWaToken && !!envWaPhoneId;
       res.json({
         companyId,
         companyName: null,
         companyPhone: null,
         companyAddress: null,
         companyEmail: null,
-        fonnteToken: null,
-        fonnteConfigured: false,
-        whatsappPhoneNumberId: null,
-        whatsappToken: null,
-        whatsappWebhookVerifyToken: null,
-        whatsappConfigured: false,
+        fonnteToken: envFonnteToken ? `••••••••${envFonnteToken.slice(-4)}` : null,
+        fonnteConfigured,
+        whatsappPhoneNumberId: envWaPhoneId,
+        whatsappToken: envWaToken ? `••••••••${envWaToken.slice(-4)}` : null,
+        whatsappWebhookVerifyToken: process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN ?? null,
+        whatsappConfigured,
         templateMissingDoc: null,
         templateNewTask: null,
         templateAssignment: null,
         templateProgress: null,
         templateApproval: null,
         templateCompleted: null,
+        // Task 4: profile completion (no row yet = 0%)
+        profileCompletionPct: 0,
+        profileMissingFields: ["companyName", "companyPhone", "companyEmail", "industryType"],
+        profileFields: { companyName: false, companyPhone: false, companyEmail: false, industryType: false },
       });
       return;
     }
 
+    const resolvedFonnte = row.fonnteToken ?? envFonnteToken;
+    const resolvedWaToken = row.whatsappToken ?? envWaToken;
+    const resolvedWaPhoneId = row.whatsappPhoneNumberId ?? envWaPhoneId;
+
+    // Task 4: compute company profile completion percentage
+    const profileFields = {
+      companyName: !!row.companyName,
+      companyPhone: !!row.companyPhone,
+      companyEmail: !!row.companyEmail,
+      industryType: !!row.industryType,
+    };
+    const profileDone = Object.values(profileFields).filter(Boolean).length;
+    const profileCompletionPct = Math.round((profileDone / 4) * 100);
+    const profileMissingFields = Object.entries(profileFields).filter(([, v]) => !v).map(([k]) => k);
+
     res.json({
       ...row,
-      fonnteConfigured: !!row.fonnteToken,
-      whatsappConfigured: !!row.whatsappToken && !!row.whatsappPhoneNumberId,
+      fonnteConfigured: !!resolvedFonnte,
+      whatsappConfigured: !!resolvedWaToken && !!resolvedWaPhoneId,
       // Mask tokens — kirim hanya 4 karakter terakhir untuk keamanan
-      fonnteToken: row.fonnteToken ? `••••••••${row.fonnteToken.slice(-4)}` : null,
-      whatsappToken: row.whatsappToken ? `••••••••${row.whatsappToken.slice(-4)}` : null,
+      fonnteToken: resolvedFonnte ? `••••••••${resolvedFonnte.slice(-4)}` : null,
+      whatsappToken: resolvedWaToken ? `••••••••${resolvedWaToken.slice(-4)}` : null,
+      whatsappPhoneNumberId: resolvedWaPhoneId,
+      // Task 4: profile completion
+      profileCompletionPct,
+      profileMissingFields,
+      profileFields,
     });
   } catch (err) {
     logger.error({ err }, "GET /settings failed");
@@ -66,7 +97,7 @@ router.put(
       const companyId = getCompanyIdForWrite(req);
 
       const {
-        companyName, companyPhone, companyAddress, companyEmail,
+        companyName, companyPhone, companyAddress, companyEmail, industryType,
         fonnteToken, whatsappPhoneNumberId, whatsappToken, whatsappWebhookVerifyToken,
         templateMissingDoc, templateNewTask, templateAssignment,
         templateProgress, templateApproval, templateCompleted,
@@ -87,6 +118,7 @@ router.put(
         companyPhone:              companyPhone ?? null,
         companyAddress:            companyAddress ?? null,
         companyEmail:              companyEmail ?? null,
+        industryType:              industryType ?? null,
         fonnteToken:               isMasked(fonnteToken) ? (existing?.fonnteToken ?? null) : (fonnteToken ?? null),
         whatsappPhoneNumberId:     whatsappPhoneNumberId ?? null,
         whatsappToken:             isMasked(whatsappToken) ? (existing?.whatsappToken ?? null) : (whatsappToken ?? null),

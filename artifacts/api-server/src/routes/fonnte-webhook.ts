@@ -21,10 +21,56 @@
  */
 
 import { Router, type IRouter } from "express";
+import { db, companySettingsTable } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { processIncomingMessage } from "./whatsapp";
 
 const router: IRouter = Router();
+
+// Cache: device phone → companyId (avoid DB hit on every message)
+const deviceCompanyCache = new Map<string, { companyId: string; ts: number }>();
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+async function resolveCompanyIdFromDevice(devicePhone: string | null): Promise<string> {
+  if (!devicePhone) return "default";
+
+  // Check cache first
+  const cached = deviceCompanyCache.get(devicePhone);
+  if (cached && Date.now() - cached.ts < CACHE_TTL_MS) return cached.companyId;
+
+  // Normalise for comparison: strip non-digits, ensure 62 prefix
+  const norm = normPhone(devicePhone) ?? devicePhone;
+
+  try {
+    // Look up all companies and match whatsappPhoneNumberId against the device
+    const rows = await db
+      .select({ companyId: companySettingsTable.companyId, waPhone: companySettingsTable.whatsappPhoneNumberId })
+      .from(companySettingsTable);
+
+    for (const row of rows) {
+      if (!row.waPhone) continue;
+      // waPhone may be comma-separated list of numbers
+      const phones = row.waPhone.split(",").map((p) => normPhone(p.trim()) ?? p.trim());
+      if (phones.includes(norm)) {
+        deviceCompanyCache.set(devicePhone, { companyId: row.companyId, ts: Date.now() });
+        logger.info({ device: norm, companyId: row.companyId }, "Fonnte: companyId resolved from device");
+        return row.companyId;
+      }
+    }
+  } catch (err) {
+    logger.warn({ err, device: norm }, "Fonnte: failed to resolve companyId from device — using 'default'");
+  }
+
+  // Fallback: also check env variable for quick resolution
+  const envPhones = (process.env.WHATSAPP_PHONE_NUMBER_ID ?? "")
+    .split(",")
+    .map((p) => normPhone(p.trim()) ?? p.trim());
+  if (envPhones.includes(norm) && envPhones[0]) {
+    // Env lists the phones but doesn't tell us companyId — return "default"
+  }
+
+  return "default";
+}
 
 // ─── GET /webhook/fonnte  ──────────────────────────────────────────────────
 // Verifikasi webhook dari dashboard Fonnte (jika diperlukan)
@@ -38,18 +84,89 @@ router.post("/webhook/fonnte", async (req, res): Promise<void> => {
   res.sendStatus(200);
 
   const rawPayload = req.body as Record<string, unknown>;
-  const companyId = (req.headers["x-company-id"] as string | undefined) ?? "default";
+
+  // Determine companyId: prefer explicit header, then device-lookup, then "default"
+  const headerCompanyId = req.headers["x-company-id"] as string | undefined;
+  const devicePhone = normPhone(rawPayload.device) ?? null;
+  const companyId = headerCompanyId ?? (await resolveCompanyIdFromDevice(devicePhone));
 
   try {
     // ── Normalize Fonnte payload ke format standar ─────────────────────────
-    const sender  = normPhone(rawPayload.sender  ?? rawPayload.member);
+    // Jika sender mengandung @g.us = pesan dari grup WhatsApp.
+    // Dalam kasus ini, gunakan field `member` sebagai nomor pengirim asli.
+    const rawSender = toString(rawPayload.sender);
+    const isGroupMsg = rawSender?.includes("@g.us") ?? false;
+    const senderRaw = isGroupMsg
+      ? (rawPayload.member ?? rawPayload.sender)   // member = nomor HP asli
+      : (rawPayload.sender ?? rawPayload.member);
+
+    const sender  = normPhone(senderRaw);
+    const device  = normPhone(rawPayload.device);  // nomor WA bisnis (perangkat kita)
     const name    = toString(rawPayload.name);
-    const msgType = toMsgType(rawPayload.type);
-    const text    = toString(rawPayload.message) ?? toString(rawPayload.caption);
+    // Deteksi apakah pesan ini adalah klik tombol interaktif dari Fonnte
+    const rawTypeStr = toString(rawPayload.type)?.toLowerCase();
+    const isInteractiveType = rawTypeStr === "interactive";
+    const msgType = isInteractiveType ? "text" : toMsgType(rawPayload.type);
+
+    // Fonnte's button/flow reply is exposed in `text`; regular messages use
+    // `message`. Prefer `text` so a clicked menu item reaches the command router.
+    // IMPORTANT: Fonnte sends `text: "non-button message"` as an internal
+    // placeholder for regular (non-button) text messages — this is NOT the
+    // actual message content. Filter it out so we fall through to `message`.
+    const rawTextField = toString(rawPayload.text);
+    const isFonnteTextPlaceholder =
+      !rawTextField ||
+      rawTextField.toLowerCase() === "non-button message" ||
+      rawTextField.toLowerCase() === "non button message";
+    const text    =
+      (isFonnteTextPlaceholder ? null : rawTextField) ??
+      toString(rawPayload.message) ??
+      toString(rawPayload.caption);
     const fileUrl = toString(rawPayload.file) ?? toString(rawPayload.url);
+
+    // ── DEBUG: Log raw payload selalu (untuk diagnosa) ────────────────────
+    logger.info({
+      raw_sender: rawPayload.sender,
+      raw_device: rawPayload.device,
+      raw_name: rawPayload.name,
+      raw_type: rawPayload.type,
+      raw_quick: rawPayload.quick,
+      raw_text: String(rawPayload.text ?? "").substring(0, 80),
+      raw_message: String(rawPayload.message ?? "").substring(0, 80),
+      is_group: isGroupMsg,
+      normalized_sender: sender,
+      normalized_device: device,
+    }, "Fonnte webhook: raw payload received");
 
     if (!sender) {
       logger.warn({ rawPayload }, "Fonnte webhook: no sender phone — skipping");
+      return;
+    }
+
+    // ── Filter pesan keluar (echo dari Fonnte) ─────────────────────────────
+    // Fonnte echoes every sent message back to the webhook.
+    // Real incoming: quick=false or quick absent.
+    // Echo: quick=true (bool), quick=1 (int), or quick="true"/"1" (string).
+    const quickVal = rawPayload.quick;
+    const isOutgoingEcho =
+      quickVal === true || quickVal === 1 ||
+      (typeof quickVal === "string" && (quickVal === "true" || quickVal === "1"));
+    if (isOutgoingEcho) {
+      logger.info({ sender, device, quick: rawPayload.quick }, "Fonnte webhook: outgoing echo — skipping");
+      return;
+    }
+
+    // ── Secondary: skip if body looks like our own bot reply (belt-and-suspenders) ─
+    // Catches echoes where quick is absent or has an unexpected value.
+    const echoBodyCheck = String(rawPayload.message ?? rawPayload.text ?? "");
+    const isBotReplyBody =
+      echoBodyCheck.includes("Silakan ceritakan kebutuhan Anda") ||
+      echoBodyCheck.includes("Tim kami siap membantu! 🙏") ||
+      echoBodyCheck.includes("_AI Task Center_") ||
+      echoBodyCheck.includes("/mini-form/") ||
+      echoBodyCheck.includes("Powered by AI Task Hub");
+    if (isBotReplyBody) {
+      logger.info({ sender, snippet: echoBodyCheck.slice(0, 60) }, "Fonnte webhook: bot-reply body detected — skipping echo");
       return;
     }
 
@@ -58,10 +175,22 @@ router.post("/webhook/fonnte", async (req, res): Promise<void> => {
       // Standard fields used by processIncomingMessage
       from: sender,
       sender_phone: sender,
-      type: msgType,
+      // Preserve group JID so whatsapp.ts can reply to the GROUP, not the member
+      ...(isGroupMsg ? { group_jid: rawSender } : {}),
+      // Untuk klik tombol interaktif: pertahankan type="interactive" agar
+      // extractMessageContent di whatsapp.ts bisa membaca button_reply.id
+      type: isInteractiveType ? "interactive" : msgType,
       timestamp: Math.floor(Date.now() / 1000).toString(),
       // Embed content in the standard structure
-      ...(msgType === "text"
+      ...(isInteractiveType
+        ? {
+            // Pass through interactive data (button_reply / list_reply)
+            interactive: rawPayload.interactive ?? {
+              type: "button_reply",
+              button_reply: rawPayload.button_reply,
+            },
+          }
+        : msgType === "text"
         ? { text: { body: text ?? "" } }
         : {
             [msgType]: {
@@ -83,6 +212,7 @@ router.post("/webhook/fonnte", async (req, res): Promise<void> => {
       senderName: name ?? undefined,
       companyId,
       rawPayload,
+      fonnteDevice: device ?? undefined,
     });
   } catch (err) {
     logger.error({ err, companyId }, "Unhandled error in Fonnte webhook");

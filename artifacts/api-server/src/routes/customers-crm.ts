@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { eq, and, desc, ilike, or } from "drizzle-orm";
-import { db, customersTable, aiTasksTable, activityTable } from "@workspace/db";
+import { eq, and, desc, ilike, or, sql } from "drizzle-orm";
+import { db, customersTable, aiTasksTable, auditLogsTable } from "@workspace/db";
 import { requireAuth, getCompanyId } from "../middleware/auth";
 import { logger } from "../lib/logger";
 
@@ -12,10 +12,15 @@ router.get("/crm/customers", requireAuth, async (req: Request, res: Response): P
     const companyId = getCompanyId(req) ?? req.user!.companyId;
     const { search } = req.query as Record<string, string | undefined>;
 
-    let rows = await db.select().from(customersTable).where(eq(customersTable.companyId, companyId)).orderBy(desc(customersTable.updatedAt)).limit(300);
+    // company_id is INTEGER in DB — use raw SQL to avoid type mismatch
+    const result = await db.execute(sql`
+      SELECT * FROM customers WHERE company_id = ${Number(companyId) || 0}
+      ORDER BY updated_at DESC LIMIT 300
+    `);
+    let rows = ((result as unknown as { rows?: Record<string, unknown>[] }).rows ?? result as unknown as Record<string, unknown>[]);
     if (search) {
       const q = search.toLowerCase();
-      rows = rows.filter((r) => r.companyName.toLowerCase().includes(q) || (r.picName ?? "").toLowerCase().includes(q) || (r.whatsapp ?? "").includes(q) || (r.email ?? "").toLowerCase().includes(q));
+      rows = rows.filter((r) => String(r.company_name ?? "").toLowerCase().includes(q) || String(r.pic_name ?? "").toLowerCase().includes(q) || String(r.whatsapp ?? "").includes(q) || String(r.email ?? "").toLowerCase().includes(q));
     }
     res.json(rows);
   } catch (err) {
@@ -49,21 +54,43 @@ router.get("/crm/customers/:id", requireAuth, async (req: Request, res: Response
 // POST /api/crm/customers
 router.post("/crm/customers", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
-    const companyId = getCompanyId(req) ?? req.user!.companyId;
     const { companyName, picName, whatsapp, email, npwp, address, notes } = req.body as Record<string, unknown>;
-    if (!companyName) { res.status(400).json({ error: "companyName wajib diisi" }); return; }
 
-    const [created] = await db.insert(customersTable).values({
-      companyId, companyName: String(companyName),
-      picName: picName ? String(picName) : null,
-      whatsapp: whatsapp ? String(whatsapp) : null,
-      email: email ? String(email) : null,
-      npwp: npwp ? String(npwp) : null,
-      address: address ? String(address) : null,
-      notes: notes ? String(notes) : null,
-    }).returning();
+    // Task 3: mandatory fields validation
+    if (!companyName || !String(companyName).trim()) {
+      res.status(400).json({ error: "companyName wajib diisi" }); return;
+    }
+    if (!whatsapp || !String(whatsapp).trim()) {
+      res.status(400).json({ error: "Nomor WhatsApp wajib diisi — diperlukan untuk pengiriman notifikasi dan intent detection" }); return;
+    }
+    // Normalize WhatsApp: strip non-digits, convert leading 0 to 62
+    const normalizedWa = String(whatsapp).replace(/\D/g, "").replace(/^0/, "62");
+    if (normalizedWa.length < 10) {
+      res.status(400).json({ error: "Nomor WhatsApp tidak valid (minimal 10 digit)" }); return;
+    }
 
-    await db.insert(activityTable).values({ type: "customer_created", description: `Customer baru: ${created.companyName}`, entityId: created.id });
+    // NOTE: customers.company_id is INTEGER in DB (nullable), not TEXT.
+    // Drizzle schema drift: schema says text("company_id") but DB is integer.
+    // We use raw SQL and pass NULL for company_id (super_admin has no integer company id).
+    const insertResult = await db.execute(sql`
+      INSERT INTO customers (name, company_name, pic_name, whatsapp, email, npwp, address, notes, created_at, updated_at)
+      VALUES (
+        ${String(companyName).trim()},
+        ${String(companyName).trim()},
+        ${picName ? String(picName) : null},
+        ${normalizedWa},
+        ${email ? String(email) : null},
+        ${npwp ? String(npwp) : null},
+        ${address ? String(address) : null},
+        ${notes ? String(notes) : null},
+        NOW(), NOW()
+      )
+      RETURNING id, company_name, pic_name, whatsapp, email, created_at
+    `);
+    const created = (insertResult.rows as Record<string, unknown>[])[0];
+    if (!created) { res.status(500).json({ error: "Gagal menyimpan customer" }); return; }
+
+    await db.insert(auditLogsTable).values({ action: "customer_created", module: "customers", before: `Customer baru: ${String(companyName).trim()}`, entityId: Number(created["id"]) }).catch(() => {});
     res.status(201).json(created);
   } catch (err) {
     logger.error({ err }, "POST /crm/customers failed");

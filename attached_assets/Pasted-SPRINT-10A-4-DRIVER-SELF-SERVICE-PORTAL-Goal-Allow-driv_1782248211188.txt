@@ -1,0 +1,219 @@
+SPRINT 10A-4 — DRIVER SELF-SERVICE PORTAL
+
+Goal:
+
+Allow drivers to operate daily activities directly from WhatsApp and self-service portal without admin intervention.
+
+Do not replace Fleet Foundation.
+
+Reuse:
+
+* fleet_drivers
+* fleet_units
+* fleet_fuel_logs
+* fleet_maintenance_records
+* fleet_documents
+* fleet_utilization_logs
+* driver_memory_snapshots
+* ai_tasks
+* WhatsApp command framework
+
+====================================================
+A. DRIVER PORTAL
+================
+
+Public routes:
+
+/driver/home/:token
+/driver/profile/:token
+/driver/documents/:token
+/driver/trips/:token
+/driver/history/:token
+
+Token based.
+
+No login required.
+
+Token bound to driver.
+
+====================================================
+B. DRIVER ONBOARDING
+====================
+
+WhatsApp command:
+
+DAFTAR DRIVER
+
+Generate 72h token.
+
+Driver completes:
+
+* name
+* phone
+* license number
+* license expiry
+* emergency contact
+* assigned vehicle
+
+Create/update fleet_drivers.
+
+====================================================
+C. DRIVER DOCUMENTS
+===================
+
+Upload:
+
+* SIM
+* KTP
+* Medical certificate
+* Driver photo
+
+Use DocumentValidationEngine.
+
+Status:
+
+valid
+incomplete
+invalid
+needs_review
+
+Store audit trail.
+
+====================================================
+D. DRIVER DAILY OPERATIONS
+==========================
+
+WhatsApp commands:
+
+BBM
+RUSAK
+POSISI
+MULAI TRIP
+SELESAI TRIP
+
+Enhance existing commands.
+
+Every command:
+
+* audit log
+* update driver memory
+* update utilization
+* update metrics
+
+====================================================
+E. DRIVER STATUS COMMANDS
+=========================
+
+STATUS DRIVER
+
+Return:
+
+* assigned vehicle
+* active trip
+* fuel alerts
+* expiring SIM
+* pending incidents
+
+====================================================
+F. DRIVER MEMORY
+================
+
+Auto-update:
+
+* fuel efficiency
+* maintenance reports
+* trip completion
+* lateness
+* incidents
+
+Refresh snapshot automatically.
+
+====================================================
+G. DRIVER PERFORMANCE SCORE
+===========================
+
+Show:
+
+* safety score
+* punctuality
+* fuel score
+* utilization score
+
+Display to admin.
+
+Optional visibility to driver.
+
+====================================================
+H. ADMIN REVIEW
+===============
+
+Admin page:
+
+/driver-admin
+
+Show:
+
+* onboarding submissions
+* expiring SIM
+* missing documents
+* incidents
+* performance ranking
+
+Approve / reject documents.
+
+====================================================
+I. EXECUTIVE METRICS
+====================
+
+Add:
+
+* active drivers
+* driver onboarding completion
+* SIM expiry rate
+* average fuel score
+* incident rate
+
+====================================================
+J. SECURITY
+===========
+
+Token:
+
+* 72h expiry
+* bound to driver phone
+* single driver only
+
+No access to other drivers.
+
+====================================================
+K. VALIDATION
+=============
+
+Test:
+
+1. DAFTAR DRIVER sends link
+2. onboarding creates driver
+3. duplicate phone updates driver
+4. upload SIM validates
+5. STATUS DRIVER works
+6. BBM updates memory
+7. MULAI TRIP works
+8. SELESAI TRIP works
+9. driver memory refreshes
+10. admin review works
+11. expired token blocked
+12. cross-driver access blocked
+13. executive metrics update
+
+Output:
+
+* APIs created
+* routes created
+* WhatsApp replies
+* driver created proof
+* memory update proof
+* security validation
+* adoption impact
+* readiness score
+
+GO / NO-GO for Sprint 10A-5

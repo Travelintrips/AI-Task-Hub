@@ -32,6 +32,57 @@ import QuotationsPage from "@/pages/quotations";
 import PortalPage from "@/pages/portal";
 import AuditLogPage from "@/pages/audit-log";
 import AiDispatcherPage from "@/pages/ai-dispatcher";
+import KnowledgeBasePage from "@/pages/knowledge-base";
+import GovernancePage from "@/pages/governance";
+import TrainingPage from "@/pages/training";
+import AiObservabilityPage from "@/pages/ai-observability";
+import CreativeAiPage from "@/pages/creative-ai";
+import CustomerMemoryPage from "@/pages/customer-memory";
+import VendorsPage from "@/pages/vendors";
+import VendorMemoryPage from "@/pages/vendor-memory";
+import VendorRegisterPage from "@/pages/vendor-register";
+import VendorStatusPage from "@/pages/vendor-status";
+import VendorDocumentsPage from "@/pages/vendor-documents";
+import VendorReviewAdmin from "@/pages/vendor-review-admin";
+import ExecutiveIntelligencePage from "@/pages/executive-intelligence";
+import ExecutiveCommandPage from "@/pages/executive-command";
+import PurchasingIntelligencePage from "@/pages/purchasing-intelligence";
+import ScMyBookings from "@/pages/sc-my-bookings";
+import ScBookingStatus from "@/pages/sc-booking-status";
+import ScBukti from "@/pages/sc-bukti";
+import FleetUnitsPage from "@/pages/fleet-units";
+import FleetUnitDetailPage from "@/pages/fleet-unit-detail";
+import FleetDriversPage from "@/pages/fleet-drivers";
+import FleetDriverDetailPage from "@/pages/fleet-driver-detail";
+import FleetDocumentsPage from "@/pages/fleet-documents";
+import FleetMaintenancePage from "@/pages/fleet-maintenance";
+import FleetFuelPage from "@/pages/fleet-fuel";
+import FleetTiresPage from "@/pages/fleet-tires";
+import FleetUtilizationPage from "@/pages/fleet-utilization";
+import FleetDashboardPage from "@/pages/fleet-dashboard";
+import FleetRiskPage from "@/pages/fleet-risk";
+import FleetCostPage from "@/pages/fleet-cost";
+import FleetRouteProfitabilityPage from "@/pages/fleet-route-profitability";
+import IntakeSessionsPage from "@/pages/intake-sessions";
+import ConversationIntakePage from "@/pages/conversation-intake";
+import DocumentIntakePage from "@/pages/document-intake";
+import MiniFormPage from "@/pages/mini-form-page";
+import MiniFormConfigPage from "@/pages/mini-form-config";
+import MiniFormAnalyticsPage from "@/pages/mini-form-analytics";
+import ConversationTestsPage from "@/pages/conversation-tests";
+import QualityGatePage from "@/pages/quality-gate";
+import OnboardingPage from "@/pages/onboarding";
+import DriverHomePage from "@/pages/driver-home";
+import DriverProfilePage from "@/pages/driver-profile";
+import DriverDocumentsPage from "@/pages/driver-documents";
+import DriverTripsPage from "@/pages/driver-trips";
+import DriverHistoryPage from "@/pages/driver-history";
+import DriverAdminPage from "@/pages/driver-admin";
+import CompanyGovernancePage from "@/pages/company-governance";
+import CompanyOnboardingFactoryPage from "@/pages/company-onboarding-factory";
+import HoldingDashboardPage from "@/pages/holding-dashboard";
+import AiOperationsPage from "@/pages/ai-operations";
+import NotificationReceiversPage from "@/pages/notification-receivers";
 
 const queryClient = new QueryClient();
 
@@ -57,8 +108,8 @@ function AppRouter() {
     <AppLayout>
       <Switch>
         <Route path="/" component={Dashboard} />
-        <Route path="/tasks" component={Tasks} />
-        <Route path="/tasks/:id" component={TaskDetail} />
+        <Route path="/tasks">{() => { window.location.replace("/ai-tasks"); return null; }}</Route>
+        <Route path="/tasks/:id">{(params) => { window.location.replace(`/ai-tasks/${params.id}`); return null; }}</Route>
         <Route path="/ai-tasks" component={AiTaskBoard} />
         <Route path="/ai-tasks/:id" component={AiTaskDetail} />
         <Route path="/messages" component={Messages} />
@@ -78,6 +129,47 @@ function AppRouter() {
         <Route path="/portal" component={PortalPage} />
         <Route path="/audit-log" component={AuditLogPage} />
         <Route path="/dispatcher" component={AiDispatcherPage} />
+        <Route path="/knowledge-base" component={KnowledgeBasePage} />
+        <Route path="/governance" component={GovernancePage} />
+        <Route path="/training" component={TrainingPage} />
+        <Route path="/ai-observability" component={AiObservabilityPage} />
+        <Route path="/creative-ai" component={CreativeAiPage} />
+        <Route path="/creative-ai/:taskId" component={CreativeAiPage} />
+        <Route path="/crm/customers/:id/memory" component={CustomerMemoryPage} />
+        <Route path="/vendors" component={VendorsPage} />
+        <Route path="/vendors/:id/memory" component={VendorMemoryPage} />
+        <Route path="/admin/vendor-review" component={VendorReviewAdmin} />
+        <Route path="/purchasing-intelligence" component={PurchasingIntelligencePage} />
+        <Route path="/executive-intelligence" component={ExecutiveIntelligencePage} />
+        <Route path="/executive-command" component={ExecutiveCommandPage} />
+        <Route path="/fleet/dashboard" component={FleetDashboardPage} />
+        <Route path="/fleet/risk" component={FleetRiskPage} />
+        <Route path="/fleet/cost" component={FleetCostPage} />
+        <Route path="/fleet/route-profitability" component={FleetRouteProfitabilityPage} />
+        <Route path="/intake-sessions" component={IntakeSessionsPage} />
+        <Route path="/conversation-intake" component={ConversationIntakePage} />
+        <Route path="/document-intake" component={DocumentIntakePage} />
+        <Route path="/mini-form-config" component={MiniFormConfigPage} />
+        <Route path="/mini-form-analytics" component={MiniFormAnalyticsPage} />
+        <Route path="/fleet/units/:id" component={FleetUnitDetailPage} />
+        <Route path="/fleet/units" component={FleetUnitsPage} />
+        <Route path="/fleet/drivers/:id" component={FleetDriverDetailPage} />
+        <Route path="/fleet/drivers" component={FleetDriversPage} />
+        <Route path="/fleet/documents" component={FleetDocumentsPage} />
+        <Route path="/fleet/maintenance" component={FleetMaintenancePage} />
+        <Route path="/fleet/fuel" component={FleetFuelPage} />
+        <Route path="/fleet/tires" component={FleetTiresPage} />
+        <Route path="/fleet/utilization" component={FleetUtilizationPage} />
+        <Route path="/conversation-tests" component={ConversationTestsPage} />
+        <Route path="/quality-gate/report" component={QualityGatePage} />
+        <Route path="/onboarding" component={OnboardingPage} />
+        <Route path="/onboarding/:step" component={OnboardingPage} />
+        <Route path="/driver-admin" component={DriverAdminPage} />
+        <Route path="/company-governance" component={CompanyGovernancePage} />
+        <Route path="/company-onboarding" component={CompanyOnboardingFactoryPage} />
+        <Route path="/holding-dashboard" component={HoldingDashboardPage} />
+        <Route path="/ai-operations" component={AiOperationsPage} />
+        <Route path="/notification-receivers" component={NotificationReceiversPage} />
         <Route component={NotFound} />
       </Switch>
     </AppLayout>
@@ -89,6 +181,19 @@ function Router() {
     <Switch>
       <Route path="/mini-task/:taskId/:token" component={MiniTaskForm} />
       <Route path="/customer-data/:taskId/:token" component={CustomerDataForm} />
+      <Route path="/mini-form/preview/:templateId" component={MiniFormPage} />
+      <Route path="/mini-form/:type/:token" component={MiniFormPage} />
+      <Route path="/vendor/register/:token" component={VendorRegisterPage} />
+      <Route path="/vendor/status/:token" component={VendorStatusPage} />
+      <Route path="/vendor/documents/:token" component={VendorDocumentsPage} />
+      <Route path="/driver/home/:token" component={DriverHomePage} />
+      <Route path="/driver/profile/:token" component={DriverProfilePage} />
+      <Route path="/driver/documents/:token" component={DriverDocumentsPage} />
+      <Route path="/driver/trips/:token" component={DriverTripsPage} />
+      <Route path="/driver/history/:token" component={DriverHistoryPage} />
+      <Route path="/sc/my-bookings" component={ScMyBookings} />
+      <Route path="/sc/status/:token" component={ScBookingStatus} />
+      <Route path="/sc/bukti/:token" component={ScBukti} />
       <Route path="/setup" component={Setup} />
       <Route>
         {() => <AppRouter />}

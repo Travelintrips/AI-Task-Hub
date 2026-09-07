@@ -8,11 +8,11 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import {
-  tasksTable,
+  aiTasksTable,
   teamMembersTable,
   whatsappMessagesTable,
   documentsTable,
-  activityTable,
+  auditLogsTable,
 } from "@workspace/db";
 
 const { Pool } = pg;
@@ -28,7 +28,7 @@ async function seed() {
   console.log("🌱 Memulai seed database...\n");
 
   // ── 1. Cek apakah data sudah ada ────────────────────────────────────────────
-  const existingTasks = await db.select({ id: tasksTable.id }).from(tasksTable).limit(1);
+  const existingTasks = await db.select({ id: aiTasksTable.id }).from(aiTasksTable).limit(1);
   if (existingTasks.length > 0) {
     console.log("⚠️  Data sudah ada. Seed dilewati (idempoten).");
     console.log("   Hapus data terlebih dahulu jika ingin seed ulang.\n");
@@ -76,7 +76,7 @@ async function seed() {
       phone: "081234567005",
       email: "maya@example.com",
     },
-  ]).returning({ id: teamMembersTable.id });
+  ]).returning({ id: teamMembersTable.id, name: teamMembersTable.name });
   console.log("✅ 5 anggota tim ditambahkan");
 
   // ── 4. Pesan WhatsApp ────────────────────────────────────────────────────────
@@ -135,95 +135,117 @@ async function seed() {
   ]).returning({ id: whatsappMessagesTable.id });
   console.log("✅ 5 pesan WhatsApp ditambahkan");
 
-  // ── 5. Tasks ─────────────────────────────────────────────────────────────────
-  const tasks = await db.insert(tasksTable).values([
+  // ── 5. AI Tasks ───────────────────────────────────────────────────────────────
+  const tasks = await db.insert(aiTasksTable).values([
     {
+      companyId: "default",
+      taskNumber: "WA-2501-0001",
+      source: "whatsapp",
       title: "Pengiriman 500 Kardus Elektronik — Jakarta → Surabaya",
       description: "PT Maju Jaya minta pengiriman 500 kardus elektronik. Koordinasi dengan vendor pengiriman.",
-      status: "pending",
+      status: "new_inquiry",
       priority: "high",
-      assigneeId: budi.id,
+      assignedTo: budi.name,
       assignedRole: "supervisor",
       assignedDivision: "Operasional",
       customerName: "PT Maju Jaya",
-      sourceMessageId: msgs[0].id,
-      dueDate: new Date(now + 3600000 * 48).toISOString(),
-      tags: ["pengiriman", "elektronik", "prioritas"],
+      customerPhone: "6281298765001",
+      category: "Trucking",
+      dueDate: new Date(now + 3600000 * 48),
     },
     {
+      companyId: "default",
+      taskNumber: "WA-2501-0002",
+      source: "whatsapp",
       title: "Investigasi Keterlambatan Pengiriman SO-2024-0125",
-      description: "CV Berkah Abadi melaporkan pengiriman belum tiba meski sudah dikirim kemarin. Cek status dengan kurir.",
+      description: "CV Berkah Abadi melaporkan pengiriman belum tiba meski sudah dikirim kemarin.",
       status: "in_progress",
       priority: "urgent",
-      assigneeId: sari.id,
+      assignedTo: sari.name,
       assignedRole: "staff",
       assignedDivision: "Logistik",
       customerName: "CV Berkah Abadi",
-      sourceMessageId: msgs[1].id,
-      dueDate: new Date(now + 3600000 * 4).toISOString(),
-      tags: ["keterlambatan", "investigasi"],
+      customerPhone: "6281298765002",
+      category: "Complaint",
+      dueDate: new Date(now + 3600000 * 4),
     },
     {
+      companyId: "default",
+      taskNumber: "WA-2501-0003",
+      source: "whatsapp",
       title: "Kirim Invoice Bulan Lalu — Bapak Hendra",
       description: "Pelanggan meminta invoice untuk transaksi bulan lalu guna proses pembayaran.",
-      status: "pending",
+      status: "new_inquiry",
       priority: "medium",
-      assigneeId: reza.id,
+      assignedTo: reza.name,
       assignedRole: "staff",
       assignedDivision: "Keuangan",
       customerName: "Bapak Hendra",
-      sourceMessageId: msgs[2].id,
-      dueDate: new Date(now + 3600000 * 24).toISOString(),
-      tags: ["invoice", "keuangan"],
+      customerPhone: "6281298765003",
+      category: "Finance",
+      dueDate: new Date(now + 3600000 * 24),
     },
     {
+      companyId: "default",
+      taskNumber: "WA-2501-0004",
+      source: "whatsapp",
       title: "Penanganan Keluhan Barang Rusak — Ibu Dewi Kusuma",
       description: "Pelanggan melaporkan barang rusak untuk kedua kalinya. Perlu investigasi dan penggantian barang.",
-      status: "pending",
+      status: "new_inquiry",
       priority: "urgent",
-      assigneeId: maya.id,
+      assignedTo: maya.name,
       assignedRole: "staff",
       assignedDivision: "Pelanggan",
       customerName: "Ibu Dewi Kusuma",
-      sourceMessageId: msgs[3].id,
-      dueDate: new Date(now + 3600000 * 12).toISOString(),
-      tags: ["keluhan", "penggantian", "prioritas"],
+      customerPhone: "6281298765004",
+      category: "Complaint",
+      dueDate: new Date(now + 3600000 * 12),
     },
     {
+      companyId: "default",
+      taskNumber: "WA-2501-0005",
+      source: "whatsapp",
       title: "Konfirmasi & Proses DP PT Sumber Rezeki",
       description: "DP 50% sudah ditransfer. Verifikasi pembayaran dan siapkan order untuk minggu depan.",
       status: "completed",
       priority: "medium",
-      assigneeId: reza.id,
+      assignedTo: reza.name,
       assignedRole: "staff",
       assignedDivision: "Keuangan",
       customerName: "PT Sumber Rezeki",
-      sourceMessageId: msgs[4].id,
-      tags: ["pembayaran", "dp", "selesai"],
+      customerPhone: "6281298765005",
+      category: "Finance",
+      completedAt: new Date(),
     },
     {
+      companyId: "default",
+      taskNumber: "WA-2501-0006",
+      source: "manual",
       title: "Audit Stok Gudang Q1 2025",
       description: "Audit stok kuartal pertama 2025. Pastikan semua item tercatat dengan benar di sistem.",
       status: "in_progress",
       priority: "medium",
-      assigneeId: tono.id,
+      assignedTo: tono.name,
       assignedRole: "vendor",
       assignedDivision: "Pengiriman",
-      dueDate: new Date(now + 3600000 * 72).toISOString(),
-      tags: ["audit", "stok", "gudang"],
+      category: "Warehouse",
+      dueDate: new Date(now + 3600000 * 72),
     },
     {
+      companyId: "default",
+      taskNumber: "WA-2501-0007",
+      source: "manual",
       title: "Perpanjangan Kontrak Vendor Logistik 2025",
       description: "Kontrak vendor logistik utama berakhir bulan depan. Perlu negosiasi dan perpanjangan.",
-      status: "pending",
+      status: "new_inquiry",
       priority: "high",
-      assigneeId: budi.id,
+      assignedTo: budi.name,
       assignedRole: "supervisor",
       assignedDivision: "Operasional",
-      dueDate: new Date(now + 3600000 * 168).toISOString(),
-      tags: ["kontrak", "vendor", "logistik"],
+      category: "Trucking",
+      dueDate: new Date(now + 3600000 * 168),
     },
-  ]).returning({ id: tasksTable.id });
+  ]).returning({ id: aiTasksTable.id });
   console.log("✅ 7 task ditambahkan");
 
   // ── 6. Dokumen ───────────────────────────────────────────────────────────────
@@ -281,59 +303,66 @@ async function seed() {
   ]);
   console.log("✅ 6 dokumen ditambahkan");
 
-  // ── 7. Activity Feed ─────────────────────────────────────────────────────────
-  await db.insert(activityTable).values([
+  // ── 7. Audit Log (menggantikan activity feed) ─────────────────────────────────
+  await db.insert(auditLogsTable).values([
     {
-      type: "task_created",
-      description: "Task baru dibuat: Pengiriman 500 Kardus Elektronik dari pesan WhatsApp PT Maju Jaya",
+      action: "task_created",
+      module: "tasks",
+      before: "Task baru dibuat: Pengiriman 500 Kardus Elektronik dari pesan WhatsApp PT Maju Jaya",
       entityId: tasks[0].id,
     },
     {
-      type: "task_assigned",
-      description: "Task investigasi keterlambatan SO-2024-0125 ditugaskan ke Sari Indah",
+      action: "task_assigned",
+      module: "tasks",
+      before: "Task investigasi keterlambatan SO-2024-0125 ditugaskan ke Sari Indah",
       entityId: tasks[1].id,
     },
     {
-      type: "message_received",
-      description: "Pesan WhatsApp masuk dari Ibu Dewi Kusuma — keluhan barang rusak",
+      action: "message_received",
+      module: "messages",
+      before: "Pesan WhatsApp masuk dari Ibu Dewi Kusuma — keluhan barang rusak",
       entityId: msgs[3].id,
     },
     {
-      type: "document_audited",
-      description: "Dokumen Invoice PT Maju Jaya diaudit AI — skor 92/100",
+      action: "document_audited",
+      module: "documents",
+      before: "Dokumen Invoice PT Maju Jaya diaudit AI — skor 92/100",
       entityId: tasks[0].id,
     },
     {
-      type: "task_completed",
-      description: "Task konfirmasi DP PT Sumber Rezeki diselesaikan oleh Reza Pratama",
+      action: "task_completed",
+      module: "tasks",
+      before: "Task konfirmasi DP PT Sumber Rezeki diselesaikan oleh Reza Pratama",
       entityId: tasks[4].id,
     },
     {
-      type: "message_received",
-      description: "Pesan WhatsApp masuk dari PT Sumber Rezeki — konfirmasi pembayaran DP",
+      action: "message_received",
+      module: "messages",
+      before: "Pesan WhatsApp masuk dari PT Sumber Rezeki — konfirmasi pembayaran DP",
       entityId: msgs[4].id,
     },
     {
-      type: "task_created",
-      description: "Task penanganan keluhan barang rusak dibuat untuk Ibu Dewi Kusuma",
+      action: "task_created",
+      module: "tasks",
+      before: "Task penanganan keluhan barang rusak dibuat untuk Ibu Dewi Kusuma",
       entityId: tasks[3].id,
     },
     {
-      type: "document_uploaded",
-      description: "Dokumen Laporan Stok Gudang Q4 2024 diunggah",
+      action: "document_uploaded",
+      module: "documents",
+      before: "Dokumen Laporan Stok Gudang Q4 2024 diunggah",
       entityId: tasks[5].id,
     },
   ]);
-  console.log("✅ 8 entri activity ditambahkan");
+  console.log("✅ 8 entri audit log ditambahkan");
 
   console.log("\n🎉 Seed selesai! Database sudah terisi data contoh.");
   console.log("\n📋 Ringkasan:");
-  console.log("   • 1 akun admin (admin@example.com / admin123!)");
   console.log("   • 5 anggota tim");
-  console.log("   • 7 tasks");
+  console.log("   • 7 ai_tasks");
   console.log("   • 5 pesan WhatsApp");
   console.log("   • 6 dokumen");
-  console.log("   • 8 activity feed\n");
+  console.log("   • 8 audit log\n");
 
   await pool.end();
 }

@@ -22,6 +22,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Card, CardContent } from "@/components/ui/card";
+import { OnboardingBanner } from "@/components/onboarding-banner";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -317,8 +318,12 @@ export default function Dashboard() {
 
   return (
     <div className="flex flex-col min-h-0 h-full">
+      {/* ── Onboarding Banner ── */}
+      <div className="flex-shrink-0 px-4 sm:px-6 pt-4">
+        <OnboardingBanner />
+      </div>
       {/* ── Header ── */}
-      <div className="flex-shrink-0 px-4 sm:px-6 pt-5 pb-3 border-b bg-white">
+      <div className="flex-shrink-0 px-4 sm:px-6 pt-3 pb-3 border-b bg-white">
         <div className="flex items-center justify-between mb-4 gap-2">
           <div>
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-gray-900">

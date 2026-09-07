@@ -1,0 +1,187 @@
+SPRINT 10B-2 — COMPANY ONBOARDING FACTORY
+
+Goal:
+
+Allow a new company to become operational in less than 15 minutes.
+
+Scope:
+
+Company level only.
+
+Do NOT build:
+
+* branches
+* divisions
+* departments
+* cost centers
+
+Those belong to Sprint 10C.
+
+====================================================
+A. COMPANY CREATION WIZARD
+==========================
+
+Create:
+
+/company-onboarding
+
+Steps:
+
+1. Company Profile
+2. Admin User
+3. WhatsApp Setup
+4. Module Selection
+5. Initial Data
+6. Verification
+7. Go Live
+
+====================================================
+B. COMPANY PROFILE
+==================
+
+Collect:
+
+company_name
+industry
+phone
+email
+website
+address
+
+Store:
+
+company_settings
+
+====================================================
+C. ADMIN USER
+=============
+
+Create first:
+
+owner
+company_admin
+
+Generate:
+
+temporary password
+activation link
+
+====================================================
+D. MODULE SELECTION
+===================
+
+Allow enable:
+
+AI Task Center
+Fleet
+Purchasing
+CRM
+Vendor Portal
+Driver Portal
+Executive Command
+
+Store:
+
+company_modules
+
+====================================================
+E. INITIAL DATA SEED
+====================
+
+Optional:
+
+customers
+vendors
+fleet units
+team members
+
+Methods:
+
+manual
+csv upload
+skip
+
+====================================================
+F. READINESS CHECK
+==================
+
+Verify:
+
+company profile
+admin exists
+WA configured
+minimum module configured
+
+Output:
+
+readiness %
+
+====================================================
+G. GO LIVE
+==========
+
+When readiness >= 80%
+
+Generate:
+
+welcome checklist
+first executive briefing
+activation audit log
+
+====================================================
+H. COMPANY TEMPLATE
+===================
+
+Create templates:
+
+Logistics Company
+Trading Company
+Sport Center
+Tenant Management
+
+Each template:
+
+preselect modules
+default settings
+starter intents
+
+====================================================
+I. GOVERNANCE INTEGRATION
+=========================
+
+Company Governance Center:
+
+show
+
+* onboarding progress
+* readiness
+* activation date
+* active modules
+
+====================================================
+J. VALIDATION
+=============
+
+Test:
+
+1. create company
+2. create owner
+3. enable modules
+4. readiness calculation
+5. go-live process
+6. governance integration
+7. RBAC
+8. typecheck
+
+Output:
+
+time-to-live
+readiness score
+companies created
+go-live success
+
+GO / NO-GO
+
+# for Sprint 10B-3
+
+# END

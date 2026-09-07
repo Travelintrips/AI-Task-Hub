@@ -1,8 +1,10 @@
-modules = ["nodejs-20", "web", "bash"]
+modules = ["nodejs-20", "web", "bash", "postgresql-16"]
 
 [deployment]
 router = "application"
 deploymentTarget = "autoscale"
+run = ["node", "--enable-source-maps", "./artifacts/api-server/dist/index.mjs"]
+build = ["sh", "-c", "pnpm install --frozen-lockfile=false && pnpm --filter @workspace/api-server run build"]
 
 [deployment.postBuild]
 args = ["pnpm", "store", "prune"]
@@ -18,35 +20,19 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "API Server"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
 args = "Start application"
-
-[[workflows.workflow]]
-name = "API Server"
-author = "agent"
-
-[workflows.workflow.metadata]
-outputType = "console"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "fuser -k 8080/tcp 2>/dev/null; sleep 1 && PORT=8080 pnpm --filter @workspace/api-server run dev"
-waitForPort = 8080
 
 [[workflows.workflow]]
 name = "Start application"
 author = "agent"
 
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "PORT=5000 BASE_PATH=/ pnpm --filter @workspace/ai-task-center run dev"
-waitForPort = 5000
-
 [workflows.workflow.metadata]
 outputType = "webview"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "fuser -k 5000/tcp 8080/tcp 2>/dev/null || true; sleep 1; pnpm install && pnpm --filter @workspace/api-server run build && (PORT=8080 NODE_ENV=development node --enable-source-maps ./artifacts/api-server/dist/index.mjs &) && PORT=5000 pnpm --filter @workspace/ai-task-center run dev"
+waitForPort = 5000
 
 [agent]
 stack = "BEST_EFFORT_FALLBACK"
@@ -61,38 +47,56 @@ timeoutMs = 20000
 localPort = 5000
 externalPort = 80
 
-[[ports]]
-localPort = 5173
-externalPort = 5173
-
-[[ports]]
-localPort = 8080
-externalPort = 8080
-
-[[ports]]
-localPort = 8081
-externalPort = 8081
-
-[[ports]]
-localPort = 21440
-externalPort = 3000
-
 [nix]
 channel = "stable-25_05"
+packages = ["yakut"]
 
 [userenv]
 
 [userenv.shared]
-WHATSAPP_PHONE_NUMBER_ID = "081382702074,087882639826"
-WHATSAPP_WEBHOOK_VERIFY_TOKEN = "f1add4cb13fcac68b030e521cd006e3e1faf5a3cd589fd0cdcc2793f1200d5f9"
+WHATSAPP_PHONE_NUMBER_ID = "6281216104734,6285121073537,6287808785098,6281288195206,681992935357"
 BASE_PATH = "/"
-SUPABASE_URL = "https://nzdweipzckfszczzqtuw.supabase.co"
-SUPABASE_URL_DEV = "https://xssrfshdrtdfupgqwfdw.supabase.co"
-SUPABASE_STORAGE_BUCKET = "https://nzdweipzckfszczzqtuw.storage.supabase.co/storage/v1/s3"
 GOOGLE_CLIENT_ID = "751551151000-fqrgt8si0pgnchqkn3pfo6nmqienv38f.apps.googleusercontent.com"
-VITE_SUPABASE_URL = "https://nzdweipzckfszczzqtuw.supabase.co"
 PRIVATE_OBJECT_DIR = "/replit-objstore-e357cc66-19c3-4d73-9ca9-3069d78355d1/.private"
 DEFAULT_OBJECT_STORAGE_BUCKET_ID = "replit-objstore-e357cc66-19c3-4d73-9ca9-3069d78355d1"
 PUBLIC_OBJECT_SEARCH_PATHS = "/replit-objstore-e357cc66-19c3-4d73-9ca9-3069d78355d1/public"
 VITE_API_URL = "/api"
-FONNTE_TOKEN = "XnEnfXdKb6DrWPrmVSSZ"
+PORT = "5000"
+FONNTE_DEVICE_2 = "6285121073537"
+OPENAI_BASE_URL = "https://api.openai.com/v1"
+OPENAI_MODEL = "gpt-4o"
+FONNTE_DEVICE_3 = "6287808785098"
+FONNTE_DEVICE_1 = "6282299997227"
+FONNTE_DEVICE_4 = "6281288195206"
+STAFF_NOTIFY_GROUPS = "120363427607305800@g.us"
+FONNTE_TOKEN_1 = "jEz4NKMr17NBTFv7PZgr"
+FONNTE_TOKEN_2 = "XnEnfXdKb6DrWPrmVSSZ"
+FONNTE_TOKEN_3 = "IoGQPB!5S#7VCSz5AcXw"
+FONNTE_TOKEN_4 = "3hYIZghAc5N1!sUe3dMb"
+SC_DOMAIN = "https://sc.travelintrips.co.id"
+FONNTE_DEVICE_5 = "6281992935357"
+FONNTE_TOKEN_5 = "KHEFXba49TuoiWMuaMbr"
+STAFF_NOTIFY_PHONES_CUSTOMS = "6281386210415"
+PPJK_WHATSAPP_GROUP_ID = "120363428008787422@g.us"
+FONNTE_DEVICE_6 = "6281992935158"
+FONNTE_TOKEN_6 = "jx9YJ9C8nP6vfcD4jHhU"
+
+[userenv.production]
+VITE_SUPABASE_URL = "https://nzdweipzckfszczzqtuw.supabase.co"
+SUPABASE_URL = "https://nzdweipzckfszczzqtuw.supabase.co"
+SUPABASE_STORAGE_BUCKET = "https://nzdweipzckfszczzqtuw.storage.supabase.co/storage/v1/s3"
+SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56ZHdlaXB6Y2tmc3pjenpxdHV3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg0MDI4NDQsImV4cCI6MjA5Mzk3ODg0NH0.p9k3-qyRjPuXsHLizUrSRMyS-0yJAatUyjQU9NIIu1U"
+SUPABASE_DATABASE_URL = "postgresql://postgres.nzdweipzckfszczzqtuw:AnTXXOl0t1ArQOEU@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres"
+SUPABASE_PG_URL = "postgresql://postgres.nzdweipzckfszczzqtuw:AnTXXOl0t1ArQOEU@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres"
+SUPABASE_SERVICE_ROLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56ZHdlaXB6Y2tmc3pjenpxdHV3Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3ODQwMjg0NCwiZXhwIjoyMDkzOTc4ODQ0fQ.W0uM_UzGfF8Zy4PFQKhz6dKpEVDHS6_k9FtqoM9iGms"
+VITE_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im56ZHdlaXB6Y2tmc3pjenpxdHV3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg0MDI4NDQsImV4cCI6MjA5Mzk3ODg0NH0.p9k3-qyRjPuXsHLizUrSRMyS-0yJAatUyjQU9NIIu1U"
+
+[userenv.development]
+VITE_SUPABASE_URL_DEV = "https://xssrfshdrtdfupgqwfdw.supabase.co"
+SUPABASE_URL_DEV = "https://xssrfshdrtdfupgqwfdw.supabase.co"
+SUPABASE_STORAGE_BUCKET_DEV = "https://xssrfshdrtdfupgqwfdw.storage.supabase.co/storage/v1/s3"
+SUPABASE_ANON_KEY_DEV = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhzc3Jmc2hkcnRkZnVwZ3F3ZmR3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg4OTY3MjgsImV4cCI6MjA5NDQ3MjcyOH0.czKzR9GjEL6UK8AhPAX6OYyF74fz1YtImYQSXiiG69U"
+SUPABASE_DATABASE_URL_DEV = "postgresql://postgres.xssrfshdrtdfupgqwfdw:nvVEWjiHruxen4cE@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres"
+SUPABASE_PG_URL_DEV = "postgresql://postgres.xssrfshdrtdfupgqwfdw:nvVEWjiHruxen4cE@aws-1-ap-southeast-2.pooler.supabase.com:6543/postgres"
+VITE_SUPABASE_ANON_KEY_DEV = "https://xssrfshdrtdfupgqwfdw.supabase.co"
+SUPABASE_SERVICE_ROLE_KEY_DEV = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inhzc3Jmc2hkcnRkZnVwZ3F3ZmR3Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3ODg5NjcyOCwiZXhwIjoyMDk0NDcyNzI4fQ.VFPcBxsVJkYwNo3ojy3uOHglqUA9zILhjw4_0JAhZYI"

@@ -33,6 +33,21 @@ import {
   Globe,
   TrendingUp,
   Brain,
+  BookOpen,
+  Shield,
+  FlaskConical,
+  ShoppingCart,
+  Sparkles,
+  Wand2,
+  Truck,
+  Droplets,
+  Package,
+  Navigation,
+  Zap,
+  Layers,
+  FileCheck,
+  Cpu,
+  PhoneCall,
 } from "lucide-react";
 import { NotificationsBell } from "@/components/notifications-bell";
 import { useAuth } from "@/contexts/auth-context";
@@ -46,12 +61,39 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const navigation = [
     { name: "Dashboard",    href: "/",          icon: LayoutDashboard },
     { name: "AI Tasks",     href: "/ai-tasks",  icon: Kanban },
-    { name: "Tasks",        href: "/tasks",     icon: CheckSquare },
     { name: "Messages",     href: "/messages",  icon: MessageSquare },
     { name: "Documents",    href: "/documents", icon: FileText },
     { name: "Team",         href: "/team",      icon: Users },
+    { name: "AI Intake",       href: "/intake-sessions",      icon: MessageSquare },
+    { name: "Conv. Intake",    href: "/conversation-intake",  icon: MessageSquare },
+    { name: "Doc Validation",  href: "/document-intake",      icon: FileCheck },
+    { name: "Mini Form Config",     href: "/mini-form-config",     icon: Layers },
+    { name: "Mini Form Analytics",  href: "/mini-form-analytics",  icon: BarChart2 },
+    { name: "Test Suite AI", href: "/conversation-tests", icon: FlaskConical },
     { name: "AI Dispatcher", href: "/dispatcher",        icon: Brain },
+    { name: "Knowledge Base", href: "/knowledge-base",  icon: BookOpen },
+    { name: "Governance",    href: "/governance",        icon: Shield },
+    { name: "AI Training",   href: "/training",          icon: FlaskConical },
+    { name: "AI Observability", href: "/ai-observability", icon: Activity },
+    { name: "Creative AI",      href: "/creative-ai",      icon: Wand2 },
     { name: "CRM",          href: "/crm",               icon: Building2 },
+    { name: "Vendors",     href: "/vendors",           icon: TrendingUp },
+    { name: "Vendor Review",  href: "/admin/vendor-review", icon: TrendingUp },
+    { name: "Fleet Dashboard", href: "/fleet/dashboard",       icon: BarChart2 },
+    { name: "Fleet Risk",      href: "/fleet/risk",            icon: Shield },
+    { name: "Fleet Cost/KM",   href: "/fleet/cost",            icon: TrendingUp },
+    { name: "Route Profit",    href: "/fleet/route-profitability", icon: Navigation },
+    { name: "Fleet Units",     href: "/fleet/units",           icon: Truck },
+    { name: "Fleet Drivers",   href: "/fleet/drivers",         icon: Users },
+    { name: "Driver Admin",    href: "/driver-admin",          icon: ShieldCheck },
+    { name: "Fleet BBM",       href: "/fleet/fuel",            icon: Droplets },
+    { name: "Fleet Ban",       href: "/fleet/tires",           icon: Package },
+    { name: "Utilisasi",       href: "/fleet/utilization",     icon: Navigation },
+    { name: "Purchasing",  href: "/purchasing-intelligence", icon: ShoppingCart },
+    { name: "Exec Intelligence", href: "/executive-intelligence", icon: Sparkles },
+    ...(user?.role === "super_admin" || user?.role === "company_admin" || user?.role === "owner"
+      ? [{ name: "Command Center", href: "/executive-command", icon: Zap }]
+      : []),
     { name: "Quotation",   href: "/quotations",        icon: DollarSign },
     { name: "Laporan",     href: "/reports",           icon: TrendingUp },
     { name: "Notifikasi",  href: "/notifications",     icon: Bell },
@@ -59,6 +101,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
     { name: "Audit Log",   href: "/audit-log",         icon: ShieldCheck },
     { name: "Analitik",    href: "/analytics",         icon: BarChart2 },
     { name: "Notif WA",    href: "/wa-notifications",  icon: BellRing },
+    { name: "Penerima Notif", href: "/notification-receivers", icon: PhoneCall },
     { name: "Export",      href: "/export",            icon: FileSpreadsheet },
     { name: "Webhook",     href: "/webhook-setup",     icon: Webhook },
     ...(user?.role === "super_admin" || user?.role === "company_admin"
@@ -66,6 +109,21 @@ export function AppLayout({ children }: { children: ReactNode }) {
           { name: "Users",      href: "/users",    icon: Users },
           { name: "Pengaturan", href: "/settings", icon: Settings2 },
         ]
+      : []),
+    ...(user?.role === "super_admin" || user?.role === "company_admin" || user?.role === "owner" || user?.role === "supervisor"
+      ? [{ name: "Onboarding Setup", href: "/onboarding", icon: CheckSquare }]
+      : []),
+    ...(user?.role === "super_admin" || user?.role === "company_admin"
+      ? [{ name: "Company Governance", href: "/company-governance", icon: Shield }]
+      : []),
+    ...(user?.role === "super_admin"
+      ? [{ name: "Onboarding Factory", href: "/company-onboarding", icon: Zap }]
+      : []),
+    ...(user?.role === "super_admin"
+      ? [{ name: "Holding Dashboard", href: "/holding-dashboard", icon: Globe }]
+      : []),
+    ...(user?.role === "super_admin" || user?.role === "company_admin" || user?.role === "owner" || user?.role === "supervisor"
+      ? [{ name: "AI Operations", href: "/ai-operations", icon: Cpu }]
       : []),
   ];
 

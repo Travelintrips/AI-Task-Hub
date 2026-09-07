@@ -1,8 +1,6 @@
-export * from "./tasks";
 export * from "./team";
 export * from "./messages";
 export * from "./documents";
-export * from "./activity";
 export * from "./ai_tasks";
 export * from "./task_attachments";
 export * from "./document_audits";
@@ -11,7 +9,6 @@ export * from "./task_assignments";
 export * from "./whatsapp_notifications";
 export * from "./public_tokens";
 export * from "./task_timeline";
-export * from "./customer_contexts";
 export * from "./admin_notifications";
 export * from "./users";
 export * from "./company_settings";
@@ -22,3 +19,35 @@ export * from "./audit_logs";
 export * from "./shipment_trackings";
 export * from "./follow_up_logs";
 export * from "./dispatcher_logs";
+// ── Sprint 1B new tables ────────────────────────────────────────────────────
+export * from "./intent_master";
+export * from "./keyword_rules";
+export * from "./service_catalog";
+export * from "./data_templates";
+export * from "./document_templates";
+// ── Sprint 3B new tables ────────────────────────────────────────────────────
+export * from "./governance";
+// ── Sprint 4B new tables ────────────────────────────────────────────────────
+export * from "./training";
+// ── Sprint 5A new tables ────────────────────────────────────────────────────
+export * from "./customer_memory";
+// ── Sprint 5B new tables ────────────────────────────────────────────────────
+export * from "./vendor_memory";
+// ── Sprint 5E new tables ────────────────────────────────────────────────────
+export * from "./intel";
+// ── Sprint 6B new tables ────────────────────────────────────────────────────
+export * from "./purchasing";
+// ── Sprint 7B new tables ────────────────────────────────────────────────────
+export * from "./fleet";
+// ── AI Intake Sessions ──────────────────────────────────────────────────────
+export * from "./intake_sessions";
+// ── Sprint 9C — Document Intake & Validation ────────────────────────────────
+export * from "./document_validation";
+// ── Sprint 9D — Conversation Test Suite & AI Quality Gate ───────────────────
+export * from "./conversation_tests";
+// ── Sprint 10A-1 — WhatsApp First Operations ────────────────────────────────
+export * from "./whatsapp_commands";
+// ── Notification Receivers ───────────────────────────────────────────────────
+export * from "./notification_receivers";
+// ── Suppliers ────────────────────────────────────────────────────────────────
+export * from "./suppliers";

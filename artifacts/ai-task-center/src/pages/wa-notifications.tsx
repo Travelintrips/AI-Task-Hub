@@ -1,11 +1,13 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { format, formatDistanceToNow } from "date-fns";
 import { id as localeId } from "date-fns/locale";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -19,6 +21,7 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -40,8 +43,11 @@ import {
   User,
   Briefcase,
   Eye,
+  Send,
+  Loader2,
 } from "lucide-react";
 import { getStoredToken } from "@/lib/auth-api";
+import { useToast } from "@/hooks/use-toast";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -136,6 +142,13 @@ function recipientBadge(type: string) {
       </span>
     );
   }
+  if (type === "group") {
+    return (
+      <span className="inline-flex items-center gap-1 text-xs text-green-700">
+        <MessageSquare className="h-3 w-3" /> Grup WA
+      </span>
+    );
+  }
   return (
     <span className="inline-flex items-center gap-1 text-xs text-purple-600">
       <Briefcase className="h-3 w-3" /> Staff
@@ -182,12 +195,51 @@ function StatCard({ label, value, icon, color }: {
 
 const PAGE_SIZE = 50;
 
+async function sendGroupWa(groupJid: string, message: string): Promise<{ success: boolean; error?: string }> {
+  const token = getStoredToken();
+  const res = await fetch("/api/whatsapp/send-group", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ groupJid, message }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({})) as { error?: string };
+    throw new Error(data.error ?? `HTTP ${res.status}`);
+  }
+  return res.json() as Promise<{ success: boolean; error?: string }>;
+}
+
 export default function WaNotifications() {
+  const { toast } = useToast();
   const [search,     setSearch]     = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [page,       setPage]       = useState(0);
   const [selected,   setSelected]   = useState<WaNotification | null>(null);
+
+  // ── Kirim ke Grup WA ────────────────────────────────────────────────────────
+  const [groupDialogOpen, setGroupDialogOpen] = useState(false);
+  const [groupJid,        setGroupJid]        = useState("");
+  const [groupMessage,    setGroupMessage]    = useState("");
+
+  const sendGroupMutation = useMutation({
+    mutationFn: () => sendGroupWa(groupJid.trim(), groupMessage.trim()),
+    onSuccess: (data) => {
+      if (data.success) {
+        toast({ title: "✅ Pesan berhasil dikirim ke Grup WA" });
+        setGroupDialogOpen(false);
+        setGroupJid("");
+        setGroupMessage("");
+      } else {
+        toast({ title: "⚠️ Fonnte tidak berhasil mengirim", description: data.error, variant: "destructive" });
+      }
+    },
+    onError: (err: Error) =>
+      toast({ title: "❌ Gagal kirim ke Grup WA", description: err.message, variant: "destructive" }),
+  });
 
   const offset = page * PAGE_SIZE;
 
@@ -224,17 +276,94 @@ export default function WaNotifications() {
             Log semua pesan WhatsApp yang dikirim sistem via Fonnte
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => refetch()}
-          disabled={isFetching}
-          className="gap-2"
-        >
-          <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
-          Refresh
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            size="sm"
+            className="bg-green-600 hover:bg-green-700 text-white gap-2"
+            onClick={() => setGroupDialogOpen(true)}
+          >
+            <MessageSquare className="h-4 w-4" />
+            Kirim ke Grup WA
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="gap-2"
+          >
+            <RefreshCw className={`h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
+        </div>
       </div>
+
+      {/* ── Dialog Kirim ke Grup WA ─────────────────────────────────────────────── */}
+      <Dialog open={groupDialogOpen} onOpenChange={setGroupDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-green-700">
+              <MessageSquare className="h-5 w-5" />
+              Kirim Pesan ke Grup WhatsApp
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 py-1">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-gray-600">
+                Group JID
+              </Label>
+              <Input
+                value={groupJid}
+                onChange={(e) => setGroupJid(e.target.value)}
+                placeholder="628xxxxxxxxxx-xxxxxxxxxx@g.us"
+                className="font-mono text-sm"
+              />
+              <p className="text-[11px] text-gray-400">
+                Format: nomor_pembuat-timestamp@g.us · Dapatkan dari log webhook Fonnte saat ada pesan masuk dari grup tersebut.
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-gray-600">Isi Pesan</Label>
+              <Textarea
+                value={groupMessage}
+                onChange={(e) => setGroupMessage(e.target.value)}
+                placeholder="Ketik pesan broadcast untuk grup WhatsApp…"
+                className="min-h-[160px] text-sm font-mono resize-none leading-relaxed"
+              />
+              <p className="text-xs text-gray-400 text-right">{groupMessage.length} karakter</p>
+            </div>
+
+            {groupMessage.trim() && (
+              <div className="bg-[#DCF8C6] rounded-2xl rounded-tl-sm px-3.5 py-2.5 text-sm text-gray-800 whitespace-pre-wrap max-h-[120px] overflow-y-auto shadow-sm border border-green-200">
+                {groupMessage}
+              </div>
+            )}
+
+            <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-xs text-blue-700">
+              💡 Sistem akan mencoba semua device Fonnte secara otomatis hingga satu berhasil mengirim ke grup.
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setGroupDialogOpen(false)}>Batal</Button>
+            <Button
+              className="bg-green-600 hover:bg-green-700 text-white gap-2"
+              disabled={
+                !groupJid.trim().endsWith("@g.us") ||
+                !groupMessage.trim() ||
+                sendGroupMutation.isPending
+              }
+              onClick={() => sendGroupMutation.mutate()}
+            >
+              {sendGroupMutation.isPending
+                ? <><Loader2 className="h-4 w-4 animate-spin" /> Mengirim…</>
+                : <><Send className="h-4 w-4" /> Kirim ke Grup</>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

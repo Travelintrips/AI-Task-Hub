@@ -20,7 +20,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { Phone, Mail, Trash2, UserPlus, Building2, Pencil } from "lucide-react";
+import { Phone, Mail, Trash2, UserPlus, Building2, Pencil, PhoneOff } from "lucide-react";
 
 // ─── Daftar Divisi (sesuai CATEGORY_DIVISION_MAP di dispatcher) ───────────────
 const DIVISIONS = [
@@ -102,7 +102,7 @@ function MemberFormFields({ form }: { form: ReturnType<typeof useForm<MemberForm
                   <SelectValue placeholder="Pilih divisi..." />
                 </SelectTrigger>
               </FormControl>
-              <SelectContent>
+              <SelectContent className="max-h-60 overflow-y-auto">
                 {DIVISIONS.map(d => (
                   <SelectItem key={d.value} value={d.value}>
                     <span className="flex items-center gap-2">
@@ -341,7 +341,10 @@ export default function Team() {
           ))
         ) : members?.length === 0 ? (
           <div className="col-span-full text-center py-12 text-muted-foreground bg-muted/20 rounded-lg border border-dashed">
-            Belum ada anggota tim. Klik "Tambah Anggota" untuk mulai.
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10 mx-auto mb-3 opacity-30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            <p className="font-medium text-foreground/70">Belum ada anggota tim</p>
+            <p className="text-sm mt-1">Tambahkan supervisor atau staff agar AI dapat mengassign task secara otomatis.</p>
+            <p className="text-xs mt-2">Klik <strong>"Tambah Anggota"</strong> di pojok kanan atas untuk mulai.</p>
           </div>
         ) : (
           members?.map((member) => (
@@ -384,15 +387,21 @@ export default function Team() {
                   </div>
                 </div>
 
-                {/* Badge Divisi */}
-                {member.division && (
-                  <div className="mt-3">
+                {/* Badge Divisi + warning No HP */}
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {member.division && (
                     <span className={`inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full ${getDivisionStyle(member.division)}`}>
                       <Building2 className="h-3 w-3" />
                       {DIVISIONS.find(d => d.value === member.division)?.label ?? member.division}
                     </span>
-                  </div>
-                )}
+                  )}
+                  {!member.phone && (
+                    <span className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-amber-100 text-amber-700">
+                      <PhoneOff className="h-3 w-3" />
+                      No HP — WA nonaktif
+                    </span>
+                  )}
+                </div>
 
                 {/* Kontak */}
                 <div className="mt-4 space-y-1.5 text-sm">

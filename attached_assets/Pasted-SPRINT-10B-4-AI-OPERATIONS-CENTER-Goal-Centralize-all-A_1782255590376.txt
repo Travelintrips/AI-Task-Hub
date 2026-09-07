@@ -1,0 +1,141 @@
+SPRINT 10B-4 — AI OPERATIONS CENTER
+
+Goal:
+
+Centralize all AI activity into one operational dashboard.
+
+Do not change existing AI workflows.
+
+====================================================
+A. AI OPERATIONS DASHBOARD
+==========================
+
+Create:
+
+/ai-operations
+
+====================================================
+B. AI MODULE REGISTRY
+=====================
+
+Register:
+
+* Intake Engine
+* Mini Form Router
+* Document Validation
+* Customer Memory
+* Vendor Memory
+* Executive Briefing
+* Holding Briefing
+* Fleet Intelligence AI
+* AI Task Center
+
+Show:
+
+status
+last execution
+success rate
+avg latency
+
+====================================================
+C. AI USAGE ANALYTICS
+=====================
+
+Track:
+
+requests
+success
+failure
+avg latency
+token usage
+estimated cost
+
+Per module.
+
+====================================================
+D. AI QUALITY
+=============
+
+Show:
+
+confidence score
+manual override rate
+false positive indicators
+completion rate
+
+====================================================
+E. AI FAILURES
+==============
+
+Create:
+
+AI failure center
+
+Track:
+
+module
+error
+frequency
+last occurrence
+
+====================================================
+F. AI LEADERBOARD
+=================
+
+Rank:
+
+most used AI
+highest success AI
+highest cost AI
+lowest confidence AI
+
+====================================================
+G. EXECUTIVE AI HEALTH
+======================
+
+Single score:
+
+AI Health %
+
+Inputs:
+
+success
+freshness
+latency
+failure rate
+
+====================================================
+H. HOLDING VIEW
+===============
+
+super_admin only:
+
+AI metrics across all companies.
+
+====================================================
+I. VALIDATION
+=============
+
+Test:
+
+1. registry loads
+2. metrics load
+3. failures visible
+4. leaderboard works
+5. AI health calculated
+6. holding view works
+7. RBAC works
+8. typecheck clean
+
+Output:
+
+AI health score
+module count
+failure count
+usage stats
+
+GO / NO-GO
+
+# for Sprint 10B-5
+
+# END

@@ -1,0 +1,212 @@
+SPRINT 9B — MINI FORM BUILDER & ROUTER
+
+Sprint 9A Intake Engine is planned.
+
+Now build Mini Form Builder & Router.
+
+Goal:
+Admin can configure which intent uses which mini form.
+AI can send the correct mini form link automatically through WhatsApp.
+Task is created only after mini form is submitted and required data is complete.
+
+====================================================
+A. FORM CONFIGURATION
+====================================================
+
+Create admin page:
+
+/mini-form-config
+
+Features:
+- list all intent_master
+- show linked data_template
+- show linked document_template
+- choose intake_mode:
+  conversation
+  mini_form
+  hybrid
+- set mini_form_type
+- set mini_form_route
+- enable/disable form
+- preview form
+
+RBAC:
+company_admin and super_admin can edit
+supervisor can view only
+
+====================================================
+B. MINI FORM TYPES
+====================================================
+
+Create standard mini forms:
+
+1. Trucking Form
+Fields:
+- pickup_address
+- delivery_address
+- cargo_type
+- cargo_weight
+- cargo_volume
+- vehicle_type
+- pickup_date
+- contact_person
+- notes
+
+2. Freight / Import Form
+Fields:
+- origin_country
+- destination_country
+- port_origin
+- port_destination
+- commodity
+- hs_code
+- gross_weight
+- volume
+- incoterm
+- shipment_mode
+- commercial_invoice
+- packing_list
+
+3. Complaint / Damaged Goods Form
+Fields:
+- order_number
+- item_name
+- damage_description
+- damage_quantity
+- received_date
+- photo_damage
+- requested_solution
+
+4. Fleet Repair Form
+Fields:
+- plate_number
+- location
+- issue_type
+- issue_description
+- photo
+- urgent
+- estimated_cost
+
+5. Cash Advance / Kasbon Form optional
+Use only if intake_mode = mini_form.
+Default kasbon should remain conversation mode.
+
+====================================================
+C. FORM ROUTER
+====================================================
+
+Create route pattern:
+
+/mini-form/:type/:token
+
+Supported:
+- trucking
+- freight
+- complaint
+- fleet-repair
+- cash-advance
+
+Token must map to:
+conversation_intake_sessions.mini_form_token
+
+When opened:
+- validate token
+- load session
+- load template fields
+- render form dynamically
+- show required fields
+- allow file upload if required documents exist
+
+When submitted:
+- save collected_fields
+- save uploaded_documents
+- recalculate missing_fields
+- if incomplete:
+  keep session active
+  send WA asking remaining data
+- if complete:
+  create ai_task
+  notify admin
+  mark session submitted
+
+====================================================
+D. ADMIN PREVIEW
+====================================================
+
+Admin can preview form:
+
+/mini-form/preview/:templateId
+
+Preview must not create task.
+Preview must not send WhatsApp.
+
+====================================================
+E. WHATSAPP MESSAGE TEMPLATE
+====================================================
+
+When AI sends mini form link, use standard message:
+
+"Baik, untuk mempercepat proses, mohon isi form berikut:
+
+{mini_form_url}
+
+Setelah form dikirim, sistem akan otomatis meneruskan pengajuan ke tim terkait."
+
+For urgent complaint:
+
+"Baik, kami bantu proses komplainnya. Mohon isi form berikut dan upload foto pendukung:
+
+{mini_form_url}
+
+Setelah lengkap, tim kami akan segera menindaklanjuti."
+
+====================================================
+F. FORM SUBMISSION TO TASK
+====================================================
+
+When form complete, task payload must include:
+
+- intent_code
+- category
+- collected_fields
+- uploaded_documents
+- source = mini_form
+- intake_session_id
+- customer_id
+- phone
+- needs_admin_review = true
+
+Task title examples:
+- "Permintaan Trucking — {pickup_address} ke {delivery_address}"
+- "Permintaan Freight — {origin_country} ke {destination_country}"
+- "Komplain Barang Rusak — {order_number}"
+- "Fleet Repair — {plate_number}"
+- "Pengajuan Kasbon — {amount}"
+
+====================================================
+G. VALIDATION TESTS
+====================================================
+
+Test:
+
+1. trucking intent sends trucking mini form link
+2. open trucking form by token
+3. submit complete trucking form
+4. task created after submit
+5. complaint intent sends complaint form
+6. submit complaint with photo
+7. task created with uploaded document
+8. invalid token shows error
+9. expired token shows error
+10. preview form works without creating task
+11. supervisor cannot edit config
+12. company_admin can edit config
+
+Output:
+- forms created
+- routes created
+- token flow result
+- WA message example
+- task created proof
+- typecheck result
+- remaining risks

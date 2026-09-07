@@ -1,4 +1,4 @@
-import { db, aiTasksTable, activityTable, adminNotificationsTable, taskCommentsTable } from "@workspace/db";
+import { db, aiTasksTable, auditLogsTable, adminNotificationsTable, taskCommentsTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { emitSseEvent } from "./sse";
 import { logger } from "./logger";
@@ -8,9 +8,12 @@ const POLL_INTERVAL_MS = 30 * 1000; // cek order baru tiap 30 detik
 const PAGE_SIZE = 500; // ukuran halaman saat menarik order dari Supabase
 const COMPANY_ID = "default";
 
-const SUPA_URL = process.env.SUPABASE_URL ?? "";
+// Pair URL & key correctly: prod URL → prod key, dev URL → dev key
+const SUPA_URL = process.env.SUPABASE_URL || process.env.SUPABASE_URL_DEV || "";
 const SUPA_BASE = SUPA_URL ? `${SUPA_URL}/rest/v1` : "";
-const SUPA_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
+const SUPA_KEY = process.env.SUPABASE_URL
+  ? (process.env.SUPABASE_SERVICE_ROLE_KEY || "")
+  : (process.env.SUPABASE_SERVICE_ROLE_KEY_DEV || process.env.SUPABASE_SERVICE_ROLE_KEY || "");
 
 const supaHeaders = {
   apikey: SUPA_KEY,
@@ -60,6 +63,105 @@ function mapStatus(orderStatus: string | null): string {
     default:
       return "new_inquiry";
   }
+}
+
+// ─── Pemetaan balik: status ai_task → status logistic_orders ─────────────────────
+function mapReplitStatusToOrder(replitStatus: string): string | null {
+  switch (replitStatus) {
+    case "new_inquiry":
+      return "Order Received";
+    case "waiting_documents":
+    case "documents_received":
+    case "audit_in_progress":
+    case "missing_data":
+    case "ready_for_review":
+    case "quotation_ready":
+      return "Admin Review";
+    case "assigned":
+      return "Vendor Confirmed";
+    case "in_progress":
+    case "waiting_customer":
+    case "waiting_vendor":
+    case "approved_by_customer":
+      return "In Progress";
+    case "completed":
+      return "Completed";
+    case "cancelled":
+      return "Cancelled";
+    default:
+      return null; // status tidak dikenali — jangan push
+  }
+}
+
+// ─── Push perubahan status dari Replit → Supabase logistic_orders ─────────────────
+// Dipanggil dari route PATCH /ai-tasks/:id setelah status berhasil diubah.
+// task_number harus sama dengan order_number di logistic_orders (dedup key).
+// Juga mencatat ke ai_task_sync_log di Supabase.
+export async function pushStatusToSupabase(
+  taskNumber: string,
+  oldStatus: string,
+  newStatus: string,
+): Promise<void> {
+  if (!SUPA_BASE || !SUPA_KEY) return;
+
+  const orderStatus = mapReplitStatusToOrder(newStatus);
+  if (!orderStatus) {
+    logger.warn({ taskNumber, newStatus }, "pushStatusToSupabase: status tidak dipetakan, dilewati");
+    return;
+  }
+
+  // Hindari infinite loop: jangan push kalau status order sudah sama
+  // (bisa terjadi saat Supabase → Replit sync baru saja berjalan)
+  try {
+    const checkUrl = `${SUPA_BASE}/logistic_orders?order_number=eq.${encodeURIComponent(taskNumber)}&select=status&limit=1`;
+    const checkRes = await fetch(checkUrl, { headers: supaHeaders });
+    if (checkRes.ok) {
+      const rows = await checkRes.json() as Array<{ status: string | null }>;
+      if (rows.length > 0 && rows[0].status === orderStatus) {
+        logger.debug({ taskNumber, orderStatus }, "pushStatusToSupabase: status sudah sinkron, dilewati");
+        return;
+      }
+    }
+  } catch {
+    // lanjut meski cek gagal
+  }
+
+  // PATCH ke logistic_orders
+  const patchUrl = `${SUPA_BASE}/logistic_orders?order_number=eq.${encodeURIComponent(taskNumber)}`;
+  const patchRes = await fetch(patchUrl, {
+    method: "PATCH",
+    headers: { ...supaHeaders, Prefer: "return=minimal" },
+    body: JSON.stringify({ status: orderStatus, updated_at: new Date().toISOString() }),
+  });
+
+  if (!patchRes.ok) {
+    const body = await patchRes.text();
+    logger.error(
+      { taskNumber, orderStatus, status: patchRes.status, body: body.slice(0, 200) },
+      "pushStatusToSupabase: PATCH logistic_orders gagal",
+    );
+    return;
+  }
+
+  // Catat ke ai_task_sync_log
+  try {
+    const logUrl = `${SUPA_BASE}/ai_task_sync_log`;
+    await fetch(logUrl, {
+      method: "POST",
+      headers: { ...supaHeaders, Prefer: "return=minimal" },
+      body: JSON.stringify({
+        order_number: taskNumber,
+        old_status: mapReplitStatusToOrder(oldStatus) ?? oldStatus,
+        new_status: orderStatus,
+        source: "replit",
+        notes: `Replit status: ${oldStatus} → ${newStatus}`,
+      }),
+    });
+  } catch (err) {
+    logger.warn({ err }, "pushStatusToSupabase: gagal catat ke ai_task_sync_log");
+  }
+
+  logger.info({ taskNumber, orderStatus, oldStatus, newStatus }, "Status task dipush ke Supabase logistic_orders");
 }
 
 function pickAmount(o: LogisticOrder): string | null {
@@ -179,9 +281,10 @@ async function createTaskFromOrder(o: LogisticOrder): Promise<number> {
       })
       .returning();
 
-    await tx.insert(activityTable).values({
-      type: "task_created",
-      description: `Order ${taskNumber} masuk otomatis — ${category} (${status}) — ${title}`,
+    await tx.insert(auditLogsTable).values({
+      action: "task_created",
+      module: "tasks",
+      before: `Order ${taskNumber} masuk otomatis — ${category} (${status}) — ${title}`,
       entityId: task.id,
     });
 
@@ -217,9 +320,10 @@ async function updateTaskStatus(
 ): Promise<void> {
   await db.transaction(async (tx) => {
     await tx.update(aiTasksTable).set({ status: newStatus }).where(eq(aiTasksTable.id, taskId));
-    await tx.insert(activityTable).values({
-      type: "task_updated",
-      description: `Status order ${taskNumber} diperbarui menjadi "${newStatus}" (sinkron otomatis)`,
+    await tx.insert(auditLogsTable).values({
+      action: "task_updated",
+      module: "tasks",
+      before: `Status order ${taskNumber} diperbarui menjadi "${newStatus}" (sinkron otomatis)`,
       entityId: taskId,
     });
   });

@@ -1,0 +1,132 @@
+SPRINT 7C CHECKPOINT — FLEET INTELLIGENCE VALIDATION
+
+Do not add features.
+
+Validate Sprint 7B + Sprint 7C end-to-end.
+
+====================================================
+SECTION 1 — DATABASE
+====================================================
+
+Verify:
+
+fleet_units
+fleet_documents
+fleet_drivers
+fleet_driver_performance
+fleet_maintenance_records
+fleet_maintenance_schedules
+
+fleet_fuel_logs
+fleet_fuel_benchmarks
+fleet_tires
+fleet_tire_rotations
+fleet_utilization_logs
+
+Report:
+- exists
+- row count
+- indexes
+- company isolation
+
+====================================================
+SECTION 2 — FUEL
+====================================================
+
+Test:
+
+1. create benchmark
+2. create normal fuel log
+3. create anomaly fuel log
+4. anomaly detection
+5. audit log generation
+6. AI task generation
+
+====================================================
+SECTION 3 — TIRES
+====================================================
+
+Test:
+
+1. install tire
+2. rotate tire
+3. update odometer
+4. lifecycle calculation
+5. critical wear detection
+6. AI task generation
+
+====================================================
+SECTION 4 — UTILIZATION
+====================================================
+
+Test:
+
+1. create trip
+2. start trip
+3. complete trip
+4. utilization analytics
+5. idle vehicle detection
+6. over-utilized vehicle detection
+7. AI task generation
+
+====================================================
+SECTION 5 — FRONTEND
+====================================================
+
+Verify:
+
+/fleet/units
+/fleet/drivers
+/fleet/documents
+/fleet/maintenance
+/fleet/fuel
+/fleet/tires
+/fleet/utilization
+
+====================================================
+SECTION 6 — AI TASKS
+====================================================
+
+Verify generated tasks:
+
+- fuel anomaly
+- tire critical wear
+- idle vehicle
+- over-utilized vehicle
+- maintenance due
+- document expiring
+
+====================================================
+SECTION 7 — READINESS
+====================================================
+
+Calculate:
+
+Fleet Foundation Readiness
+Fuel Readiness
+Tire Readiness
+Utilization Readiness
+
+Overall Fleet Readiness Score
+
+====================================================
+SECTION 8 — GO / NO-GO
+====================================================
+
+Determine readiness for:
+
+Sprint 7D
+
+Modules:
+- Fleet Risk Score
+- Cost per KM
+- Route Profitability
+- Fleet Dashboard
+- WhatsApp Reporting
+- Driver Memory
+
+Output:
+- readiness score
+- blockers
+- risks
+- GO / NO-GO

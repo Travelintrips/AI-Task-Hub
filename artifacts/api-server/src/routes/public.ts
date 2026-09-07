@@ -1,20 +1,40 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type NextFunction, type Request, type Response } from "express";
 import { eq, desc } from "drizzle-orm";
+import multer from "multer";
+import { randomUUID } from "node:crypto";
 import {
   db,
   aiTasksTable,
   taskAttachmentsTable,
   documentAuditsTable,
   taskTimelineTable,
+  intakeSessionsTable,
 } from "@workspace/db";
 import { validateToken, createPublicToken } from "../lib/tokens";
 import { logTimeline } from "../lib/timeline";
 import { runAuditForTask } from "../lib/run-audit";
 import { sendWhatsAppNotification } from "../lib/whatsapp-sender";
-import { getUploadUrl } from "../lib/supabase";
+import {
+  getUploadUrl,
+  ensureBucket,
+  ensurePaymentProofBucket,
+  uploadPaymentProofBuffer,
+} from "../lib/supabase";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
+const PAYMENT_PROOF_MAX_BYTES = 10 * 1024 * 1024;
+const PAYMENT_PROOF_MIME_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "application/pdf",
+]);
+const PAYMENT_PROOF_EXTENSIONS = new Set([".jpg", ".jpeg", ".png", ".webp", ".pdf"]);
+const miniFormPaymentUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: PAYMENT_PROOF_MAX_BYTES },
+});
 
 // ─── Helper: serialize task for public response (hides adminNotes) ────────────
 function publicTask(task: typeof aiTasksTable.$inferSelect) {
@@ -537,5 +557,108 @@ async function runReauditAndNotify(taskId: number, companyId: string): Promise<v
     logger.error({ err, taskId }, "runReauditAndNotify failed");
   }
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MINI FORM: Upload URL (tanpa token task — untuk upload file dari mini-form)
+// POST /public/mini-form-upload-url
+// Body: { filename: string, mimeType?: string }
+// Returns: { uploadUrl, publicUrl, path }
+// ═══════════════════════════════════════════════════════════════════════════════
+router.post("/public/mini-form-upload-url", async (req, res): Promise<void> => {
+  try {
+    const { filename, mimeType } = req.body as { filename: string; mimeType?: string };
+    if (!filename || typeof filename !== "string") {
+      res.status(400).json({ error: "filename wajib diisi" });
+      return;
+    }
+    await ensureBucket();
+    const result = await getUploadUrl(filename, mimeType ?? "application/octet-stream");
+    res.json(result);
+  } catch (err) {
+    logger.error({ err }, "POST /public/mini-form-upload-url failed");
+    res.status(500).json({ error: "Gagal membuat upload URL" });
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MINI FORM: Payment proof upload
+// POST /public/mini-form-upload
+// Multipart body: file, token, fieldName=payment_proof
+// The bytes are received by the API, validated, then stored in Supabase Storage.
+// ═══════════════════════════════════════════════════════════════════════════════
+router.post(
+  "/public/mini-form-upload",
+  (req: Request, res: Response, next: NextFunction): void => {
+    miniFormPaymentUpload.single("file")(req, res, (err: unknown) => {
+      if (!err) {
+        next();
+        return;
+      }
+      if (err instanceof multer.MulterError && err.code === "LIMIT_FILE_SIZE") {
+        res.status(413).json({ error: "Ukuran file maksimal 10 MB" });
+        return;
+      }
+      res.status(400).json({ error: "File bukti pembayaran tidak valid" });
+    });
+  },
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const token = String(req.body?.token ?? "").trim();
+      const fieldName = String(req.body?.fieldName ?? "").trim();
+      const file = req.file;
+
+      if (!token || token.length < 16 || fieldName !== "payment_proof") {
+        res.status(400).json({ error: "Permintaan upload bukti pembayaran tidak valid" });
+        return;
+      }
+      if (!file) {
+        res.status(400).json({ error: "File bukti pembayaran wajib diunggah" });
+        return;
+      }
+
+      const extension = file.originalname.toLowerCase().match(/\.[a-z0-9]+$/)?.[0] ?? "";
+      if (
+        file.size > PAYMENT_PROOF_MAX_BYTES ||
+        !PAYMENT_PROOF_MIME_TYPES.has(file.mimetype) ||
+        !PAYMENT_PROOF_EXTENSIONS.has(extension)
+      ) {
+        res.status(400).json({
+          error: "Format bukti pembayaran harus JPG, PNG, WebP, atau PDF dengan ukuran maksimal 10 MB",
+        });
+        return;
+      }
+
+      const [session] = await db
+        .select({ id: intakeSessionsTable.id, status: intakeSessionsTable.status })
+        .from(intakeSessionsTable)
+        .where(eq(intakeSessionsTable.formToken, token))
+        .limit(1);
+      if (!session || ["submitted", "cancelled", "expired"].includes(session.status)) {
+        res.status(404).json({ error: "Form tidak ditemukan atau sudah tidak aktif" });
+        return;
+      }
+
+      await ensurePaymentProofBucket();
+      const storageExtension = extension === ".jpeg" ? ".jpg" : extension;
+      const objectPath = `proof-${randomUUID()}${storageExtension}`;
+      const stored = await uploadPaymentProofBuffer(
+        file.buffer,
+        objectPath,
+        file.mimetype,
+      );
+
+      res.json({
+        publicUrl: stored.publicUrl,
+        path: stored.path,
+        filename: file.originalname,
+        size: file.size,
+        mimeType: file.mimetype,
+      });
+    } catch (err) {
+      logger.error({ err }, "POST /public/mini-form-upload failed");
+      res.status(500).json({ error: "Gagal mengupload bukti pembayaran" });
+    }
+  },
+);
 
 export default router;

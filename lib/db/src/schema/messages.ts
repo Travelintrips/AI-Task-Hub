@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp, boolean, integer, jsonb, index } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, boolean, integer, jsonb, real, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -20,11 +20,15 @@ export const whatsappMessagesTable = pgTable("whatsapp_messages", {
   aiProcessed: boolean("ai_processed").notNull().default(false),
   detectedIntent: text("detected_intent"),
   taskId: integer("task_id"),
+  customerId: integer("customer_id"),
+  aiConfidence: real("ai_confidence"),
+  sentiment: text("sentiment"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   index("wa_messages_sender_phone_idx").on(t.senderPhone),
   index("wa_messages_from_idx").on(t.from),
   index("wa_messages_task_id_idx").on(t.taskId),
+  index("wa_messages_customer_id_idx").on(t.customerId),
   index("wa_messages_processed_idx").on(t.processed),
   index("wa_messages_created_at_idx").on(t.createdAt),
   index("wa_messages_wamid_idx").on(t.wamid),

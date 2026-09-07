@@ -1,0 +1,151 @@
+SPRINT 10B-3 — CROSS COMPANY CONSOLIDATION
+
+Goal:
+
+Provide holding-level visibility for super_admin
+without breaking company isolation.
+
+Do not change existing company workflows.
+
+====================================================
+A. HOLDING DASHBOARD
+====================
+
+Create:
+
+/holding-dashboard
+
+Visible only:
+
+super_admin
+
+====================================================
+B. COMPANY AGGREGATION
+======================
+
+Aggregate:
+
+* tasks
+* customers
+* vendors
+* fleet units
+* drivers
+* purchasing requests
+* onboarding sessions
+
+Show:
+
+per company
+and total group
+
+====================================================
+C. CONSOLIDATED HEALTH SCORE
+============================
+
+Combine:
+
+* onboarding readiness
+* data quality
+* fleet readiness
+* purchasing readiness
+* memory coverage
+
+Per company.
+
+====================================================
+D. CONSOLIDATED EXECUTIVE VIEW
+==============================
+
+Show:
+
+Top companies
+Lowest readiness
+Highest risk
+Most active
+Least active
+
+====================================================
+E. COMPANY COMPARISON
+=====================
+
+Compare:
+
+Company A
+Company B
+Company C
+
+Metrics:
+
+tasks
+fleet
+vendors
+customers
+WA usage
+AI usage
+
+====================================================
+F. CONSOLIDATED ALERTS
+======================
+
+Group alerts:
+
+critical
+warning
+info
+
+Source:
+
+Executive Command
+Fleet
+Purchasing
+Data Governance
+
+====================================================
+G. HOLDING BRIEFING
+===================
+
+Create:
+
+holding executive briefing
+
+Summarize:
+
+all companies
+
+daily
+
+====================================================
+H. SECURITY
+===========
+
+Only:
+
+super_admin
+
+No company_admin visibility.
+
+====================================================
+I. VALIDATION
+=============
+
+Test:
+
+1. aggregation correct
+2. comparison correct
+3. alerts correct
+4. briefing correct
+5. RBAC correct
+6. typecheck clean
+
+Output:
+
+companies aggregated
+group health score
+alerts
+readiness
+
+GO / NO-GO
+
+# for Sprint 10B-4
+
+# END

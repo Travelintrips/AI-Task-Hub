@@ -1,0 +1,297 @@
+PHASE 1D-C & 1D-D — COMPLETE FLEET MEMORY CENTER AND PURCHASING INTELLIGENCE CENTER
+
+Based on Phase 1D Memory & Intelligence Architecture, continue and complete the missing sections only.
+
+Do not code yet.
+
+Focus only on:
+
+1. Fleet Memory Center
+2. Purchasing Intelligence Center
+
+For each center, provide:
+
+A. Database Schema
+
+* table names
+* fields
+* primary keys
+* foreign keys
+* indexes
+* relationships
+
+B. AI Usage Flow
+Explain how AI uses this memory during:
+
+* WhatsApp conversation
+* task creation
+* fleet maintenance
+* purchasing request
+* approval
+* vendor selection
+* cost control
+* expense tracking
+
+C. Dashboard Design
+Provide:
+
+* route
+* menu location
+* page layout
+* table columns
+* detail page tabs
+* filters
+* action buttons
+
+D. Intelligence Features
+Include:
+
+* risk score
+* maintenance prediction
+* cost trend
+* supplier recommendation
+* price history comparison
+* duplicate purchase warning
+* abnormal expense detection
+
+E. Permissions
+Define access for:
+
+* super_admin
+* company_admin
+* supervisor
+* fleet_manager
+* purchasing_staff
+* finance
+* staff
+
+F. Audit Logging
+Define all audit events.
+
+FLEET MEMORY CENTER must include at minimum:
+
+1. fleet_units
+
+* plate_number
+* vehicle_type
+* brand
+* model
+* year
+* ownership_status
+* capacity_ton
+* capacity_cbm
+* current_driver_id
+* current_status
+* current_location
+* odometer
+* insurance_expiry
+* tax_expiry
+* kir_expiry
+* stnk_expiry
+* last_service_date
+* next_service_due
+* health_score
+* risk_level
+
+2. fleet_drivers
+
+* name
+* phone
+* license_type
+* license_number
+* license_expiry
+* driver_status
+* rating
+* assigned_vehicle
+* accident_count
+* violation_count
+
+3. fleet_maintenance_history
+
+* vehicle_id
+* maintenance_type
+* maintenance_date
+* odometer
+* vendor_id
+* item_description
+* cost
+* receipt_url
+* next_due_date
+* ai_notes
+
+4. fleet_expenses
+
+* vehicle_id
+* expense_type
+* fuel, toll, parking, tire, oil, battery, repair, insurance, tax, kir, stnk
+* amount
+* transaction_date
+* receipt_url
+* approved_by
+* linked_task_id
+
+5. fleet_availability_schedule
+
+* vehicle_id
+* assigned_task_id
+* start_time
+* end_time
+* status
+* route
+* driver_id
+
+6. fleet_health_predictions
+
+* vehicle_id
+* prediction_type
+* tire_replacement
+* oil_change
+* battery
+* brake
+* insurance_expiry
+* tax_expiry
+* predicted_due_date
+* confidence_score
+* recommendation
+
+Purchasing Intelligence Center must include at minimum:
+
+1. supplier_profiles
+
+* supplier_name
+* supplier_type
+* category
+* phone
+* email
+* npwp
+* payment_terms
+* rating
+* reliability_score
+* lead_time_days
+* status
+
+2. purchase_item_catalog
+
+* item_name
+* category
+* unit
+* standard_price
+* last_purchase_price
+* preferred_supplier_id
+* minimum_stock
+* reorder_point
+* is_active
+
+3. purchase_price_history
+
+* item_id
+* supplier_id
+* price
+* currency
+* purchase_date
+* quantity
+* source_document
+* linked_purchase_request_id
+
+4. purchase_requests_memory
+
+* requester
+* department
+* item
+* quantity
+* reason
+* estimated_price
+* actual_price
+* approval_status
+* linked_expense_id
+* linked_fleet_vehicle_id
+* created_at
+
+5. supplier_performance_logs
+
+* supplier_id
+* purchase_request_id
+* promised_delivery_date
+* actual_delivery_date
+* on_time
+* price_variance
+* quality_issue
+* rating
+* notes
+
+6. purchasing_recommendations
+
+* request_id
+* recommended_supplier
+* recommended_price
+* reason
+* price_comparison
+* risk_warning
+* ai_confidence
+
+Make sure Fleet Memory connects to:
+
+* AI Task Center
+* Fleet Maintenance
+* Expense Management
+* Purchasing
+* Vendor
+* Finance
+* WhatsApp notifications
+
+Make sure Purchasing Intelligence connects to:
+
+* Purchase Requests
+* Operational Expenses
+* Employee Kasbon
+* Vendor Invoices
+* Fleet Expenses
+* Finance Approval
+* AI Approval Matrix
+
+Also add sample AI scenarios:
+
+Scenario 1:
+Staff WhatsApp:
+“Ban truk B1649PNV harus diganti.”
+AI should:
+
+* identify vehicle
+* check tire replacement history
+* check last tire purchase price
+* recommend supplier
+* create fleet maintenance task
+* create purchase request
+* request approval if above threshold
+
+Scenario 2:
+Staff WhatsApp:
+“Beli token listrik kantor Rp500.000.”
+AI should:
+
+* classify as operational expense
+* ask for location/branch if missing
+* create expense task
+* route to finance approval
+
+Scenario 3:
+Driver WhatsApp:
+“Mobil mogok di Tol Cipali.”
+AI should:
+
+* identify driver and vehicle
+* request location and photo
+* create urgent fleet maintenance task
+* notify fleet manager
+* check nearest vendor if available
+
+Scenario 4:
+Purchasing staff requests same item twice in one week.
+AI should:
+
+* detect possible duplicate purchase
+* warn approver
+* show previous purchase history
+
+Do not implement code.
+Output architecture design only.

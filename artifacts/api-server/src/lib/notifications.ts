@@ -12,26 +12,128 @@ export interface TaskNotifContext {
   status: string;
   priority: string;
   companyId: string;
+  /** AI-generated reply — if present, sent as the main message to customer */
+  suggestedReply?: string | null;
+  /** Nomor device Fonnte yang menerima pesan asli — pastikan balasan keluar lewat device yang sama */
+  fonnteDevice?: string | null;
+  /**
+   * Divisi/kategori task — digunakan untuk category-based routing notifikasi.
+   * Jika di-set, notifikasi dikirim hanya ke staff/group yang relevan.
+   * Contoh: "Logistik", "Customs", "Sport Center", "Finance"
+   */
+  division?: string | null;
+  category?: string | null;
 }
 
 // ─── Staff phones dari env ─────────────────────────────────────────────────────
 
 function getStaffPhones(): string[] {
-  const raw = process.env.WHATSAPP_PHONE_NUMBER_ID ?? "";
+  // STAFF_NOTIFY_PHONES = nomor pribadi admin/staff yang menerima notifikasi WA baru
+  // WHATSAPP_PHONE_NUMBER_ID = nomor device Fonnte (pengirim), BUKAN target notifikasi
+  // Selalu set STAFF_NOTIFY_PHONES di env untuk menghindari notifikasi ke device sendiri
+  const raw =
+    process.env.STAFF_NOTIFY_PHONES ??
+    process.env.WHATSAPP_PHONE_NUMBER_ID ??
+    "";
+  if (!raw) return [];
   return raw
     .split(",")
     .map((p) => p.trim())
     .filter(Boolean);
 }
 
+// ─── WA Group targets dari env ─────────────────────────────────────────────────
+// STAFF_NOTIFY_GROUPS = daftar group JID Fonnte (@g.us), pisahkan dengan koma
+// Contoh: 120363427607305800@g.us,120363500000000000@g.us
+
+function getGroupTargets(): string[] {
+  const raw = process.env.STAFF_NOTIFY_GROUPS ?? "";
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((g) => g.trim())
+    .filter((g) => /^\d+@g\.us$/.test(g));
+}
+
+// ─── Category-based routing ────────────────────────────────────────────────────
+// Mapping divisi/kategori ke env var key suffix.
+// Env vars format:
+//   STAFF_NOTIFY_PHONES_LOGISTIK      → nomor tim logistik (trucking/freight/import/export)
+//   STAFF_NOTIFY_PHONES_CUSTOMS       → nomor tim customs/PPJK/finance
+//   STAFF_NOTIFY_PHONES_SPORT_CENTER  → nomor admin sport center
+//   STAFF_NOTIFY_GROUPS_LOGISTIK      → group WA tim logistik
+//   STAFF_NOTIFY_GROUPS_CUSTOMS       → group WA tim customs
+//   STAFF_NOTIFY_GROUPS_SPORT_CENTER  → group WA admin sport center
+//
+// Jika env var divisi tidak di-set → fallback ke STAFF_NOTIFY_PHONES/GROUPS (broadcast ke semua).
+
+function getDivisionEnvKey(division?: string | null, category?: string | null): string | null {
+  const raw = (division ?? category ?? "").toLowerCase();
+  if (!raw) return null;
+  if (raw.includes("logistik") || raw.includes("trucking") || raw.includes("freight")
+      || raw.includes("import") || raw.includes("export") || raw.includes("warehouse")) {
+    return "LOGISTIK";
+  }
+  if (raw.includes("custom") || raw.includes("ppjk") || raw.includes("finance")
+      || raw.includes("bea cukai") || raw.includes("customs")) {
+    return "CUSTOMS";
+  }
+  if (raw.includes("sport") || raw.includes("olahraga") || raw.includes("lapangan")
+      || raw.includes("sport center")) {
+    return "SPORT_CENTER";
+  }
+  return null;
+}
+
+/**
+ * Kembalikan nomor staff untuk divisi tertentu.
+ * Jika env STAFF_NOTIFY_PHONES_{KEY} tidak di-set → fallback ke semua staff.
+ */
+function getStaffPhonesByDivision(division?: string | null, category?: string | null): string[] {
+  const key = getDivisionEnvKey(division, category);
+  if (key) {
+    const divRaw = process.env[`STAFF_NOTIFY_PHONES_${key}`] ?? "";
+    if (divRaw.trim()) {
+      return divRaw.split(",").map((p) => p.trim()).filter(Boolean);
+    }
+  }
+  return getStaffPhones(); // fallback: broadcast ke semua staff
+}
+
+/**
+ * Kembalikan group WA untuk divisi tertentu.
+ * Jika env STAFF_NOTIFY_GROUPS_{KEY} tidak di-set → fallback ke semua group.
+ */
+function getGroupTargetsByDivision(division?: string | null, category?: string | null): string[] {
+  const key = getDivisionEnvKey(division, category);
+  if (key) {
+    const divRaw = process.env[`STAFF_NOTIFY_GROUPS_${key}`] ?? "";
+    if (divRaw.trim()) {
+      return divRaw.split(",").map((g) => g.trim()).filter((g) => /^\d+@g\.us$/.test(g));
+    }
+  }
+  return getGroupTargets(); // fallback: broadcast ke semua group
+}
+
 // ─── Template pesan ────────────────────────────────────────────────────────────
 
 function templateTaskCreated(ctx: TaskNotifContext): string {
+  // If AI generated a contextual reply (e.g. "Kasbon berapa?"), use it as the
+  // main body so the customer gets a relevant answer, not a robotic template.
+  if (ctx.suggestedReply?.trim()) {
+    return [
+      ctx.suggestedReply.trim(),
+      ``,
+      `📋 No. Tiket: *${ctx.taskNumber}* _(simpan untuk referensi)_`,
+      `_AI Task Center_`,
+    ].join("\n");
+  }
+  // Fallback to structured template when no AI reply available
   const lines = [
-    `✅ *Task Baru Dibuat*`,
+    `✅ *Permintaan Anda Sudah Kami Terima*`,
     ``,
     `📋 No: *${ctx.taskNumber}*`,
-    `📝 Judul: ${ctx.title}`,
+    `📝 ${ctx.title}`,
   ];
   if (ctx.customerName) lines.push(`👤 Customer: ${ctx.customerName}`);
   lines.push(`🚦 Status: ${ctx.status}`);
@@ -141,8 +243,9 @@ async function sendAndLog(opts: {
   companyId: string;
   recipientType: "customer" | "staff";
   templateName: string;
+  fonnteDevice?: string | null;
 }): Promise<void> {
-  const result = await sendFonnte(opts.phone, opts.message);
+  const result = await sendFonnte(opts.phone, opts.message, opts.fonnteDevice);
 
   await db
     .insert(whatsappNotificationsTable)
@@ -178,11 +281,16 @@ export async function notifyTaskCreated(ctx: TaskNotifContext): Promise<void> {
         companyId:    ctx.companyId,
         recipientType: "customer",
         templateName: "task_created_customer",
+        fonnteDevice: ctx.fonnteDevice,
       }),
     );
   }
 
-  for (const phone of getStaffPhones()) {
+  // ── Category-based routing: kirim ke staff/group divisi yang relevan ──────────
+  // Jika env STAFF_NOTIFY_PHONES_{DIVISI} di-set → hanya kirim ke tim tersebut.
+  // Jika tidak di-set → fallback ke semua staff (broadcast seperti sebelumnya).
+  const staffPhones = getStaffPhonesByDivision(ctx.division, ctx.category);
+  for (const phone of staffPhones) {
     sends.push(
       sendAndLog({
         phone,
@@ -191,6 +299,21 @@ export async function notifyTaskCreated(ctx: TaskNotifContext): Promise<void> {
         companyId:    ctx.companyId,
         recipientType: "staff",
         templateName: "task_created_staff",
+      }),
+    );
+  }
+
+  // Kirim ke WA group — juga dengan category-based routing
+  const groupTargets = getGroupTargetsByDivision(ctx.division, ctx.category);
+  for (const group of groupTargets) {
+    sends.push(
+      sendAndLog({
+        phone:        group,
+        message:      staffMsg,
+        taskId:       ctx.taskId,
+        companyId:    ctx.companyId,
+        recipientType: "staff",
+        templateName: "task_created_group",
       }),
     );
   }
@@ -272,6 +395,20 @@ export async function notifyTaskCompleted(
     );
   }
 
+  // Kirim ke WA group
+  for (const group of getGroupTargets()) {
+    sends.push(
+      sendAndLog({
+        phone:        group,
+        message:      staffMsg,
+        taskId:       ctx.taskId,
+        companyId:    ctx.companyId,
+        recipientType: "staff",
+        templateName: "task_completed_group",
+      }),
+    );
+  }
+
   await Promise.allSettled(sends);
 }
 
@@ -307,6 +444,20 @@ export async function notifyStatusChanged(ctx: TaskNotifContext, oldStatus: stri
         companyId:    ctx.companyId,
         recipientType: "staff",
         templateName: "status_changed_staff",
+      }),
+    );
+  }
+
+  // Kirim ke WA group
+  for (const group of getGroupTargets()) {
+    sends.push(
+      sendAndLog({
+        phone:        group,
+        message:      staffMsg,
+        taskId:       ctx.taskId,
+        companyId:    ctx.companyId,
+        recipientType: "staff",
+        templateName: "status_changed_group",
       }),
     );
   }
@@ -347,6 +498,20 @@ export async function notifyTaskAssigned(
         companyId:    ctx.companyId,
         recipientType: "customer",
         templateName: "task_assigned_customer",
+      }),
+    );
+  }
+
+  // Kirim ke WA group
+  for (const group of getGroupTargets()) {
+    sends.push(
+      sendAndLog({
+        phone:        group,
+        message,
+        taskId:       ctx.taskId,
+        companyId:    ctx.companyId,
+        recipientType: "staff",
+        templateName: "task_assigned_group",
       }),
     );
   }

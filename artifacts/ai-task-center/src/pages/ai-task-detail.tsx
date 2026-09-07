@@ -26,7 +26,19 @@ import {
   Copy,
   MessageSquare,
   ChevronDown,
+  PhoneOff,
+  FlaskConical,
+  Brain,
+  Shield,
+  ChevronRight,
+  FileCheck,
+  XCircle,
+  RefreshCw,
+  Eye,
 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { CorrectionDrawer } from "@/components/correction-drawer";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
@@ -116,6 +128,10 @@ interface AiTask {
   slaHours: number | null;
   overdueAt: string | null;
   completedAt: string | null;
+  // AI training fields
+  aiIntent: string | null;
+  aiConfidenceScore: string | null;
+  customerId: number | null;
 }
 
 interface Comment {
@@ -218,6 +234,238 @@ function FileIcon({ mimeType }: { mimeType: string | null }) {
   return <FileText className="h-5 w-5 text-gray-400" />;
 }
 
+// ─── Document Validation Panel (Sprint 9C) ────────────────────────────────────
+
+const DOC_TYPE_LABELS: Record<string, string> = {
+  commercial_invoice: "Commercial Invoice",
+  packing_list: "Packing List",
+  bl_awb: "B/L - AWB",
+  hs_code: "HS Code",
+  coa: "COA",
+  msds: "MSDS",
+  damage_photo: "Foto Kerusakan",
+  stnk_kir_insurance: "STNK / KIR / Asuransi",
+  fuel_receipt: "Struk BBM",
+  maintenance_invoice: "Invoice Bengkel",
+  cash_advance_receipt: "Kwitansi Kasbon",
+};
+
+interface DocAudit {
+  id: number;
+  documentType: string;
+  fileName: string;
+  fileUrl: string;
+  validationStatus: "valid" | "incomplete" | "invalid" | "needs_review";
+  confidenceScore: string;
+  missingFields: string[];
+  issueSummary: string | null;
+  createdAt: string;
+}
+
+function DocumentValidationPanel({ taskId }: { taskId: number }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [showForm, setShowForm] = useState(false);
+  const [docType, setDocType] = useState("commercial_invoice");
+  const [fileName, setFileName] = useState("");
+  const [fileUrl, setFileUrl] = useState("");
+
+  const { data, isLoading, refetch } = useQuery<{ data: DocAudit[] }>({
+    queryKey: ["task-doc-audits", taskId],
+    queryFn: () =>
+      apiFetch(`/documents/audits?taskId=${taskId}&limit=20`),
+  });
+
+  const validateMutation = useMutation({
+    mutationFn: (payload: { documentType: string; fileName: string; fileUrl: string }) =>
+      apiFetch(`/tasks/${taskId}/documents/validate`, {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+    onSuccess: () => {
+      toast({ title: "Validasi dokumen selesai" });
+      void queryClient.invalidateQueries({ queryKey: ["task-doc-audits", taskId] });
+      setShowForm(false);
+      setFileName("");
+      setFileUrl("");
+    },
+    onError: (e: Error) =>
+      toast({ title: "Gagal validasi", description: e.message, variant: "destructive" }),
+  });
+
+  const audits = data?.data ?? [];
+  const statusIcon = (s: DocAudit["validationStatus"]) => {
+    if (s === "valid") return <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />;
+    if (s === "incomplete") return <AlertCircle className="h-3.5 w-3.5 text-yellow-600" />;
+    if (s === "invalid") return <XCircle className="h-3.5 w-3.5 text-red-600" />;
+    return <Clock className="h-3.5 w-3.5 text-blue-600" />;
+  };
+  const statusColor = (s: DocAudit["validationStatus"]) =>
+    s === "valid" ? "text-green-700" : s === "incomplete" ? "text-yellow-700" : s === "invalid" ? "text-red-700" : "text-blue-700";
+
+  return (
+    <div className="border rounded-lg p-4">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-semibold flex items-center gap-1.5">
+          <FileCheck className="h-4 w-4 text-primary" />
+          Validasi Dokumen AI
+        </h3>
+        <div className="flex gap-1">
+          <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => refetch()}>
+            <RefreshCw className="h-3 w-3" />
+          </Button>
+          <Button size="sm" className="h-7 text-xs" onClick={() => setShowForm(!showForm)}>
+            <FileCheck className="h-3 w-3 mr-1" />
+            Validasi
+          </Button>
+        </div>
+      </div>
+
+      {showForm && (
+        <div className="mb-3 p-3 bg-muted/40 rounded-md space-y-2">
+          <div>
+            <Label className="text-xs">Tipe Dokumen</Label>
+            <Select value={docType} onValueChange={setDocType}>
+              <SelectTrigger className="h-8 text-xs mt-1">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {Object.entries(DOC_TYPE_LABELS).map(([k, v]) => (
+                  <SelectItem key={k} value={k} className="text-xs">{v}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label className="text-xs">Nama File</Label>
+            <Input
+              className="h-8 text-xs mt-1"
+              placeholder="contoh: invoice_001.pdf"
+              value={fileName}
+              onChange={(e) => setFileName(e.target.value)}
+            />
+          </div>
+          <div>
+            <Label className="text-xs">URL Dokumen</Label>
+            <Input
+              className="h-8 text-xs mt-1"
+              placeholder="https://..."
+              value={fileUrl}
+              onChange={(e) => setFileUrl(e.target.value)}
+            />
+          </div>
+          <div className="flex gap-2 pt-1">
+            <Button
+              size="sm"
+              className="h-7 text-xs flex-1"
+              disabled={validateMutation.isPending || !fileName || !fileUrl}
+              onClick={() => validateMutation.mutate({ documentType: docType, fileName, fileUrl })}
+            >
+              {validateMutation.isPending
+                ? <><RefreshCw className="h-3 w-3 mr-1 animate-spin" />Memvalidasi...</>
+                : <><FileCheck className="h-3 w-3 mr-1" />Jalankan Validasi</>}
+            </Button>
+            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setShowForm(false)}>Batal</Button>
+          </div>
+        </div>
+      )}
+
+      {isLoading ? (
+        <p className="text-xs text-muted-foreground text-center py-3">Memuat...</p>
+      ) : audits.length === 0 ? (
+        <p className="text-xs text-muted-foreground text-center py-3 italic">
+          Belum ada dokumen yang divalidasi untuk task ini
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {audits.map((a) => (
+            <div key={a.id} className="flex items-start gap-2 text-xs p-2 rounded bg-muted/30 border">
+              {statusIcon(a.validationStatus)}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className={`font-medium ${statusColor(a.validationStatus)}`}>{a.fileName}</span>
+                  <span className="text-muted-foreground">{DOC_TYPE_LABELS[a.documentType] ?? a.documentType}</span>
+                  <span className="text-muted-foreground">{Math.round(parseFloat(a.confidenceScore) * 100)}% confidence</span>
+                </div>
+                {a.missingFields.length > 0 && (
+                  <p className="text-red-600 mt-0.5">Missing: {a.missingFields.map(f => f.replace(/_/g, " ")).join(", ")}</p>
+                )}
+                {a.issueSummary && <p className="text-muted-foreground mt-0.5">{a.issueSummary}</p>}
+              </div>
+              <Button variant="ghost" size="sm" className="h-6 px-1.5" onClick={() => window.open(a.fileUrl, "_blank")}>
+                <Eye className="h-3 w-3" />
+              </Button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Customer Memory Panel (Sprint 5A) ────────────────────────────────────────
+
+function CustomerMemoryPanel({ customerId, companyId }: { customerId: number; companyId: string }) {
+  const { data: memory } = useQuery<{
+    customer: { companyName: string; riskTier: string | null; riskScore: number | null; memoryUpdatedAt: string | null };
+    activeRisk: { tier: string; riskScore: number } | null;
+    latestSnapshot: { freshnessScore: number; aiContextBlock: string; isStale: boolean; lastNIntents: string[] | null } | null;
+    preferences: { category: string; key: string; value: string }[];
+  } | null>({
+    queryKey: ["customer-memory-panel", customerId],
+    queryFn: () => apiFetch(`/crm/customers/${customerId}/memory`).catch(() => null),
+  });
+
+  if (!memory) return null;
+  const { customer, activeRisk, latestSnapshot } = memory;
+
+  const tierColor: Record<string, string> = { low: "text-green-600", medium: "text-yellow-600", high: "text-orange-600", blocked: "text-red-600" };
+
+  return (
+    <div className="bg-purple-50 border border-purple-200 rounded-lg p-4 space-y-2.5">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold text-purple-700 uppercase tracking-wide flex items-center gap-1.5">
+          <Brain className="h-3.5 w-3.5" /> Memori Customer
+        </p>
+        <Link href={`/crm/customers/${customerId}/memory`}>
+          <Button variant="ghost" size="sm" className="h-6 px-2 text-purple-600 text-xs hover:bg-purple-100">
+            Detail <ChevronRight className="h-3 w-3 ml-0.5" />
+          </Button>
+        </Link>
+      </div>
+
+      {activeRisk && (
+        <div className="flex items-center gap-2">
+          <Shield className="h-3.5 w-3.5 text-gray-400 shrink-0" />
+          <span className={`text-xs font-medium ${tierColor[activeRisk.tier] ?? "text-gray-600"}`}>
+            Risk: {activeRisk.tier.toUpperCase()} ({activeRisk.riskScore}/100)
+          </span>
+        </div>
+      )}
+
+      {latestSnapshot && !latestSnapshot.isStale && (
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-2">
+            <div className="flex-1 bg-purple-200 rounded-full h-1"><div className="bg-purple-500 h-1 rounded-full" style={{ width: `${latestSnapshot.freshnessScore}%` }} /></div>
+            <span className="text-[10px] text-purple-600">{latestSnapshot.freshnessScore}% fresh</span>
+          </div>
+          {latestSnapshot.lastNIntents && latestSnapshot.lastNIntents.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {latestSnapshot.lastNIntents.slice(0, 3).map((intent, i) => (
+                <span key={i} className="bg-purple-100 text-purple-700 text-[10px] px-1.5 py-0.5 rounded-full">{intent}</span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {(!latestSnapshot || latestSnapshot.isStale) && (
+        <p className="text-[11px] text-purple-500 italic">Snapshot AI belum dibuat. Klik Detail untuk membuat.</p>
+      )}
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function AiTaskDetail() {
@@ -230,6 +478,7 @@ export default function AiTaskDetail() {
   const [comment, setComment] = useState("");
   const [isUploading, setIsUploading] = useState(false);
   const [showTimeline, setShowTimeline] = useState(false);
+  const [showWaMessages, setShowWaMessages] = useState(false);
   const [showLinkGen, setShowLinkGen] = useState(false);
   const [generatedLinks, setGeneratedLinks] = useState<{ mini?: string; customer?: string }>({});
 
@@ -237,6 +486,14 @@ export default function AiTaskDetail() {
   const [waOpen, setWaOpen]               = useState(false);
   const [waTemplateId, setWaTemplateId]   = useState<string>("konfirmasi_penerimaan");
   const [waMessage, setWaMessage]         = useState("");
+
+  // ── Kirim ke Grup WA dialog ────────────────────────────────────────────────
+  const [waGroupOpen, setWaGroupOpen]     = useState(false);
+  const [waGroupJid, setWaGroupJid]       = useState("");
+  const [waGroupMessage, setWaGroupMessage] = useState("");
+
+  // ── Koreksi AI drawer ───────────────────────────────────────────────────────
+  const [correctionOpen, setCorrectionOpen] = useState(false);
 
   // ── Task query ─────────────────────────────────────────────────────────────
 
@@ -285,6 +542,13 @@ export default function AiTaskDetail() {
     onError: () => toast({ title: "Failed to add note", variant: "destructive" }),
   });
 
+  // ── Team members query ─────────────────────────────────────────────────────
+
+  const { data: teamMembers = [] } = useQuery<{ id: number; name: string; role: string | null; phone: string | null }[]>({
+    queryKey: ["team-members"],
+    queryFn: () => apiFetch("/team"),
+  });
+
   // ── Update status ──────────────────────────────────────────────────────────
 
   const statusMutation = useMutation({
@@ -297,7 +561,43 @@ export default function AiTaskDetail() {
     onError: () => toast({ title: "Failed to update status", variant: "destructive" }),
   });
 
+  // ── Update assignee ────────────────────────────────────────────────────────
+
+  const assigneeMutation = useMutation({
+    mutationFn: (assignedTo: string | null) =>
+      apiFetch(`/ai-tasks/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ assignedTo: assignedTo ?? "" }),
+      }),
+    onSuccess: (_data, assignedTo) => {
+      queryClient.invalidateQueries({ queryKey: ["ai-task", id] });
+      queryClient.invalidateQueries({ queryKey: ["ai-tasks"] });
+      const member = teamMembers.find((m) => m.name === assignedTo);
+      if (assignedTo && member && !member.phone) {
+        toast({
+          title: "Assignee diubah — WA tidak dikirim",
+          description: `${assignedTo} belum memiliki nomor HP. Tambahkan di halaman Tim agar notifikasi WA bisa dikirim.`,
+          variant: "destructive",
+        });
+      } else {
+        toast({ title: "Assignee berhasil diubah", description: assignedTo ? `Notifikasi WA dikirim ke ${assignedTo}` : undefined });
+      }
+    },
+    onError: () => toast({ title: "Gagal mengubah assignee", variant: "destructive" }),
+  });
+
   // ── Timeline query ─────────────────────────────────────────────────────────
+
+  // ── WA messages linked to this task ───────────────────────────────────────
+  const { data: waMessages = [], isLoading: waMessagesLoading } = useQuery<{
+    id: number; from: string; senderName: string | null; senderPhone: string | null;
+    body: string; messageText: string | null; messageType: string; direction: string;
+    detectedIntent: string | null; attachmentUrl: string | null; createdAt: string;
+  }[]>({
+    queryKey: ["ai-task-wa-messages", id],
+    queryFn: () => apiFetch(`/ai-tasks/${id}/messages`),
+    enabled: showWaMessages,
+  });
 
   const { data: timeline = [] } = useQuery<{ id: number; eventType: string; title: string; description: string | null; actor: string | null; actorType: string; createdAt: string }[]>({
     queryKey: ["ai-task-timeline", id],
@@ -345,6 +645,34 @@ export default function AiTaskDetail() {
     onError: (err) => {
       toast({
         title: "❌ Gagal mengirim WA",
+        description: err instanceof Error ? err.message : "Terjadi kesalahan",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // ── Kirim ke Grup WA mutation ──────────────────────────────────────────────
+
+  const sendWaGroupMutation = useMutation({
+    mutationFn: ({ groupJid, message }: { groupJid: string; message: string }) =>
+      apiFetch("/whatsapp/send-group", {
+        method: "POST",
+        body: JSON.stringify({
+          groupJid,
+          message,
+          taskId: task?.id,
+          companyId: task?.companyId ?? "default",
+        }),
+      }),
+    onSuccess: () => {
+      toast({ title: "✅ Pesan berhasil dikirim ke Grup WA" });
+      setWaGroupOpen(false);
+      setWaGroupJid("");
+      setWaGroupMessage("");
+    },
+    onError: (err) => {
+      toast({
+        title: "❌ Gagal kirim ke Grup WA",
         description: err instanceof Error ? err.message : "Terjadi kesalahan",
         variant: "destructive",
       });
@@ -430,10 +758,15 @@ export default function AiTaskDetail() {
     return (
       <div className="p-6 text-center">
         <AlertCircle className="h-12 w-12 text-red-400 mx-auto mb-3" />
-        <p className="text-gray-600">Task not found.</p>
-        <Link href="/ai-tasks">
-          <Button variant="outline" className="mt-4">Back to Board</Button>
-        </Link>
+        <p className="text-gray-600 mb-4">Task tidak ditemukan. Task mungkin sudah dihapus atau belum tersedia untuk akun ini.</p>
+        <div className="flex gap-2 justify-center">
+          <Link href="/ai-tasks">
+            <Button variant="outline">Kembali ke Board</Button>
+          </Link>
+          <Link href="/messages">
+            <Button variant="outline">Kembali ke Pesan</Button>
+          </Link>
+        </div>
       </div>
     );
   }
@@ -481,21 +814,34 @@ export default function AiTaskDetail() {
           )}
         </div>
 
-        {/* Status picker */}
-        <Select value={task.status} onValueChange={(v) => statusMutation.mutate(v)}>
-          <SelectTrigger className="w-52 shrink-0">
-            <SelectValue>
-              <span className={`text-xs px-2 py-0.5 rounded-full ${STATUS_COLORS[task.status] ?? "bg-gray-100 text-gray-700"}`}>
-                {AI_TASK_STATUSES[task.status] ?? task.status}
-              </span>
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {Object.entries(AI_TASK_STATUSES).map(([val, label]) => (
-              <SelectItem key={val} value={val}>{label}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <div className="flex items-center gap-2 shrink-0">
+          {/* Koreksi AI button */}
+          <Button
+            variant="outline"
+            size="sm"
+            className="text-orange-600 border-orange-200 hover:bg-orange-50 text-xs"
+            onClick={() => setCorrectionOpen(true)}
+          >
+            <FlaskConical className="h-3.5 w-3.5 mr-1" />
+            Koreksi AI
+          </Button>
+
+          {/* Status picker */}
+          <Select value={task.status} onValueChange={(v) => statusMutation.mutate(v)}>
+            <SelectTrigger className="w-48">
+              <SelectValue>
+                <span className={`text-xs px-2 py-0.5 rounded-full ${STATUS_COLORS[task.status] ?? "bg-gray-100 text-gray-700"}`}>
+                  {AI_TASK_STATUSES[task.status] ?? task.status}
+                </span>
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {Object.entries(AI_TASK_STATUSES).map(([val, label]) => (
+                <SelectItem key={val} value={val}>{label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -645,28 +991,44 @@ export default function AiTaskDetail() {
             </div>
           )}
 
-          {/* Kirim WA */}
-          {task.customerPhone ? (
-            <div className="bg-green-50 border border-green-200 rounded-lg p-4 space-y-2">
-              <p className="text-xs font-semibold text-green-700 uppercase tracking-wide flex items-center gap-1.5">
-                <MessageSquare className="h-3.5 w-3.5" /> WhatsApp
-              </p>
-              <p className="text-xs text-green-700 font-mono">{task.customerPhone}</p>
-              <Button
-                size="sm"
-                className="w-full bg-green-600 hover:bg-green-700 text-white gap-2"
-                onClick={openWaDialog}
-              >
-                <MessageSquare className="h-3.5 w-3.5" />
-                Kirim Pesan WA
-              </Button>
-            </div>
-          ) : (
-            <div className="bg-gray-50 border border-dashed border-gray-200 rounded-lg p-4 text-center">
-              <MessageSquare className="h-6 w-6 text-gray-300 mx-auto mb-1" />
-              <p className="text-xs text-gray-400">Belum ada nomor WA customer</p>
-            </div>
+          {/* Memori Customer (Sprint 5A) */}
+          {task.customerId && (
+            <CustomerMemoryPanel customerId={task.customerId} companyId={task.companyId ?? "default"} />
           )}
+
+          {/* Kirim WA */}
+          <div className="bg-green-50 border border-green-200 rounded-lg p-4 space-y-2">
+            <p className="text-xs font-semibold text-green-700 uppercase tracking-wide flex items-center gap-1.5">
+              <MessageSquare className="h-3.5 w-3.5" /> WhatsApp
+            </p>
+            {task.customerPhone ? (
+              <>
+                <p className="text-xs text-green-700 font-mono">{task.customerPhone}</p>
+                <Button
+                  size="sm"
+                  className="w-full bg-green-600 hover:bg-green-700 text-white gap-2"
+                  onClick={openWaDialog}
+                >
+                  <MessageSquare className="h-3.5 w-3.5" />
+                  Kirim ke Customer
+                </Button>
+              </>
+            ) : (
+              <p className="text-xs text-gray-400 italic">Belum ada nomor WA customer</p>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              className="w-full border-green-300 text-green-700 hover:bg-green-100 gap-2"
+              onClick={() => setWaGroupOpen(true)}
+            >
+              <MessageSquare className="h-3.5 w-3.5" />
+              Kirim ke Grup WA
+            </Button>
+          </div>
+
+          {/* Document Validation Panel */}
+          <DocumentValidationPanel taskId={Number(id)} />
 
           {/* Audit Panel */}
           <TaskAuditPanel taskId={Number(id)} />
@@ -679,12 +1041,41 @@ export default function AiTaskDetail() {
                 {task.status}
               </Badge>
             </div>
-            {task.assignedTo && (
-              <div className="flex justify-between">
-                <span className="text-gray-500">Assigned to</span>
-                <span className="text-gray-800 font-medium">{task.assignedTo}</span>
+            <div className="flex justify-between items-start gap-2">
+              <span className="text-gray-500 pt-1">Assignee</span>
+              <div className="flex flex-col items-end gap-1">
+                <Select
+                  value={task.assignedTo ?? "__none__"}
+                  onValueChange={(v) => assigneeMutation.mutate(v === "__none__" ? null : v)}
+                  disabled={assigneeMutation.isPending}
+                >
+                  <SelectTrigger className="w-36 h-7 text-xs">
+                    <SelectValue placeholder="Belum ditugaskan" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">
+                      <span className="text-gray-400 italic">Belum ditugaskan</span>
+                    </SelectItem>
+                    {teamMembers.map((m) => (
+                      <SelectItem key={m.id} value={m.name}>
+                        <span className="flex items-center gap-1.5">
+                          {m.name}
+                          {!m.phone && (
+                            <PhoneOff className="h-3 w-3 text-amber-500" />
+                          )}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {task.assignedTo && !teamMembers.find((m) => m.name === task.assignedTo)?.phone && teamMembers.length > 0 && (
+                  <span className="flex items-center gap-1 text-[10px] text-amber-600 font-medium">
+                    <PhoneOff className="h-3 w-3" />
+                    WA tidak akan dikirim — no HP kosong
+                  </span>
+                )}
               </div>
-            )}
+            </div>
             {task.dueDate && (
               <div className="flex justify-between">
                 <span className="text-gray-500">Due date</span>
@@ -921,10 +1312,184 @@ export default function AiTaskDetail() {
         </DialogContent>
       </Dialog>
 
+      {/* ── Dialog Kirim ke Grup WA ──────────────────────────────────────────── */}
+      <Dialog open={waGroupOpen} onOpenChange={setWaGroupOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-green-700">
+              <MessageSquare className="h-5 w-5" />
+              Kirim ke Grup WhatsApp
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 py-1">
+            {/* Info task */}
+            {task && (
+              <div className="flex items-center gap-2 bg-green-50 border border-green-200 rounded-lg px-3 py-2 text-sm">
+                <MessageSquare className="h-4 w-4 text-green-600 shrink-0" />
+                <div>
+                  <span className="text-green-800 font-medium">{task.taskNumber ?? "Task"}</span>
+                  <span className="text-green-600 ml-2 text-xs">{task.title}</span>
+                </div>
+              </div>
+            )}
+
+            {/* Group JID input */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-gray-600">
+                Group JID (contoh: 6281234567890-1234567890@g.us)
+              </Label>
+              <Input
+                value={waGroupJid}
+                onChange={(e) => setWaGroupJid(e.target.value)}
+                placeholder="628xxxxxxxxxx-xxxxxxxxxx@g.us"
+                className="font-mono text-sm"
+              />
+              <p className="text-[11px] text-gray-400">
+                Dapatkan Group JID dari log Fonnte webhook saat ada pesan masuk dari grup tersebut.
+              </p>
+            </div>
+
+            {/* Editor pesan */}
+            <div className="space-y-1.5">
+              <Label className="text-xs font-medium text-gray-600">Isi Pesan</Label>
+              <Textarea
+                value={waGroupMessage}
+                onChange={(e) => setWaGroupMessage(e.target.value)}
+                placeholder="Ketik pesan untuk grup WhatsApp di sini…"
+                className="min-h-[160px] text-sm font-mono resize-none leading-relaxed"
+              />
+              <p className="text-xs text-gray-400 text-right">{waGroupMessage.length} karakter</p>
+            </div>
+
+            {/* Preview */}
+            {waGroupMessage.trim() && (
+              <div className="space-y-1.5">
+                <p className="text-xs font-medium text-gray-600">Preview</p>
+                <div className="bg-[#DCF8C6] rounded-2xl rounded-tl-sm px-3.5 py-2.5 text-sm text-gray-800 whitespace-pre-wrap max-h-[120px] overflow-y-auto shadow-sm border border-green-200">
+                  {waGroupMessage}
+                </div>
+              </div>
+            )}
+
+            <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-xs text-blue-700">
+              💡 Sistem akan otomatis mencoba semua device Fonnte yang terdaftar sampai satu berhasil mengirim ke grup.
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setWaGroupOpen(false)}>
+              Batal
+            </Button>
+            <Button
+              className="bg-green-600 hover:bg-green-700 text-white gap-2"
+              disabled={
+                !waGroupJid.trim().endsWith("@g.us") ||
+                !waGroupMessage.trim() ||
+                sendWaGroupMutation.isPending
+              }
+              onClick={() =>
+                sendWaGroupMutation.mutate({
+                  groupJid: waGroupJid.trim(),
+                  message: waGroupMessage.trim(),
+                })
+              }
+            >
+              {sendWaGroupMutation.isPending
+                ? <><Loader2 className="h-4 w-4 animate-spin" /> Mengirim…</>
+                : <><Send className="h-4 w-4" /> Kirim ke Grup</>}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* ── Checklist & Shipment ──────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <OperationalChecklist taskId={task.id} taskType="ai_task" category={task.category} />
         <ShipmentTrackingPanel taskId={task.id} />
+      </div>
+
+      {/* ── Koreksi AI Drawer ────────────────────────────────────────────────── */}
+      <CorrectionDrawer
+        open={correctionOpen}
+        onOpenChange={setCorrectionOpen}
+        task={{
+          id: task.id,
+          taskNumber: task.taskNumber ?? undefined,
+          aiIntent: task.aiIntent ?? undefined,
+          priority: task.priority,
+          assignedRole: task.assignedTo ?? undefined,
+          slaStatus: task.slaStatus ?? undefined,
+          confidenceScore: task.aiConfidenceScore ?? undefined,
+        }}
+        onSuccess={() => {
+          void queryClient.invalidateQueries({ queryKey: ["ai-task", id] });
+        }}
+      />
+
+      {/* ── Percakapan WA ────────────────────────────────────────────────────── */}
+      <div className="border border-gray-200 rounded-xl overflow-hidden">
+        <button
+          onClick={() => setShowWaMessages((v) => !v)}
+          className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors text-sm font-medium text-gray-700"
+        >
+          <span className="flex items-center gap-2">
+            <MessageSquare className="h-4 w-4" /> Percakapan WA
+            {waMessages.length > 0 && (
+              <span className="ml-1 bg-blue-100 text-blue-700 text-xs font-semibold px-1.5 py-0.5 rounded-full">
+                {waMessages.length}
+              </span>
+            )}
+          </span>
+          <span className="text-gray-400">{showWaMessages ? "▲" : "▼"}</span>
+        </button>
+        {showWaMessages && (
+          <div className="p-4">
+            {waMessagesLoading ? (
+              <div className="flex justify-center py-4">
+                <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
+              </div>
+            ) : waMessages.length === 0 ? (
+              <p className="text-sm text-gray-400 italic text-center py-4">Belum ada pesan WA terhubung ke task ini.</p>
+            ) : (
+              <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
+                {waMessages.map((msg) => {
+                  const isInbound = msg.direction === "inbound";
+                  return (
+                    <div key={msg.id} className={`flex gap-2 ${isInbound ? "" : "flex-row-reverse"}`}>
+                      <div className={`max-w-[80%] rounded-2xl px-3 py-2 text-sm ${
+                        isInbound ? "bg-gray-100 text-gray-800" : "bg-blue-600 text-white ml-auto"
+                      }`}>
+                        {msg.senderName && (
+                          <p className={`text-[10px] font-semibold mb-1 ${isInbound ? "text-gray-500" : "text-blue-100"}`}>
+                            {msg.senderName}
+                          </p>
+                        )}
+                        <p className="whitespace-pre-wrap break-words">{msg.messageText ?? msg.body}</p>
+                        {msg.attachmentUrl && (
+                          <a href={msg.attachmentUrl} target="_blank" rel="noreferrer"
+                            className={`text-[11px] underline mt-1 block ${isInbound ? "text-blue-600" : "text-blue-100"}`}>
+                            📎 Lampiran
+                          </a>
+                        )}
+                        <div className="flex items-center justify-between gap-2 mt-1">
+                          {msg.detectedIntent && (
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-mono ${isInbound ? "bg-white text-gray-500" : "bg-blue-500 text-blue-100"}`}>
+                              {msg.detectedIntent}
+                            </span>
+                          )}
+                          <p className={`text-[10px] opacity-60 ml-auto`}>
+                            {format(new Date(msg.createdAt), "dd MMM HH:mm")}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── Task Timeline ─────────────────────────────────────────────────────── */}

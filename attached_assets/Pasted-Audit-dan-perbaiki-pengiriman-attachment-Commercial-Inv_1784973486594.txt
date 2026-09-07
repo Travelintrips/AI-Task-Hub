@@ -1,0 +1,49 @@
+Audit dan perbaiki pengiriman attachment Commercial Invoice dan Packing List ke WhatsApp melalui Fonnte.
+
+Kondisi saat ini:
+- File berhasil dipilih dan ter-upload dari form.
+- Pesan detail order berhasil masuk ke WhatsApp group.
+- Commercial Invoice dan Packing List tidak terkirim, baik ke group maupun personal.
+
+Jangan hanya mengubah tampilan frontend. Telusuri alur nyata:
+form submit → backend → Supabase Storage → URL file → request API Fonnte.
+
+Yang harus diperiksa dan diperbaiki:
+
+1. Pastikan backend menerima file binary, bukan hanya filename.
+2. Pastikan file benar-benar tersimpan di Supabase Storage.
+3. Pastikan database menyimpan storage path dan nama file.
+4. Generate signed URL atau public URL HTTPS yang dapat diakses Fonnte tanpa login.
+5. Jangan gunakan localhost, private URL, atau URL browser yang membutuhkan session.
+6. Setelah pesan teks berhasil, kirim masing-masing file melalui request Fonnte terpisah:
+   - Commercial Invoice
+   - Packing List
+7. Gunakan parameter attachment/file yang benar sesuai service Fonnte yang sudah dipakai proyek, bukan memasukkan filename ke message.
+8. Pastikan target group menggunakan Group ID WhatsApp seperti `1203...@g.us`, bukan nama group atau group Phone Book Fonnte.
+9. Untuk personal, normalisasi nomor menjadi format 62xxxxxxxxxx.
+10. Log response lengkap Fonnte yang sudah disanitasi:
+    - HTTP status
+    - response body
+    - target
+    - nama dokumen
+    - apakah URL berhasil dibuat
+11. Jangan menelan error dengan catch kosong.
+12. Jika attachment gagal, status order tetap tercatat sebagai partial failure dan tampilkan alasan error.
+
+Tambahkan debug sementara untuk mengecek:
+- hasil upload Supabase
+- storage path
+- signed/public URL
+- hasil HEAD/GET URL file
+- payload Fonnte tanpa token
+- response Fonnte
+
+Lakukan smoke test nyata:
+1. Submit form dengan 2 PDF.
+2. Pastikan object muncul di Supabase Storage.
+3. Pastikan URL dapat dibuka tanpa login.
+4. Pastikan pesan teks masuk.
+5. Pastikan kedua PDF muncul sebagai attachment WhatsApp yang bisa diklik.
+6. Uji ke group dan nomor personal.
+
+Berikan laporan root cause, file yang diubah, contoh payload sebelum/sesudah, response Fonnte, dan hasil test. Jangan menyatakan selesai hanya karena pesan teks berhasil.

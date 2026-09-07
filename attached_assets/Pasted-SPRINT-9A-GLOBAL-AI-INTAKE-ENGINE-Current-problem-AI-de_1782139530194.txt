@@ -1,0 +1,429 @@
+SPRINT 9A — GLOBAL AI INTAKE ENGINE
+
+Current problem:
+AI detects intent and creates tickets/tasks too early.
+Existing data_templates, document_templates, and mini forms are not consistently used before task creation.
+
+Goal:
+AI must collect required information first, either by WhatsApp conversation or mini form, then create task only after required data is complete.
+
+Do not create task from short incomplete messages.
+
+====================================================
+A. DATABASE
+===========
+
+Create table:
+
+conversation_intake_sessions
+
+Fields:
+
+* id
+* company_id
+* phone
+* customer_id nullable
+* intent_code
+* category
+* template_id nullable
+* status: collecting | form_sent | ready_for_task | submitted | cancelled | expired
+* collected_fields jsonb
+* missing_fields text[]
+* required_documents text[]
+* uploaded_documents jsonb
+* mini_form_token nullable
+* mini_form_url nullable
+* last_question text
+* last_message text
+* confidence_score numeric
+* expires_at
+* created_at
+* updated_at
+
+Indexes:
+
+* company_id
+* phone
+* status
+* intent_code
+* expires_at
+
+====================================================
+B. DATA TEMPLATE EXTENSION
+==========================
+
+Extend data_templates:
+
+* use_mini_form boolean default false
+* mini_form_type text nullable
+* mini_form_route text nullable
+* intake_mode text default 'conversation'
+
+Allowed intake_mode:
+
+* conversation
+* mini_form
+* hybrid
+
+Examples:
+
+trucking_inquiry:
+use_mini_form = true
+mini_form_type = trucking
+mini_form_route = /mini-form/trucking/:token
+intake_mode = mini_form
+
+cash_advance:
+use_mini_form = false
+intake_mode = conversation
+
+complaint_damaged_goods:
+use_mini_form = true
+mini_form_type = complaint
+mini_form_route = /mini-form/complaint/:token
+intake_mode = hybrid
+
+fleet_repair:
+use_mini_form = false
+intake_mode = conversation
+
+====================================================
+C. INTAKE ENGINE
+================
+
+Create:
+
+artifacts/api-server/src/lib/intake-engine.ts
+
+Responsibilities:
+
+1. findActiveSession(phone, companyId)
+2. startSession(phone, intentCode, template)
+3. extractFieldsFromMessage(message, templateFields)
+4. mergeCollectedFields(existing, extracted)
+5. calculateMissingFields(requiredFields, collectedFields)
+6. generateNextQuestion(missingFields)
+7. generateMiniFormLink(session)
+8. markReadyForTask(session)
+9. submitSessionToTask(session)
+10. cancelSession(session)
+
+Rules:
+
+* If required fields are incomplete:
+  return WhatsApp reply
+  do not create ai_task
+  do not notify admin
+
+* If use_mini_form = true:
+  create public token
+  send mini form link
+  session status = form_sent
+  do not create ai_task yet
+
+* If required fields complete:
+  create ai_task
+  attach collected_fields
+  attach uploaded_documents
+  notify admin/team
+  session status = submitted
+
+* If user says:
+  batal, cancel, tidak jadi
+  session status = cancelled
+  no task created
+
+* If session expires:
+  status = expired
+  no task created
+
+====================================================
+D. WHATSAPP FLOW
+================
+
+Update WhatsApp inbound flow:
+
+1. Incoming WA received.
+2. Check active conversation_intake_sessions by phone.
+3. If active:
+
+   * continue intake
+   * merge new answer
+   * if still missing fields: ask next question
+   * if complete: create task
+4. If no active session:
+
+   * run IntentEngine
+   * load data_template and document_template
+   * route to IntakeEngine
+5. Only create ai_task if intake status = ready_for_task.
+
+Important:
+Do not bypass IntakeEngine for these intents:
+
+* trucking_inquiry
+* freight_inquiry
+* import_inquiry
+* export_inquiry
+* quotation_request
+* cash_advance
+* fleet_repair
+* fuel_expense
+* damaged_goods_complaint
+* delivery_delay_complaint
+* invoice_request
+* document_request
+
+====================================================
+E. MINI FORM ROUTER
+===================
+
+Create mini form router support.
+
+When intake_mode = mini_form or hybrid:
+
+1. Generate token
+2. Save token to public_tokens
+3. Save token to conversation_intake_sessions
+4. Send WhatsApp message:
+
+"Baik, untuk mempercepat proses, mohon isi form berikut:
+{mini_form_url}
+
+Setelah form dikirim, sistem akan otomatis membuat pengajuan untuk admin."
+
+5. Do not create task yet.
+
+When mini form submitted:
+
+1. Update collected_fields
+2. Update uploaded_documents
+3. Recalculate missing_fields
+4. If incomplete:
+
+   * send WA asking missing fields
+   * keep session active
+5. If complete:
+
+   * create ai_task
+   * notify admin
+   * mark session submitted
+
+====================================================
+F. ADMIN PAGE
+=============
+
+Create page:
+
+/ai-intake-sessions
+
+Tabs:
+
+1. Collecting
+2. Form Sent
+3. Ready
+4. Submitted
+5. Cancelled / Expired
+
+Columns:
+
+* phone
+* customer
+* intent
+* status
+* collected fields
+* missing fields
+* mini form url
+* last message
+* expires at
+* created at
+
+Admin actions:
+
+* view session detail
+* cancel session
+* manually mark ready
+* manually convert to task
+* resend mini form link
+
+RBAC:
+
+supervisor: view + resend link
+company_admin: full actions
+super_admin: full actions
+
+====================================================
+G. EXAMPLE FLOWS
+================
+
+1. Trucking
+
+User:
+"Saya mau pengiriman trucking"
+
+AI:
+"Baik, untuk pengiriman trucking mohon isi form singkat berikut:
+{mini_form_link}"
+
+No task created.
+
+After form submitted:
+Task created.
+Admin notified.
+
+2. Cash Advance / Kasbon
+
+User:
+"Saya mau kasbon"
+
+AI:
+"Baik, kasbonnya untuk kebutuhan apa dan nominalnya berapa?"
+
+No task created.
+
+User:
+"Untuk bensin 500 ribu"
+
+AI:
+"Kapan dana dibutuhkan dan mau dicairkan melalui apa?"
+
+User:
+"Hari ini, transfer BCA"
+
+AI:
+"Baik, saya catat pengajuan kasbon Rp500.000 untuk bensin, dibutuhkan hari ini, pencairan transfer BCA. Saya teruskan untuk approval admin."
+
+Then:
+Task created.
+Approval created.
+Admin notified.
+
+3. Damaged Goods
+
+User:
+"Barang saya pecah"
+
+AI:
+"Baik, mohon isi form klaim/komplain berikut dan upload foto kerusakan:
+{mini_form_link}"
+
+No task created.
+
+After form submitted:
+Complaint task created.
+
+4. Fleet Repair
+
+User:
+"Ban mobil pecah"
+
+AI:
+"Baik, mohon kirim plat kendaraan, lokasi kendaraan, posisi ban yang pecah, dan foto kondisi ban."
+
+No task created.
+
+After complete:
+Fleet maintenance task created.
+Admin notified.
+
+====================================================
+H. DOCUMENT INTAKE
+==================
+
+If document_template has required documents:
+
+* AI must ask for missing documents
+* Uploaded docs are stored in uploaded_documents
+* If document is missing but task can proceed:
+  mark missing_documents in task
+  needs_admin_review = true
+
+Example import:
+Required:
+
+* Commercial Invoice
+* Packing List
+* HS Code
+* BL/AWB if available
+
+AI must say:
+"Data awal sudah cukup, namun dokumen berikut masih diperlukan:
+Commercial Invoice dan Packing List."
+
+====================================================
+I. CONFIDENCE GATE
+==================
+
+If intent confidence < 0.6:
+
+AI must ask clarification, not create task.
+
+Example:
+"Baik, saya ingin pastikan dulu. Apakah yang dimaksud pengiriman trucking, komplain barang, atau permintaan invoice?"
+
+No task created.
+
+====================================================
+J. HUMAN HANDOFF RULES
+======================
+
+Immediate admin handoff only when:
+
+* customer angry / abusive
+* legal threat
+* dangerous goods
+* high value transaction
+* unclear intent after 2 clarification attempts
+* payment dispute
+* fraud suspicion
+* emergency fleet incident
+
+Even in handoff:
+
+* create task with needs_admin_review = true
+* include conversation transcript
+* notify admin
+
+====================================================
+K. TEST SUITE
+=============
+
+Create conversation test cases:
+
+1. Trucking short inquiry → mini form link, no task
+2. Trucking form submit complete → task created
+3. Kasbon short inquiry → ask amount/purpose, no task
+4. Kasbon complete → task + approval
+5. Damaged goods → complaint form link, no task
+6. Damaged goods form submit → complaint task
+7. Ban pecah → ask plate/location/photo, no task
+8. Ban pecah complete → fleet maintenance task
+9. Unknown intent low confidence → clarification question
+10. User says batal → session cancelled
+11. Session expires after 24h → expired, no task
+12. Admin manually converts session to task
+
+Validation must prove:
+
+* no task before required data complete
+* task created only after complete
+* mini form link is generated correctly
+* WhatsApp reply is sent correctly
+* admin page displays sessions
+
+====================================================
+L. OUTPUT
+=========
+
+Report:
+
+1. tables created
+2. data_template fields added
+3. IntakeEngine files changed
+4. WhatsApp flow changed
+5. mini form routes linked
+6. admin page created
+7. conversation transcripts
+8. task creation timing proof
+9. typecheck result
+10. remaining risks

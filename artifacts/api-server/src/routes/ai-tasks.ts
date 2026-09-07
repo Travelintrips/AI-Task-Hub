@@ -4,14 +4,16 @@ import {
   db,
   aiTasksTable,
   taskCommentsTable,
-  activityTable,
+  auditLogsTable,
   teamMembersTable,
+  whatsappMessagesTable,
 } from "@workspace/db";
 import { requireAuth, getCompanyId } from "../middleware/auth";
 import { logger } from "../lib/logger";
-import { notifyStatusChanged, notifyTaskAssigned, notifyTaskCompleted } from "../lib/notifications";
+import { notifyStatusChanged, notifyTaskAssigned, notifyTaskCompleted, notifyTaskCreated } from "../lib/notifications";
 import { emitSseEvent } from "../lib/sse";
 import { getSlaHours, calcOverdueAt, calcSlaStatus } from "../lib/sla";
+import { pushStatusToSupabase } from "../lib/order-sync-scheduler";
 
 const router: IRouter = Router();
 
@@ -158,13 +160,25 @@ router.post("/ai-tasks", requireAuth, async (req: Request, res: Response): Promi
       .returning();
 
     // Catat di activity log
-    await db.insert(activityTable).values({
-      type:        "task_created",
-      description: `Task baru dibuat manual: ${title}`,
-      entityId:    created.id,
+    await db.insert(auditLogsTable).values({
+      action:   "task_created",
+      module:   "tasks",
+      before:   `Task baru dibuat manual: ${title}`,
+      entityId: created.id,
     }).catch(() => {});
 
     emitSseEvent("new_task", { taskId: created.id, taskNumber, companyId }, companyId);
+
+    notifyTaskCreated({
+      taskId:       created.id,
+      taskNumber,
+      title:        created.title,
+      customerName: created.customerName,
+      customerPhone: created.customerPhone,
+      status:       created.status ?? "new_inquiry",
+      priority:     created.priority ?? "medium",
+      companyId,
+    }).catch((err) => logger.error({ err }, "notifyTaskCreated gagal"));
 
     logger.info({ taskId: created.id, taskNumber, companyId }, "Task dibuat manual");
     res.status(201).json(created);
@@ -224,11 +238,18 @@ router.patch("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): 
       changes.push(`petugas: ${assignedTo}`);
 
     if (changes.length > 0) {
-      await db.insert(activityTable).values({
-        type:        "task_updated",
-        description: `AI Task ${current.taskNumber ?? id} diperbarui — ${changes.join(", ")}`,
-        entityId:    id,
+      await db.insert(auditLogsTable).values({
+        action:   "task_updated",
+        module:   "tasks",
+        before:   `AI Task ${current.taskNumber ?? id} diperbarui — ${changes.join(", ")}`,
+        entityId: id,
       }).catch(() => {});
+    }
+
+    // ── Sinkron balik ke Supabase logistic_orders (fire-and-forget) ──────────
+    if (status && status !== current.status && current.taskNumber) {
+      pushStatusToSupabase(current.taskNumber, current.status, status as string)
+        .catch((err) => logger.error({ err }, "pushStatusToSupabase gagal"));
     }
 
     // ── SSE realtime push ─────────────────────────────────────────────────────
@@ -286,6 +307,12 @@ router.patch("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): 
         .where(eq(teamMembersTable.name, assignedTo as string))
         .limit(1);
 
+      if (!member) {
+        logger.warn({ assignedTo }, "Notifikasi WA dilewati — anggota tim tidak ditemukan di tabel team_members");
+      } else if (!member.phone) {
+        logger.warn({ assignedTo, memberId: member.id }, "Notifikasi WA dilewati — anggota tim tidak memiliki nomor HP");
+      }
+
       notifyTaskAssigned(ctx, member?.phone ?? null)
         .catch((err) => logger.error({ err }, "Notifikasi assign gagal"));
     }
@@ -318,6 +345,41 @@ router.post("/ai-tasks/:id/comments", requireAuth, async (req: Request, res: Res
   } catch (err) {
     logger.error({ err }, "POST /ai-tasks/:id/comments failed");
     res.status(500).json({ error: "Failed to add comment" });
+  }
+});
+
+// ─── GET /ai-tasks/:id/messages ────────────────────────────────────────────────
+// Returns all WhatsApp messages linked to this task (task_id = :id).
+
+router.get("/ai-tasks/:id/messages", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const id = Number(req.params.id as string);
+    if (Number.isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+
+    const rows = await db
+      .select()
+      .from(whatsappMessagesTable)
+      .where(eq(whatsappMessagesTable.taskId, id))
+      .orderBy(whatsappMessagesTable.createdAt);
+
+    const mapped = rows.map((r) => ({
+      id:             r.id,
+      from:           r.from,
+      senderPhone:    r.senderPhone ?? null,
+      senderName:     r.senderName ?? null,
+      body:           r.body,
+      messageText:    r.messageText ?? null,
+      messageType:    r.messageType ?? "text",
+      direction:      r.direction ?? "inbound",
+      detectedIntent: r.detectedIntent ?? null,
+      attachmentUrl:  r.attachmentUrl ?? null,
+      createdAt:      r.createdAt.toISOString(),
+    }));
+
+    res.json(mapped);
+  } catch (err) {
+    logger.error({ err }, "GET /ai-tasks/:id/messages failed");
+    res.status(500).json({ error: "Failed to load messages" });
   }
 });
 

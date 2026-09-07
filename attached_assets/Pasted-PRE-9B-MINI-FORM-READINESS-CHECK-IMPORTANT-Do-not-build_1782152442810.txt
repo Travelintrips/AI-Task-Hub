@@ -1,0 +1,263 @@
+PRE-9B MINI FORM READINESS CHECK
+
+IMPORTANT:
+
+Do not build Mini Form Router yet.
+
+Do not create new tables.
+
+Do not modify WhatsApp flow.
+
+Audit and classify all existing intents first.
+
+Goal:
+
+Determine which intents should use:
+
+* conversation
+* mini_form
+* hybrid
+
+before Sprint 9B implementation.
+
+====================================================
+SECTION 1 — INTENT INVENTORY
+============================
+
+Read:
+
+intent_master
+keyword_rules
+service_catalog
+data_templates
+document_templates
+
+Output:
+
+intent_code
+category
+required_fields_count
+required_documents_count
+
+====================================================
+SECTION 2 — INTAKE MODE CLASSIFICATION
+======================================
+
+For every intent classify:
+
+conversation
+mini_form
+hybrid
+
+Rules:
+
+CONVERSATION
+
+Use when:
+
+* ≤ 5 required fields
+* no document required
+* user expects quick answer
+
+Examples:
+
+cash_advance
+invoice_request
+payment_confirmation
+customer_data_update
+simple complaint
+
+MINI_FORM
+
+Use when:
+
+* many fields
+* structured process
+* multiple documents
+* user normally fills a form
+
+Examples:
+
+import_inquiry
+export_inquiry
+vendor_registration
+tenant_rental
+sport_center_booking
+
+HYBRID
+
+Use when:
+
+* AI should ask first
+* then send form only if needed
+
+Examples:
+
+trucking
+air_freight_inquiry
+sea_freight_inquiry
+customs_clearance
+ppjk_service
+fleet_repair
+damaged_goods_complaint
+delivery_delay_complaint
+
+====================================================
+SECTION 3 — FIELD COMPLEXITY SCORE
+==================================
+
+Calculate:
+
+Field Complexity Score
+
+Based on:
+
+required_fields
+required_documents
+conditional_fields
+
+Output:
+
+LOW
+MEDIUM
+HIGH
+
+Rules:
+
+LOW:
+0–5 fields
+
+MEDIUM:
+6–10 fields
+
+HIGH:
+11+ fields
+
+====================================================
+SECTION 4 — DOCUMENT DEPENDENCY
+===============================
+
+Determine:
+
+Does this intent require documents?
+
+Output:
+
+intent_code
+documents_required
+document_types
+
+Examples:
+
+import_inquiry
+
+* Commercial Invoice
+* Packing List
+* HS Code
+
+fleet_repair
+
+* Photo
+* Workshop Estimate
+
+complaint
+
+* Damage Photo
+
+====================================================
+SECTION 5 — MINI FORM PRIORITY
+==============================
+
+Rank intents:
+
+Priority 1
+Must have Mini Form immediately
+
+Priority 2
+Recommended
+
+Priority 3
+Optional
+
+Expected Priority 1:
+
+* trucking
+* import_inquiry
+* export_inquiry
+* damaged_goods_complaint
+* fleet_repair
+* vendor_registration
+
+====================================================
+SECTION 6 — WHATSAPP USER EXPERIENCE
+====================================
+
+For every intent define:
+
+Ideal conversation flow.
+
+Example:
+
+TRUCKING
+
+User:
+"Saya mau trucking"
+
+AI:
+asks pickup and destination
+
+If still many fields missing:
+
+send mini form
+
+If completed:
+
+create task
+
+Mode:
+HYBRID
+
+====================================================
+SECTION 7 — READINESS SCORE
+===========================
+
+Calculate:
+
+Mini Form Readiness %
+
+Based on:
+
+* intent coverage
+* data template coverage
+* document template coverage
+* required field quality
+
+Output:
+
+Overall Readiness Score
+
+GO / NO-GO
+
+for Sprint 9B
+
+====================================================
+FINAL REPORT
+============
+
+Provide:
+
+1. Total intents
+2. Conversation intents
+3. Hybrid intents
+4. Mini Form intents
+5. Priority 1 Mini Forms
+6. Missing document templates
+7. Risks
+8. Sprint 9B Readiness Score
+9. Recommendation
+
+Do not implement.
+
+Audit only.
+
+Use actual database content and actual templates.

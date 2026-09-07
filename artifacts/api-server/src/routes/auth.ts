@@ -181,12 +181,11 @@ router.post(
   requireAuth,
   requireRole("company_admin", "super_admin"),
   async (req: Request, res: Response): Promise<void> => {
-    const id = Number(req.params.id);
-    if (isNaN(id)) { res.status(400).json({ error: "Invalid user ID" }); return; }
+    const rawId = req.params.id as string;
+    const [target] = await db.select().from(usersTable)
+      .where(eq(usersTable.id, rawId as unknown as number)).limit(1);
 
     const { newPassword } = req.body as { newPassword?: string };
-
-    const [target] = await db.select().from(usersTable).where(eq(usersTable.id, id)).limit(1);
     if (!target) { res.status(404).json({ error: "User not found" }); return; }
 
     // Non-super_admin can only reset passwords within their company
@@ -206,9 +205,9 @@ router.post(
     }
 
     const passwordHash = await bcrypt.hash(tempPassword, 12);
-    await db.update(usersTable).set({ passwordHash, updatedAt: new Date() }).where(eq(usersTable.id, id));
+    await db.update(usersTable).set({ passwordHash, updatedAt: new Date() }).where(eq(usersTable.id, rawId as unknown as number));
 
-    logger.info({ resetBy: req.user!.id, targetUserId: id }, "Password reset by admin");
+    logger.info({ resetBy: req.user!.id, targetUserId: rawId }, "Password reset by admin");
 
     res.json({
       message: "Password berhasil direset",

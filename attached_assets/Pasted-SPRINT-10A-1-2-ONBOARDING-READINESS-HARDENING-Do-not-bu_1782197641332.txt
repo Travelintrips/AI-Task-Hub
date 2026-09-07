@@ -1,0 +1,143 @@
+SPRINT 10A-1.2 — ONBOARDING READINESS HARDENING
+
+Do not build onboarding wizard yet.
+
+Goal:
+
+Remove all blockers discovered in PRE-SPRINT 10A-2 audit.
+
+====================================================
+TASK 1 — VENDOR MASTER AUDIT
+============================
+
+Audit:
+
+Supabase suppliers
+Vendor Memory tables
+Purchasing tables
+Vendor registration flow
+
+Output:
+
+single source of truth
+
+Decision:
+
+A.
+Reuse suppliers
+
+or
+
+B.
+Create vendors table
+
+Choose only one.
+
+Remove duplication.
+
+====================================================
+TASK 2 — FLEET VEHICLE SCHEMA FIX
+=================================
+
+Audit:
+
+fleet_units
+fleet_vehicles
+fleet utilization
+fuel
+maintenance
+tires
+
+Identify:
+
+which table is canonical.
+
+Add:
+
+unit_number if required.
+
+Patch all references.
+
+====================================================
+TASK 3 — CUSTOMER DATA QUALITY
+==============================
+
+Customer creation:
+
+phone_number mandatory
+
+whatsapp_number mandatory
+
+Validate:
+
+cannot create customer without phone.
+
+====================================================
+TASK 4 — COMPANY PROFILE COMPLETENESS
+=====================================
+
+Create:
+
+company_profile_completion_pct
+
+Required:
+
+company_name
+company_phone
+company_email
+industry
+
+Return:
+
+0–100%
+
+====================================================
+TASK 5 — WHATSAPP HEALTH CHECK
+==============================
+
+Create:
+
+GET /api/system/whatsapp-health
+
+Return:
+
+token configured
+webhook configured
+last message
+last delivery
+status
+
+====================================================
+TASK 6 — EMPTY STATE INVENTORY
+==============================
+
+Audit all pages.
+
+Output:
+
+page
+empty state
+cta
+missing guidance
+
+====================================================
+TASK 7 — ONBOARDING READINESS REPORT
+====================================
+
+Generate:
+
+docs/onboarding-readiness-report.md
+
+Score:
+
+Vendor Readiness
+Fleet Readiness
+Customer Readiness
+WhatsApp Readiness
+Company Readiness
+
+Overall:
+
+GO / NO-GO
+
+for Sprint 10A-2

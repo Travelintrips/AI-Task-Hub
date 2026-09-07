@@ -1,0 +1,179 @@
+FIX GLOBAL AI INTAKE FLOW — USE DATA TEMPLATES BEFORE CREATING TASK
+
+Current problem:
+AI detects intent and creates task too early.
+Existing forms/data_templates/document_templates are not used as mandatory intake before task creation.
+
+Expected behavior:
+For every intent, AI must:
+1. detect intent
+2. load data_template by intent_code
+3. load document_template by intent_code
+4. check required fields
+5. ask missing questions conversationally
+6. save intake session
+7. create task only when required fields are complete
+
+Do not create task immediately from short messages.
+
+Examples:
+
+A. Freight inquiry
+User: "Mau kirim barang ke Surabaya"
+AI must ask:
+- jenis barang?
+- asal?
+- tujuan?
+- berat?
+- volume?
+- metode pengiriman?
+- kapan pickup?
+
+Only after complete:
+create freight task / quotation request.
+
+B. Kasbon
+User: "Saya mau kasbon"
+AI must ask:
+- nominal?
+- kebutuhan?
+- tanggal dibutuhkan?
+- metode pencairan?
+- nama karyawan?
+
+Only after complete:
+create kasbon approval task.
+
+C. Ban / fleet repair
+User: "Ban mobil pecah"
+AI must ask:
+- plat kendaraan?
+- lokasi?
+- posisi ban?
+- foto?
+- butuh penggantian sekarang?
+- estimasi biaya jika ada?
+
+Only after complete:
+create fleet maintenance task and optional purchasing request.
+
+D. Barang pecah / complaint
+User: "Barang saya pecah"
+AI must ask:
+- nomor order/resi?
+- foto kerusakan?
+- barang apa?
+- kapan diterima?
+- jumlah yang rusak?
+- apakah butuh klaim/asuransi?
+
+Only after complete:
+create complaint task.
+
+Implement:
+
+1. Create conversation_intake_sessions table:
+- id
+- company_id
+- phone
+- customer_id nullable
+- intent_code
+- category
+- status: collecting | ready_for_task | submitted | cancelled | expired
+- collected_fields jsonb
+- missing_fields text[]
+- required_documents text[]
+- uploaded_documents jsonb
+- last_question
+- last_message
+- expires_at
+- created_at
+- updated_at
+
+2. Update IntentEngine:
+- after intent detection, call IntakeEngine
+- IntakeEngine loads data_templates and document_templates
+- compare required fields vs collected_fields
+- if incomplete:
+  return reply_to_user
+  save session
+  DO NOT create ai_task
+  DO NOT notify admin
+- if complete:
+  create ai_task
+  attach collected_fields
+  notify admin/team
+  mark session submitted
+
+3. Add IntakeEngine:
+- extract fields from message
+- merge with existing session
+- determine missing fields
+- generate next best question
+- summarize when complete
+
+4. Add cancellation:
+If user says:
+- batal
+- cancel
+- tidak jadi
+then mark session cancelled and do not create task.
+
+5. Add timeout:
+If no response after 24 hours:
+mark session expired.
+
+6. Add admin visibility:
+Create page/tab:
+AI Intake Sessions
+
+Show:
+- phone
+- intent
+- collected fields
+- missing fields
+- status
+- last message
+- created at
+
+7. Wire to WhatsApp:
+Incoming WA must first check active intake session by phone.
+If active:
+continue that intake.
+If no active session:
+detect new intent.
+
+8. Validation tests:
+
+Freight:
+"mau kirim barang ke Surabaya"
+→ ask missing origin, cargo, weight, volume
+→ no task created yet
+
+Kasbon:
+"saya mau kasbon"
+→ ask amount and purpose
+→ no task created yet
+
+Fleet:
+"ban mobil pecah"
+→ ask plate number and location
+→ no task created yet
+
+Complaint:
+"barang saya pecah"
+→ ask order number and photo
+→ no task created yet
+
+Complete data:
+After required fields complete
+→ create ai_task
+→ notify admin
+→ session submitted
+
+Output:
+- files changed
+- table created
+- intake flow transcript per scenario
+- proof no task created before complete
+- proof task created after complete

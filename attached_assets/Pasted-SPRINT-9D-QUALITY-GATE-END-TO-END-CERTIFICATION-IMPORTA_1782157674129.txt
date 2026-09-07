@@ -1,0 +1,255 @@
+SPRINT 9D — QUALITY GATE & END-TO-END CERTIFICATION
+
+IMPORTANT
+
+Do not build new business features.
+
+Do not add new intelligence modules.
+
+Do not add new dashboards.
+
+Goal:
+
+Certify that all critical business services work end-to-end without regression.
+
+This sprint is a testing, validation, monitoring, and certification sprint.
+
+====================================================
+PHASE 1 — QUALITY GATE FRAMEWORK
+================================
+
+Create:
+
+quality_gate_suites
+quality_gate_runs
+quality_gate_results
+
+Purpose:
+
+Store automated regression test results.
+
+Fields:
+
+suite_name
+scenario_name
+status
+duration_ms
+error_message
+service_type
+created_at
+
+Status:
+
+passed
+failed
+skipped
+
+====================================================
+PHASE 2 — CERTIFICATION SCENARIOS
+=================================
+
+Create automated test suites for:
+
+1. Cash Advance
+2. Trucking Inquiry
+3. Air Freight Inquiry
+4. Sea Freight Inquiry
+5. Import Inquiry
+6. Export Inquiry
+7. PPJK Service
+8. Customs Clearance
+9. Vendor Registration
+10. Fleet Repair
+11. Fuel Expense
+12. Tire Issue
+13. Damaged Goods Complaint
+14. Delivery Delay Complaint
+15. Payment Confirmation
+16. Invoice Request
+
+====================================================
+PHASE 3 — END TO END VALIDATION
+===============================
+
+For each scenario verify:
+
+Message
+↓
+Intent Detection
+↓
+Conversation Intake
+↓
+Mini Form Routing
+↓
+Document Validation
+↓
+Task Creation
+↓
+Approval Flow
+↓
+Audit Logs
+
+PASS only if entire chain succeeds.
+
+====================================================
+PHASE 4 — CONVERSATION VALIDATION
+=================================
+
+Verify:
+
+* session created
+* missing fields tracked
+* completion %
+* resume conversation
+* cancellation
+* expiry
+
+====================================================
+PHASE 5 — MINI FORM VALIDATION
+==============================
+
+Verify:
+
+* form generated
+* token valid
+* token expiry
+* form submission
+* analytics updated
+
+====================================================
+PHASE 6 — DOCUMENT VALIDATION
+=============================
+
+Verify:
+
+* document rule loaded
+* OCR extraction
+* missing fields
+* confidence score
+* validation status
+* audit record
+
+====================================================
+PHASE 7 — TASK CREATION GATE
+============================
+
+Verify:
+
+Task cannot be created when:
+
+* threshold not reached
+* required document missing
+* document invalid
+
+Task can be created when:
+
+* threshold reached
+* required document valid
+
+====================================================
+PHASE 8 — RBAC CERTIFICATION
+============================
+
+Verify:
+
+staff
+supervisor
+company_admin
+owner
+super_admin
+
+Check:
+
+* intake
+* document review
+* rule management
+* approval actions
+* executive command center
+
+====================================================
+PHASE 9 — REGRESSION DETECTION
+==============================
+
+Compare:
+
+Current build
+vs
+Previous certified build
+
+Detect:
+
+* route removed
+* endpoint changed
+* permission changed
+* template missing
+* document rule missing
+
+====================================================
+PHASE 10 — EXECUTIVE COMMAND CENTER
+===================================
+
+Add widget:
+
+Quality Gate
+
+Metrics:
+
+Total Scenarios
+Passed
+Failed
+Success Rate
+Last Certified Build
+
+Read only.
+
+====================================================
+PHASE 11 — CERTIFICATION REPORT
+===============================
+
+Generate:
+
+/quality-gate/report
+
+Include:
+
+Scenario
+Result
+Duration
+Failure Cause
+
+====================================================
+PHASE 12 — RELEASE CRITERIA
+===========================
+
+Production Certified if:
+
+Success Rate ≥ 95%
+
+Critical Failures = 0
+
+RBAC Failures = 0
+
+Document Validation Failures = 0
+
+Task Creation Gate Failures = 0
+
+====================================================
+FINAL OUTPUT
+============
+
+Provide:
+
+* tables created
+* files created
+* files modified
+* total test scenarios
+* pass count
+* fail count
+* certification score
+* critical failures
+* production certified?
+* GO / NO-GO for Sprint 10A
+
+Do not start Sprint 10A.
+
+Finish Sprint 9D only.

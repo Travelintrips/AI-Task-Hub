@@ -1,0 +1,106 @@
+SPRINT 10A-2 CHECKPOINT — ONBOARDING WIZARD VALIDATION
+
+Do not add features.
+
+Validate onboarding wizard runtime.
+
+Check:
+
+1. /onboarding route loads
+2. All 8 steps load:
+- company
+- whatsapp
+- team
+- customer
+- vendor
+- fleet
+- test
+- done
+
+3. RBAC:
+- super_admin can edit
+- owner can edit
+- company_admin can edit
+- supervisor read-only
+- staff blocked
+
+4. Company profile:
+- save works
+- profileCompletionPct updates
+- missing fields update
+
+5. WhatsApp health:
+- Fonnte status shown
+- webhook URL shown
+- copy URL works
+- test connection works or returns clear error
+
+6. Team step:
+- add team member works
+- phone accepted
+- role saved
+
+7. Customer step:
+- customer without WhatsApp rejected
+- customer with WhatsApp accepted
+
+8. Vendor step:
+- supplier source used
+- create vendor works
+- no missing vendors table error
+
+9. Fleet step:
+- fleet_units source used
+- no fleet_vehicles.unit_number error
+
+10. AI Test step:
+- "Saya mau trucking Jakarta Surabaya"
+Expected:
+  intent = trucking_inquiry
+  wouldCreateTask = false
+  wouldStartIntake = true
+  wouldSendMiniForm = true or hybrid
+  missingFields shown
+
+- "Saya mau kasbon"
+Expected:
+  intent = permintaan_kasbon / cash_advance
+  wouldCreateTask = false
+  wouldStartIntake = true
+  wouldSendMiniForm = false
+  nextQuestion shown
+
+- "Barang saya pecah"
+Expected:
+  intent = damaged_goods_complaint
+  wouldCreateTask = false
+  wouldStartIntake = true
+  wouldSendMiniForm = true
+  missing documents shown
+
+11. Done page:
+- checklist accurate
+- "Mulai Operasi" redirects dashboard
+
+12. Dashboard banner:
+- appears when overallPct < 80
+- hidden after dismiss for 24h
+- disappears when onboarding >= 80
+
+13. Empty states:
+- Dashboard
+- AI Tasks
+- Messages
+- Team
+- Fleet Units
+show actionable CTA and explanation
+
+14. Typecheck/build passes
+
+Output:
+- passed tests
+- failed tests
+- bugs found/fixed
+- onboarding score before/after
+- final readiness score
+- GO/NO-GO for Sprint 10A-3

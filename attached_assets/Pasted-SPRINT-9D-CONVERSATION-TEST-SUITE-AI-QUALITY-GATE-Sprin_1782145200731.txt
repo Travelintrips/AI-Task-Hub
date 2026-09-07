@@ -1,0 +1,300 @@
+SPRINT 9D — CONVERSATION TEST SUITE & AI QUALITY GATE
+
+Sprint 9A, 9B, and 9C are planned.
+
+Now build a test and quality gate layer to ensure AI conversations behave correctly before production use.
+
+Goal:
+Every important WhatsApp scenario must be tested automatically:
+- AI asks missing data first
+- AI sends correct mini form when needed
+- AI validates documents
+- AI does not create task too early
+- AI creates task only when data is complete
+- AI hands off to admin when confidence is low or risk is high
+
+====================================================
+A. DATABASE
+====================================================
+
+Create table:
+
+conversation_test_cases
+
+Fields:
+- id
+- company_id
+- test_name
+- intent_code
+- scenario_type
+- input_messages jsonb
+- expected_behavior jsonb
+- expected_intent_code
+- expected_intake_mode
+- expected_task_created boolean
+- expected_mini_form_sent boolean
+- expected_admin_handoff boolean
+- expected_missing_fields text[]
+- is_active boolean
+- created_at
+- updated_at
+
+Create table:
+
+conversation_test_runs
+
+Fields:
+- id
+- company_id
+- run_name
+- total_cases
+- passed_cases
+- failed_cases
+- pass_rate
+- status: running | passed | failed | partial
+- started_at
+- finished_at
+- created_by
+
+Create table:
+
+conversation_test_results
+
+Fields:
+- id
+- company_id
+- run_id
+- test_case_id
+- status: passed | failed
+- actual_intent_code
+- actual_intake_mode
+- actual_task_created boolean
+- actual_mini_form_sent boolean
+- actual_admin_handoff boolean
+- actual_missing_fields text[]
+- actual_reply text
+- failure_reason text
+- created_at
+
+====================================================
+B. TEST RUNNER
+====================================================
+
+Create:
+
+artifacts/api-server/src/lib/conversation-test-runner.ts
+
+Responsibilities:
+
+1. Load active test cases.
+2. Simulate incoming WhatsApp messages.
+3. Run through IntentEngine + IntakeEngine.
+4. Do not send real WhatsApp.
+5. Do not create real customer-facing task unless test mode.
+6. Compare actual behavior vs expected_behavior.
+7. Save test results.
+8. Calculate pass rate.
+
+Test mode:
+- use sandbox phone number
+- mark all created tasks test_mode=true if any task is created
+- no Fonnte sending
+- no admin notification
+
+====================================================
+C. API
+====================================================
+
+Create endpoints:
+
+GET  /api/conversation-tests/cases
+POST /api/conversation-tests/cases
+PATCH /api/conversation-tests/cases/:id
+DELETE /api/conversation-tests/cases/:id
+
+POST /api/conversation-tests/run
+GET  /api/conversation-tests/runs
+GET  /api/conversation-tests/runs/:id
+GET  /api/conversation-tests/results/:runId
+
+====================================================
+D. ADMIN UI
+====================================================
+
+Create page:
+
+/conversation-tests
+
+Tabs:
+
+1. Test Cases
+2. Test Runs
+3. Failed Cases
+4. Quality Gate
+
+Features:
+- create/edit test case
+- run all tests
+- run selected test
+- view pass/fail
+- see actual AI reply
+- compare expected vs actual
+- export failed cases
+
+====================================================
+E. SEED TEST CASES
+====================================================
+
+Seed at least 30 test cases.
+
+Categories:
+
+1. Trucking
+- "Saya mau pengiriman trucking"
+- expected: mini form sent, no task
+
+2. Trucking complete WA
+- pickup, destination, cargo, weight, date complete
+- expected: task created
+
+3. Kasbon short
+- "Saya mau kasbon"
+- expected: asks amount/purpose, no task
+
+4. Kasbon complete
+- "Kasbon 500 ribu untuk bensin hari ini transfer BCA"
+- expected: task + approval
+
+5. Damaged goods
+- "Barang saya pecah"
+- expected: complaint form sent, no task
+
+6. Ban pecah
+- "Ban mobil pecah"
+- expected: asks plate/location/photo, no task
+
+7. Import inquiry
+- "Mau import mesin dari China"
+- expected: asks invoice/packing list/HS/origin/destination
+
+8. Export inquiry
+- "Mau export barang ke Singapore"
+- expected: asks commodity, HS, weight, destination, docs
+
+9. Invoice request
+- "Tolong kirim invoice"
+- expected: asks order number if missing
+
+10. Low confidence
+- "Bisa bantu?"
+- expected: clarification question, no task
+
+11. Cancel
+- user says "batal"
+- expected: session cancelled, no task
+
+12. Angry customer
+- "Saya kecewa, barang rusak semua"
+- expected: admin handoff
+
+13. DG goods
+- "Mau kirim bahan kimia berbahaya"
+- expected: admin handoff + MSDS request
+
+14. Payment dispute
+- "Saya sudah bayar tapi masih ditagih"
+- expected: admin handoff
+
+15. Fleet fuel
+- "Mau klaim bensin"
+- expected: asks receipt/photo/amount
+
+Add more variations until at least 30.
+
+====================================================
+F. QUALITY GATE
+====================================================
+
+Create quality gate rules:
+
+- pass_rate must be >= 90%
+- no critical scenario may fail
+- no task may be created before required fields complete
+- no auto-approval allowed
+- all low-confidence scenarios must ask clarification or handoff
+- all mini form intents must send correct mini form type
+
+If gate fails:
+- status = failed
+- block production AI mode
+- show failed cases
+
+If gate passes:
+- status = passed
+- production AI mode allowed
+
+====================================================
+G. PRODUCTION AI MODE SWITCH
+====================================================
+
+Add setting:
+
+company_settings.ai_production_mode
+
+Allowed:
+- off
+- test
+- production
+
+Rules:
+
+off:
+- AI does not reply automatically
+
+test:
+- AI runs but does not send WA or create live tasks
+
+production:
+- AI sends WA and creates tasks only if latest quality gate passed
+
+====================================================
+H. DASHBOARD WIDGET
+====================================================
+
+Add widget to Executive Command Center:
+
+AI Quality Gate
+
+Show:
+- latest pass rate
+- total cases
+- failed cases
+- production mode
+- last run time
+- button: Run Tests
+
+====================================================
+I. VALIDATION
+====================================================
+
+Run:
+
+1. seed 30 test cases
+2. run full test suite
+3. verify pass/fail results
+4. verify failed case detail
+5. verify production mode blocked if gate fails
+6. verify production mode allowed if gate passes
+7. verify no real WA sent in test mode
+8. verify no real task created unless test_mode=true
+9. verify Executive widget renders
+
+Output:
+- tables created
+- test cases seeded
+- test run result
+- pass rate
+- failed cases
+- production mode status
+- typecheck result
+- remaining risks

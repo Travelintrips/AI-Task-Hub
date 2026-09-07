@@ -1,17 +1,20 @@
-import { eq, and, ne, gte, desc, or } from "drizzle-orm";
+import { eq, and, ne, gte, desc, or, sql } from "drizzle-orm";
 import {
   db,
   aiTasksTable,
   taskCommentsTable,
   whatsappMessagesTable,
-  activityTable,
+  auditLogsTable,
   adminNotificationsTable,
   type AiTask,
 } from "@workspace/db";
 import { type WhatsAppIntentResult, IMPORT_REQUIRED_FIELDS } from "./whatsapp-ai";
+import type { IntentResolution } from "./intent-engine";
 import { logger } from "./logger";
 import { emitSseEvent } from "./sse";
 import { notifyTaskCreated } from "./notifications";
+// creative-ai-engine: logo generation dihapus dari task-service —
+// AI Task Center kini hanya redirect ke Sales AI (lihat whatsapp.ts creative gate)
 
 // ─── Status vocabulary ────────────────────────────────────────────────────────
 
@@ -285,6 +288,13 @@ export interface CreateTaskInput {
   attachmentUrl?: string | null;
   companyId: string;
   result: WhatsAppIntentResult;
+  /** Optional: richer knowledge-base resolution from IntentEngine (Sprint 2A+) */
+  resolution?: IntentResolution;
+  /**
+   * Field yang dikumpulkan via AI intake session (conversation/hybrid mode).
+   * Digunakan untuk menyimpan data spesifik ke tabel detail (trucking/logistic/sport_center).
+   */
+  collectedFields?: Record<string, unknown>;
 }
 
 export interface CreateTaskOutput {
@@ -312,11 +322,14 @@ export interface CreateTaskOutput {
  *       - Update missingData column and aiSummary on the task.
  *       - If all missing data resolved → escalate to "Ready for Review".
  *       - If customer replied while status was "Waiting Customer" → "In Progress".
+ *
+ * Sprint 2A: accepts optional `resolution` from IntentEngine for DB-driven
+ * missing data, SLA, and document requirements.
  */
 export async function createTaskFromWhatsAppMessage(
   input: CreateTaskInput,
 ): Promise<CreateTaskOutput | null> {
-  const { savedMsgId, from, senderName, bodyText, attachmentUrl, companyId, result } = input;
+  const { savedMsgId, from, senderName, bodyText, attachmentUrl, companyId, result, resolution } = input;
 
   const customerName = result.customer_name ?? senderName ?? null;
   const customerPhone = result.customer_phone ?? from;
@@ -339,7 +352,7 @@ export async function createTaskFromWhatsAppMessage(
           },
           "Topic change detected — creating a new task",
         );
-        return createNewTask({ customerName, customerPhone, companyId, bodyText, attachmentUrl, savedMsgId, result, action: "new_topic" });
+        return createNewTask({ customerName, customerPhone, companyId, bodyText, attachmentUrl, savedMsgId, result, resolution, action: "new_topic", collectedFields: input.collectedFields });
       }
 
       // ── 2b. Same topic → append and resolve missing data ──────────────────
@@ -406,9 +419,10 @@ export async function createTaskFromWhatsAppMessage(
         .set({ processed: true, aiProcessed: true, detectedIntent: result.intent, taskId: existingTask.id })
         .where(eq(whatsappMessagesTable.id, savedMsgId));
 
-      await db.insert(activityTable).values({
-        type: "message_received",
-        description: resolvedKeys.length > 0
+      await db.insert(auditLogsTable).values({
+        action: "message_received",
+        module: "messages",
+        before: resolvedKeys.length > 0
           ? `Customer provided data: ${resolvedKeys.join(", ")} — task ${existingTask.taskNumber ?? existingTask.id} updated`
           : `Follow-up message from ${customerName ?? from} on task ${existingTask.taskNumber ?? existingTask.id}`,
         entityId: existingTask.id,
@@ -437,7 +451,7 @@ export async function createTaskFromWhatsAppMessage(
     }
 
     // ── 3. No active task → create new ────────────────────────────────────────
-    return createNewTask({ customerName, customerPhone, companyId, bodyText, attachmentUrl, savedMsgId, result, action: "created" });
+    return createNewTask({ customerName, customerPhone, companyId, bodyText, attachmentUrl, savedMsgId, result, resolution, action: "created", collectedFields: input.collectedFields });
   } catch (err) {
     logger.error({ err, from, companyId }, "createTaskFromWhatsAppMessage failed");
     return null;
@@ -454,7 +468,9 @@ async function createNewTask({
   attachmentUrl,
   savedMsgId,
   result,
+  resolution,
   action,
+  collectedFields,
 }: {
   customerName: string | null;
   customerPhone: string;
@@ -463,12 +479,20 @@ async function createNewTask({
   attachmentUrl?: string | null;
   savedMsgId: number;
   result: WhatsAppIntentResult;
+  resolution?: IntentResolution;
   action: "created" | "new_topic";
+  collectedFields?: Record<string, unknown>;
 }): Promise<CreateTaskOutput> {
   const taskNumber = `WA-${Date.now()}`;
   const title     = generateTaskTitle(result, customerName);
   const status    = determineInitialStatus(result);
   const aiSummary = buildAiSummary(result);
+
+  // Sprint 2A: use KB-driven fields when IntentResolution is available
+  const effectiveMissingData = resolution?.missingDataKeys ?? result.missing_data;
+  const effectiveIntent      = resolution?.intentCode ?? result.intent;
+  const slaHours             = resolution?.slaHours ?? null;
+  const overdueAt            = slaHours ? new Date(Date.now() + slaHours * 3_600_000) : null;
 
   const [task] = await db
     .insert(aiTasksTable)
@@ -486,10 +510,12 @@ async function createNewTask({
       status,
       assignedRole:       result.suggested_team,
       aiSummary,
-      aiIntent:           result.intent,
-      missingData:        encodeMissingData(result.missing_data),
+      aiIntent:           effectiveIntent,
+      missingData:        encodeMissingData(effectiveMissingData),
       aiConfidenceScore:  result.confidence_score ?? null,
       customerSentiment:  result.customer_sentiment ?? null,
+      ...(slaHours !== null && { slaHours }),
+      ...(overdueAt !== null && { overdueAt }),
     })
     .returning();
 
@@ -518,9 +544,10 @@ async function createNewTask({
     .set({ processed: true, aiProcessed: true, detectedIntent: result.intent, taskId: task.id })
     .where(eq(whatsappMessagesTable.id, savedMsgId));
 
-  await db.insert(activityTable).values({
-    type: "task_created",
-    description: `Task ${taskNumber} created (${action}) — ${result.category} / ${result.priority} (${status}) — ${title}`,
+  await db.insert(auditLogsTable).values({
+    action: "task_created",
+    module: "tasks",
+    before: `Task ${taskNumber} created (${action}) — ${result.category} / ${result.priority} (${status}) — ${title}`,
     entityId: task.id,
   });
 
@@ -535,7 +562,7 @@ async function createNewTask({
     body: `${result.category} · ${result.division} · Status: ${status}${customerName ? ` · ${customerName}` : ""}`,
     taskId: task.id,
     customerPhone: customerPhone ?? null,
-    customerName: customerName ?? null,
+    customerName: customerName ?? customerPhone ?? "Unknown",
   }).returning();
 
   emitSseEvent(
@@ -560,6 +587,89 @@ async function createNewTask({
     "New AI task created",
   );
 
+  // ── Simpan field detail ke tabel spesifik kategori (fire-and-forget) ──────────
+  // Menyimpan field yang dikumpulkan via AI intake (hs_code, npwp, nib, dll)
+  // ke tabel detail terpisah tanpa mengubah schema ai_tasks.
+  const cf = collectedFields ?? {};
+  try {
+    const cat = result.category ?? "";
+    if (cat === "Trucking") {
+      await db.execute(sql`
+        INSERT INTO trucking_task_details
+          (task_id, company_id, origin, destination, commodity, cargo_weight, cargo_volume, vehicle_type, pickup_date, contact_person, phone, raw_fields)
+        VALUES (
+          ${task.id}, ${companyId},
+          ${String(result.origin ?? result.pickup_location ?? cf.origin ?? cf.pickup_address ?? "")  || null},
+          ${String(result.destination ?? result.delivery_location ?? cf.destination ?? cf.delivery_address ?? "") || null},
+          ${String(result.commodity ?? cf.commodity ?? "") || null},
+          ${String(cf.cargo_weight ?? "") || null},
+          ${String(cf.cargo_volume ?? "") || null},
+          ${String(cf.vehicle_type ?? "") || null},
+          ${String(result.requested_date ?? cf.pickup_date ?? "") || null},
+          ${customerName},
+          ${customerPhone},
+          ${JSON.stringify(cf)}::jsonb
+        ) ON CONFLICT DO NOTHING
+      `);
+    } else if (["Import","Export","Customs","Finance","Freight"].includes(cat)) {
+      await db.execute(sql`
+        INSERT INTO logistic_task_details
+          (task_id, company_id, category, importer_name, npwp, nib, hs_code, commodity, origin_country, port_of_entry, invoice_value, invoice_number, bl_number, pib_peb_type, api_number, lartas, shipment_type, raw_fields)
+        VALUES (
+          ${task.id}, ${companyId}, ${cat},
+          ${String(cf.importer_name ?? "") || null},
+          ${String(cf.npwp ?? "") || null},
+          ${String(cf.nib ?? "") || null},
+          ${String(cf.hs_code ?? "") || null},
+          ${String(result.commodity ?? cf.commodity ?? "") || null},
+          ${String(result.origin ?? cf.origin_country ?? "") || null},
+          ${String(cf.port_of_entry ?? "") || null},
+          ${String(cf.invoice_value ?? "") || null},
+          ${String(cf.invoice_number ?? "") || null},
+          ${String(cf.bill_of_lading ?? cf.bl_number ?? "") || null},
+          ${String(cf.pib_peb_type ?? "") || null},
+          ${String(cf.api_number ?? "") || null},
+          ${String(cf.lartas ?? "") || null},
+          ${String(result.shipment_type ?? cf.shipment_type ?? "") || null},
+          ${JSON.stringify(cf)}::jsonb
+        ) ON CONFLICT DO NOTHING
+      `);
+    } else if (cat === "Sport Center") {
+      const durationHours = cf.duration_hours ? Number(cf.duration_hours) : null;
+      await db.execute(sql`
+        INSERT INTO sport_center_task_details
+          (task_id, company_id, field_type, booking_date, start_time, end_time, duration_hours, player_count, booker_name, phone, is_member, member_id, booking_code, raw_fields)
+        VALUES (
+          ${task.id}, ${companyId},
+          ${String(cf.field_name ?? cf.field_type ?? "") || null},
+          ${String(cf.booking_date ?? "") || null},
+          ${String(cf.start_time ?? "") || null},
+          ${String(cf.end_time ?? "") || null},
+          ${durationHours},
+          ${cf.player_count ? Number(cf.player_count) : null},
+          ${customerName},
+          ${customerPhone},
+          ${cf.is_member === true || cf.is_member === "ya" || cf.is_member === "yes"},
+          ${String(cf.member_id ?? "") || null},
+          ${String(cf._booking_code ?? "") || null},
+          ${JSON.stringify(cf)}::jsonb
+        ) ON CONFLICT DO NOTHING
+      `);
+    }
+  } catch (detailErr) {
+    // Non-fatal — detail tables might not exist yet (run migrate-detail-tables.mjs)
+    logger.warn({ detailErr, category: result.category }, "Failed to save task detail fields — run scripts/migrate-detail-tables.mjs");
+  }
+
+  // ── Creative AI — layanan kreatif diarahkan ke Sales AI, tidak diproses di sini ──
+  // AI Task Center hanya menyambungkan ke Sales AI; logo/desain tidak dibuat di sini.
+  if ((result.category ?? "").toLowerCase() === "creative ai" || (result.category ?? "") === "Creative AI") {
+    logger.info(
+      { taskId: task.id, taskNumber, category: result.category },
+      "creative-ai: task recorded; customer already redirected to Sales AI via WA gate — skipping triggerCreativeAiJob",
+    );
+  }
+
   // ── WhatsApp notification (fire-and-forget) ──────────────────────────────────
   notifyTaskCreated({
     taskId:       task.id,
@@ -570,6 +680,9 @@ async function createNewTask({
     status,
     priority:     result.priority.toLowerCase(),
     companyId,
+    suggestedReply: resolution?.suggestedReply ?? null,
+    division:  result.division ?? null,
+    category:  result.category ?? null,
   }).catch((err) => logger.error({ err }, "notifyTaskCreated gagal"));
 
   return {
@@ -579,7 +692,7 @@ async function createNewTask({
     status,
     title,
     resolvedFields: [],
-    remainingFields: result.missing_data,
+    remainingFields: effectiveMissingData,
   };
 }
 

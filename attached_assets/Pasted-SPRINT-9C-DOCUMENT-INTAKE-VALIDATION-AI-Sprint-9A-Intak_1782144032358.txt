@@ -1,0 +1,337 @@
+SPRINT 9C — DOCUMENT INTAKE & VALIDATION AI
+
+Sprint 9A Intake Engine and Sprint 9B Mini Form Router are planned.
+
+Now build Document Intake & Validation AI.
+
+Goal:
+When customer/vendor/admin uploads documents, AI must validate whether the document is correct, complete, and matches the required template before task is processed.
+
+Documents include:
+- Commercial Invoice
+- Packing List
+- BL / AWB
+- HS Code
+- COA
+- MSDS
+- photo damaged goods
+- STNK / KIR / insurance
+- fuel receipt
+- maintenance invoice
+- cash advance receipt
+- vendor license documents
+
+====================================================
+A. DATABASE
+====================================================
+
+Create table:
+
+document_intake_audits
+
+Fields:
+- id
+- company_id
+- task_id nullable
+- intake_session_id nullable
+- customer_id nullable
+- vendor_id nullable
+- fleet_unit_id nullable
+- document_type
+- file_name
+- file_url
+- object_path
+- extracted_fields jsonb
+- required_fields jsonb
+- missing_fields text[]
+- validation_status: valid | incomplete | invalid | needs_review
+- confidence_score numeric
+- issue_summary text
+- ai_notes text
+- reviewed_by text nullable
+- reviewed_at timestamp nullable
+- created_at
+- updated_at
+
+Create table:
+
+document_validation_rules
+
+Fields:
+- id
+- company_id
+- document_type
+- intent_code nullable
+- required_fields text[]
+- optional_fields text[]
+- validation_prompt text
+- is_active boolean
+- created_at
+- updated_at
+
+====================================================
+B. DOCUMENT VALIDATION ENGINE
+====================================================
+
+Create:
+
+artifacts/api-server/src/lib/document-validation-engine.ts
+
+Responsibilities:
+1. receive uploaded document
+2. identify document type
+3. load validation rules by document_type + intent_code
+4. extract fields using OpenAI vision / OCR
+5. compare extracted fields vs required fields
+6. mark status:
+   - valid
+   - incomplete
+   - invalid
+   - needs_review
+7. save audit record
+8. return missing fields and issue summary
+
+Important:
+- If confidence < 0.65 → needs_review
+- If required fields missing → incomplete
+- If document type mismatch → invalid
+- If valid → can be attached to intake/task
+
+====================================================
+C. VALIDATION RULES
+====================================================
+
+Seed rules for:
+
+1. Commercial Invoice
+Required:
+- invoice_number
+- invoice_date
+- seller_name
+- buyer_name
+- incoterm
+- currency
+- total_value
+- item_description
+
+2. Packing List
+Required:
+- packing_list_number
+- shipper
+- consignee
+- gross_weight
+- net_weight
+- package_count
+- volume
+- item_description
+
+3. BL / AWB
+Required:
+- document_number
+- shipper
+- consignee
+- origin
+- destination
+- vessel_or_flight
+- gross_weight
+
+4. HS Code
+Required:
+- hs_code
+- item_description
+
+5. MSDS
+Required:
+- product_name
+- hazard_class
+- un_number
+- manufacturer
+
+6. Damage Photo
+Required:
+- visible_damage
+- item_visible
+- photo_quality
+
+7. STNK / KIR / Insurance
+Required:
+- plate_number
+- document_number
+- expiry_date
+- owner_name
+
+8. Fuel Receipt
+Required:
+- receipt_date
+- station_name
+- liters
+- total_amount
+- vehicle_plate_or_unit
+
+9. Maintenance Invoice
+Required:
+- invoice_number
+- workshop_name
+- service_date
+- vehicle_plate
+- total_amount
+
+10. Cash Advance Receipt
+Required:
+- receipt_date
+- amount
+- purpose
+- merchant_or_vendor
+
+====================================================
+D. API
+====================================================
+
+Create endpoints:
+
+POST /api/documents/validate
+GET  /api/documents/audits
+GET  /api/documents/audits/:id
+PATCH /api/documents/audits/:id/review
+
+POST /api/documents/rules
+GET  /api/documents/rules
+PATCH /api/documents/rules/:id
+
+POST /api/intake-sessions/:id/documents
+POST /api/tasks/:id/documents/validate
+
+====================================================
+E. INTAKE INTEGRATION
+====================================================
+
+When mini form uploads document:
+1. save file
+2. call DocumentValidationEngine
+3. attach audit result to conversation_intake_sessions.uploaded_documents
+4. update missing documents
+5. if document incomplete:
+   send WA:
+   "Dokumen Packing List sudah kami terima, namun data gross weight dan volume belum terlihat. Mohon kirim ulang atau lengkapi data tersebut."
+6. if valid:
+   mark document complete
+
+====================================================
+F. TASK INTEGRATION
+====================================================
+
+Task detail must show:
+
+Document Validation Panel
+
+For each document:
+- file name
+- document type
+- validation status
+- confidence
+- missing fields
+- issue summary
+- reviewed by
+- review status
+
+Admin can:
+- accept AI validation
+- override status
+- request re-upload
+
+====================================================
+G. FRONTEND
+====================================================
+
+Create page:
+
+/document-intake
+
+Tabs:
+
+1. Audit Queue
+2. Valid Documents
+3. Incomplete Documents
+4. Invalid / Needs Review
+5. Validation Rules
+
+Components:
+- DocumentAuditTable
+- DocumentIssueBadge
+- ExtractedFieldsViewer
+- MissingFieldsList
+- RuleEditor
+
+Add Document Validation Panel to:
+- Task Detail
+- Intake Session Detail
+- Fleet Document Detail
+- Vendor Document Detail
+
+====================================================
+H. WHATSAPP REPLIES
+====================================================
+
+If document valid:
+"Dokumen {document_type} sudah kami terima dan valid."
+
+If incomplete:
+"Dokumen {document_type} sudah kami terima, namun masih kurang data berikut:
+{missing_fields}
+
+Mohon kirim ulang atau lengkapi data tersebut."
+
+If invalid:
+"Dokumen yang dikirim belum sesuai dengan jenis dokumen yang diminta ({document_type}). Mohon kirim dokumen yang benar."
+
+If needs_review:
+"Dokumen sudah kami terima dan sedang kami teruskan ke admin untuk pengecekan manual."
+
+====================================================
+I. RBAC
+====================================================
+
+staff:
+- view audits
+- upload documents
+
+supervisor:
+- review document validation
+- request re-upload
+
+company_admin:
+- manage validation rules
+- override validation
+
+super_admin:
+- full access
+
+====================================================
+J. VALIDATION TESTS
+====================================================
+
+Test:
+
+1. Upload valid Commercial Invoice
+2. Upload incomplete Packing List
+3. Upload wrong document type
+4. Upload low-quality damage photo
+5. Upload STNK with expiry date
+6. Upload fuel receipt
+7. Mini form upload triggers validation
+8. Incomplete document triggers WA reply
+9. Valid document allows intake completion
+10. Admin override works
+11. Validation rules CRUD works
+12. Task detail panel shows audit
+
+Output:
+- tables created
+- rules seeded
+- engine implemented
+- API endpoints
+- frontend pages
+- WA reply examples
+- test results
+- typecheck result
+- remaining risks
