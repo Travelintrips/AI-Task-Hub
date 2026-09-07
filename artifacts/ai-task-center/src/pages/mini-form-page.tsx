@@ -838,6 +838,31 @@ export default function MiniFormPage() {
     .filter((f, i, arr) => arr.findIndex((x) => x.name === f.name) === i) // dedupe
     .filter((f) => f.name.trim() !== "" && f.label.trim() !== ""); // remove empty/unnamed fields
 
+  // Older API processes/templates may not include the newly added field yet.
+  // Keep the GYM form usable by inserting it immediately after the booking date.
+  if (
+    isFieldBookingForm &&
+    isGymBooking &&
+    !allFields.some((field) => field.name === "people_count")
+  ) {
+    const bookingDateIndex = allFields.findIndex(
+      (field) => field.name === "booking_date",
+    );
+    const peopleCountField: FieldDef = {
+      name: "people_count",
+      label: "Jumlah Orang",
+      type: "number",
+      required: true,
+      placeholder: "1–20",
+      helpText: "Masukkan jumlah orang, 1 sampai 20.",
+    };
+    allFields.splice(
+      bookingDateIndex >= 0 ? bookingDateIndex + 1 : allFields.length,
+      0,
+      peopleCountField,
+    );
+  }
+
   // Keep the booking flow in the natural order: duration determines which
   // start times can still fit before midnight.
   if (isFieldBookingForm && !isGymBooking) {
