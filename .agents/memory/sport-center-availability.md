@@ -7,7 +7,7 @@ description: Availability behavior for booking_lapangan intents, including the m
 For sport center booking intents (booking_lapangan, sport_center_booking, field_booking), the WA AI now:
 1. Shows the active facility menu.
 2. Sends the field-booking mini-form immediately after a numbered/named facility is selected.
-3. Hydrates the form's `Jenis Lapangan` field from the exact selected facility name.
+3. Hydrates the form's `Jenis Fasilitas` field from the exact selected facility name.
 4. The public form performs the availability check while the customer chooses a date/time.
 
 ## New table: sport_center_bookings
@@ -53,7 +53,7 @@ legacy hours to midnight or using a global latest start time.
 The frontend should identify the dynamic start-time field by both canonical name
 and visible label, because imported/custom field definitions can retain an older
 field name while still rendering as “Jam Mulai”.
-Jenis Lapangan pada mini-form berasal dari nama unik fasilitas aktif di
+Jenis Fasilitas pada mini-form berasal dari nama unik fasilitas aktif di
 `sport_center.sport_facilities`, bukan daftar olahraga statis dari konfigurasi;
 nama yang dipilih dicocokkan ke `facility_id` spesifik sebelum availability dibaca.
 
@@ -120,7 +120,7 @@ When availability refresh removes a previously collected `start_time`, skip that
 **How to apply:** Treat `availableSlots` as the authority for both select options and prefilled start-time values.
 
 Notifikasi group setelah mini-form booking lapangan harus memakai urutan eksplisit:
-Nama Pemesan, Jenis Lapangan, Tanggal Main, Durasi Sewa, Jam Mulai, Jam Selesai,
+Nama Pemesan, Jenis Fasilitas, Tanggal Main, Durasi Sewa, Jam Mulai, Jam Selesai,
 Metode Pembayaran, Catatan. Gunakan `field_type` sebagai sumber utama dan jangan
 tampilkan alias `field_name` sebagai baris kedua.
 
@@ -129,6 +129,18 @@ session lama dapat menyimpan kedua alias lapangan sekaligus.
 
 **How to apply:** Bangun ringkasan booking dari daftar field terurut, bukan langsung
 dari `Object.entries(merged)`.
+
+## GYM mini-form variant
+For a GYM facility, the public form collects `Jumlah Orang` (integer 1–20) instead
+of duration and start time. Availability is not queried for this date-only variant.
+The legacy booking tables still require a start time, so persistence uses an internal
+`00:00` placeholder while user-facing summaries omit time and duration.
+
+**Why:** GYM capacity is person-based rather than a reservable hourly court slot,
+but the shared booking schema still has required time columns.
+
+**How to apply:** Keep the GYM branch explicit in both client rendering and server
+validation; do not reintroduce hidden duration/start-time requirements from old sessions.
 
 **Why:** The customer selects a concrete facility first; the form owns the remaining booking details and availability check, so WhatsApp no longer asks for those fields before showing the form.
 

@@ -58,6 +58,7 @@ import {
   getAvailableSportCenterStartTimes,
   getSportCenterFacilityOptions,
   getSportCenterPaymentSettings,
+  isGymFacility,
 } from "../lib/sport-center-availability";
 import {
   extractPaymentProofOcr,
@@ -348,6 +349,15 @@ router.get(
         res.status(400).json({ error: "Jenis lapangan dan tanggal wajib dipilih terlebih dahulu" });
         return;
       }
+      if (isGymFacility(fieldType)) {
+        res.json({
+          checkedDate: bookingDate,
+          durationMinutes: 0,
+          facilityIds: [],
+          availableSlots: [],
+        });
+        return;
+      }
 
       const availability = await getAvailableSportCenterStartTimes({
         fieldType,
@@ -435,9 +445,12 @@ router.post(
       if (!merged.field_type && merged.field_name)
         merged.field_type = merged.field_name;
 
+      const isFieldBookingForm = type.replace(/_/g, "-") === "field-booking";
+      const isGymBooking = isFieldBookingForm && isGymFacility(merged.field_type);
+
       // Auto-compute end_time from start_time + duration so users never have to fill it manually.
       // This covers field-booking and any form where the AI asks for end_time but the form only shows start + duration.
-      if (!merged.end_time && merged.start_time && merged.duration) {
+      if (!isGymBooking && !merged.end_time && merged.start_time && merged.duration) {
         const durationMap: Record<string, number> = {
           "1 jam": 60,
           "1,5 jam": 90,
@@ -465,10 +478,21 @@ router.post(
       const requiredBuiltinNames = formCfg.fields
         .filter((f: MiniFormFieldDef) => f.required)
         .map((f: MiniFormFieldDef) => f.name);
+      if (isGymBooking) {
+        const gymRequired = requiredBuiltinNames.filter(
+          (fieldName) => fieldName !== "duration" && fieldName !== "start_time",
+        );
+        if (!gymRequired.includes("people_count")) gymRequired.push("people_count");
+        requiredBuiltinNames.splice(0, requiredBuiltinNames.length, ...gymRequired);
+      }
 
       // "phone" is always provided by the WA session — remove it from the required list.
       // "end_time" is always auto-computed from start_time + duration — never require user input for it.
-      const ALWAYS_EXCLUDE = new Set(["phone", "end_time"]);
+      const ALWAYS_EXCLUDE = new Set([
+        "phone",
+        "end_time",
+        ...(isGymBooking ? ["duration", "start_time"] : []),
+      ]);
       const prevMissing = (
         Array.isArray(session.missingFields)
           ? (session.missingFields as string[])
@@ -480,6 +504,15 @@ router.post(
       const stillMissing = allRequired.filter(
         (f) => !merged[f] || String(merged[f]).trim() === "",
       );
+      if (
+        isGymBooking &&
+        (!Number.isInteger(Number(merged.people_count)) ||
+          Number(merged.people_count) < 1 ||
+          Number(merged.people_count) > 20) &&
+        !stillMissing.includes("people_count")
+      ) {
+        stillMissing.push("people_count");
+      }
 
       // Merge uploaded docs
       const prevDocs = Array.isArray(session.uploadedDocuments)
@@ -492,7 +525,7 @@ router.post(
 
       // Re-check at submit time so a slot booked after the form loaded cannot
       // be submitted through a stale browser tab.
-      if (isComplete && type.replace(/_/g, "-") === "field-booking") {
+      if (isComplete && isFieldBookingForm && !isGymBooking) {
         const availability = await getAvailableSportCenterStartTimes({
           fieldType: String(merged.field_type ?? merged.field_name ?? ""),
           bookingDate: String(merged.booking_date ?? ""),
@@ -517,6 +550,7 @@ router.post(
         const expectedAmount = calcTotalPrice(
           String(merged.field_type ?? merged.field_name ?? ""),
           extractDurationHours(merged),
+          Number(merged.people_count) || 1,
         );
         paymentProofOcr = await extractPaymentProofOcr({
           fileUrl: paymentProofUrl,
@@ -601,16 +635,16 @@ router.post(
           session.intentCode.toLowerCase().includes("sport_center")
         ) {
           const endTime = String(merged.end_time ?? "").trim() || undefined;
-          const isFieldBookingForm = type.replace(/_/g, "-") === "field-booking";
           const savedFormBooking = await saveSportCenterBooking({
             companyId: session.companyId,
             aiTaskId: taskId,
             intakeSessionId: session.id,
             fieldType: String(merged.field_type ?? merged.field_name ?? "Umum"),
             bookingDate: String(merged.booking_date ?? ""),
-            startTime: String(merged.start_time ?? ""),
+            startTime: isGymBooking ? "00:00" : String(merged.start_time ?? ""),
             endTime: endTime ?? null,
             durationHours: extractDurationHours(merged),
+            peopleCount: Number(merged.people_count) || 1,
             bookerName: String(merged.booker_name ?? "").trim() || null,
             phone: session.phone,
             notes: String(merged.notes ?? "").trim() || null,
@@ -833,6 +867,7 @@ router.post(
               field_type: "Jenis Fasilitas",
               duration: "Durasi Sewa",
               booking_date: "Tanggal Main",
+              people_count: "Jumlah Orang",
               start_time: "Jam Mulai",
               end_time: "Jam Selesai",
               durasi: "Durasi Sewa",
@@ -886,9 +921,19 @@ router.post(
               }
             }
 
-            const isFieldBookingForm = type.replace(/_/g, "-") === "field-booking";
             const summaryEntries: Array<[string, unknown]> = isFieldBookingForm
-              ? [
+              ? isGymFacility(merged.field_type ?? merged.field_name)
+                ? [
+                  ["booker_name", merged.booker_name],
+                  ["phone", session.phone],
+                  ["field_type", merged.field_type ?? merged.field_name],
+                  ["booking_date", merged.booking_date],
+                  ["people_count", merged.people_count],
+                  ["payment_method", merged.payment_method],
+                  ["total_price", sportCenterTotalPrice],
+                  ["notes", merged.notes],
+                ]
+                : [
                   ["booker_name", merged.booker_name],
                   ["phone", session.phone],
                   ["field_type", merged.field_type ?? merged.field_name],
@@ -1345,9 +1390,13 @@ function buildFieldBookingCustomerMessage(params: {
     ["No.Pelanggan", params.phone],
     ["Jenis Fasilitas", get("field_type") !== "-" ? get("field_type") : get("field_name")],
     ["Tanggal Main", get("booking_date")],
-    ["Durasi Sewa", get("duration") !== "-" ? get("duration") : get("durasi")],
-    ["Jam Mulai", get("start_time")],
-    ["Jam Selesai", get("end_time")],
+    ...(isGymFacility(params.fields.field_type ?? params.fields.field_name)
+      ? [["Jumlah Orang", get("people_count")]]
+      : [
+          ["Durasi Sewa", get("duration") !== "-" ? get("duration") : get("durasi")],
+          ["Jam Mulai", get("start_time")],
+          ["Jam Selesai", get("end_time")],
+        ]),
     ["Metode Pembayaran", get("payment_method")],
     ["Total", total],
     ["Catatan", get("notes")],

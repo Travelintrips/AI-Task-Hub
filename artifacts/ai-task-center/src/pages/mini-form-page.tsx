@@ -17,6 +17,10 @@ function normalizeSportCenterDuration(value: unknown): string {
   return SPORT_CENTER_DURATION_OPTIONS.includes(duration) ? duration : "1 jam";
 }
 
+function isGymFacility(value: unknown): boolean {
+  return String(value ?? "").trim().toLowerCase().includes("gym");
+}
+
 function getSportCenterPricePerHour(fieldType: string): number {
   const normalized = fieldType.toLowerCase().trim();
   if (normalized.includes("gym")) return 50_000;
@@ -179,8 +183,8 @@ function normalizeSportCenterField(field: ReturnType<typeof normalizeField>) {
   const label = field.label.trim().toLowerCase();
   const name = field.name.trim().toLowerCase();
 
-  if (label === "jenis lapangan" || name === "field_name") {
-    return { ...field, name: "field_type" };
+  if (label === "jenis lapangan" || label === "jenis fasilitas" || name === "field_name") {
+    return { ...field, name: "field_type", label: "Jenis Fasilitas" };
   }
   if (label === "tanggal main") {
     return { ...field, name: "booking_date" };
@@ -190,6 +194,9 @@ function normalizeSportCenterField(field: ReturnType<typeof normalizeField>) {
   }
   if (label === "durasi sewa") {
     return { ...field, name: "duration" };
+  }
+  if (label === "jumlah orang" || label === "jumlah pemain" || name === "players_count" || name === "jumlah_orang") {
+    return { ...field, name: "people_count", label: "Jumlah Orang" };
   }
   return field;
 }
@@ -263,15 +270,18 @@ function SportCenterBookingSummary({
   bookingDate,
   duration,
   startTime,
+  peopleCount,
 }: {
   fieldType: string;
   bookingDate: string;
   duration: string;
   startTime: string;
+  peopleCount: string;
 }) {
+  const gymBooking = isGymFacility(fieldType);
   const totalPrice =
     getSportCenterPricePerHour(fieldType) *
-    getSportCenterDurationHours(duration);
+    (gymBooking ? Math.max(Number(peopleCount) || 1, 1) : getSportCenterDurationHours(duration));
 
   return (
     <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3">
@@ -285,12 +295,21 @@ function SportCenterBookingSummary({
         <span className="font-medium text-gray-800">
           {formatSportCenterDate(bookingDate)}
         </span>
-        <span className="text-gray-500">Durasi</span>
-        <span className="font-medium text-gray-800">{duration || "-"}</span>
-        <span className="text-gray-500">Waktu</span>
-        <span className="font-medium text-gray-800">
-          {formatSportCenterTimeRange(startTime, duration)}
-        </span>
+        {gymBooking ? (
+          <>
+            <span className="text-gray-500">Jumlah Orang</span>
+            <span className="font-medium text-gray-800">{peopleCount || "-"}</span>
+          </>
+        ) : (
+          <>
+            <span className="text-gray-500">Durasi</span>
+            <span className="font-medium text-gray-800">{duration || "-"}</span>
+            <span className="text-gray-500">Waktu</span>
+            <span className="font-medium text-gray-800">
+              {formatSportCenterTimeRange(startTime, duration)}
+            </span>
+          </>
+        )}
         <span className="text-gray-500">Total</span>
         <span className="font-semibold text-indigo-700">
           {formatRupiah(totalPrice)}
@@ -403,6 +422,8 @@ function FormField({
       placeholder={field.placeholder}
       value={value}
       onChange={(e) => onChange(e.target.value)}
+      min={field.name === "people_count" ? 1 : undefined}
+      max={field.name === "people_count" ? 20 : undefined}
     />
   );
 }
@@ -669,6 +690,7 @@ export default function MiniFormPage() {
     String(data?.collectedFields?.payment_method ?? "");
   const isFieldBookingForm =
     !isPreview && type?.replace(/_/g, "-") === "field-booking";
+  const isGymBooking = isFieldBookingForm && isGymFacility(selectedFieldType);
 
   const availabilityQuery = useQuery<{
     checkedDate: string;
@@ -696,6 +718,7 @@ export default function MiniFormPage() {
     },
     enabled:
       isFieldBookingForm &&
+      !isGymBooking &&
       !!type &&
       !!token &&
       !!selectedFieldType &&
@@ -795,12 +818,29 @@ export default function MiniFormPage() {
           }
         : field,
     )
+    .map((field) =>
+      isFieldBookingForm && field.name === "people_count"
+        ? {
+            ...field,
+            required: isGymBooking,
+            placeholder: "1–20",
+            helpText: "Masukkan jumlah orang, 1 sampai 20.",
+          }
+        : field,
+    )
+    .filter((field) => {
+      if (!isFieldBookingForm) return true;
+      if (isGymBooking) {
+        return field.name !== "duration" && field.name !== "start_time";
+      }
+      return field.name !== "people_count";
+    })
     .filter((f, i, arr) => arr.findIndex((x) => x.name === f.name) === i) // dedupe
     .filter((f) => f.name.trim() !== "" && f.label.trim() !== ""); // remove empty/unnamed fields
 
   // Keep the booking flow in the natural order: duration determines which
   // start times can still fit before midnight.
-  if (isFieldBookingForm) {
+  if (isFieldBookingForm && !isGymBooking) {
     const durationIndex = allFields.findIndex((field) => field.name === "duration");
     const startTimeIndex = allFields.findIndex(
       (field) =>
@@ -842,6 +882,7 @@ export default function MiniFormPage() {
       ...(name === "field_type" || name === "booking_date" || name === "duration"
         ? { start_time: "" }
         : {}),
+      ...(name === "field_type" && isGymFacility(val) ? { duration: "" } : {}),
     }));
   }
 
@@ -853,6 +894,21 @@ export default function MiniFormPage() {
     e.preventDefault();
     const allNames = new Set(allFields.map((f) => f.name));
     setTouched(allNames);
+    if (isGymBooking) {
+      const peopleCount = Number(merged.people_count);
+      if (!Number.isInteger(peopleCount) || peopleCount < 1 || peopleCount > 20) {
+        setSubmitResult({
+          ok: false,
+          isComplete: false,
+          message: "Jumlah orang untuk GYM harus diisi antara 1 sampai 20.",
+          missingFields: ["people_count"],
+        });
+        return;
+      }
+    }
+    const submittedFields = Object.fromEntries(
+      allFields.map((field) => [field.name, merged[field.name] ?? ""]),
+    );
     // Keep an explicit list of uploaded document URLs as well as the file
     // fields. The API uses the list to persist uploads across multi-step
     // submissions and to recover if a custom form omits a file field.
@@ -861,7 +917,7 @@ export default function MiniFormPage() {
       .map((f) => merged[f.name] ?? "")
       .filter((value) => value.startsWith("http"));
     mutation.mutate({
-      fields: merged,
+      fields: submittedFields,
       uploadedDocuments,
     });
   }
@@ -931,7 +987,11 @@ export default function MiniFormPage() {
                 const hasError =
                   isTouched &&
                   field.required &&
-                  !val.trim();
+                  (!val.trim() ||
+                    (field.name === "people_count" &&
+                      (!Number.isInteger(Number(val)) ||
+                        Number(val) < 1 ||
+                        Number(val) > 20)));
 
                 // File fields pakai FileFieldRenderer khusus (upload ke server/storage)
                 if (field.type === "file") {
@@ -1032,6 +1092,7 @@ export default function MiniFormPage() {
                               bookingDate={selectedBookingDate}
                               duration={selectedDuration}
                               startTime={selectedStartTime}
+                              peopleCount={merged.people_count ?? ""}
                             />
                           </>
                        )}

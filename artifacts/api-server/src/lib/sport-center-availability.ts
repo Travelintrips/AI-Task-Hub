@@ -32,6 +32,10 @@ export function isSportCenterBookingIntent(intentCode: string): boolean {
   return SPORT_CENTER_INTENT_PATTERNS.some((p) => lower.includes(p));
 }
 
+export function isGymFacility(value: unknown): boolean {
+  return String(value ?? "").trim().toLowerCase().includes("gym");
+}
+
 // ── Confirmation detection ─────────────────────────────────────────────────────
 
 const CONFIRM_PATTERNS =
@@ -567,9 +571,16 @@ export const SC_PRICE_PER_HOUR: Record<string, number> = {
   billiard:    50_000,
 };
 
-export function calcTotalPrice(fieldType: string, durationHours: number): number {
+export function calcTotalPrice(
+  fieldType: string,
+  durationHours: number,
+  peopleCount = 1,
+): number {
   const price = getPricePerHour(fieldType);
-  return Math.round(price * Math.max(durationHours, 1));
+  const multiplier = isGymFacility(fieldType)
+    ? Math.max(Math.round(peopleCount) || 1, 1)
+    : Math.max(durationHours, 1);
+  return Math.round(price * multiplier);
 }
 
 /**
@@ -843,6 +854,7 @@ export async function saveSportCenterBooking(params: {
   bookerName?: string | null;
   phone?: string | null;
   notes?: string | null;
+  peopleCount?: number | null;
   /** Pre-generated booking code from reserveBookingCode(). If provided, skips DB sequence generation. */
   bookingNumber?: string | null;
 }): Promise<SavedBooking | null> {
@@ -852,7 +864,11 @@ export async function saveSportCenterBooking(params: {
   const normalizedDate = normalizeDateString(params.bookingDate) ?? params.bookingDate;
   const durationHours  = params.durationHours ?? 1;
   const pricePerHour   = getPricePerHour(params.fieldType);
-  const totalPrice     = calcTotalPrice(params.fieldType, durationHours);
+  const totalPrice     = calcTotalPrice(
+    params.fieldType,
+    durationHours,
+    params.peopleCount ?? 1,
+  );
   const paymentDeadline = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
 
   // Facility display name
