@@ -25,3 +25,10 @@ The greeting menu and the next numeric reply arrive as separate webhooks. A stal
 **Why:** Cancelling the old session asynchronously allows the numeric reply to continue the wrong intent instead of selecting the requested top-level service.
 
 **How to apply:** When a greeting shows the main menu, retain short-lived menu context and let digits 1–6 override/cancel stale intake state; do not apply that override to numeric replies during a normal active sport-center flow.
+
+# Global Numeric Gate
+The WhatsApp route also has a global digit-5 "pertanyaan lainnya" gate that runs before active-session processing.
+
+**Why:** A Sport Center facility menu uses 1–6, so that global gate can cancel the active booking session and send the customer back to the general inquiry menu.
+
+**How to apply:** Exempt numeric facility selections from global menu gates whenever an active Sport Center intake session exists; let `processIntakeMessage` map the number to the facility first.

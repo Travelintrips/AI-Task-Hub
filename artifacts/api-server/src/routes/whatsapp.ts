@@ -1406,11 +1406,31 @@ async function runAiDetection({
     // "pertanyaan lainnya" that slipped through to the AI pipeline and left a session).
     const _isDigit5 = bodyText.trim() === "5";
     const _isGenInquiry = isGeneralInquiry(bodyText);
+    // Digit 5 is also a valid Sport Center facility choice when the intake
+    // session is showing the facility menu. Let that active session consume
+    // the number instead of treating it as the global "pertanyaan lainnya"
+    // menu option.
+    const _isActiveSportCenterIntake =
+      activeSession !== null &&
+      isSportCenterBookingIntent(activeSession.intentCode);
+    const _isFacilitySelectionDigit5 = _isDigit5 && _isActiveSportCenterIntake;
     logger.info(
-      { from, bodyText, bodyLen: bodyText.length, isAnsweringClarification, _isDigit5, _isGenInquiry },
+      {
+        from,
+        bodyText,
+        bodyLen: bodyText.length,
+        isAnsweringClarification,
+        _isDigit5,
+        _isGenInquiry,
+        _isActiveSportCenterIntake,
+        _isFacilitySelectionDigit5,
+      },
       "general-inquiry-gate: evaluating",
     );
-    if (!isAnsweringClarification && (_isDigit5 || _isGenInquiry)) {
+    if (
+      !isAnsweringClarification &&
+      ((_isDigit5 && !_isFacilitySelectionDigit5) || _isGenInquiry)
+    ) {
       logger.info({ from, msg: bodyText }, "General inquiry detected — cancelling any stale session, asking clarification question");
       // Cancel any lingering session so it doesn't interfere with the clarification flow
       await db
