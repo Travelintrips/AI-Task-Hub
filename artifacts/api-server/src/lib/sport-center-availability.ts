@@ -529,7 +529,7 @@ export function buildAvailableMessage(
     tennis:     100_000,
     basketball: 350_000,
     voli:       350_000,
-    gym:         50_000,
+    gym:         30_000,
     billiard:    50_000,
   };
   const pricePerUnit = PRICE_PER_UNIT[fieldType.toLowerCase().trim()];
@@ -567,7 +567,7 @@ export const SC_PRICE_PER_HOUR: Record<string, number> = {
   tennis:     100_000,
   basketball: 350_000,
   voli:       350_000,
-  gym:         50_000,
+  gym:         30_000,
   billiard:    50_000,
 };
 

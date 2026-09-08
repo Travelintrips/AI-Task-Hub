@@ -23,7 +23,7 @@ function isGymFacility(value: unknown): boolean {
 
 function getSportCenterPricePerHour(fieldType: string): number {
   const normalized = fieldType.toLowerCase().trim();
-  if (normalized.includes("gym")) return 50_000;
+  if (normalized.includes("gym")) return 30_000;
   if (normalized.includes("billiard")) return 50_000;
   if (normalized.includes("badminton")) return 100_000;
   if (normalized.includes("tenis") || normalized.includes("tennis")) {
