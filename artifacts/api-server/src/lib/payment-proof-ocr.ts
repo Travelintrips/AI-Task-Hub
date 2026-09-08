@@ -51,6 +51,29 @@ function normalizeAmount(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
+function extractAmountFromText(rawText: string): number | null {
+  const text = rawText.replace(/\u00a0/g, " ");
+  const amountPattern = String.raw`(?:Rp|IDR)?\s*([0-9][0-9.,\s]*)`;
+  const labeledPatterns = [
+    new RegExp(
+      String.raw`(?:total\s+transaksi|transaction\s+amount|total\s+pembayaran|jumlah\s+pembayaran|nominal\s+pembayaran|total)\s*:?\s*` +
+        amountPattern,
+      "gi",
+    ),
+    new RegExp(String.raw`(?:Rp|IDR)\s*([0-9][0-9.,\s]*)`, "gi"),
+  ];
+
+  for (const pattern of labeledPatterns) {
+    const matches = text.matchAll(pattern);
+    for (const match of matches) {
+      const amount = normalizeAmount(match[1]);
+      if (amount !== null && amount > 0) return amount;
+    }
+  }
+
+  return null;
+}
+
 function stringOrNull(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -108,6 +131,7 @@ Return ONLY a valid JSON object with exactly these keys:
   "is_payment_proof": boolean,
   "payer_name": string|null,
   "amount": number|null,
+  "amount_text": string|null,
   "transaction_date": string|null,
   "reference": string|null,
   "bank_name": string|null,
@@ -118,7 +142,10 @@ Return ONLY a valid JSON object with exactly these keys:
 
 Rules:
 - Set is_payment_proof=false if this is not clearly a bank transfer, QRIS, e-wallet, cash receipt, or other payment receipt.
+- Read the exact amount next to the receipt's total label, such as "Total Transaksi", "Transaction Amount", or "Total Pembayaran".
+- For Indonesian currency, a dot is a thousands separator: "Rp 30.000" means 30000, never 30.
 - amount must be a numeric number only, with no currency symbols or separators.
+- amount_text must preserve the visible amount exactly as text, including "Rp" and separators when readable.
 - transaction_date must use YYYY-MM-DD when the date is readable.
 - Do not guess unreadable values; use null.
 - confidence must be between 0 and 1.
@@ -243,12 +270,15 @@ export async function extractPaymentProofOcr(params: {
       1,
       Math.max(0, Number(parsed.confidence) || 0),
     );
-    const amount = normalizeAmount(parsed.amount);
     const payerName = stringOrNull(parsed.payer_name);
     const transactionDate = normalizeDate(parsed.transaction_date);
     const reference = stringOrNull(parsed.reference);
     const bankName = stringOrNull(parsed.bank_name);
     const rawText = stringOrNull(parsed.raw_text) ?? "";
+    const amountFromText = extractAmountFromText(rawText);
+    const amountFromAmountText = normalizeAmount(parsed.amount_text);
+    const amountFromModel = normalizeAmount(parsed.amount);
+    const amount = amountFromText ?? amountFromAmountText ?? amountFromModel;
     const isPaymentProof = parsed.is_payment_proof === true;
     const amountMatches =
       amount !== null &&
@@ -284,6 +314,12 @@ export async function extractPaymentProofOcr(params: {
       is_payment_proof: isPaymentProof,
       payer_name: payerName,
       amount,
+      amount_text: stringOrNull(parsed.amount_text),
+      amount_source: amountFromText !== null
+        ? "raw_text"
+        : amountFromAmountText !== null
+          ? "amount_text"
+          : "model_amount",
       transaction_date: transactionDate,
       reference,
       bank_name: bankName,
