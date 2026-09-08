@@ -847,7 +847,7 @@ router.post(
                   eq(notificationReceiversTable.companyId, "default"),
                 );
 
-          const receivers = await db
+          const rawReceivers = await db
             .select()
             .from(notificationReceiversTable)
             .where(
@@ -859,6 +859,27 @@ router.post(
                   : inArray(notificationReceiversTable.category, categoryList),
               ),
             );
+          const receivers = Array.from(
+            new Map(
+              rawReceivers
+                .filter((receiver) => receiver.phone.trim())
+                .map((receiver) => [receiver.phone.trim(), receiver]),
+            ).values(),
+          );
+          if (rawReceivers.length !== receivers.length) {
+            logger.warn(
+              {
+                rawReceiverCount: rawReceivers.length,
+                deduplicatedReceiverCount: receivers.length,
+                duplicatePhones: rawReceivers
+                  .map((receiver) => receiver.phone.trim())
+                  .filter(
+                    (phone, index, phones) => phones.indexOf(phone) !== index,
+                  ),
+              },
+              "intake-form: duplicate notification receivers removed",
+            );
+          }
 
           if (receivers.length > 0) {
             const fieldLabelMap: Record<string, string> = {
@@ -909,12 +930,17 @@ router.post(
             };
 
             // Identifikasi semua file fields yang punya URL dari konfigurasi form
-            const fileFieldUrlEntries: Array<{ label: string; url: string }> = [];
+            const fileFieldUrlEntries: Array<{
+              key: string;
+              label: string;
+              url: string;
+            }> = [];
             for (const field of formCfg.fields) {
               if (field.type === "file") {
                 const val = merged[field.name];
                 if (isPublicUrl(val)) {
                   fileFieldUrlEntries.push({
+                    key: field.name,
                     label: fileLabelMap[field.name] ?? field.label,
                     url: val,
                   });
@@ -968,12 +994,39 @@ router.post(
               })
               .join("\n");
 
+            // Payment proofs are stored in a private bucket in production.
+            // Resolve uploaded Storage URLs before composing the first group
+            // notification so the proof link is usable outside the server.
+            const accessibleFileUrls = new Map<string, string>();
+            await Promise.all(
+              fileFieldUrlEntries.map(async ({ url }) => {
+                const storagePath = extractStoragePath(url);
+                if (!storagePath) return;
+                try {
+                  const accessible = await getAccessibleUrl(
+                    storagePath,
+                    url,
+                    extractStorageBucket(url) ?? undefined,
+                  );
+                  accessibleFileUrls.set(url, accessible.url);
+                } catch (accessErr) {
+                  logger.warn(
+                    { accessErr },
+                    "intake-form: gagal membuat URL sementara untuk file notifikasi",
+                  );
+                }
+              }),
+            );
+
             // Tambahkan bagian dokumen jika ada file yang diupload
             const docTextSection =
               fileFieldUrlEntries.length > 0
                 ? `\n\n*Dokumen Terlampir:*\n` +
                   fileFieldUrlEntries
-                    .map(({ label, url }) => `• ${label}: ${url}`)
+                    .map(
+                      ({ label, url }) =>
+                        `• ${label}: ${accessibleFileUrls.get(url) ?? url}`,
+                    )
                     .join("\n")
                 : "";
 

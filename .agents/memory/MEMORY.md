@@ -51,3 +51,4 @@
 - [Supabase login and AI Task databases](supabase-login-and-ai-task.md) — REST service key success does not prove PostgreSQL pooler credentials work; validate both Dev and Prod channels separately.
 - [Private payment-proof storage](private-payment-proof-storage.md) — keep payment-proofs private; OCR must download through the server-side Supabase service role, not an anonymous public URL.
 - [Sport center pricing names](sport-center-pricing-names.md) — facility names can use “multi guna” or “multiguna”; both must map to Rp350.000/hour.
+- [Sport center notification dedupe](sport-center-notification-dedupe.md) — company/default receiver aliases can duplicate one group; dedupe by normalized phone at send time.

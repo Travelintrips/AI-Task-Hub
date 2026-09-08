@@ -52,7 +52,7 @@ export async function ensurePaymentProofBucket(): Promise<void> {
   const exists = buckets?.some((bucket) => bucket.name === PAYMENT_PROOF_BUCKET);
   if (!exists) {
     const { error } = await supabase.storage.createBucket(PAYMENT_PROOF_BUCKET, {
-      public: true,
+      public: false,
       fileSizeLimit: 10 * 1024 * 1024,
       allowedMimeTypes: ["application/pdf", "image/jpeg", "image/png", "image/webp"],
     });
