@@ -4,7 +4,7 @@
  * No authentication required — token-based access
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 
@@ -432,6 +432,7 @@ function FormField({
 function FileFieldRenderer({
   field,
   currentValue,
+  preview,
   isUploading,
   isRemoving,
   uploadError,
@@ -441,6 +442,7 @@ function FileFieldRenderer({
 }: {
   field: ReturnType<typeof normalizeField>;
   currentValue: string;
+  preview?: { url: string; mimeType: string };
   isUploading: boolean;
   isRemoving: boolean;
   uploadError?: string;
@@ -464,31 +466,61 @@ function FileFieldRenderer({
       </label>
 
       {isUploaded ? (
-        <div className="flex items-center gap-2 rounded-lg border border-green-300 bg-green-50 px-3 py-2.5 text-sm text-green-700">
-          <span>✅</span>
-          <span className="truncate flex-1">
-            {currentValue.split("/").pop()?.split("?")[0] ?? "File terupload"}
-          </span>
-          <label className="cursor-pointer text-xs text-blue-500 underline shrink-0">
-            Ganti
-            <input
-              type="file"
-              className="hidden"
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 rounded-lg border border-green-300 bg-green-50 px-3 py-2.5 text-sm text-green-700">
+            <span>✅</span>
+            <span className="truncate flex-1">
+              {currentValue.split("/").pop()?.split("?")[0] ?? "File terupload"}
+            </span>
+            <label className="cursor-pointer text-xs text-blue-500 underline shrink-0">
+              Ganti
+              <input
+                type="file"
+                className="hidden"
                 accept={acceptedFiles}
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) onFileChange(f);
-              }}
-            />
-          </label>
-          <button
-            type="button"
-            className="text-xs text-red-500 underline shrink-0 disabled:cursor-not-allowed disabled:opacity-50"
-            onClick={onRemove}
-            disabled={isRemoving}
-          >
-            {isRemoving ? "Menghapus..." : "Delete"}
-          </button>
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) onFileChange(f);
+                }}
+              />
+            </label>
+            <button
+              type="button"
+              className="text-xs text-red-500 underline shrink-0 disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={onRemove}
+              disabled={isRemoving}
+            >
+              {isRemoving ? "Menghapus..." : "Delete"}
+            </button>
+          </div>
+          {isPaymentProof && preview?.mimeType.startsWith("image/") && (
+            <a
+              href={preview.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block overflow-hidden rounded-lg border border-gray-200 bg-gray-50 p-2"
+              title="Klik untuk membuka bukti pembayaran"
+            >
+              <img
+                src={preview.url}
+                alt="Preview bukti pembayaran"
+                className="mx-auto max-h-56 w-full object-contain"
+              />
+              <span className="mt-1 block text-center text-xs text-blue-600 underline">
+                Klik untuk memperbesar
+              </span>
+            </a>
+          )}
+          {isPaymentProof && preview?.mimeType === "application/pdf" && (
+            <a
+              href={preview.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-center text-sm text-blue-600 underline"
+            >
+              📄 Lihat bukti pembayaran PDF
+            </a>
+          )}
         </div>
       ) : isUploading ? (
         <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-sm text-blue-600">
@@ -551,6 +583,42 @@ export default function MiniFormPage() {
   );
   const [removingFields, setRemovingFields] = useState<Set<string>>(new Set());
   const [uploadErrors, setUploadErrors] = useState<Record<string, string>>({});
+  const [uploadPreviews, setUploadPreviews] = useState<
+    Record<string, { url: string; mimeType: string }>
+  >({});
+  const previewUrlsRef = useRef<Record<string, string>>({});
+
+  useEffect(() => {
+    return () => {
+      Object.values(previewUrlsRef.current).forEach((url) =>
+        URL.revokeObjectURL(url),
+      );
+    };
+  }, []);
+
+  function setUploadPreview(fieldName: string, file: File) {
+    const previousUrl = previewUrlsRef.current[fieldName];
+    if (previousUrl) URL.revokeObjectURL(previousUrl);
+    const url = URL.createObjectURL(file);
+    previewUrlsRef.current[fieldName] = url;
+    setUploadPreviews((previous) => ({
+      ...previous,
+      [fieldName]: { url, mimeType: file.type },
+    }));
+  }
+
+  function clearUploadPreview(fieldName: string) {
+    const previousUrl = previewUrlsRef.current[fieldName];
+    if (previousUrl) {
+      URL.revokeObjectURL(previousUrl);
+      delete previewUrlsRef.current[fieldName];
+    }
+    setUploadPreviews((previous) => {
+      const next = { ...previous };
+      delete next[fieldName];
+      return next;
+    });
+  }
 
   async function handleFileUpload(fieldName: string, file: File) {
     if (fieldName === "payment_proof") {
@@ -605,6 +673,7 @@ export default function MiniFormPage() {
         if (!uploadResponse.ok || !uploadResult.publicUrl) {
           throw new Error(uploadResult.error ?? `Upload gagal (${uploadResponse.status})`);
         }
+        setUploadPreview(fieldName, file);
         setValues((prev) => ({ ...prev, [fieldName]: uploadResult.publicUrl! }));
         return;
       }
@@ -627,6 +696,7 @@ export default function MiniFormPage() {
       if (!uploadRes.ok) throw new Error(`Upload gagal (${uploadRes.status})`);
 
       // 3. Simpan public URL sebagai nilai field
+      setUploadPreview(fieldName, file);
       setValues((prev) => ({ ...prev, [fieldName]: urlRes.publicUrl }));
     } catch (err) {
       setUploadErrors((prev) => ({
@@ -667,6 +737,7 @@ export default function MiniFormPage() {
         throw new Error(result.error ?? `Hapus gagal (${response.status})`);
       }
       setValues((prev) => ({ ...prev, [fieldName]: "" }));
+      clearUploadPreview(fieldName);
     } catch (err) {
       setUploadErrors((prev) => ({
         ...prev,
@@ -1077,6 +1148,7 @@ export default function MiniFormPage() {
                       key={field.name}
                       field={field}
                       currentValue={val}
+                      preview={uploadPreviews[field.name]}
                       isUploading={uploadingFields.has(field.name)}
                       isRemoving={removingFields.has(field.name)}
                       uploadError={uploadErrors[field.name]}
