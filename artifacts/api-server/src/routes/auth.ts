@@ -68,39 +68,44 @@ router.post("/auth/login", async (req: Request, res: Response): Promise<void> =>
     return;
   }
 
-  const [user] = await db
-    .select()
-    .from(usersTable)
-    .where(eq(usersTable.email, email.toLowerCase().trim()))
-    .limit(1);
+  try {
+    const [user] = await db
+      .select()
+      .from(usersTable)
+      .where(eq(usersTable.email, email.toLowerCase().trim()))
+      .limit(1);
 
-  if (!user || !user.isActive) {
-    res.status(401).json({ error: "Invalid credentials" });
-    return;
+    if (!user || !user.isActive || !user.passwordHash) {
+      res.status(401).json({ error: "Invalid credentials" });
+      return;
+    }
+
+    const valid = await bcrypt.compare(password, user.passwordHash);
+    if (!valid) {
+      res.status(401).json({ error: "Invalid credentials" });
+      return;
+    }
+
+    await db
+      .update(usersTable)
+      .set({ lastLoginAt: new Date() })
+      .where(eq(usersTable.id, user.id));
+
+    const token = signToken({
+      id: user.id,
+      email: user.email,
+      role: user.role as UserRole,
+      companyId: user.companyId,
+      name: user.name,
+    });
+
+    logger.info({ userId: user.id, role: user.role, companyId: user.companyId }, "User logged in");
+
+    res.json({ token, user: safeUser(user) });
+  } catch (err) {
+    logger.error({ err }, "POST /auth/login failed — database unavailable");
+    res.status(503).json({ error: "Login service temporarily unavailable" });
   }
-
-  const valid = await bcrypt.compare(password, user.passwordHash);
-  if (!valid) {
-    res.status(401).json({ error: "Invalid credentials" });
-    return;
-  }
-
-  await db
-    .update(usersTable)
-    .set({ lastLoginAt: new Date() })
-    .where(eq(usersTable.id, user.id));
-
-  const token = signToken({
-    id: user.id,
-    email: user.email,
-    role: user.role as UserRole,
-    companyId: user.companyId,
-    name: user.name,
-  });
-
-  logger.info({ userId: user.id, role: user.role, companyId: user.companyId }, "User logged in");
-
-  res.json({ token, user: safeUser(user) });
 });
 
 // ─── POST /auth/logout ─────────────────────────────────────────────────────────

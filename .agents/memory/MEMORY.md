@@ -48,3 +48,4 @@
 - [Fonnte interactive menu](fonnte-interactive-menu.md) — native buttons/lists are deprecated; use a single-choice poll and route its labels, not overlapping greeting-menu numbers.
 - [Mini-form response scope](mini-form-response-scope.md) — keep post-submit attachment summaries in handler scope; task/session can save before a late response exception.
 - [Fonnte doc message required](fonnte-doc-message-required.md) — sendFonnteDocument wajib kirim field `message` (caption) atau Fonnte tolak dengan "message cannot empty".
+- [Supabase login and AI Task databases](supabase-login-and-ai-task.md) — REST service key success does not prove PostgreSQL pooler credentials work; validate both Dev and Prod channels separately.

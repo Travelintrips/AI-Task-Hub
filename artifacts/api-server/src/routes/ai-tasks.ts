@@ -8,7 +8,7 @@ import {
   teamMembersTable,
   whatsappMessagesTable,
 } from "@workspace/db";
-import { requireAuth, getCompanyId } from "../middleware/auth";
+import { requireAuth, getCompanyId, getCompanyIdForWrite } from "../middleware/auth";
 import { logger } from "../lib/logger";
 import { notifyStatusChanged, notifyTaskAssigned, notifyTaskCompleted, notifyTaskCreated } from "../lib/notifications";
 import { emitSseEvent } from "../lib/sse";
@@ -21,14 +21,16 @@ const router: IRouter = Router();
 
 router.get("/ai-tasks", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
-    const companyId = getCompanyId(req) ?? req.user!.companyId;
+    // super_admin without ?companyId intentionally sees all companies.
+    const companyId = getCompanyId(req);
     const {
       status, priority, category, division, search,
       dateFrom, dateTo,
     } = req.query as Record<string, string | undefined>;
 
     // Build DB-level WHERE conditions
-    const conditions: SQL[] = [eq(aiTasksTable.companyId, companyId)];
+    const conditions: SQL[] = [];
+    if (companyId) conditions.push(eq(aiTasksTable.companyId, companyId));
 
     if (status)   conditions.push(eq(aiTasksTable.status, status));
     if (priority) conditions.push(eq(aiTasksTable.priority, priority));
@@ -49,7 +51,7 @@ router.get("/ai-tasks", requireAuth, async (req: Request, res: Response): Promis
     let rows = await db
       .select()
       .from(aiTasksTable)
-      .where(and(...conditions))
+      .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(desc(aiTasksTable.updatedAt))
       .limit(500);
 
@@ -81,12 +83,14 @@ router.get("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): Pr
     const id = Number(req.params.id);
     if (Number.isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
 
-    const companyId = getCompanyId(req) ?? req.user!.companyId;
+    const companyId = getCompanyId(req);
+    const conditions: SQL[] = [eq(aiTasksTable.id, id)];
+    if (companyId) conditions.push(eq(aiTasksTable.companyId, companyId));
 
     const [task] = await db
       .select()
       .from(aiTasksTable)
-      .where(and(eq(aiTasksTable.id, id), eq(aiTasksTable.companyId, companyId)))
+      .where(and(...conditions))
       .limit(1);
 
     if (!task) { res.status(404).json({ error: "AI task not found" }); return; }
@@ -108,7 +112,7 @@ router.get("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): Pr
 
 router.post("/ai-tasks", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
-    const companyId = getCompanyId(req) ?? req.user!.companyId;
+    const companyId = getCompanyIdForWrite(req);
 
     const {
       title, customerName, customerPhone, description,
@@ -195,15 +199,18 @@ router.patch("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): 
     const id = Number(req.params.id);
     if (Number.isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
 
-    const companyId = getCompanyId(req) ?? req.user!.companyId;
+    const companyId = getCompanyId(req);
+    const conditions: SQL[] = [eq(aiTasksTable.id, id)];
+    if (companyId) conditions.push(eq(aiTasksTable.companyId, companyId));
 
     const [current] = await db
       .select()
       .from(aiTasksTable)
-      .where(and(eq(aiTasksTable.id, id), eq(aiTasksTable.companyId, companyId)))
+      .where(and(...conditions))
       .limit(1);
 
     if (!current) { res.status(404).json({ error: "AI task not found" }); return; }
+    const eventCompanyId = current.companyId;
 
     const {
       status, priority, assignedTo, assignedRole, assignedDivision,
@@ -227,7 +234,7 @@ router.patch("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): 
     const [updated] = await db
       .update(aiTasksTable)
       .set(updates)
-      .where(and(eq(aiTasksTable.id, id), eq(aiTasksTable.companyId, companyId)))
+      .where(and(...conditions))
       .returning();
 
     // ── Activity log ─────────────────────────────────────────────────────────
@@ -263,7 +270,7 @@ router.patch("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): 
         priority:  updated.priority,
         assignedTo: updated.assignedTo,
       },
-      companyId,
+      eventCompanyId,
     );
 
     // ── WhatsApp notifications (fire-and-forget) ──────────────────────────────
@@ -276,7 +283,7 @@ router.patch("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): 
       assignedTo:   updated.assignedTo,
       status:       updated.status,
       priority:     updated.priority,
-      companyId,
+      companyId: eventCompanyId,
     };
 
     const isNowCompleted =
