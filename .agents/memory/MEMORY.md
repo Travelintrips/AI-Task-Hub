@@ -49,3 +49,4 @@
 - [Mini-form response scope](mini-form-response-scope.md) — keep post-submit attachment summaries in handler scope; task/session can save before a late response exception.
 - [Fonnte doc message required](fonnte-doc-message-required.md) — sendFonnteDocument wajib kirim field `message` (caption) atau Fonnte tolak dengan "message cannot empty".
 - [Supabase login and AI Task databases](supabase-login-and-ai-task.md) — REST service key success does not prove PostgreSQL pooler credentials work; validate both Dev and Prod channels separately.
+- [Private payment-proof storage](private-payment-proof-storage.md) — keep payment-proofs private; OCR must download through the server-side Supabase service role, not an anonymous public URL.

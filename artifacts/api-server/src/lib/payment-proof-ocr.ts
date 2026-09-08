@@ -1,5 +1,10 @@
 import { logger } from "./logger";
 import { openai } from "./openai";
+import {
+  extractStoragePath,
+  PAYMENT_PROOF_BUCKET,
+  supabase,
+} from "./supabase";
 
 // pdf-parse@1.1.1 executes a bundled test PDF when imported through its main
 // entry point. Use the internal parser, matching the existing extraction code.
@@ -124,6 +129,32 @@ async function readProof(fileUrl: string): Promise<{
   buffer: Buffer;
   mimeType: string;
 }> {
+  // Payment proofs are stored in a private Supabase bucket in production.
+  // The public URL returned by getPublicUrl() is still persisted with the
+  // booking, but it cannot be fetched anonymously when the bucket is private.
+  // Download through the server-side Supabase client instead so the service
+  // role can read both DEV (public bucket) and production (private bucket).
+  const storagePath = extractStoragePath(fileUrl);
+  if (storagePath && supabase) {
+    const { data, error } = await supabase.storage
+      .from(PAYMENT_PROOF_BUCKET)
+      .download(storagePath);
+
+    if (error || !data) {
+      throw new Error(
+        `Bukti pembayaran tidak dapat dibaca dari Supabase Storage${
+          error?.message ? `: ${error.message}` : ""
+        }`,
+      );
+    }
+
+    const buffer = Buffer.from(await data.arrayBuffer());
+    return {
+      buffer,
+      mimeType: mimeFromUrl(fileUrl, data.type || null),
+    };
+  }
+
   const response = await fetch(fileUrl, {
     signal: AbortSignal.timeout(30_000),
   });
