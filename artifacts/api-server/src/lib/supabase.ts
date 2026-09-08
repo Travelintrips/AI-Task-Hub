@@ -215,3 +215,11 @@ export async function uploadPaymentProofBuffer(
     .getPublicUrl(objectPath);
   return { publicUrl: publicData.publicUrl, path: objectPath };
 }
+
+export async function removePaymentProofObject(objectPath: string): Promise<void> {
+  if (!supabase) throw new Error("Supabase not configured");
+  const { error } = await supabase.storage
+    .from(PAYMENT_PROOF_BUCKET)
+    .remove([objectPath]);
+  if (error) throw new Error(`Payment proof delete failed: ${error.message}`);
+}

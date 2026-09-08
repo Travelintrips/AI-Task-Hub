@@ -19,6 +19,11 @@ import {
   ensureBucket,
   ensurePaymentProofBucket,
   uploadPaymentProofBuffer,
+  removePaymentProofObject,
+  extractStorageBucket,
+  extractStoragePath,
+  PAYMENT_PROOF_BUCKET,
+  supabase,
 } from "../lib/supabase";
 import { logger } from "../lib/logger";
 
@@ -660,5 +665,71 @@ router.post(
     }
   },
 );
+
+router.delete("/public/mini-form-upload", async (req: Request, res: Response): Promise<void> => {
+  try {
+    const token = String(req.body?.token ?? "").trim();
+    const fieldName = String(req.body?.fieldName ?? "").trim();
+    const publicUrl = String(req.body?.publicUrl ?? "").trim();
+
+    if (!token || token.length < 16 || fieldName !== "payment_proof") {
+      res.status(400).json({ error: "Permintaan hapus bukti pembayaran tidak valid" });
+      return;
+    }
+
+    const [session] = await db
+      .select({
+        id: intakeSessionsTable.id,
+        status: intakeSessionsTable.status,
+        collectedFields: intakeSessionsTable.collectedFields,
+        uploadedDocuments: intakeSessionsTable.uploadedDocuments,
+      })
+      .from(intakeSessionsTable)
+      .where(eq(intakeSessionsTable.formToken, token))
+      .limit(1);
+    if (!session || ["submitted", "cancelled", "expired"].includes(session.status)) {
+      res.status(404).json({ error: "Form tidak ditemukan atau sudah tidak aktif" });
+      return;
+    }
+
+    const storageBucket = extractStorageBucket(publicUrl);
+    const storagePath = extractStoragePath(publicUrl);
+    if (
+      storageBucket !== PAYMENT_PROOF_BUCKET ||
+      !storagePath ||
+      !storagePath.startsWith("proof-")
+    ) {
+      res.status(400).json({ error: "File bukti pembayaran tidak valid" });
+      return;
+    }
+    if (!supabase) {
+      res.status(503).json({ error: "Penyimpanan bukti pembayaran tidak tersedia" });
+      return;
+    }
+
+    await removePaymentProofObject(storagePath);
+    const collectedFields = {
+      ...((session.collectedFields as Record<string, unknown> | null) ?? {}),
+      payment_proof: "",
+    };
+    const uploadedDocuments = (
+      Array.isArray(session.uploadedDocuments)
+        ? (session.uploadedDocuments as string[])
+        : []
+    ).filter((url) => url !== publicUrl);
+    await db
+      .update(intakeSessionsTable)
+      .set({
+        collectedFields,
+        uploadedDocuments,
+        updatedAt: new Date(),
+      })
+      .where(eq(intakeSessionsTable.id, session.id));
+    res.json({ ok: true });
+  } catch (err) {
+    logger.error({ err }, "DELETE /public/mini-form-upload failed");
+    res.status(500).json({ error: "Gagal menghapus bukti pembayaran" });
+  }
+});
 
 export default router;

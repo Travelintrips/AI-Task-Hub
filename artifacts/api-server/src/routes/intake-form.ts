@@ -555,6 +555,7 @@ router.post(
         paymentProofOcr = await extractPaymentProofOcr({
           fileUrl: paymentProofUrl,
           expectedAmount,
+          expectedDate: String(merged.booking_date ?? ""),
         });
         if (!paymentProofOcr.valid) {
           res.status(paymentProofOcr.serviceUnavailable ? 503 : 422).json({

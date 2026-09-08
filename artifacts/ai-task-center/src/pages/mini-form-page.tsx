@@ -433,16 +433,20 @@ function FileFieldRenderer({
   field,
   currentValue,
   isUploading,
+  isRemoving,
   uploadError,
   hasError,
   onFileChange,
+  onRemove,
 }: {
   field: ReturnType<typeof normalizeField>;
   currentValue: string;
   isUploading: boolean;
+  isRemoving: boolean;
   uploadError?: string;
   hasError: boolean;
   onFileChange: (file: File) => void;
+  onRemove: () => void;
 }) {
   const isUploaded = currentValue.startsWith("http");
   const isPaymentProof = field.name === "payment_proof";
@@ -477,6 +481,14 @@ function FileFieldRenderer({
               }}
             />
           </label>
+          <button
+            type="button"
+            className="text-xs text-red-500 underline shrink-0 disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={onRemove}
+            disabled={isRemoving}
+          >
+            {isRemoving ? "Menghapus..." : "Delete"}
+          </button>
         </div>
       ) : isUploading ? (
         <div className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 text-sm text-blue-600">
@@ -537,6 +549,7 @@ export default function MiniFormPage() {
   const [uploadingFields, setUploadingFields] = useState<Set<string>>(
     new Set(),
   );
+  const [removingFields, setRemovingFields] = useState<Set<string>>(new Set());
   const [uploadErrors, setUploadErrors] = useState<Record<string, string>>({});
 
   async function handleFileUpload(fieldName: string, file: File) {
@@ -625,6 +638,45 @@ export default function MiniFormPage() {
         const n = new Set(prev);
         n.delete(fieldName);
         return n;
+      });
+    }
+  }
+
+  async function handleFileRemove(fieldName: string) {
+    const currentValue = values[fieldName] ?? String(data?.collectedFields?.[fieldName] ?? "");
+    if (!currentValue) return;
+
+    setRemovingFields((prev) => new Set(prev).add(fieldName));
+    setUploadErrors((prev) => {
+      const next = { ...prev };
+      delete next[fieldName];
+      return next;
+    });
+    try {
+      const response = await fetch(`${BASE}/api/public/mini-form-upload`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          token,
+          fieldName,
+          publicUrl: currentValue,
+        }),
+      });
+      const result = (await response.json().catch(() => ({}))) as { error?: string };
+      if (!response.ok) {
+        throw new Error(result.error ?? `Hapus gagal (${response.status})`);
+      }
+      setValues((prev) => ({ ...prev, [fieldName]: "" }));
+    } catch (err) {
+      setUploadErrors((prev) => ({
+        ...prev,
+        [fieldName]: (err as Error).message ?? "Gagal menghapus file",
+      }));
+    } finally {
+      setRemovingFields((prev) => {
+        const next = new Set(prev);
+        next.delete(fieldName);
+        return next;
       });
     }
   }
@@ -1026,11 +1078,13 @@ export default function MiniFormPage() {
                       field={field}
                       currentValue={val}
                       isUploading={uploadingFields.has(field.name)}
+                      isRemoving={removingFields.has(field.name)}
                       uploadError={uploadErrors[field.name]}
                       hasError={hasError}
                       onFileChange={(file) =>
                         handleFileUpload(field.name, file)
                       }
+                      onRemove={() => handleFileRemove(field.name)}
                     />
                   );
                 }

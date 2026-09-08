@@ -1196,6 +1196,7 @@ export async function finalizeSportCenterBookingPayment(params: {
     (await extractPaymentProofOcr({
       fileUrl: params.paymentProofUrl.trim(),
       expectedAmount: Number(params.saved.totalPrice),
+      expectedDate: params.saved.bookingDate,
     }));
   if (!paymentProofOcr.valid) {
     throw new Error(

@@ -52,6 +52,27 @@ function stringOrNull(value: unknown): string | null {
   return trimmed || null;
 }
 
+function normalizeDate(value: unknown): string | null {
+  const raw = stringOrNull(value);
+  if (!raw) return null;
+
+  const dateOnly = raw.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+  if (dateOnly) {
+    const [, year, month, day] = dateOnly;
+    return `${year}-${month!.padStart(2, "0")}-${day!.padStart(2, "0")}`;
+  }
+
+  const dayFirst = raw.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
+  if (dayFirst) {
+    const [, day, month, year] = dayFirst;
+    return `${year}-${month!.padStart(2, "0")}-${day!.padStart(2, "0")}`;
+  }
+
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString().slice(0, 10);
+}
+
 function stripMarkdownJson(value: string): string {
   return value
     .replace(/^```(?:json)?\s*/i, "")
@@ -93,6 +114,7 @@ Return ONLY a valid JSON object with exactly these keys:
 Rules:
 - Set is_payment_proof=false if this is not clearly a bank transfer, QRIS, e-wallet, cash receipt, or other payment receipt.
 - amount must be a numeric number only, with no currency symbols or separators.
+- transaction_date must use YYYY-MM-DD when the date is readable.
 - Do not guess unreadable values; use null.
 - confidence must be between 0 and 1.
 - raw_text must contain the important visible/extracted receipt text.
@@ -174,10 +196,13 @@ async function callOcr(
 export async function extractPaymentProofOcr(params: {
   fileUrl: string;
   expectedAmount: number;
+  expectedDate?: string;
 }): Promise<PaymentProofOcrResult> {
+  const expectedDate = normalizeDate(params.expectedDate);
   const baseData: Record<string, unknown> = {
     model: OCR_MODEL,
     expected_amount: params.expectedAmount,
+    expected_date: expectedDate,
   };
 
   try {
@@ -189,7 +214,7 @@ export async function extractPaymentProofOcr(params: {
     );
     const amount = normalizeAmount(parsed.amount);
     const payerName = stringOrNull(parsed.payer_name);
-    const transactionDate = stringOrNull(parsed.transaction_date);
+    const transactionDate = normalizeDate(parsed.transaction_date);
     const reference = stringOrNull(parsed.reference);
     const bankName = stringOrNull(parsed.bank_name);
     const rawText = stringOrNull(parsed.raw_text) ?? "";
@@ -197,6 +222,10 @@ export async function extractPaymentProofOcr(params: {
     const amountMatches =
       amount !== null &&
       Math.abs(amount - params.expectedAmount) <= 0.01;
+    const dateMatches =
+      expectedDate === null
+        ? transactionDate !== null
+        : transactionDate === expectedDate;
 
     const reasons: string[] = [];
     if (!isPaymentProof) reasons.push("dokumen bukan bukti pembayaran");
@@ -208,6 +237,13 @@ export async function extractPaymentProofOcr(params: {
     } else if (!amountMatches) {
       reasons.push(
         `nominal OCR Rp${amount.toLocaleString("id-ID")} tidak sama dengan total booking Rp${params.expectedAmount.toLocaleString("id-ID")}`,
+      );
+    }
+    if (transactionDate === null) {
+      reasons.push("tanggal transaksi tidak terbaca");
+    } else if (expectedDate !== null && !dateMatches) {
+      reasons.push(
+        `tanggal OCR ${transactionDate} tidak sama dengan tanggal booking ${expectedDate}`,
       );
     }
 
@@ -223,6 +259,7 @@ export async function extractPaymentProofOcr(params: {
       raw_text: rawText,
       confidence,
       amount_matches: amountMatches,
+      date_matches: dateMatches,
       validation_status: reasons.length === 0 ? "valid" : "invalid",
       validation_notes:
         stringOrNull(parsed.validation_notes) ??
