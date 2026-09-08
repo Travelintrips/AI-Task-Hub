@@ -525,6 +525,7 @@ export function buildAvailableMessage(
 
   const PRICE_PER_UNIT: Record<string, number> = {
     futsal:     350_000,
+    multiguna:  350_000,
     badminton:  100_000,
     tennis:     100_000,
     basketball: 350_000,
@@ -563,6 +564,7 @@ export function buildAvailableMessage(
 
 export const SC_PRICE_PER_HOUR: Record<string, number> = {
   futsal:     350_000,
+  multiguna:  350_000,
   badminton:  100_000,
   tennis:     100_000,
   basketball: 350_000,
@@ -612,6 +614,7 @@ export function getPricePerHour(fieldType: string): number {
   if (ft.includes("tenis") || ft.includes("tennis")) return SC_PRICE_PER_HOUR.tennis!;
   if (
     ft.includes("multi guna") ||
+    ft.includes("multiguna") ||
     ft.includes("futsal") ||
     ft.includes("basket") ||
     ft.includes("voli")

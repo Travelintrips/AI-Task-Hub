@@ -31,6 +31,7 @@ function getSportCenterPricePerHour(fieldType: string): number {
   }
   if (
     normalized.includes("multi guna") ||
+    normalized.includes("multiguna") ||
     normalized.includes("futsal") ||
     normalized.includes("basket") ||
     normalized.includes("voli")

@@ -274,6 +274,7 @@ export function isTenantPriceInquiry(message: string): boolean {
 const SC_PRICE_PER_JAM: Record<string, number> = {
   badminton:  100_000,
   futsal:     350_000,
+  multiguna:  350_000,
   tennis:     100_000,
   basketball: 350_000,
   voli:       350_000,
@@ -284,6 +285,7 @@ const SC_PRICE_PER_JAM: Record<string, number> = {
 const SC_EMOJI: Record<string, string> = {
   badminton:  "🏸",
   futsal:     "⚽",
+  multiguna:  "🏟️",
   tennis:     "🎾",
   basketball: "🏀",
   voli:       "🏐",
