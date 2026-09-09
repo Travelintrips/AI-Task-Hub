@@ -1023,11 +1023,21 @@ export async function bridgeToSportBookings(params: {
   const rawDate      = String(params.saved.bookingDate ?? "");
   const bookingDateNorm = rawDate.includes("T") ? rawDate.split("T")[0] : rawDate;
 
-  // Normalize time to HH:MM format (strip seconds if present, e.g. "12:00:00" → "12:00")
+  // Normalize time to HH:MM format (strip seconds if present, e.g. "12:00:00" → "12:00").
+  // Production Gym bookings use a fixed operational slot because the Gym form
+  // intentionally does not ask the customer for a start/end time. Apply this
+  // at the bridge so both canonical and public sport_bookings receive the
+  // exact same values, regardless of the intermediate form values.
   const normalizeTime = (t: string) => (t ?? "").substring(0, 5);
-  const startTimeNorm = normalizeTime(params.saved.startTime);
-  const endTimeRaw    = params.saved.endTime ?? params.saved.startTime;
-  const endTimeNorm   = normalizeTime(endTimeRaw);
+  const isProductionGymBooking =
+    process.env.NODE_ENV === "production" &&
+    (isGymFacility(params.fieldType) || isGymFacility(params.saved.fieldType));
+  const startTimeNorm = isProductionGymBooking
+    ? "06:00"
+    : normalizeTime(params.saved.startTime);
+  const endTimeNorm = isProductionGymBooking
+    ? "07:00"
+    : normalizeTime(params.saved.endTime ?? params.saved.startTime);
 
   const durationInt   = Math.round(params.saved.durationHours ?? 1);
   const bookingNumber = params.saved.bookingNumber;
@@ -1043,6 +1053,7 @@ export async function bridgeToSportBookings(params: {
       bookingDateNorm,
       startTimeNorm,
       endTimeNorm,
+      isProductionGymBooking,
       durationInt,
       totalPrice: pricing.grandTotal,
       dpp: pricing.dpp,
