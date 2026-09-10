@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
-import { BarChart2, TrendingUp, CheckCircle, AlertTriangle, Users2, Brain, RefreshCw, Download } from "lucide-react";
+import { BarChart2, TrendingUp, CheckCircle, AlertTriangle, Users2, Brain, RefreshCw, AlertCircle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -33,6 +33,10 @@ function StatCard({ icon: Icon, label, value, sub, color }: { icon: React.Elemen
   );
 }
 
+function EmptyChart({ message = "Belum ada data pada periode yang dipilih." }: { message?: string }) {
+  return <div className="h-[220px] flex items-center justify-center text-sm text-muted-foreground border border-dashed rounded-md">{message}</div>;
+}
+
 export default function ReportsPage() {
   const today = new Date();
   const [from, setFrom] = useState(new Date(today.getFullYear(), today.getMonth(), 1).toISOString().slice(0, 10));
@@ -41,10 +45,10 @@ export default function ReportsPage() {
 
   const params = `from=${from}&to=${to}`;
 
-  const { data: overview, isLoading: ovLoading, refetch: refetchOv } = useQuery({ queryKey: ["report-overview", from, to], queryFn: () => apiFetch(`/reports/overview?${params}`), enabled });
-  const { data: team, isLoading: teamLoading, refetch: refetchTeam } = useQuery({ queryKey: ["report-team", from, to], queryFn: () => apiFetch(`/reports/team?${params}`), enabled });
-  const { data: ai, isLoading: aiLoading, refetch: refetchAi } = useQuery({ queryKey: ["report-ai", from, to], queryFn: () => apiFetch(`/reports/ai?${params}`), enabled });
-  const { data: customers, refetch: refetchCust } = useQuery({ queryKey: ["report-customers", from, to], queryFn: () => apiFetch(`/reports/customers?${params}`), enabled });
+  const { data: overview, isLoading: ovLoading, isError: ovError, refetch: refetchOv } = useQuery({ queryKey: ["report-overview", from, to], queryFn: () => apiFetch(`/reports/overview?${params}`), enabled });
+  const { data: team, isLoading: teamLoading, isError: teamError, refetch: refetchTeam } = useQuery({ queryKey: ["report-team", from, to], queryFn: () => apiFetch(`/reports/team?${params}`), enabled });
+  const { data: ai, isLoading: aiLoading, isError: aiError, refetch: refetchAi } = useQuery({ queryKey: ["report-ai", from, to], queryFn: () => apiFetch(`/reports/ai?${params}`), enabled });
+  const { data: customers, isError: customerError, refetch: refetchCust } = useQuery({ queryKey: ["report-customers", from, to], queryFn: () => apiFetch(`/reports/customers?${params}`), enabled });
 
   const refresh = () => { refetchOv(); refetchTeam(); refetchAi(); refetchCust(); };
 
@@ -59,6 +63,13 @@ export default function ReportsPage() {
         </div>
       </div>
 
+      {(ovError || teamError || aiError || customerError) && (
+        <div className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          Sebagian data laporan gagal dimuat. Silakan tekan Refresh untuk mencoba lagi.
+        </div>
+      )}
+
       <Tabs defaultValue="operational">
         <TabsList><TabsTrigger value="operational">Operasional</TabsTrigger><TabsTrigger value="team">Team</TabsTrigger><TabsTrigger value="customers">Customer</TabsTrigger><TabsTrigger value="ai">AI</TabsTrigger></TabsList>
 
@@ -70,46 +81,46 @@ export default function ReportsPage() {
                 <StatCard icon={TrendingUp} label="Total Inquiry" value={overview.totalInquiry} color="bg-blue-500" />
                 <StatCard icon={CheckCircle} label="Task Selesai" value={overview.completedTask} color="bg-green-500" />
                 <StatCard icon={AlertTriangle} label="Task Overdue" value={overview.overdueTask} color="bg-red-500" />
-                <StatCard icon={BarChart2} label="SLA Compliance" value={`${overview.slaCompliance}%`} color="bg-violet-500" />
+                <StatCard icon={BarChart2} label="SLA Compliance" value={overview.slaCompliance === null ? "N/A" : `${overview.slaCompliance}%`} sub={overview.slaCompliance === null ? "Belum ada task untuk dinilai" : undefined} color="bg-violet-500" />
               </div>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <Card><CardHeader><CardTitle className="text-base">Tren Bulanan</CardTitle></CardHeader>
                   <CardContent>
-                    <ResponsiveContainer width="100%" height={220}>
+                    {overview.monthlyTrend.length === 0 ? <EmptyChart /> : <ResponsiveContainer width="100%" height={220}>
                       <LineChart data={overview.monthlyTrend}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="month" tick={{ fontSize: 11 }} /><YAxis tick={{ fontSize: 11 }} /><Tooltip /><Legend />
                         <Line type="monotone" dataKey="total" name="Total" stroke="#3b82f6" strokeWidth={2} />
                         <Line type="monotone" dataKey="completed" name="Selesai" stroke="#10b981" strokeWidth={2} />
                       </LineChart>
-                    </ResponsiveContainer>
+                    </ResponsiveContainer>}
                   </CardContent>
                 </Card>
                 <Card><CardHeader><CardTitle className="text-base">Per Kategori</CardTitle></CardHeader>
                   <CardContent>
-                    <ResponsiveContainer width="100%" height={220}>
+                    {overview.byCategory.length === 0 ? <EmptyChart /> : <ResponsiveContainer width="100%" height={220}>
                       <BarChart data={overview.byCategory} layout="vertical"><CartesianGrid strokeDasharray="3 3" /><XAxis type="number" tick={{ fontSize: 11 }} /><YAxis dataKey="name" type="category" width={90} tick={{ fontSize: 11 }} /><Tooltip />
                         <Bar dataKey="value" name="Jumlah" fill="#3b82f6" radius={[0, 4, 4, 0]} />
                       </BarChart>
-                    </ResponsiveContainer>
+                    </ResponsiveContainer>}
                   </CardContent>
                 </Card>
               </div>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <Card><CardHeader><CardTitle className="text-base">Per Status</CardTitle></CardHeader>
                   <CardContent className="flex items-center justify-center">
-                    <ResponsiveContainer width="100%" height={200}>
+                    {overview.byStatus.length === 0 ? <EmptyChart message="Belum ada status task pada periode ini." /> : <ResponsiveContainer width="100%" height={200}>
                       <PieChart><Pie data={overview.byStatus} cx="50%" cy="50%" innerRadius={50} outerRadius={80} dataKey="value" nameKey="name">
                         {overview.byStatus.map((_: unknown, i: number) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                       </Pie><Tooltip /><Legend /></PieChart>
-                    </ResponsiveContainer>
+                    </ResponsiveContainer>}
                   </CardContent>
                 </Card>
                 <Card><CardHeader><CardTitle className="text-base">Per Prioritas</CardTitle></CardHeader>
                   <CardContent className="flex items-center justify-center">
-                    <ResponsiveContainer width="100%" height={200}>
+                    {overview.byPriority.length === 0 ? <EmptyChart message="Belum ada prioritas task pada periode ini." /> : <ResponsiveContainer width="100%" height={200}>
                       <PieChart><Pie data={overview.byPriority} cx="50%" cy="50%" innerRadius={50} outerRadius={80} dataKey="value" nameKey="name">
                         {overview.byPriority.map((_: unknown, i: number) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                       </Pie><Tooltip /><Legend /></PieChart>
-                    </ResponsiveContainer>
+                    </ResponsiveContainer>}
                   </CardContent>
                 </Card>
               </div>
@@ -126,7 +137,9 @@ export default function ReportsPage() {
                   <table className="w-full text-sm">
                     <thead><tr className="border-b"><th className="text-left py-2 font-medium">Nama</th><th className="text-right py-2 font-medium">Total</th><th className="text-right py-2 font-medium">Selesai</th><th className="text-right py-2 font-medium">Aktif</th><th className="text-right py-2 font-medium">Completion Rate</th></tr></thead>
                     <tbody>
-                      {team.teamPerformance.map((m: { name: string; total: number; completed: number; active: number; completionRate: number }, i: number) => (
+                      {team.teamPerformance.length === 0 ? (
+                        <tr><td colSpan={5} className="py-8 text-center text-muted-foreground">Belum ada task untuk tim pada periode ini.</td></tr>
+                      ) : team.teamPerformance.map((m: { name: string; total: number; completed: number; active: number; completionRate: number }, i: number) => (
                         <tr key={i} className="border-b hover:bg-muted/30">
                           <td className="py-2.5 font-medium">{m.name}</td>
                           <td className="py-2.5 text-right">{m.total}</td>

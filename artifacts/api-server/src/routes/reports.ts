@@ -6,17 +6,40 @@ import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
+function getReportDateRange(req: Request): { fromDate: Date; toDate: Date } {
+  const { from, to } = req.query as Record<string, string | undefined>;
+  const fromDate = from
+    ? new Date(`${from}T00:00:00.000Z`)
+    : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const toDate = to
+    ? new Date(`${to}T23:59:59.999Z`)
+    : new Date();
+
+  return { fromDate, toDate };
+}
+
+function taskConditions(companyId: string | null, fromDate: Date, toDate: Date) {
+  const conditions = [
+    gte(aiTasksTable.createdAt, fromDate),
+    lte(aiTasksTable.createdAt, toDate),
+  ];
+  if (companyId) conditions.unshift(eq(aiTasksTable.companyId, companyId));
+  return and(...conditions);
+}
+
+function companyConditions(companyId: string | null, fromDate: Date, toDate: Date, column: typeof customersTable.createdAt) {
+  const conditions = [gte(column, fromDate), lte(column, toDate)];
+  if (companyId) conditions.unshift(eq(customersTable.companyId, companyId));
+  return and(...conditions);
+}
+
 // GET /api/reports/overview
 router.get("/reports/overview", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
-    const companyId = getCompanyId(req) ?? req.user!.companyId;
-    const { from, to } = req.query as Record<string, string>;
-    const fromDate = from ? new Date(from) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const toDate = to ? new Date(to) : new Date();
+    const companyId = getCompanyId(req);
+    const { fromDate, toDate } = getReportDateRange(req);
 
-    const tasks = await db.select().from(aiTasksTable).where(
-      and(eq(aiTasksTable.companyId, companyId), gte(aiTasksTable.createdAt, fromDate), lte(aiTasksTable.createdAt, toDate))
-    );
+    const tasks = await db.select().from(aiTasksTable).where(taskConditions(companyId, fromDate, toDate));
 
     const totalInquiry = tasks.length;
     const completedTask = tasks.filter((t) => t.status === "completed").length;
@@ -36,7 +59,7 @@ router.get("/reports/overview", requireAuth, async (req: Request, res: Response)
     ).map(([name, value]) => ({ name, value }));
 
     // SLA compliance
-    const slaCompliance = totalInquiry > 0 ? Math.round(((totalInquiry - overdueTask) / totalInquiry) * 100) : 100;
+    const slaCompliance = totalInquiry > 0 ? Math.round(((totalInquiry - overdueTask) / totalInquiry) * 100) : null;
 
     // Monthly trend
     const monthly: Record<string, { total: number; completed: number }> = {};
@@ -58,14 +81,10 @@ router.get("/reports/overview", requireAuth, async (req: Request, res: Response)
 // GET /api/reports/team
 router.get("/reports/team", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
-    const companyId = getCompanyId(req) ?? req.user!.companyId;
-    const { from, to } = req.query as Record<string, string>;
-    const fromDate = from ? new Date(from) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const toDate = to ? new Date(to) : new Date();
+    const companyId = getCompanyId(req);
+    const { fromDate, toDate } = getReportDateRange(req);
 
-    const tasks = await db.select().from(aiTasksTable).where(
-      and(eq(aiTasksTable.companyId, companyId), gte(aiTasksTable.createdAt, fromDate), lte(aiTasksTable.createdAt, toDate))
-    );
+    const tasks = await db.select().from(aiTasksTable).where(taskConditions(companyId, fromDate, toDate));
 
     const staffMap: Record<string, { name: string; total: number; completed: number; active: number }> = {};
     for (const t of tasks) {
@@ -91,21 +110,17 @@ router.get("/reports/team", requireAuth, async (req: Request, res: Response): Pr
 // GET /api/reports/ai
 router.get("/reports/ai", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
-    const companyId = getCompanyId(req) ?? req.user!.companyId;
-    const { from, to } = req.query as Record<string, string>;
-    const fromDate = from ? new Date(from) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const toDate = to ? new Date(to) : new Date();
+    const companyId = getCompanyId(req);
+    const { fromDate, toDate } = getReportDateRange(req);
 
-    const tasks = await db.select().from(aiTasksTable).where(
-      and(eq(aiTasksTable.companyId, companyId), gte(aiTasksTable.createdAt, fromDate), lte(aiTasksTable.createdAt, toDate))
-    );
+    const tasks = await db.select().from(aiTasksTable).where(taskConditions(companyId, fromDate, toDate));
 
     const aiCreatedTasks = tasks.filter((t) => t.source === "whatsapp").length;
     const aiSummaryGenerated = tasks.filter((t) => !!t.aiSummary).length;
 
-    const followUps = await db.select().from(followUpLogsTable).where(
-      and(eq(followUpLogsTable.companyId, companyId), gte(followUpLogsTable.sentAt, fromDate), lte(followUpLogsTable.sentAt, toDate))
-    );
+    const followUpConditions = [gte(followUpLogsTable.sentAt, fromDate), lte(followUpLogsTable.sentAt, toDate)];
+    if (companyId) followUpConditions.unshift(eq(followUpLogsTable.companyId, companyId));
+    const followUps = await db.select().from(followUpLogsTable).where(and(...followUpConditions));
 
     res.json({ aiCreatedTasks, aiSummaryGenerated, aiFollowUpSent: followUps.length, aiFollowUpSuccess: followUps.filter((f) => f.isSuccess).length });
   } catch (err) {
@@ -117,16 +132,14 @@ router.get("/reports/ai", requireAuth, async (req: Request, res: Response): Prom
 // GET /api/reports/customers
 router.get("/reports/customers", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
-    const companyId = getCompanyId(req) ?? req.user!.companyId;
-    const { from, to } = req.query as Record<string, string>;
-    const fromDate = from ? new Date(from) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const toDate = to ? new Date(to) : new Date();
+    const companyId = getCompanyId(req);
+    const { fromDate, toDate } = getReportDateRange(req);
 
-    const newCustomers = await db.select().from(customersTable).where(
-      and(eq(customersTable.companyId, companyId), gte(customersTable.createdAt, fromDate), lte(customersTable.createdAt, toDate))
-    );
+    const newCustomers = await db.select().from(customersTable).where(companyConditions(companyId, fromDate, toDate, customersTable.createdAt));
 
-    const allCustomers = await db.select().from(customersTable).where(eq(customersTable.companyId, companyId));
+    const allCustomers = companyId
+      ? await db.select().from(customersTable).where(eq(customersTable.companyId, companyId))
+      : await db.select().from(customersTable);
     const repeatCustomers = allCustomers.filter((c) => (c.totalTasks ?? 0) > 1).length;
 
     res.json({ newCustomers: newCustomers.length, repeatCustomers, totalCustomers: allCustomers.length });
