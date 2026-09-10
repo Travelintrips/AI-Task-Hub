@@ -65,7 +65,10 @@ export default function ScMyBookings() {
   const [submittedPhone, setSubmittedPhone] = useState("");
 
   // company scoping: default company for this tenant
-  const company = (window as Record<string, unknown>).SC_COMPANY_ID as string | undefined ?? "default";
+  const company =
+    ((window as unknown as Record<string, unknown>).SC_COMPANY_ID as
+      | string
+      | undefined) ?? "default";
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ["sc-my-bookings", submittedPhone, company],
