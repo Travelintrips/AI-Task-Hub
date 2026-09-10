@@ -9,7 +9,7 @@
  */
 
 import { Router, type IRouter } from "express";
-import { eq, and, or, inArray, sql } from "drizzle-orm";
+import { eq, and, or, inArray, isNull, gte, lte, sql } from "drizzle-orm";
 
 // ── Kategori alias — mapping dari nama internal sistem → nama yang dipakai di Penerima Notifikasi
 // Ini memungkinkan admin menambahkan penerima dengan nama yang lebih familiar (misal "Trucking")
@@ -628,6 +628,56 @@ router.post(
           .returning();
 
         taskId = newTask!.id;
+
+        // Link the customer's recent WhatsApp conversation to the task created
+        // from this form. Messages arrive before the form is submitted, so
+        // relying on the message's own AI task-linking path leaves the thread
+        // empty for mini-form tasks.
+        //
+        // Keep the match scoped to this company and a recent 24-hour window:
+        // the same phone number may have older, unrelated conversations.
+        try {
+          const sessionStartedAt = session.createdAt instanceof Date
+            ? session.createdAt
+            : new Date(session.createdAt);
+          const conversationStart = new Date(
+            sessionStartedAt.getTime() - 24 * 60 * 60 * 1000,
+          );
+          const linkedMessages = await db
+            .update(whatsappMessagesTable)
+            .set({ taskId })
+            .where(
+              and(
+                eq(whatsappMessagesTable.companyId, session.companyId),
+                isNull(whatsappMessagesTable.taskId),
+                eq(whatsappMessagesTable.direction, "inbound"),
+                sql`regexp_replace(
+                  COALESCE(${whatsappMessagesTable.senderPhone}, ${whatsappMessagesTable.from}),
+                  '[^0-9]', '', 'g'
+                ) = regexp_replace(${session.phone}, '[^0-9]', '', 'g')`,
+                gte(whatsappMessagesTable.createdAt, conversationStart),
+                lte(whatsappMessagesTable.createdAt, newTask!.createdAt),
+              ),
+            )
+            .returning({ id: whatsappMessagesTable.id });
+
+          logger.info(
+            {
+              taskId,
+              sessionId: session.id,
+              linkedMessageCount: linkedMessages.length,
+            },
+            "intake-form: recent WhatsApp messages linked to mini-form task",
+          );
+        } catch (linkErr) {
+          // Keep the existing non-duplicating submission behavior: the task
+          // has already been persisted, so a link failure must not turn a
+          // successful form submission into a misleading HTTP 500.
+          logger.error(
+            { linkErr, taskId, sessionId: session.id },
+            "intake-form: gagal menghubungkan pesan WhatsApp ke task mini-form",
+          );
+        }
 
         // ── Sport Center: save booking record + bridge to public.sport_bookings ──
         if (
