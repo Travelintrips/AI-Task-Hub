@@ -102,7 +102,11 @@ async function getFormAgentTargets(
     logger.warn({ err, companyId, intentCode }, "form-menu: gagal mencari penerima berdasarkan kategori");
   }
 
-  const key = category.label.startsWith("PPJK") ? "CUSTOMS" : "LOGISTIK";
+  const key = category.label === "Sport Center"
+    ? "SPORT_CENTER"
+    : category.label.startsWith("PPJK")
+      ? "CUSTOMS"
+      : "LOGISTIK";
   const divisionPhones = (process.env[`STAFF_NOTIFY_PHONES_${key}`] ?? "")
     .split(",")
     .map((phone) => phone.trim())

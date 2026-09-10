@@ -19,15 +19,15 @@ async function run() {
 
     // ─── 1. Sport Center Intents ──────────────────────────────────────────────
     const sportIntents = [
-      { code: "booking_lapangan",           name: "Booking Lapangan Olahraga",           category: "Sport Center", division: "Operasional", priority: "medium", sla: 2  },
-      { code: "cek_jadwal_lapangan",        name: "Cek Jadwal / Ketersediaan Lapangan",  category: "Sport Center", division: "Operasional", priority: "low",    sla: 1  },
-      { code: "daftar_membership",          name: "Pendaftaran Member / Membership Baru", category: "Sport Center", division: "Pelanggan",   priority: "medium", sla: 4  },
-      { code: "cek_membership",             name: "Cek Status Membership",               category: "Sport Center", division: "Pelanggan",   priority: "low",    sla: 2  },
-      { code: "perpanjang_membership",      name: "Perpanjang Membership",               category: "Sport Center", division: "Pelanggan",   priority: "medium", sla: 4  },
-      { code: "reschedule_booking",         name: "Reschedule / Ganti Jadwal Booking",   category: "Sport Center", division: "Operasional", priority: "medium", sla: 2  },
-      { code: "cancel_booking",             name: "Pembatalan Booking Lapangan",         category: "Sport Center", division: "Operasional", priority: "high",   sla: 2  },
-      { code: "konfirmasi_pembayaran_sport", name: "Konfirmasi Pembayaran Booking Sport", category: "Sport Center", division: "Keuangan",    priority: "high",   sla: 1  },
-      { code: "komplain_fasilitas",         name: "Komplain / Masalah Fasilitas",        category: "Sport Center", division: "Operasional", priority: "high",   sla: 2  },
+      { code: "booking_lapangan",           name: "Booking Lapangan Olahraga",           category: "Sport Center", division: "Sport Center", priority: "medium", sla: 2  },
+      { code: "cek_jadwal_lapangan",        name: "Cek Jadwal / Ketersediaan Lapangan",  category: "Sport Center", division: "Sport Center", priority: "low",    sla: 1  },
+      { code: "daftar_membership",          name: "Pendaftaran Member / Membership Baru", category: "Sport Center", division: "Sport Center", priority: "medium", sla: 4  },
+      { code: "cek_membership",             name: "Cek Status Membership",               category: "Sport Center", division: "Sport Center", priority: "low",    sla: 2  },
+      { code: "perpanjang_membership",      name: "Perpanjang Membership",               category: "Sport Center", division: "Sport Center", priority: "medium", sla: 4  },
+      { code: "reschedule_booking",         name: "Reschedule / Ganti Jadwal Booking",   category: "Sport Center", division: "Sport Center", priority: "medium", sla: 2  },
+      { code: "cancel_booking",             name: "Pembatalan Booking Lapangan",         category: "Sport Center", division: "Sport Center", priority: "high",   sla: 2  },
+      { code: "konfirmasi_pembayaran_sport", name: "Konfirmasi Pembayaran Booking Sport", category: "Sport Center", division: "Sport Center", priority: "high",   sla: 1  },
+      { code: "komplain_fasilitas",         name: "Komplain / Masalah Fasilitas",        category: "Sport Center", division: "Sport Center", priority: "high",   sla: 2  },
     ];
 
     // ─── 2. Sewa Tenant / Kios Intents ───────────────────────────────────────

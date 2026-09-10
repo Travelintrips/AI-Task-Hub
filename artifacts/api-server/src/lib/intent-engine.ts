@@ -717,7 +717,9 @@ export async function resolveIntent({
             matchedIntentId:      kwIntent.id,
             fallbackUsed:         false,
             category:             kwCategory,
-            division:             kwIntent.suggestedDivision ?? null,
+            division:             kwCategory === "Sport Center"
+              ? "Sport Center"
+              : kwIntent.suggestedDivision ?? null,
             priority:             kwPriority,
             slaHours:             kwIntent.slaHours ?? 24,
             routingCode:          kwIntent.intentCode,
@@ -792,8 +794,10 @@ export async function resolveIntent({
     // ── 6. Category, division, priority ───────────────────────────────────────
     const category = (parsed.category as string | undefined) ??
       matchedIntent?.suggestedCategory ?? matchedIntent?.category ?? "Umum";
-    const division = (parsed.division as string | undefined) ??
-      matchedIntent?.suggestedDivision ?? null;
+    const division = category === "Sport Center"
+      ? "Sport Center"
+      : (parsed.division as string | undefined) ??
+        matchedIntent?.suggestedDivision ?? null;
 
     const rawPriority  = (parsed.priority as string | undefined) ??
       matchedIntent?.suggestedPriority ?? "low";

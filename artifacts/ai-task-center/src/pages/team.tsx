@@ -38,6 +38,7 @@ const DIVISIONS = [
   { value: "Operasional",      label: "Operasional",                 color: "bg-slate-100 text-slate-800" },
   { value: "CS",               label: "Customer Service",            color: "bg-pink-100 text-pink-800"   },
   { value: "Finance",          label: "Finance",                     color: "bg-rose-100 text-rose-800"   },
+  { value: "Sport Center",     label: "Sport Center",                color: "bg-violet-100 text-violet-800" },
 ] as const;
 
 // ─── Daftar Role / Jabatan ────────────────────────────────────────────────────
@@ -56,6 +57,11 @@ const ROLES = [
   "General Staff",
   "Supervisor",
   "Manager",
+  "Sport Center Coordinator",
+  "Sport Center Admin",
+  "Facility Supervisor",
+  "Facility Staff",
+  "Maintenance Technician",
 ] as const;
 
 const memberSchema = z.object({

@@ -15,6 +15,9 @@ const CATEGORY_DIVISION_MAP: Record<string, string[]> = {
   "Customs":            ["Customs", "PPJK"],
   "Air Freight":        ["Air Freight", "Export", "Import"],
   "Forwarding":         ["Forwarding", "CS", "Operasional"],
+  "Sport Center":       ["Sport Center"],
+  "Sport Center Booking":["Sport Center"],
+  "Membership":         ["Sport Center"],
 };
 
 const PRIORITY_WEIGHT: Record<string, number> = {
