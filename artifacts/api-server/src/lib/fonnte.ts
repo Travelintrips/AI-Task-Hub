@@ -1,6 +1,59 @@
 import { logger } from "./logger";
+import { createPaymentProofShortLink } from "./payment-proof-links";
 
 const FONNTE_URL = "https://api.fonnte.com/send";
+const PAYMENT_PROOF_SIGNED_URL_RE =
+  /https?:\/\/[^\s<>"')]+\/storage\/v1\/object\/sign\/payment-proofs\/[^\s<>"')]+/g;
+
+function extractPaymentProofPathFromSignedUrl(rawUrl: string): string | null {
+  try {
+    const parsed = new URL(rawUrl);
+    const marker = "/storage/v1/object/sign/payment-proofs/";
+    const markerIndex = parsed.pathname.indexOf(marker);
+    if (markerIndex === -1) return null;
+    const encodedPath = parsed.pathname.slice(markerIndex + marker.length);
+    const path = decodeURIComponent(encodedPath).replace(/^\/+/, "");
+    return path || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Payment-proof links are bearer links and must never be sent to WhatsApp as
+ * Supabase signed URLs. This is a last-mile guard for all Fonnte text sends,
+ * including notification paths that may not have gone through intake-form.ts.
+ */
+async function normalizePaymentProofUrlsForWhatsApp(
+  message: string,
+): Promise<string> {
+  const signedUrls = Array.from(
+    new Set(message.match(PAYMENT_PROOF_SIGNED_URL_RE) ?? []),
+  );
+  if (signedUrls.length === 0) return message;
+
+  let normalizedMessage = message;
+  for (const signedUrl of signedUrls) {
+    const storagePath = extractPaymentProofPathFromSignedUrl(signedUrl);
+    if (!storagePath) {
+      throw new Error("Signed payment proof URL has an invalid storage path");
+    }
+
+    const shortLink = await createPaymentProofShortLink({
+      taskId: null,
+      documentKey: "payment_proof",
+      storageBucket: "payment-proofs",
+      storagePath,
+    });
+    normalizedMessage = normalizedMessage.split(signedUrl).join(shortLink.url);
+  }
+
+  logger.warn(
+    { replacementCount: signedUrls.length },
+    "Fonnte: replaced signed payment-proof URL with short link before send",
+  );
+  return normalizedMessage;
+}
 
 /**
  * Multi-device token map.
@@ -433,9 +486,27 @@ export async function sendFonnte(
   message: string,
   fonnteDevice?: string | null,
 ): Promise<FonnteResult> {
+  let safeMessage: string;
+  try {
+    safeMessage = await normalizePaymentProofUrlsForWhatsApp(message);
+  } catch (error) {
+    logger.error(
+      { error, target: to },
+      "Fonnte: refusing to send message containing an unconvertible signed payment-proof URL",
+    );
+    return { success: false, error: "Signed payment proof URL was blocked" };
+  }
+
+  if (safeMessage.includes("Pesanan Baru")) {
+    logger.info(
+      { target: to, message: safeMessage },
+      "Fonnte payload before send: new-order notification",
+    );
+  }
+
   // Untuk grup: coba semua token secara berurutan
   if (to.includes("@g.us")) {
-    return sendFonnteGroup(to, message);
+    return sendFonnteGroup(to, safeMessage);
   }
 
   const token = resolveToken(to, fonnteDevice);
@@ -466,7 +537,7 @@ export async function sendFonnte(
         Authorization: token,
         "Content-Type": "application/x-www-form-urlencoded",
       },
-      body: new URLSearchParams({ target: phone, message }).toString(),
+      body: new URLSearchParams({ target: phone, message: safeMessage }).toString(),
     });
 
     if (!res.ok) {
