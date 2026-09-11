@@ -70,6 +70,7 @@ import {
   extractStorageBucket,
   extractStoragePath,
 } from "../lib/supabase";
+import { createPaymentProofShortLink } from "../lib/payment-proof-links";
 import { validateDocument } from "../lib/document-validation-engine";
 
 // ── Fallback map: intent code prefix → kategori penerima notifikasi
@@ -1112,14 +1113,49 @@ router.post(
               }),
             );
 
+            // Keep signed URLs available for server-side OCR/validation, but
+            // never place a payment-proof signed URL in a WhatsApp message.
+            let paymentProofShortUrl: string | null = null;
+            const paymentProofEntry = fileFieldUrlEntries.find(
+              ({ key }) => key === "payment_proof",
+            );
+            if (paymentProofEntry) {
+              const storagePath = extractStoragePath(paymentProofEntry.url);
+              const storageBucket = extractStorageBucket(paymentProofEntry.url);
+              if (storagePath) {
+                try {
+                  paymentProofShortUrl = (
+                    await createPaymentProofShortLink({
+                      taskId,
+                      documentKey: paymentProofEntry.key,
+                      storageBucket,
+                      storagePath,
+                    })
+                  ).url;
+                } catch (linkErr) {
+                  logger.warn(
+                    { linkErr, taskId, documentKey: paymentProofEntry.key },
+                    "intake-form: gagal membuat short link bukti pembayaran — link tidak dikirim",
+                  );
+                }
+              } else {
+                logger.warn(
+                  { taskId, documentKey: paymentProofEntry.key },
+                  "intake-form: bukti pembayaran bukan object Storage — link tidak dikirim",
+                );
+              }
+            }
+
             // Tambahkan bagian dokumen jika ada file yang diupload
             const docTextSection =
               fileFieldUrlEntries.length > 0
                 ? `\n\n*Dokumen Terlampir:*\n` +
                   fileFieldUrlEntries
                     .map(
-                      ({ label, url }) =>
-                        `• ${label}: ${accessibleFileUrls.get(url) ?? url}`,
+                      ({ key, label, url }) =>
+                        key === "payment_proof"
+                          ? `Bukti Pembayaran:\n${paymentProofShortUrl ?? "Link tidak tersedia"}`
+                          : `• ${label}: ${accessibleFileUrls.get(url) ?? url}`,
                     )
                     .join("\n")
                 : "";

@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { Switch, Route, Router as WouterRouter } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -202,7 +203,24 @@ function Router() {
   );
 }
 
+function PaymentProofLinkFallback({ token }: { token: string }) {
+  useEffect(() => {
+    window.location.replace(`/api/p/${encodeURIComponent(token)}`);
+  }, [token]);
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-muted/40 text-sm text-muted-foreground">
+      Membuka dokumen…
+    </div>
+  );
+}
+
 function App() {
+  const paymentProofToken = /^\/p\/([^/]+)$/.exec(window.location.pathname)?.[1];
+  if (paymentProofToken) {
+    return <PaymentProofLinkFallback token={paymentProofToken} />;
+  }
+
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>

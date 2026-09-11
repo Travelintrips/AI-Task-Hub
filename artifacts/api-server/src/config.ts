@@ -22,4 +22,7 @@ export const config = {
     publicSearchPaths:
       process.env.PUBLIC_OBJECT_SEARCH_PATHS || `/${OBJECT_STORAGE_BUCKET_ID}/public`,
   },
+  paymentProofShortLinkBaseUrl:
+    process.env.PAYMENT_PROOF_SHORT_LINK_BASE_URL ||
+    "https://e19fd6b8-6047-4953-aa51-f3b409d0c291-00-ydyf55pkhd6d.sisko.replit.dev",
 } as const;

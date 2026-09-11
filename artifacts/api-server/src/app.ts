@@ -15,6 +15,7 @@ import { refreshSlaStatuses } from "./lib/sla";
 import { expireOldIntakeSessions } from "./lib/intake-engine";
 import { ensurePaymentProofBucket } from "./lib/supabase";
 import { supabasePool } from "./lib/supabase-db";
+import paymentProofPublicRouter from "./routes/payment-proof-public";
 
 const app: Express = express();
 
@@ -57,6 +58,12 @@ app.use(
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
+// Public short links for private payment proofs. This intentionally lives
+// outside /api because the URL is sent to WhatsApp as /p/:token.
+app.use(paymentProofPublicRouter);
+// Some DEV ingress paths fall back to the SPA before reaching the root route.
+// Keep an API-prefixed equivalent for the tiny frontend handoff in that case.
+app.use("/api", paymentProofPublicRouter);
 app.use("/api", router);
 
 // Serve built frontend in production
@@ -102,6 +109,30 @@ setInterval(() => {
 }, 60 * 60 * 1000);
 
 // ── Sprint 9A startup migrations (idempotent) ──────────────────────────────────
+if (supabasePool) {
+  supabasePool.query(`
+    CREATE TABLE IF NOT EXISTS payment_proof_short_links (
+      id             BIGSERIAL PRIMARY KEY,
+      token_hash     TEXT NOT NULL UNIQUE,
+      task_id        INTEGER,
+      document_key   TEXT NOT NULL,
+      storage_bucket TEXT NOT NULL DEFAULT 'payment-proofs',
+      storage_path   TEXT NOT NULL,
+      expires_at     TIMESTAMPTZ NOT NULL,
+      revoked_at     TIMESTAMPTZ,
+      created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+    CREATE INDEX IF NOT EXISTS payment_proof_short_links_task_idx
+      ON payment_proof_short_links(task_id);
+    CREATE INDEX IF NOT EXISTS payment_proof_short_links_expiry_idx
+      ON payment_proof_short_links(expires_at);
+  `)
+    .then(() => logger.info("Payment proof short-link migration OK"))
+    .catch((err: unknown) =>
+      logger.warn({ err }, "Payment proof short-link migration warning"),
+    );
+}
+
 if (supabasePool) {
   supabasePool.query(`
     CREATE TABLE IF NOT EXISTS conversation_intake_sessions (
