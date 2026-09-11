@@ -1154,6 +1154,9 @@ async function runAiDetection({
             } else {
               agentAck += `\n\nMohon tunggu sebentar, tim kami akan segera membantu!`;
             }
+            agentAck +=
+              `\n\n8️⃣  Kembali Menu Awal\n` +
+              `9️⃣  Akhiri Percakapan`;
             await sendFonnte(replyTo, agentAck, fonnteDevice).catch((e) =>
               logger.warn({ e }, "form-menu: gagal kirim ack agent"),
             );
