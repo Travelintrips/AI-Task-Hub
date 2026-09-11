@@ -107,6 +107,44 @@ function inferCategoryFromIntentCode(intentCode: string): string | null {
 
 const router: IRouter = Router();
 
+function resolveMiniFormCustomerName(
+  fields: Record<string, unknown>,
+  phone: string,
+  submittedBy?: string,
+): string {
+  const candidateKeys = [
+    "booker_name",
+    "contact_person",
+    "consignee_name",
+    "customer_name",
+    "customerName",
+    "full_name",
+    "name",
+    "nama_pemesan",
+    "nama_lengkap",
+    "nama",
+  ];
+  const ignoredValues = new Set(["customer", "pelanggan", "anonymous", "anonim"]);
+
+  for (const key of candidateKeys) {
+    const value = String(fields[key] ?? "").trim();
+    if (value && value !== phone && !ignoredValues.has(value.toLowerCase())) {
+      return value;
+    }
+  }
+
+  const submittedName = String(submittedBy ?? "").trim();
+  if (
+    submittedName &&
+    submittedName !== phone &&
+    !ignoredValues.has(submittedName.toLowerCase())
+  ) {
+    return submittedName;
+  }
+
+  return phone;
+}
+
 // ── GET /public/mini-form/types ───────────────────────────────────────────────
 
 router.get("/public/mini-form/types", (_req, res): void => {
@@ -599,6 +637,11 @@ router.post(
           .slice(0, 12)
           .map(([k, v]) => `${k}: ${String(v)}`)
           .join("\n");
+        const customerName = resolveMiniFormCustomerName(
+          merged,
+          session.phone,
+          body.submittedBy,
+        );
 
         const [newTask] = await db
           .insert(aiTasksTable)
@@ -617,6 +660,7 @@ router.post(
                 ? "high"
                 : "medium",
             category: session.category ?? formCfg.title,
+            customerName,
             customerPhone: session.phone,
             customerId: session.customerId
               ? parseInt(session.customerId, 10) || null

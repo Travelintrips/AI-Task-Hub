@@ -185,6 +185,7 @@ function TaskRow({ task, highlight }: { task: AiTask; highlight?: string }) {
   const normalized = normalizeStatus(task.status);
   const cfg = STATUS_CONFIG[normalized];
   const age = formatDistanceToNow(new Date(task.createdAt), { addSuffix: true });
+  const customerLabel = task.customerName?.trim() || task.customerPhone?.trim() || "Pelanggan";
 
   function hl(text: string) {
     if (!highlight?.trim()) return <>{text}</>;
@@ -211,7 +212,7 @@ function TaskRow({ task, highlight }: { task: AiTask; highlight?: string }) {
       </td>
       <td className="px-3 py-2.5">
         <div className="text-sm font-medium text-gray-800 truncate max-w-[120px]">
-          {task.customerName ? hl(task.customerName) : "—"}
+          {hl(customerLabel)}
         </div>
         {task.customerPhone && (
           <div className="text-[11px] text-gray-400">{hl(task.customerPhone)}</div>
