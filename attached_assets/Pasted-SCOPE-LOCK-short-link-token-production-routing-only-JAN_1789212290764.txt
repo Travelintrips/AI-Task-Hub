@@ -1,0 +1,92 @@
+SCOPE LOCK: short-link token + production routing only.
+
+JANGAN membuat booking/order/payment/accounting transaction.
+JANGAN submit form production.
+JANGAN trigger auto-confirmation.
+JANGAN kirim WhatsApp/Fonnte saat verifikasi.
+JANGAN ubah business logic booking, payment, accounting, OCR, atau Supabase storage policy.
+
+Tujuan:
+1. Ubah token short-link bukti pembayaran BARU dari 24 karakter menjadi 12 karakter.
+2. Pertahankan kompatibilitas token lama 24 karakter sampai expired.
+3. Pastikan production memakai:
+   https://ai-task.travelintrips.co.id/p/<12-char-token>
+4. Aktifkan route /p/:token di production agar tidak tertangkap SPA fallback.
+
+Implementasi:
+
+A. TOKEN
+- Audit generator existing createPaymentProofShortLink().
+- Untuk token BARU gunakan CSPRNG/crypto-secure random Base64URL dengan panjang tepat 12 karakter.
+- Jangan gunakan Math.random.
+- Tetap simpan token secara hash seperti implementasi sekarang.
+- Jangan mengubah struktur mapping:
+  task_id/document_key/storage_bucket/storage_path/expires_at.
+- Expiry existing tetap dipertahankan.
+- Route GET /p/:token JANGAN membatasi hanya 12 karakter.
+  Token lama 24 karakter harus tetap dapat diproses sampai expired.
+- Jika terjadi collision token, generate ulang secara aman.
+
+Target format baru:
+https://ai-task.travelintrips.co.id/p/K7mQ2xN8aP4z
+
+B. PRODUCTION BASE URL
+Pastikan source of truth production tetap:
+PUBLIC_APP_BASE_URL=https://ai-task.travelintrips.co.id
+
+Short-link production tidak boleh memakai:
+- REPLIT_DEV_DOMAIN
+- REPLIT_DOMAINS
+- hostname *.replit.dev
+
+WhatsApp production harus menghasilkan:
+https://ai-task.travelintrips.co.id/p/<token>
+
+dan TIDAK menampilkan signed Supabase URL.
+
+C. ROUTING PRODUCTION
+Current issue:
+GET https://ai-task.travelintrips.co.id/p/INVALIDTOKEN
+masih menghasilkan SPA index.html HTTP 200.
+
+Perbaiki deployment/routing agar:
+- /p/:token diproses oleh backend existing terlebih dahulu.
+- SPA fallback tidak menangkap /p/:token.
+- route frontend lain tetap normal.
+
+Expected:
+GET /                         → 200 SPA
+GET /p/INVALIDTOKEN           → 404 backend
+GET /p/<valid token>          → 302 signed Supabase URL
+signed Supabase object        → 200
+
+D. VERIFIKASI AMAN
+Jangan membuat transaksi production untuk testing.
+
+Lakukan:
+1. unit/integration test generator:
+   - token baru tepat 12 karakter
+   - Base64URL-safe
+   - collision retry bekerja
+2. test backward compatibility token 24 karakter existing/fixture
+3. build/typecheck hanya scope terkait
+4. setelah deployment, probe read-only:
+   https://ai-task.travelintrips.co.id/p/INVALIDTOKEN
+   harus 404, bukan SPA 200.
+5. Jangan membuat booking/payment/accounting/WhatsApp production.
+
+Jika valid 302 production tidak bisa dibuktikan tanpa membuat transaksi production:
+STOP / BLOCKED.
+Jangan membuat test order.
+
+Final report:
+- TOKEN_NEW_LENGTH_12=PASS/FAIL
+- OLD_24_CHAR_COMPATIBILITY=PASS/FAIL
+- CRYPTO_SECURE_GENERATION=PASS/FAIL
+- COLLISION_GUARD=PASS/FAIL
+- PROD_BASE_URL=PASS/FAIL
+- NO_REPLIT_DEV_HOSTNAME=PASS/FAIL
+- NO_SIGNED_URL_IN_WHATSAPP=PASS/FAIL
+- PROD_P_INVALID_RETURNS_404=PASS/FAIL
+- HOMEPAGE_STILL_200=PASS/FAIL
+- NO_PRODUCTION_TRANSACTION_CREATED=PASS/FAIL

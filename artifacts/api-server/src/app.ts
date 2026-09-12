@@ -71,7 +71,13 @@ if (process.env.NODE_ENV === "production") {
   const frontendDist = path.resolve(process.cwd(), "artifacts/ai-task-center/dist/public");
   if (fs.existsSync(frontendDist)) {
     app.use(express.static(frontendDist));
-    app.get("/{*path}", (_req, res) => {
+    app.get("/{*path}", (req, res) => {
+      // Keep malformed or unknown public payment-proof links as backend 404s;
+      // never turn them into an SPA document that looks like a successful link.
+      if (req.path === "/p" || req.path.startsWith("/p/")) {
+        res.status(404).send("Not found");
+        return;
+      }
       res.sendFile(path.join(frontendDist, "index.html"));
     });
     logger.info({ frontendDist }, "Serving frontend static files");

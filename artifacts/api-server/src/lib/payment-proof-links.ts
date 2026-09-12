@@ -1,7 +1,10 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHash } from "node:crypto";
 import { config } from "../config";
 import { supabaseQueryStrict } from "./supabase-db";
 import { PAYMENT_PROOF_BUCKET } from "./supabase";
+import {
+  generatePaymentProofTokenWithCollisionRetry,
+} from "./payment-proof-token";
 
 export const PAYMENT_PROOF_SHORT_LINK_TTL_SECONDS = 7 * 24 * 60 * 60;
 
@@ -45,17 +48,14 @@ export async function createPaymentProofShortLink(
   );
   const storageBucket = PAYMENT_PROOF_BUCKET;
 
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const token = randomBytes(18).toString("base64url");
-    const tokenHash = hashToken(token);
-
-    try {
+  const token = await generatePaymentProofTokenWithCollisionRetry(
+    async (candidate) => {
       await supabaseQueryStrict(
         `INSERT INTO payment_proof_short_links
           (token_hash, task_id, document_key, storage_bucket, storage_path, expires_at)
          VALUES ($1, $2, $3, $4, $5, $6)`,
         [
-          tokenHash,
+          hashToken(candidate),
           input.taskId,
           input.documentKey,
           storageBucket,
@@ -63,18 +63,14 @@ export async function createPaymentProofShortLink(
           expiresAt,
         ],
       );
+    },
+  );
 
-      return {
-        url: `${getShortLinkBaseUrl()}/p/${token}`,
-        token,
-        expiresAt,
-      };
-    } catch (error) {
-      if (attempt === 2) throw error;
-    }
-  }
-
-  throw new Error("Unable to create payment proof short link");
+  return {
+    url: `${getShortLinkBaseUrl()}/p/${token}`,
+    token,
+    expiresAt,
+  };
 }
 
 export async function findActivePaymentProofShortLink(

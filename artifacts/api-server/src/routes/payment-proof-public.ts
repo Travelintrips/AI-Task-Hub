@@ -1,9 +1,9 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { findActivePaymentProofShortLink } from "../lib/payment-proof-links";
+import { isPaymentProofTokenFormat } from "../lib/payment-proof-token";
 import { supabase } from "../lib/supabase";
 
 const router: IRouter = Router();
-const TOKEN_PATTERN = /^[A-Za-z0-9_-]{24}$/;
 const SIGNED_URL_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 /**
@@ -15,7 +15,7 @@ const SIGNED_URL_TTL_SECONDS = 7 * 24 * 60 * 60;
  */
 router.get("/p/:token", async (req: Request, res: Response) => {
   const token = String(req.params.token ?? "");
-  if (!TOKEN_PATTERN.test(token)) {
+  if (!isPaymentProofTokenFormat(token)) {
     res.status(404).send("Not found");
     return;
   }
