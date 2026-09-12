@@ -1,0 +1,69 @@
+SCOPE LOCK: production short-link verification only.
+JANGAN membuat booking/order/payment/accounting transaction baru.
+JANGAN submit form production.
+JANGAN trigger auto-confirmation.
+JANGAN menulis jurnal/accounting.
+JANGAN mengubah business logic.
+
+Tujuan:
+Memastikan link WhatsApp production nanti berbentuk:
+
+https://ai-task.travelintrips.co.id/p/:token
+
+dan link tersebut dapat dibuka normal.
+
+Lakukan verifikasi tanpa membuat data produksi baru:
+
+1. Audit production config dan pastikan:
+   PAYMENT_PROOF_SHORT_LINK_BASE_URL=https://ai-task.travelintrips.co.id
+
+2. Audit code path createPaymentProofShortLink() dan template WhatsApp.
+   Pastikan production payload akan menggunakan:
+   https://ai-task.travelintrips.co.id/p/:token
+
+3. Jangan gunakan REPLIT_DEV_DOMAIN/REPLIT_DOMAINS untuk production jika explicit production base URL tersedia.
+
+4. Verifikasi route production:
+   GET /p/:token
+   terhubung ke handler existing yang:
+   - lookup token
+   - generate signed Supabase URL server-side
+   - return 302
+
+5. Gunakan existing non-production fixture/test token atau isolated temporary verification record yang:
+   - tidak memiliki booking/payment/accounting side effect
+   - tidak memicu notification/Fonnte
+   - dibersihkan setelah test
+
+   Jika tidak ada cara aman untuk membuat isolated test token tanpa side effect, JANGAN membuat data produksi.
+   Cukup lakukan code/config/runtime verification read-only dan laporkan blocker.
+
+6. Jangan pernah membuat test order melalui WhatsApp/form production.
+
+7. Verifikasi production hostname:
+   https://ai-task.travelintrips.co.id
+   dapat mencapai route /p/:token.
+
+8. Pastikan WhatsApp production tidak akan menampilkan:
+   - signed Supabase URL
+   - replit.dev hostname
+   - hostname DEV lama
+
+Expected final behavior:
+
+WhatsApp:
+https://ai-task.travelintrips.co.id/p/<token>
+
+Saat diklik:
+ai-task.travelintrips.co.id/p/<token>
+→ 302
+→ signed Supabase URL server-generated
+→ payment proof HTTP 200
+
+Berikan hasil:
+- PASS/FAIL production base URL
+- PASS/FAIL WhatsApp URL generation
+- PASS/FAIL /p/:token routing
+- PASS/FAIL no DEV hostname
+- PASS/FAIL no signed URL in WhatsApp
+- bukti bahwa tidak ada booking/payment/accounting production yang dibuat selama verification
