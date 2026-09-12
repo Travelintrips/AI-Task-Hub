@@ -1,0 +1,77 @@
+SCOPE LOCK: runtime process cleanup + DEV URL hardcode audit only.
+
+Webhook DEV sudah PASS end-to-end.
+JANGAN ubah booking, payment, accounting, OCR, Fonnte logic, AI logic,
+database, atau PUBLIC_APP_BASE_URL production.
+
+PUBLIC_APP_BASE_URL production harus tetap:
+https://ai-task.travelintrips.co.id
+
+A. DUPLICATE API PROCESS
+
+Masalah:
+- "artifacts/api-server: API Server" memakai port 8080
+- "Start application" juga mencoba membuka port 8080
+- terjadi EADDRINUSE
+
+Perbaiki minimum:
+1. Tentukan SATU canonical owner port 8080.
+2. Jangan menjalankan API dua kali.
+3. Frontend tetap berjalan normal.
+4. API dan webhook tetap berjalan.
+
+B. AUDIT HARDCODE DEV URL
+
+Cari secara menyeluruh apakah masih ada hardcoded URL lama:
+
+https://e19fd6b8-6047-4953-aa51-f3b409d0c291-00-ydyf55pkhd6d.sisko.replit.dev/
+
+Cari di:
+- source code
+- API/backend
+- frontend
+- webhook
+- Fonnte
+- mini-form URL generator
+- short-link generator
+- environment/config
+- workflow/start scripts
+- redirect/callback
+- fallback URL
+- database settings/config jika relevan
+
+Jangan hanya mencari exact URL.
+Audit juga apakah hostname DEV lama dibentuk atau disimpan melalui config lain.
+
+Jika ditemukan hardcode:
+- laporkan file/config dan kegunaannya
+- hapus/ganti hanya jika memang stale
+- DEV runtime URL harus berasal dari runtime/config secara dinamis
+- jangan hardcode hostname *.replit.dev baru sebagai penggantinya
+
+Production tetap canonical:
+https://ai-task.travelintrips.co.id
+
+C. VERIFIKASI
+
+Setelah perbaikan:
+- restart DEV
+- tidak ada EADDRINUSE
+- hanya satu owner port 8080
+- GET /api/healthz → 200
+- POST /api/webhook/fonnte tetap bekerja
+- satu pesan harmless "halo" mendapat reply
+- pastikan tidak ada dependency terhadap DEV URL lama
+
+Final report:
+
+HARDCODED_OLD_DEV_URL=YES/NO
+OLD_DEV_URL_LOCATIONS=<jika ada>
+OLD_DEV_URL_REMOVED=PASS/FAIL/N/A
+DYNAMIC_DEV_URL_RESOLUTION=PASS/FAIL
+PROD_BASE_URL_UNCHANGED=PASS/FAIL
+DUPLICATE_API_REMOVED=PASS/FAIL
+PORT_8080_SINGLE_OWNER=PASS/FAIL
+API_HEALTH=PASS/FAIL
+WEBHOOK_REPLY=PASS/FAIL
+NO_BUSINESS_LOGIC_CHANGED=PASS/FAIL
