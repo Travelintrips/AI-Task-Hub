@@ -2,6 +2,18 @@ const SUPABASE_PROJECT_REF = "nzdweipzckfszczzqtuw";
 const SUPABASE_PROJECT_REF_DEV = "xssrfshdrtdfupgqwfdw";
 const OBJECT_STORAGE_BUCKET_ID = "replit-objstore-e357cc66-19c3-4d73-9ca9-3069d78355d1";
 
+function getPaymentProofShortLinkBaseUrl(): string {
+  const explicitBaseUrl = process.env.PAYMENT_PROOF_SHORT_LINK_BASE_URL?.trim();
+  if (explicitBaseUrl) return explicitBaseUrl.replace(/\/+$/, "");
+
+  const runtimeDomain =
+    process.env.REPLIT_DOMAINS?.split(",")[0]?.trim() ||
+    process.env.REPLIT_DEV_DOMAIN?.trim();
+  if (runtimeDomain) return `https://${runtimeDomain}`;
+
+  return "http://localhost:8080";
+}
+
 export const config = {
   supabase: {
     url: process.env.SUPABASE_URL || `https://${SUPABASE_PROJECT_REF}.supabase.co`,
@@ -23,6 +35,5 @@ export const config = {
       process.env.PUBLIC_OBJECT_SEARCH_PATHS || `/${OBJECT_STORAGE_BUCKET_ID}/public`,
   },
   paymentProofShortLinkBaseUrl:
-    process.env.PAYMENT_PROOF_SHORT_LINK_BASE_URL ||
-    "https://e19fd6b8-6047-4953-aa51-f3b409d0c291-00-ydyf55pkhd6d.sisko.replit.dev",
+    getPaymentProofShortLinkBaseUrl(),
 } as const;
