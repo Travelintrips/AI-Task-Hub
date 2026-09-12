@@ -19,6 +19,7 @@ import { getFormConfig, inferFormType } from "./mini-form-config";
 import { sendFonnte, sendFonnteButtons } from "./fonnte";
 import { sendWhatsAppInteractiveButtons } from "./whatsapp";
 import { logger } from "./logger";
+import { getPublicBaseUrl } from "../config";
 
 import type { IntentResolution } from "./intent-engine";
 
@@ -88,19 +89,6 @@ export interface RouterResult {
   waSent: boolean;
   /** Populated for hybrid mode when deferFormSend=true — the form type to send later */
   formType?: string;
-}
-
-// ── Domain helpers ──────────────────────────────────────────────────────────────
-
-function getPublicBaseUrl(): string {
-  const domains = process.env.REPLIT_DOMAINS ?? "";
-  if (domains) {
-    const first = domains.split(",")[0]?.trim();
-    if (first) return `https://${first}`;
-  }
-  const devDomain = process.env.REPLIT_DEV_DOMAIN ?? "";
-  if (devDomain) return `https://${devDomain}`;
-  return "http://localhost:5000";
 }
 
 // ── Core router ─────────────────────────────────────────────────────────────────

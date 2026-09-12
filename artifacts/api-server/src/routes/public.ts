@@ -26,6 +26,7 @@ import {
   supabase,
 } from "../lib/supabase";
 import { logger } from "../lib/logger";
+import { getPublicBaseUrl } from "../config";
 
 const router: IRouter = Router();
 const PAYMENT_PROOF_MAX_BYTES = 10 * 1024 * 1024;
@@ -78,7 +79,7 @@ router.post("/public/generate-token", async (req, res): Promise<void> => {
     if (!task) { res.status(404).json({ error: "Task not found" }); return; }
 
     const token = await createPublicToken(taskId, tokenType, createdBy, expiresInDays ?? 30);
-    const baseUrl = process.env.PUBLIC_BASE_URL ?? `https://${process.env.REPLIT_DEV_DOMAIN ?? "localhost:5173"}`;
+    const baseUrl = getPublicBaseUrl();
     const path = tokenType === "mini_task" ? "mini-task" : "customer-data";
     const url = `${baseUrl}/${path}/${taskId}/${token}`;
 

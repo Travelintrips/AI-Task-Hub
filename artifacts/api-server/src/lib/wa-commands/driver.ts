@@ -22,18 +22,11 @@ import { sql } from "drizzle-orm";
 import { sendFonnte } from "../fonnte";
 import { logger } from "../logger";
 import { plateWhere } from "../plate-number";
+import { getPublicBaseUrl } from "../../config";
 import type { WaCommandContext, WaCommandResult } from "./types";
 
 function baseUrl(): string {
-  if (process.env["BASE_URL"]) return process.env["BASE_URL"];
-  const domains = process.env["REPLIT_DOMAINS"] ?? "";
-  if (domains) {
-    const first = domains.split(",")[0]?.trim();
-    if (first) return `https://${first}`;
-  }
-  const devDomain = process.env["REPLIT_DEV_DOMAIN"] ?? "";
-  if (devDomain) return `https://${devDomain}`;
-  return "http://localhost:5000";
+  return getPublicBaseUrl();
 }
 
 /** Fire-and-forget: refresh driver memory snapshot after significant events */

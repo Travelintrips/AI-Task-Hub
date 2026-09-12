@@ -29,6 +29,7 @@ import { logger } from "../lib/logger";
 import { sendFonnte } from "../lib/fonnte";
 import { uploadBuffer } from "../lib/supabase";
 import { validateDocument } from "../lib/document-validation-engine";
+import { getPublicBaseUrl } from "../config";
 
 const router: IRouter = Router();
 
@@ -39,15 +40,7 @@ function generateToken(): string {
 }
 
 function baseUrl(): string {
-  if (process.env["BASE_URL"]) return process.env["BASE_URL"];
-  const domains = process.env["REPLIT_DOMAINS"] ?? "";
-  if (domains) {
-    const first = domains.split(",")[0]?.trim();
-    if (first) return `https://${first}`;
-  }
-  const devDomain = process.env["REPLIT_DEV_DOMAIN"] ?? "";
-  if (devDomain) return `https://${devDomain}`;
-  return "http://localhost:5000";
+  return getPublicBaseUrl();
 }
 
 interface TokenCheck {

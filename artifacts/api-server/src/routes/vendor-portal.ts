@@ -24,6 +24,7 @@ import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { requireAuth } from "../middleware/auth";
 import { logger } from "../lib/logger";
+import { getPublicBaseUrl } from "../config";
 import { sendFonnte } from "../lib/fonnte";
 import { uploadBuffer } from "../lib/supabase";
 import { validateDocument } from "../lib/document-validation-engine";
@@ -268,19 +269,13 @@ router.post("/public/vendor/register/:token", async (req: Request, res: Response
     })();
 
     const requiredDocs = getRequiredDocs(service_type);
-    const _domains = process.env["REPLIT_DOMAINS"] ?? "";
-    const _devDomain = process.env["REPLIT_DEV_DOMAIN"] ?? "";
-    const BASE_URL = process.env["BASE_URL"]
-      ?? (_domains ? `https://${_domains.split(",")[0]?.trim()}` : null)
-      ?? (_devDomain ? `https://${_devDomain}` : null)
-      ?? "http://localhost:5000";
     const statusToken = generateToken();
     const statusExpires = new Date(Date.now() + 30 * 24 * 3600 * 1000); // 30 days
     await db.execute(sql`
       INSERT INTO vendor_portal_tokens (token, vendor_id, phone, token_purpose, expires_at)
       VALUES (${statusToken}, ${vendorId}, ${phone}, 'status', ${statusExpires.toISOString()})
     `);
-    const statusUrl = `${BASE_URL}/vendor/status/${statusToken}`;
+    const statusUrl = `${getPublicBaseUrl()}/vendor/status/${statusToken}`;
 
     res.json({
       success: true,

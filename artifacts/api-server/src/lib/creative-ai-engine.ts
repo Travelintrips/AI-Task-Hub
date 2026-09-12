@@ -15,6 +15,7 @@ import { db, aiTasksTable } from "@workspace/db";
 import { supabaseQuery, supabaseQueryStrict } from "./supabase-db";
 import { sendFonnte } from "./fonnte";
 import { logger as rootLogger } from "./logger";
+import { getPublicBaseUrl } from "../config";
 
 const logger = rootLogger.child({ module: "creative-ai-engine" });
 
@@ -190,12 +191,7 @@ async function updateTaskStatus(taskId: number, status: string): Promise<void> {
 // ─── WA notification to customer ─────────────────────────────────────────────
 
 function buildDashboardLink(taskId: number): string {
-  const base = process.env.SC_DOMAIN
-    ? `https://${process.env.SC_DOMAIN}`
-    : process.env.REPLIT_DEV_DOMAIN
-    ? `https://${process.env.REPLIT_DEV_DOMAIN}`
-    : "";
-  return `${base}/creative-ai/${taskId}`;
+  return `${getPublicBaseUrl()}/creative-ai/${taskId}`;
 }
 
 async function notifyCustomerReady(params: {

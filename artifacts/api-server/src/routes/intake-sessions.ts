@@ -13,6 +13,7 @@ import { eq, desc, and, inArray, gte, sql } from "drizzle-orm";
 import { db, intakeSessionsTable, aiTasksTable, dataTemplatesTable } from "@workspace/db";
 import { requireAuth } from "../middleware/auth";
 import { logger } from "../lib/logger";
+import { getPublicBaseUrl } from "../config";
 import { createAdminNotification } from "../lib/admin-notifications";
 import { sendFonnte } from "../lib/fonnte";
 import { generateSecureToken } from "../lib/tokens";
@@ -265,12 +266,8 @@ router.post("/intake-sessions/:id/send-form", requireAuth, async (req, res): Pro
     }
 
     // Build form URL
-    const domain = process.env.REPLIT_DOMAINS?.split(",")[0]?.trim()
-      ?? process.env.REPLIT_DEV_DOMAIN
-      ?? "localhost:5000";
-    const scheme = domain.includes("localhost") ? "http" : "https";
     const basePath = (process.env.BASE_PATH ?? "/").replace(/\/$/, "");
-    const formUrl = `${scheme}://${domain}${basePath}/mini-form/${formType}/${token}`;
+    const formUrl = `${getPublicBaseUrl()}${basePath}/mini-form/${formType}/${token}`;
 
     // WhatsApp message
     const isUrgent = session.category?.toLowerCase().includes("komplain") || formType === "complaint";

@@ -15,6 +15,7 @@ import {
   extractPaymentProofOcr,
   type PaymentProofOcrResult,
 } from "./payment-proof-ocr";
+import { getPublicBaseUrl } from "../config";
 
 // ── Intent detection ───────────────────────────────────────────────────────────
 
@@ -686,10 +687,7 @@ async function generateBookingNumber(
 // ── SC domain helper ──────────────────────────────────────────────────────────
 
 export function getScDomain(): string {
-  return (
-    process.env.SC_DOMAIN ??
-    (process.env.REPLIT_DEV_DOMAIN ? `https://${process.env.REPLIT_DEV_DOMAIN}` : "https://sc.travelintrips.co.id")
-  );
+  return getPublicBaseUrl();
 }
 
 // ── Bank/payment settings ─────────────────────────────────────────────────────

@@ -2,9 +2,24 @@ const SUPABASE_PROJECT_REF = "nzdweipzckfszczzqtuw";
 const SUPABASE_PROJECT_REF_DEV = "xssrfshdrtdfupgqwfdw";
 const OBJECT_STORAGE_BUCKET_ID = "replit-objstore-e357cc66-19c3-4d73-9ca9-3069d78355d1";
 
-function getPaymentProofShortLinkBaseUrl(): string {
-  const explicitBaseUrl = process.env.PAYMENT_PROOF_SHORT_LINK_BASE_URL?.trim();
-  if (explicitBaseUrl) return explicitBaseUrl.replace(/\/+$/, "");
+function normalizeBaseUrl(value: string): string {
+  return value.trim().replace(/\/+$/, "");
+}
+
+/**
+ * Resolve the canonical origin for every public link sent by AI Task Hub.
+ *
+ * Production must provide PUBLIC_APP_BASE_URL so public links never fall back
+ * to the generated Replit deployment hostname. Development intentionally uses
+ * the current runtime domain so preview links continue to work.
+ */
+export function getPublicBaseUrl(): string {
+  const configuredBaseUrl = process.env.PUBLIC_APP_BASE_URL?.trim();
+  if (configuredBaseUrl) return normalizeBaseUrl(configuredBaseUrl);
+
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("PUBLIC_APP_BASE_URL must be configured in production");
+  }
 
   const runtimeDomain =
     process.env.REPLIT_DOMAINS?.split(",")[0]?.trim() ||
@@ -13,6 +28,8 @@ function getPaymentProofShortLinkBaseUrl(): string {
 
   return "http://localhost:8080";
 }
+
+const publicBaseUrl = getPublicBaseUrl();
 
 export const config = {
   supabase: {
@@ -34,6 +51,6 @@ export const config = {
     publicSearchPaths:
       process.env.PUBLIC_OBJECT_SEARCH_PATHS || `/${OBJECT_STORAGE_BUCKET_ID}/public`,
   },
-  paymentProofShortLinkBaseUrl:
-    getPaymentProofShortLinkBaseUrl(),
+  publicBaseUrl,
+  paymentProofShortLinkBaseUrl: publicBaseUrl,
 } as const;

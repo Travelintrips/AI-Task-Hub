@@ -26,10 +26,7 @@ function hashToken(token: string): string {
 }
 
 function getShortLinkBaseUrl(): string {
-  return (
-    process.env.PAYMENT_PROOF_SHORT_LINK_BASE_URL?.trim().replace(/\/+$/, "") ||
-    config.paymentProofShortLinkBaseUrl
-  );
+  return config.publicBaseUrl;
 }
 
 /**

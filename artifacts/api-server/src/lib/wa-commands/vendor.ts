@@ -15,21 +15,12 @@ import {
 import { sql } from "drizzle-orm";
 import { supabasePool } from "../supabase-db";
 import { logger } from "../logger";
+import { getPublicBaseUrl } from "../../config";
 import type { WaCommandContext, WaCommandResult } from "./types";
 
 function getBaseUrl(): string {
-  if (process.env["BASE_URL"]) return process.env["BASE_URL"];
-  const domains = process.env["REPLIT_DOMAINS"] ?? "";
-  if (domains) {
-    const first = domains.split(",")[0]?.trim();
-    if (first) return `https://${first}`;
-  }
-  const devDomain = process.env["REPLIT_DEV_DOMAIN"] ?? "";
-  if (devDomain) return `https://${devDomain}`;
-  return "http://localhost:5000";
+  return getPublicBaseUrl();
 }
-
-const BASE_URL = getBaseUrl();
 
 function generateToken(): string {
   const { randomBytes } = require("crypto") as typeof import("crypto");
@@ -94,7 +85,7 @@ export async function handleVendorCommand(
 
       try {
         const token = await createPortalToken(phone, "register", existing.id, 168);
-        const url = `${BASE_URL}/vendor/register/${token}`;
+        const url = `${getBaseUrl()}/vendor/register/${token}`;
         return {
           reply:
             `🏢 *Update Data Vendor*\n\n` +
@@ -119,7 +110,7 @@ export async function handleVendorCommand(
     // New vendor — generate registration token
     try {
       const token = await createPortalToken(phone, "register", undefined, 168);
-      const url = `${BASE_URL}/vendor/register/${token}`;
+      const url = `${getBaseUrl()}/vendor/register/${token}`;
       return {
         reply:
           `🏢 *Pendaftaran Vendor Baru*\n\n` +
@@ -215,7 +206,7 @@ export async function handleVendorCommand(
     let portalLine = "";
     try {
       const statusToken = await createPortalToken(phone, "status", vendorId as number, 24);
-      const url = `${BASE_URL}/vendor/status/${statusToken}`;
+      const url = `${getBaseUrl()}/vendor/status/${statusToken}`;
       portalLine = `\n🔗 Detail lengkap: ${url}`;
     } catch { /* non-critical */ }
 
@@ -276,7 +267,7 @@ export async function handleVendorCommand(
     let portalLine = "";
     try {
       const docToken = await createPortalToken(phone, "documents", vendorId as number, 24);
-      const url = `${BASE_URL}/vendor/documents/${docToken}`;
+      const url = `${getBaseUrl()}/vendor/documents/${docToken}`;
       portalLine = `\n\n🔗 Portal Dokumen: ${url}\n_(upload dokumen via tautan di atas)_`;
     } catch { /* non-critical */ }
 
