@@ -12,5 +12,14 @@
   "devDependencies": {
     "prettier": "^3.8.3",
     "typescript": "~5.9.3"
+  },
+  "pnpm": {
+    "overrides": {
+      "nanoid": "5.1.16",
+      "@xmldom/xmldom": "0.8.15",
+      "gaxios@6.7.1>uuid": "11.1.1",
+      "qs": "6.16.0",
+      "body-parser": "2.3.0"
+    }
   }
 }
