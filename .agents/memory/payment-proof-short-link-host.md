@@ -14,3 +14,9 @@ Short-link generation must resolve its base URL from an explicit `PAYMENT_PROOF_
 **Why:** Replit DEV hostnames can change between runtimes. A stale embedded hostname can make WhatsApp links reach a different app even when the route and private Storage object are correct.
 
 **How to apply:** WhatsApp should use the URL returned by the backend short-link creator. In DEV, that URL should be based on the runtime domain exposed to the API process; validate the public route and the final signed Storage fetch together.
+
+For verification, compare `URL.hostname` exactly against the active runtime hostname; do not classify a host as stale by substring matching because the current DEV hostname itself may contain `sisko.replit.dev`.
+
+**Why:** A substring check falsely reported the successful current-domain payload as stale during the normal-flow test.
+
+**How to apply:** Extract the hostname from each emitted short-link URL and require exact equality with the `REPLIT_DOMAINS` hostname.
