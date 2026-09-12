@@ -15,7 +15,7 @@ import {
   extractPaymentProofOcr,
   type PaymentProofOcrResult,
 } from "./payment-proof-ocr";
-import { getPublicBaseUrl } from "../config";
+import { getPublicBaseUrl, getPublicUrl } from "../config";
 
 // ── Intent detection ───────────────────────────────────────────────────────────
 
@@ -690,6 +690,29 @@ export function getScDomain(): string {
   return getPublicBaseUrl();
 }
 
+/**
+ * Resolve QRIS assets stored as a legacy relative path.
+ *
+ * Older Sport Center settings stored values such as `/uploads/qris.jpeg`.
+ * That path is not a local frontend asset and falls through to the SPA,
+ * returning HTML instead of an image. Route relative storage paths through
+ * the existing Supabase-backed public object endpoint instead.
+ */
+function resolveSportCenterImageUrl(rawUrl: string): string {
+  if (/^https?:\/\//i.test(rawUrl)) return rawUrl;
+
+  const normalizedPath = rawUrl.replace(/^\/+/, "");
+  if (normalizedPath.startsWith("api/storage/public-objects/")) {
+    return getPublicUrl(`/${normalizedPath}`);
+  }
+
+  const encodedPath = normalizedPath
+    .split("/")
+    .map((segment) => encodeURIComponent(segment))
+    .join("/");
+  return getPublicUrl(`/api/storage/public-objects/${encodedPath}`);
+}
+
 // ── Bank/payment settings ─────────────────────────────────────────────────────
 
 export interface SportCenterPaymentSettings {
@@ -718,9 +741,7 @@ export async function getSportCenterPaymentSettings(): Promise<SportCenterPaymen
     bankAccount: settings?.bank_account?.trim() || null,
     bankAccountName: settings?.bank_account_name?.trim() || null,
     qrisImageUrl: rawQrisImageUrl
-      ? rawQrisImageUrl.startsWith("http")
-        ? rawQrisImageUrl
-        : `${getScDomain()}/${rawQrisImageUrl.replace(/^\/+/, "")}`
+      ? resolveSportCenterImageUrl(rawQrisImageUrl)
       : null,
   };
 }
