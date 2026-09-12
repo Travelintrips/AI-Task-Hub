@@ -1,0 +1,67 @@
+SCOPE LOCK: audit WhatsApp webhook DEV runtime only.
+JANGAN ubah booking, payment, accounting, OCR, production data, atau PUBLIC_APP_BASE_URL production.
+
+Kondisi saat ini:
+
+FONNTE WEBHOOK DEV:
+https://992e7013-93ad-43a7-baf2-a846918cde76-00-3rx6eto3dxghy.sisko.replit.dev/api/webhook/fonnte
+
+PUBLIC/PRODUCTION DOMAIN tetap:
+https://ai-task.travelintrips.co.id
+
+Masalah:
+Setelah webhook Fonnte diarahkan ke DEV URL di atas,
+AI Task Hub tidak merespons pesan WhatsApp.
+
+Audit end-to-end satu pesan harmless seperti "halo":
+
+1. Pastikan POST /api/webhook/fonnte benar-benar masuk ke runtime DEV tersebut.
+2. Catat request timestamp, sender, message/body yang diterima.
+3. Trace:
+   webhook received
+   → sender parsed
+   → tenant/company loaded
+   → conversation/session loaded
+   → AI processing
+   → reply generated
+   → Fonnte send API called
+   → Fonnte response status/message id
+
+4. Audit environment DEV:
+   - FONNTE token/device/config
+   - AI provider API key/config
+   - database connection
+   - tenant/company settings
+   - required service credentials
+
+5. Bandingkan environment DEV ini dengan runtime yang sebelumnya berhasil.
+
+6. PUBLIC_APP_BASE_URL boleh tetap:
+   https://ai-task.travelintrips.co.id
+   karena ini hanya untuk link publik yang dikirim ke user.
+   JANGAN mengubahnya menjadi replit.dev hanya untuk membuat webhook bekerja.
+
+7. Cari error runtime seperti:
+   - missing env
+   - unauthorized Fonnte
+   - tenant not found
+   - DB error
+   - AI provider error
+   - queue/worker tidak aktif
+   - duplicate process/port issue
+
+8. Jangan hanya probe POST {}.
+   Trace satu real incoming WhatsApp message agar diketahui titik gagal sebenarnya.
+
+Final report:
+WEBHOOK_RECEIVED=PASS/FAIL
+SENDER_PARSED=PASS/FAIL
+TENANT_LOADED=PASS/FAIL
+SESSION_LOADED=PASS/FAIL
+AI_PROCESSING=PASS/FAIL
+REPLY_GENERATED=PASS/FAIL
+FONNTE_SEND_CALLED=PASS/FAIL
+FONNTE_SEND_RESPONSE=PASS/FAIL
+DEV_ENV_COMPLETE=PASS/FAIL
+ROOT_CAUSE=<exact>
+MINIMUM_FIX=<exact>
