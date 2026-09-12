@@ -20,6 +20,7 @@ import { db, usersTable } from "@workspace/db";
 import { requireAuth, requireRole } from "../middleware/auth";
 import { supabaseQuery } from "../lib/supabase-db";
 import { logger } from "../lib/logger";
+import { getPublicUrl } from "../config";
 
 export const companyOnboardingRouter = Router();
 
@@ -287,7 +288,7 @@ companyOnboardingRouter.post(
 
       await upsertSession(companyId, { current_step: 3, admin_done: true });
 
-      const activationLink = `${process.env.FRONTEND_URL ?? ""}/login?hint=${encodeURIComponent(email)}`;
+      const activationLink = getPublicUrl(`/login?hint=${encodeURIComponent(email)}`);
 
       logger.info({ companyId, email, role: validRole }, "Admin user created");
       return res.json({

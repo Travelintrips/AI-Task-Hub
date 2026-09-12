@@ -6,27 +6,44 @@ function normalizeBaseUrl(value: string): string {
   return value.trim().replace(/\/+$/, "");
 }
 
+const PRODUCTION_PUBLIC_BASE_URL = "https://ai-task.travelintrips.co.id";
+
 /**
  * Resolve the canonical origin for every public link sent by AI Task Hub.
  *
- * Production must provide PUBLIC_APP_BASE_URL so public links never fall back
- * to the generated Replit deployment hostname. Development intentionally uses
- * the current runtime domain so preview links continue to work.
+ * Production uses the configured canonical domain and refuses to fall back to
+ * a generated Replit hostname. Development intentionally uses the current
+ * runtime domain so preview links continue to work, even if a production
+ * PUBLIC_APP_BASE_URL is present in a shared environment.
  */
 export function getPublicBaseUrl(): string {
-  const configuredBaseUrl = process.env.PUBLIC_APP_BASE_URL?.trim();
-  if (configuredBaseUrl) return normalizeBaseUrl(configuredBaseUrl);
-
   if (process.env.NODE_ENV === "production") {
-    throw new Error("PUBLIC_APP_BASE_URL must be configured in production");
+    const configuredBaseUrl = normalizeBaseUrl(
+      process.env.PUBLIC_APP_BASE_URL || PRODUCTION_PUBLIC_BASE_URL,
+    );
+    if (configuredBaseUrl !== PRODUCTION_PUBLIC_BASE_URL) {
+      throw new Error(
+        `PUBLIC_APP_BASE_URL must be ${PRODUCTION_PUBLIC_BASE_URL} in production`,
+      );
+    }
+    return configuredBaseUrl;
   }
 
   const runtimeDomain =
-    process.env.REPLIT_DOMAINS?.split(",")[0]?.trim() ||
-    process.env.REPLIT_DEV_DOMAIN?.trim();
+    process.env.REPLIT_DEV_DOMAIN?.trim() ||
+    process.env.REPLIT_DOMAINS?.split(",")[0]?.trim();
   if (runtimeDomain) return `https://${runtimeDomain}`;
 
   return "http://localhost:8080";
+}
+
+/**
+ * Build a public URL from the same canonical origin used by all customer-facing
+ * links. Callers own the route path; the base origin stays config-driven here.
+ */
+export function getPublicUrl(path: string): string {
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return `${getPublicBaseUrl()}${normalizedPath}`;
 }
 
 const publicBaseUrl = getPublicBaseUrl();

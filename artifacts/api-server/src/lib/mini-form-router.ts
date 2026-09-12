@@ -19,7 +19,7 @@ import { getFormConfig, inferFormType } from "./mini-form-config";
 import { sendFonnte, sendFonnteButtons } from "./fonnte";
 import { sendWhatsAppInteractiveButtons } from "./whatsapp";
 import { logger } from "./logger";
-import { getPublicBaseUrl } from "../config";
+import { getPublicUrl } from "../config";
 
 import type { IntentResolution } from "./intent-engine";
 
@@ -183,10 +183,9 @@ export async function routeIntentToFlow({
   // ── Anti-loop: reuse existing form_sent session within 30 minutes ──────────
   const existingSession = await findFormSentSession(phone, companyId, intentCode);
   if (existingSession) {
-    const baseUrl = getPublicBaseUrl();
     // Normalize stored miniFormType (DB may have underscore form e.g. "field_booking")
     const existingFormType = existingSession.miniFormType.replace(/_/g, "-");
-    const existingFormUrl = `${baseUrl}/mini-form/${existingFormType}/${existingSession.formToken}`;
+    const existingFormUrl = getPublicUrl(`/mini-form/${existingFormType}/${existingSession.formToken}`);
 
     // Resend the existing form link (user may not have seen it or it went to wrong device)
     const resendMsg =
@@ -211,8 +210,7 @@ export async function routeIntentToFlow({
   }
 
   const token = generateSecureToken();
-  const baseUrl = getPublicBaseUrl();
-  const formUrl = `${baseUrl}/mini-form/${formType}/${token}`;
+  const formUrl = getPublicUrl(`/mini-form/${formType}/${token}`);
 
   // Create intake session with formToken (status = form_sent)
   const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);

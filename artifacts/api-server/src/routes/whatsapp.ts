@@ -50,7 +50,7 @@ import { sendWhatsAppInteractiveButtons } from "../lib/whatsapp";
 import { getFormConfig } from "../lib/mini-form-config";
 import { generateSecureToken } from "../lib/tokens";
 import { isSportCenterBookingIntent } from "../lib/sport-center-availability";
-import { getPublicBaseUrl } from "../config";
+import { getPublicUrl } from "../config";
 
 const router: IRouter = Router();
 
@@ -1648,8 +1648,7 @@ async function runAiDetection({
           // Hybrid mode: conversation complete, now send the form
           const formType = intakeResult.formType!;
           const token = generateSecureToken();
-          const baseUrl = getPublicBaseUrl();
-          const formUrl = `${baseUrl}/mini-form/${formType}/${token}`;
+          const formUrl = getPublicUrl(`/mini-form/${formType}/${token}`);
 
           // Store form token on session
           await db.update(intakeSessionsTable)

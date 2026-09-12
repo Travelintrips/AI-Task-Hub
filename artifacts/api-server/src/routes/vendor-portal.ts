@@ -24,7 +24,7 @@ import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { requireAuth } from "../middleware/auth";
 import { logger } from "../lib/logger";
-import { getPublicBaseUrl } from "../config";
+import { getPublicUrl } from "../config";
 import { sendFonnte } from "../lib/fonnte";
 import { uploadBuffer } from "../lib/supabase";
 import { validateDocument } from "../lib/document-validation-engine";
@@ -275,7 +275,7 @@ router.post("/public/vendor/register/:token", async (req: Request, res: Response
       INSERT INTO vendor_portal_tokens (token, vendor_id, phone, token_purpose, expires_at)
       VALUES (${statusToken}, ${vendorId}, ${phone}, 'status', ${statusExpires.toISOString()})
     `);
-    const statusUrl = `${getPublicBaseUrl()}/vendor/status/${statusToken}`;
+    const statusUrl = getPublicUrl(`/vendor/status/${statusToken}`);
 
     res.json({
       success: true,
