@@ -1,0 +1,49 @@
+tolong perbaiki insert Fasilitas.
+
+ini alur pesanan yang di buat baru: user ketik : mau pesan lapangan olahraga
+
+ai task jawab: 🏟️ Pilih lapangan/Fasilitas yang ingin Anda booking:
+
+1️⃣ Lapangan Multiguna 2️⃣ Badminton Court B 3️⃣ Lapangan Tennis Outdoor 4️⃣ Badminton Court A 5️⃣ Gym / Fitness Center 6️⃣ Billiard Coins (Self-Service)
+
+Balas dengan nomor atau nama lapangan yang Anda pilih.
+
+8️⃣ Kembali Menu Awal 9️⃣ Akhiri Percakapan 🔟 Hubungi Agent
+
+user ketik "3".
+
+ai task jawab: ✅ Anda memilih Lapangan Tennis Outdoor.
+
+Saya siapkan form booking-nya. Silakan tunggu sebentar ya. 🙏
+
+ai task kirim form: Halo! Untuk mempercepat proses booking lapangan, mohon isi form berikut:
+
+https://e19fd6b8-6047-4953-aa51-f3b409d0c291-00-ydyf55pkhd6d.sisko.replit.dev/mini-form/field-booking/29e8f3029801c8d99fabab6ec4ff476da723464ed3a2e17b856809683f51f665
+
+Setelah form dikirim, booking Anda akan otomatis dikonfirmasi oleh sistem. Detail booking akan kami kirimkan setelah proses berhasil. Terima kasih! Silakan pilih tindakan berikutnya dari menu di bawah.balas dengan angka:
+
+8️⃣ Kembali Menu Awal 9️⃣ Akhiri Percakapan 🔟 Hubungi Agent
+
+user selesai isi form,whatsapp masuk ke group: 📋 Pesanan Baru — Form Pemesanan Fasilitas No. Task: WA-20260914-F177
+
+Detail Pesanan:
+
+Nama Pemesan: PAULUS UJA NORI TIRO
+No.Pelanggan: 6283866088807
+Jenis Fasilitas: Lapangan Tennis Outdoor
+Tanggal Main: 2026-08-31
+Durasi Sewa: 3 jam
+Jam Mulai: 06:00
+Jam Selesai: 09:00
+Metode Pembayaran: QRIS
+Total: Rp 300.000
+Catatan: Tes Ocr dan Url
+Dokumen Terlampir: Bukti Pembayaran: https://e19fd6b8-6047-4953-aa51-f3b409d0c291-00-ydyf55pkhd6d.sisko.replit.dev/p/8PoA19n45V2K
+
+dan ini di halaman admin: Order : SC-AI-00024 Customer : PAULUS UJA NORI TIRO 6283866088807 Fasilitas : Lapangan Multiguna (yang berbeda hanya ini) sisanya sama.
+
+insert ke CST-DEV schema sport_center - sport_bookings - kolom facility_id (1).
+
+periksa dan perbaiki kenapa muncul di dashboard admin dan kolom facilitis bisa berbeda,user pesan 3 - Lapangan Tennis Outdoor.
+dan di bagian "Pembayaran" harusnya status "	
+✅ Dikonfirmasi".

@@ -32,6 +32,22 @@ description: bridgeToSportBookings() Step 2 (public.sport_bookings) was silently
 - Facility IDs: 1=Gym, 2=Multiguna, 3=Badminton B, 4=Tennis, 5=Badminton A, 6=Billiard
 - UNIQUE constraint on `booking_number` ✅
 
+### Facility ID drift
+Do not use the historical facility ID lists above as a runtime mapping. CST-DEV and
+`public.sport_facilities` can be reseeded independently, and their display names can
+also differ (`Lapangan Tennis Outdoor` vs `Lapangan Tenis`). Resolve the selected
+facility by a normalized semantic name against each schema at bridge time. Unknown
+names must fail explicitly rather than defaulting to Multiguna (`facility_id = 1`).
+
+**Why:** A valid Tennis selection was previously inserted as CST facility 1 because
+the exact menu label was absent from a hardcoded map. The legacy form stayed correct,
+while the admin/public tables showed Multiguna.
+
+**How to apply:** Normalize harmless label differences (Lapangan/Court, Tennis/Tenis,
+Outdoor, Fitness Center, Self-Service), query active facilities in both schemas, and
+write the resolved IDs plus the selected display name. On booking-number conflicts,
+update facility fields without resetting payment or booking status.
+
 ## Fix Applied
 - `supabase-db.ts`: added `supabaseQueryStrict()` 
 - `sport-center-availability.ts` `bridgeToSportBookings()`: 

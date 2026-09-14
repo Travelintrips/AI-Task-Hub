@@ -998,44 +998,103 @@ export async function saveSportCenterBooking(params: {
 // Called after saveSportCenterBooking() succeeds.  Non-fatal — if this fails
 // the WA flow continues normally; only the sync to the web/admin SC tables is skipped.
 //
-// Mapping field_type → facility_id  (PRODUCTION IDs):
-//   sport_center.sport_facilities: id=1 Multiguna, id=2 Badminton B, id=4 Tennis, id=5 Badminton A, id=6 Gym, id=7 Billiard
-//   public.sport_facilities      : id=1 Gym, id=2 Multiguna, id=3 Badminton B, id=4 Tennis, id=5 Badminton A, id=6 Billiard
+// The two schemas intentionally have different facility IDs and display names.
+// Resolve IDs from each schema at insert time instead of maintaining a second
+// hardcoded ID dictionary that can drift after a facility is added/reordered.
+function normalizeFacilityKey(value: string): string {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/[()[\]/]/g, " ")
+    .replace(/\s+/g, " ");
+}
 
-const SC_FACILITY_MAP: Record<string, number> = {
-  badminton: 5,                                              // Badminton Court A
-  "lapangan badminton a": 1,
-  "lapangan badminton b": 2,
-  tenis: 4, tennis: 4,                                      // Lapangan Tennis Outdoor
-  "lapangan tenis": 3,
-  gym: 6,                                                    // Gym / Fitness Center
-  billiard: 7,                                               // Billiard Coins
-  "meja billiard": 7,
-  futsal: 1, "multi guna": 1, basketball: 1, basket: 1, voli: 1, // Lapangan Multiguna
-  "lapangan multi guna": 5,
-};
+function facilitySemanticKey(value: string): string {
+  let key = normalizeFacilityKey(value)
+    .replace(/\blapangan\b/g, " ")
+    .replace(/\bcourt\b/g, " ")
+    .replace(/\boutdoor\b/g, " ")
+    .replace(/\bself service\b/g, " ")
+    .replace(/\bfitness center\b/g, "gym")
+    .replace(/\btennis\b/g, "tenis")
+    .replace(/\bmulti guna\b/g, "multiguna")
+    .replace(/\s+/g, " ")
+    .trim();
 
-const PUB_FACILITY_MAP: Record<string, number | null> = {
-  badminton: 5,                                              // Badminton Court A
-  "lapangan badminton a": 5,
-  "lapangan badminton b": 3,
-  tenis: 4, tennis: 4,                                      // Lapangan Tennis Outdoor
-  "lapangan tenis": 4,
-  gym: 1,                                                    // Gym / Fitness Center
-  billiard: 6,                                               // Billiard Coins
-  "meja billiard": 6,
-  futsal: 2, "multi guna": 2, basketball: 2, basket: 2, voli: 2, // Lapangan Multiguna
-  "lapangan multi guna": 2,
-};
+  if (key.includes("badminton")) {
+    return key.includes(" b") || key.endsWith("b")
+      ? "badminton b"
+      : key.includes(" a") || key.endsWith("a")
+        ? "badminton a"
+        : "badminton";
+  }
+  if (key.includes("tenis")) return "tenis";
+  if (key.includes("multiguna") || key.includes("futsal") || key.includes("basket") || key.includes("voli")) {
+    return "multiguna";
+  }
+  if (key.includes("gym")) return "gym";
+  if (key.includes("billiard")) return "billiard";
+  return key;
+}
+
+async function resolveSportCenterFacilityIds(values: string[]): Promise<{
+  scFacilityId: number;
+  pubFacilityId: number | null;
+}> {
+  const candidates = values
+    .filter((value): value is string => Boolean(value?.trim()))
+    .map(facilitySemanticKey);
+  const selectedKey = candidates.find(Boolean);
+  if (!selectedKey) {
+    throw new Error("Nama fasilitas booking kosong");
+  }
+
+  const [scFacilities, publicFacilities] = await Promise.all([
+    supabaseQueryStrict<{ id: number; name: string }>(
+      `SELECT id, name
+         FROM sport_center.sport_facilities
+        WHERE is_active = true`,
+    ),
+    supabaseQueryStrict<{ id: number; name: string }>(
+      `SELECT id, name
+         FROM public.sport_facilities
+        WHERE company_id = 1
+          AND is_active = true`,
+    ),
+  ]);
+
+  const scFacility = scFacilities.find(
+    (facility) => facilitySemanticKey(facility.name) === selectedKey,
+  );
+  if (!scFacility) {
+    throw new Error(`Fasilitas "${values[0]}" tidak ditemukan di sport_center.sport_facilities`);
+  }
+
+  const publicFacility = publicFacilities.find(
+    (facility) => facilitySemanticKey(facility.name) === selectedKey,
+  );
+
+  return {
+    scFacilityId: Number(scFacility.id),
+    pubFacilityId: publicFacility ? Number(publicFacility.id) : null,
+  };
+}
 
 export async function bridgeToSportBookings(params: {
   saved: SavedBooking;
   fieldType: string;
   notes?: string | null;
 }): Promise<BridgedSportBooking> {
-  const normalizedType = params.saved.fieldType.toLowerCase().trim();
-  const scFacilityId  = SC_FACILITY_MAP[normalizedType] ?? 1;   // Lapangan Multiguna as fallback (prod id=1)
-  const pubFacilityId = PUB_FACILITY_MAP[normalizedType] ?? null;
+  const facilityValues = [
+    params.saved.fieldType,
+    params.saved.facilityName,
+    params.fieldType,
+  ];
+  const normalizedType = facilitySemanticKey(
+    facilityValues.find((value) => Boolean(value?.trim())) ?? "",
+  );
+  const { scFacilityId, pubFacilityId } =
+    await resolveSportCenterFacilityIds(facilityValues);
 
   // Normalize booking_date: strip ISO timestamp suffix if present
   // e.g. "2026-07-18T00:00:00.000Z" → "2026-07-18"
@@ -1099,7 +1158,9 @@ export async function bridgeToSportBookings(params: {
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10,0,
                 $11,$12,$13,$14,
                 'pending_payment','wa',$15,$16,false)
-       ON CONFLICT (order_number) DO NOTHING
+       ON CONFLICT (order_number) DO UPDATE
+         SET facility_id = EXCLUDED.facility_id,
+             updated_at = NOW()
        RETURNING id`,
       [
         bookingNumber,                    // $1  order_number
@@ -1157,7 +1218,9 @@ export async function bridgeToSportBookings(params: {
        VALUES (1,$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
                 'pending','unpaid',$11,0,$11,$12,$13,$14,$15)
        ON CONFLICT (booking_number) DO UPDATE
-         SET sc_booking_id = COALESCE(public.sport_bookings.sc_booking_id, EXCLUDED.sc_booking_id),
+          SET facility_id = EXCLUDED.facility_id,
+              facility_name = EXCLUDED.facility_name,
+              sc_booking_id = COALESCE(public.sport_bookings.sc_booking_id, EXCLUDED.sc_booking_id),
              updated_at = NOW()
        RETURNING id`,
       [
