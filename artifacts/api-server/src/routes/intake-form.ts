@@ -73,6 +73,25 @@ import {
 import { createPaymentProofShortLink } from "../lib/payment-proof-links";
 import { validateDocument } from "../lib/document-validation-engine";
 
+function filterMissingFieldsForForm(
+  missingFields: unknown,
+  visibleFieldNames?: Set<string>,
+): string[] {
+  if (!Array.isArray(missingFields)) return [];
+
+  return Array.from(
+    new Set(
+      missingFields
+        .map((field) => String(field ?? "").trim())
+        .filter(Boolean),
+    ),
+  ).filter(
+    (field) =>
+      field !== "phone" &&
+      (!visibleFieldNames || visibleFieldNames.has(field)),
+  );
+}
+
 // ── Fallback map: intent code prefix → kategori penerima notifikasi
 // Digunakan ketika intent_master lookup ke DB tidak menemukan data
 const INTENT_CODE_CATEGORY: Record<string, string> = {
@@ -357,10 +376,9 @@ router.get(
       // Field-booking sessions can carry stale AI fields from the generic booking
       // template (for example booking_id/cancel_reason). Only fields rendered by
       // this public form are actionable and may appear in the warning.
-      const missingFields = ((session.missingFields ?? []) as string[]).filter(
-        (f) =>
-          f !== "phone" &&
-          (!isFieldBookingForm || visibleFormFieldNames.has(f)),
+      const missingFields = filterMissingFieldsForForm(
+        session.missingFields,
+        isFieldBookingForm ? visibleFormFieldNames : undefined,
       );
 
       res.json({
@@ -582,14 +600,8 @@ router.post(
           ])
         : null;
       const prevMissing = (
-        Array.isArray(session.missingFields)
-          ? (session.missingFields as string[])
-          : []
-      ).filter(
-        (f) =>
-          !ALWAYS_EXCLUDE.has(f) &&
-          (!formFieldNames || formFieldNames.has(f)),
-      );
+        filterMissingFieldsForForm(session.missingFields, formFieldNames ?? undefined)
+      ).filter((f) => !ALWAYS_EXCLUDE.has(f));
       const allRequired = Array.from(
         new Set([...requiredBuiltinNames, ...prevMissing]),
       ).filter((f) => !ALWAYS_EXCLUDE.has(f));

@@ -928,7 +928,19 @@ export default function MiniFormPage() {
       isComplete: boolean;
       missingFields?: string[];
     }) => {
-      setSubmitResult(res);
+      // A previously generated session can still return missing keys from a
+      // different flow (for example cancellation). Never show those keys in
+      // the field-booking form, which does not render or collect them.
+      const isFieldBooking = type?.replace(/_/g, "-") === "field-booking";
+      const legacyFieldBookingKeys = new Set(["booking_id", "cancel_reason"]);
+      const missingFields = (res.missingFields ?? []).filter(
+        (field) => !isFieldBooking || !legacyFieldBookingKeys.has(field),
+      );
+      setSubmitResult({
+        ...res,
+        missingFields,
+        isComplete: res.isComplete || (res.ok && missingFields.length === 0),
+      });
     },
     onError: (e: Error) => {
       setSubmitResult({ ok: false, message: e.message, isComplete: false });
