@@ -1039,15 +1039,17 @@ function facilitySemanticKey(value: string): string {
 
 async function resolveSportCenterFacilityIds(values: string[]): Promise<{
   scFacilityId: number;
-  pubFacilityId: number | null;
+  pubFacilityId: number;
 }> {
-  const candidates = values
+  const rawCandidates = values
     .filter((value): value is string => Boolean(value?.trim()))
-    .map(facilitySemanticKey);
-  const selectedKey = candidates.find(Boolean);
-  if (!selectedKey) {
+    .map((value) => value.trim());
+  const selectedValue = rawCandidates[0];
+  if (!selectedValue) {
     throw new Error("Nama fasilitas booking kosong");
   }
+  const selectedExactKey = normalizeFacilityKey(selectedValue);
+  const selectedSemanticKey = facilitySemanticKey(selectedValue);
 
   const [scFacilities, publicFacilities] = await Promise.all([
     supabaseQueryStrict<{ id: number; name: string }>(
@@ -1064,19 +1066,26 @@ async function resolveSportCenterFacilityIds(values: string[]): Promise<{
   ]);
 
   const scFacility = scFacilities.find(
-    (facility) => facilitySemanticKey(facility.name) === selectedKey,
+    (facility) => normalizeFacilityKey(facility.name) === selectedExactKey,
+  ) ?? scFacilities.find(
+    (facility) => facilitySemanticKey(facility.name) === selectedSemanticKey,
   );
   if (!scFacility) {
-    throw new Error(`Fasilitas "${values[0]}" tidak ditemukan di sport_center.sport_facilities`);
+    throw new Error(`Fasilitas "${selectedValue}" tidak ditemukan di sport_center.sport_facilities`);
   }
 
   const publicFacility = publicFacilities.find(
-    (facility) => facilitySemanticKey(facility.name) === selectedKey,
+    (facility) => normalizeFacilityKey(facility.name) === selectedExactKey,
+  ) ?? publicFacilities.find(
+    (facility) => facilitySemanticKey(facility.name) === selectedSemanticKey,
   );
+  if (!publicFacility) {
+    throw new Error(`Fasilitas "${selectedValue}" tidak ditemukan di public.sport_facilities`);
+  }
 
   return {
     scFacilityId: Number(scFacility.id),
-    pubFacilityId: publicFacility ? Number(publicFacility.id) : null,
+    pubFacilityId: Number(publicFacility.id),
   };
 }
 

@@ -48,6 +48,11 @@ Outdoor, Fitness Center, Self-Service), query active facilities in both schemas,
 write the resolved IDs plus the selected display name. On booking-number conflicts,
 update facility fields without resetting payment or booking status.
 
+When a schema contains duplicate active facilities with equivalent semantic aliases,
+match the selected normalized display name exactly before falling back to the
+semantic alias. A missing public facility must fail the bridge rather than inserting
+`facility_id = NULL`.
+
 ## Fix Applied
 - `supabase-db.ts`: added `supabaseQueryStrict()` 
 - `sport-center-availability.ts` `bridgeToSportBookings()`: 
