@@ -347,9 +347,20 @@ router.get(
         ...(session.phone ? { phone: session.phone } : {}),
       };
 
+      const isFieldBookingForm = type.replace(/_/g, "-") === "field-booking";
+      const visibleFormFieldNames = new Set([
+        ...formCfg.fields.map((field) => field.name),
+        ...customFields.map((field) => field.fieldName),
+      ]);
+
       // Never show "phone" as a missing field — we always know it from the WA session.
+      // Field-booking sessions can carry stale AI fields from the generic booking
+      // template (for example booking_id/cancel_reason). Only fields rendered by
+      // this public form are actionable and may appear in the warning.
       const missingFields = ((session.missingFields ?? []) as string[]).filter(
-        (f) => f !== "phone",
+        (f) =>
+          f !== "phone" &&
+          (!isFieldBookingForm || visibleFormFieldNames.has(f)),
       );
 
       res.json({
@@ -561,11 +572,24 @@ router.post(
         "end_time",
         ...(isGymBooking ? ["duration", "start_time"] : []),
       ]);
+      // Do not carry stale AI fields from the generic booking template into the
+      // sport-center form. Keep custom fields valid when the form actually
+      // renders/submits them.
+      const formFieldNames = isFieldBookingForm
+        ? new Set([
+            ...formCfg.fields.map((field) => field.name),
+            ...Object.keys(body.fields),
+          ])
+        : null;
       const prevMissing = (
         Array.isArray(session.missingFields)
           ? (session.missingFields as string[])
           : []
-      ).filter((f) => !ALWAYS_EXCLUDE.has(f));
+      ).filter(
+        (f) =>
+          !ALWAYS_EXCLUDE.has(f) &&
+          (!formFieldNames || formFieldNames.has(f)),
+      );
       const allRequired = Array.from(
         new Set([...requiredBuiltinNames, ...prevMissing]),
       ).filter((f) => !ALWAYS_EXCLUDE.has(f));
