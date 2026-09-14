@@ -1620,13 +1620,18 @@ export async function processIntakeMessage({
   // Use the same active facility names as the public mini-form. This keeps a
   // WhatsApp numbered selection tied to the exact facility_id used by
   // availability checks instead of a broader sport/category label.
-  const fieldMenuOptions =
-    isMenuQuestion || isDigitMenuReply
-      ? await getSportCenterFacilityOptions().catch((err) => {
-          logger.error({ err, sessionId: session.id }, "IntakeEngine: failed to load facility menu for reply");
-          return [];
-        })
-      : [];
+  let fieldMenuOptions: string[] = [];
+  if (isMenuQuestion || isDigitMenuReply) {
+    try {
+      fieldMenuOptions = await getSportCenterFacilityOptions();
+    } catch (err) {
+      logger.error(
+        { err, sessionId: session.id, message: trimmedMsg },
+        "IntakeEngine: failed to load facility menu for reply",
+      );
+      throw new Error("Daftar fasilitas Sport Center belum dapat dimuat");
+    }
+  }
   const fieldMenuMap: Record<string, string> = Object.fromEntries(
     fieldMenuOptions.map((name, index) => [String(index + 1), name]),
   );
@@ -1917,7 +1922,9 @@ export async function processIntakeMessage({
     return {
       action: "send_form",
       session: updated!,
-      replyToUser: "",
+      replyToUser:
+        `✅ Anda memilih *${lapanganValue}*.\n\n` +
+        `Saya siapkan form booking-nya. Silakan tunggu sebentar ya. 🙏`,
       collectedFields: newCollected,
       missingFields: stillMissing,
       requiredDocuments: stillMissingDocs,

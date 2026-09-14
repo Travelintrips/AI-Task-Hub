@@ -1778,9 +1778,54 @@ async function runAiDetection({
             waTemplate.replace("{mini_form_url}", formUrl) +
             `\nSilakan pilih tindakan berikutnya dari menu di bawah.`;
 
-          await sendFormMenu(replyTo, waMsg, companyId, fonnteDevice).catch(e =>
-            logger.warn({ e, from }, "hybrid: failed to send form link via Fonnte"),
-          );
+          const formMenuResult = await sendFormMenu(
+            replyTo,
+            waMsg,
+            companyId,
+            fonnteDevice,
+          ).catch((e) => ({
+            success: false,
+            error: String(e),
+          }));
+
+          if (!formMenuResult.success) {
+            logger.error(
+              {
+                from,
+                sessionId: activeSession.id,
+                formUrl,
+                error: formMenuResult.error ?? "unknown send failure",
+              },
+              "hybrid: failed to send form link via all WhatsApp channels",
+            );
+
+            // Keep the session retryable. The facility selection was saved,
+            // but a failed transport must not leave the customer in
+            // form_sent with no link and no way to trigger a resend.
+            await db
+              .update(intakeSessionsTable)
+              .set({
+                status: "collecting",
+                formToken: null,
+                formSentAt: null,
+                updatedAt: new Date(),
+              })
+              .where(eq(intakeSessionsTable.id, activeSession.id))
+              .catch((e) =>
+                logger.warn({ e, sessionId: activeSession.id }, "hybrid: failed to restore retryable intake session"),
+              );
+
+            // The engine already sent a selection acknowledgement. Try one
+            // final plain-text delivery with the link so a button API failure
+            // cannot turn into a silent WhatsApp response.
+            await sendFonnte(
+              replyTo,
+              `${waMsg}\n\nJika pesan belum tampil, buka link form berikut:\n${formUrl}`,
+              fonnteDevice,
+            ).catch((e) =>
+              logger.error({ e, from }, "hybrid: plain-text form fallback also failed"),
+            );
+          }
 
           await createAdminNotification({
             type: "new_inquiry",
