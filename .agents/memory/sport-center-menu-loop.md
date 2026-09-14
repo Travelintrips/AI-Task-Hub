@@ -40,6 +40,12 @@ The greeting menu's bare `"3"` is an explicit Sport Center selection. It must by
 
 **How to apply:** Clear pending greeting context on any non-`1`–`6` message; never let it override a normal active intake flow.
 
+The greeting marker must also be consumed after a valid main-menu digit is processed. Keep the current message's `isRecentMainMenu` decision in local variables for stale-session handling, but never leave the marker in the map for the next webhook.
+
+**Why:** If the first menu digit (`3`) leaves the marker alive, the next facility digit (`3`) can be mistaken for another greeting selection and cancel or bypass the active Sport Center session.
+
+**How to apply:** Delete `mainMenuPending` whenever its stored timestamp is read; use the captured timestamp only for the current message.
+
 # Global Numeric Gate
 The WhatsApp route also has a global digit-5 "pertanyaan lainnya" gate that runs before active-session processing.
 

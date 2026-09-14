@@ -1046,12 +1046,12 @@ async function runAiDetection({
       pendingMenuAt !== undefined &&
       Date.now() - pendingMenuAt <= MAIN_MENU_PENDING_WINDOW_MS;
     const isMainMenuNumber = messageType === "text" && /^[1-6]$/.test(menuKeyBeforeExpansion);
-    // Any non-numeric message means the customer chose a service by text
-    // instead of using the greeting menu. Consume the pending greeting marker
-    // immediately; otherwise a later facility digit such as "3" can be
-    // mistaken for the original main-menu selection, cancel the active
-    // Sport Center intake, and start the facility menu over again.
-    if (pendingMenuAt !== undefined && (!isRecentMainMenu || !isMainMenuNumber)) {
+    // Consume the greeting marker after evaluating this message, regardless
+    // of whether the customer answered with a menu digit or free text. The
+    // booleans above intentionally retain this message's context for the
+    // stale-session guard below, but the marker must not survive into the
+    // next message and hijack a normal Sport Center facility selection.
+    if (pendingMenuAt !== undefined) {
       mainMenuPending.delete(from);
     }
     if (isRecentMainMenu && isMainMenuNumber && activeSession) {
