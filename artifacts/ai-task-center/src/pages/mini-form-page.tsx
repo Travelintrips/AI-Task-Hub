@@ -936,10 +936,20 @@ export default function MiniFormPage() {
       const missingFields = (res.missingFields ?? []).filter(
         (field) => !isFieldBooking || !legacyFieldBookingKeys.has(field),
       );
+      const isComplete =
+        res.isComplete || (res.ok && missingFields.length === 0);
       setSubmitResult({
         ...res,
         missingFields,
-        isComplete: res.isComplete || (res.ok && missingFields.length === 0),
+        isComplete,
+        // Older API responses may still contain the generic booking message
+        // even after their stale missing keys have been filtered out here.
+        // Never show that contradictory message for a complete Sport Center
+        // form.
+        message:
+          isComplete && res.ok && !res.isComplete
+            ? "🎉 Terima kasih! Data Anda telah kami terima dan kami akan segera memproses permintaan Anda."
+            : res.message,
       });
     },
     onError: (e: Error) => {

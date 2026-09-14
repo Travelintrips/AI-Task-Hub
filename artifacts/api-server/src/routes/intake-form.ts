@@ -607,8 +607,18 @@ router.post(
       const formFieldNames = isFieldBookingForm
         ? new Set(formCfg.fields.map((field) => field.name))
         : null;
+      // The built-in Sport Center form is authoritative. Older sessions can
+      // retain missing keys from a generic booking/cancellation template
+      // (for example booking_id and cancel_reason); carrying those keys into
+      // this submission would make a visibly complete form look incomplete.
+      // Required Sport Center fields are already provided by requiredBuiltinNames.
       const prevMissing = (
-        filterMissingFieldsForForm(session.missingFields, formFieldNames ?? undefined)
+        isFieldBookingForm
+          ? []
+          : filterMissingFieldsForForm(
+              session.missingFields,
+              formFieldNames ?? undefined,
+            )
       ).filter((f) => !ALWAYS_EXCLUDE.has(f));
       const allRequired = Array.from(
         new Set([...requiredBuiltinNames, ...prevMissing]),
