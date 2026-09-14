@@ -11,6 +11,8 @@ import {
   notificationReceiversTable,
 } from "@workspace/db";
 import { detectWhatsAppIntent } from "../lib/whatsapp-ai";
+import type { WhatsAppIntentResult } from "../lib/whatsapp-ai";
+import type { IntentResolution } from "../lib/intent-engine";
 import { createTaskFromWhatsAppMessage } from "../lib/task-service";
 import { transcribeAudio } from "../lib/openai";
 import { sendWhatsAppNotification, TEMPLATE_NAMES } from "../lib/whatsapp-sender";
@@ -139,6 +141,79 @@ const generalInquiryPending = new Set<string>();
 // webhook carrying the user's numeric menu selection.
 const mainMenuPending = new Map<string, number>();
 const MAIN_MENU_PENDING_WINDOW_MS = 10 * 60_000;
+
+/**
+ * Main-menu selections must not depend entirely on intent classification.
+ * A customer replying "3" to the greeting has already selected Sport Center,
+ * so keep a deterministic resolution available when the KB/AI returns a
+ * fallback result.
+ */
+function buildSportCenterMenuResolution(): IntentResolution {
+  return {
+    intentCode: "booking_lapangan",
+    intentName: "Booking Lapangan Olahraga",
+    matchedIntentId: null,
+    fallbackUsed: true,
+    category: "Sport Center",
+    division: "Sport Center",
+    priority: "medium",
+    slaHours: null,
+    routingCode: "SPORT_CENTER",
+    needsApproval: false,
+    approvalType: null,
+    customerName: null,
+    customerPhone: null,
+    commodity: null,
+    origin: null,
+    destination: null,
+    shipmentType: null,
+    requestedDate: null,
+    requiredDataFields: [],
+    missingDataKeys: ["field_type", "booking_date", "start_time", "duration", "booker_name"],
+    matchedDataTemplateId: null,
+    requiredDocuments: [],
+    missingDocuments: [],
+    matchedDocTemplateId: null,
+    matchedServices: [],
+    needsQuotation: false,
+    needsDocumentAudit: false,
+    needsAdminReview: false,
+    confidenceScore: "high",
+    keywordScore: 0,
+    customerSentiment: "neutral",
+    suggestedReply: "Silakan pilih lapangan yang ingin Anda booking.",
+    suggestedTeam: "Sport Center",
+  };
+}
+
+function buildSportCenterMenuResult(): WhatsAppIntentResult {
+  const resolution = buildSportCenterMenuResolution();
+  return {
+    intent: resolution.intentCode,
+    category: "General Inquiry",
+    division: resolution.division ?? "Sport Center",
+    priority: "Medium",
+    customer_name: null,
+    customer_phone: null,
+    shipment_type: null,
+    commodity: null,
+    origin: null,
+    destination: null,
+    pickup_location: null,
+    delivery_location: null,
+    requested_date: null,
+    required_documents: [],
+    missing_data: resolution.missingDataKeys,
+    needs_quotation: false,
+    needs_document_audit: false,
+    needs_admin_review: false,
+    suggested_reply: resolution.suggestedReply,
+    suggested_team: resolution.suggestedTeam,
+    confidence_score: "high",
+    customer_sentiment: "neutral",
+    _resolution: resolution,
+  };
+}
 
 // ─── Incoming-message dedup cache ────────────────────────────────────────────
 // Fonnte has multiple configured devices. When a message arrives it can be
@@ -992,6 +1067,13 @@ async function runAiDetection({
         "Main menu selection overrides stale active intake session",
       );
     }
+    // A bare "3" with no active intake session is unambiguously the greeting
+    // menu's Sport Center choice, even if the menu was sent by another gate or
+    // the in-memory pending marker was lost during a restart.
+    const isMainMenuSportCenterSelection =
+      isMainMenuNumber &&
+      menuKeyBeforeExpansion === "3" &&
+      (isRecentMainMenu || !activeSession);
 
     // ── Step 0a-form-menu: Form menu reply gate ─────────────────────────────────
     // Deteksi ketika pelanggan membalas dengan salah satu pilihan menu form:
@@ -1902,13 +1984,17 @@ async function runAiDetection({
       return;
     }
 
-    // Run full structured AI analysis
-    const result = await detectWhatsAppIntent(bodyText, {
-      name: effectiveName,
-      phone: from,
-      companyId,
-      previousIntents: parsedPrevIntents,
-    }, savedMsgId);
+    // Run full structured AI analysis, except for the explicit main-menu
+    // Sport Center selection. That selection is deterministic and must still
+    // respond when the AI/KB service is unavailable or returns a fallback.
+    const result = isMainMenuSportCenterSelection
+      ? buildSportCenterMenuResult()
+      : await detectWhatsAppIntent(bodyText, {
+          name: effectiveName,
+          phone: from,
+          companyId,
+          previousIntents: parsedPrevIntents,
+        }, savedMsgId);
 
     // ── Sport Center booking: choose facility, then continue in mini form ─────
     // The facility menu is handled by the intake engine. Once the customer

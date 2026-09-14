@@ -26,6 +26,13 @@ The greeting menu and the next numeric reply arrive as separate webhooks. A stal
 
 **How to apply:** When a greeting shows the main menu, retain short-lived menu context and let digits 1–6 override/cancel stale intake state; do not apply that override to numeric replies during a normal active sport-center flow.
 
+# Main Menu Digit 3 Must Be Deterministic
+The greeting menu's bare `"3"` is an explicit Sport Center selection. It must bypass intent classification and open the same Sport Center intake flow directly when there is no active intake session.
+
+**Why:** A stale/empty knowledge-base result or classifier fallback can otherwise finish the queued webhook without entering Sport Center, leaving the customer with no reply.
+
+**How to apply:** Preserve the active-session guard so duration/availability numeric answers keep their existing meaning; only direct bare `"3"` when no intake session is active.
+
 # Global Numeric Gate
 The WhatsApp route also has a global digit-5 "pertanyaan lainnya" gate that runs before active-session processing.
 
