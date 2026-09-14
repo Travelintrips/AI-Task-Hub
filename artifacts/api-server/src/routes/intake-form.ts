@@ -303,17 +303,6 @@ router.get(
             .orderBy(dataTemplateFieldsTable.sortOrder)
         : [];
 
-      // Auto-inject phone from session so it's always pre-filled.
-      // session.phone comes LAST so collectedFields {phone:null} cannot override the known WA number.
-      const collectedFields = {
-        ...((session.collectedFields as Record<string, unknown>) ?? {}),
-        ...(session.phone ? { phone: session.phone } : {}),
-      };
-
-      // Never show "phone" as a missing field — we always know it from the WA session.
-      const missingFields = ((session.missingFields ?? []) as string[]).filter(
-        (f) => f !== "phone",
-      );
       const facilityOptions =
         type.replace(/_/g, "-") === "field-booking"
           ? await getSportCenterFacilityOptions()
@@ -322,6 +311,46 @@ router.get(
         type.replace(/_/g, "-") === "field-booking"
           ? await getSportCenterPaymentSettings()
           : null;
+
+      const storedCollectedFields =
+        (session.collectedFields as Record<string, unknown>) ?? {};
+
+      // Older intake sessions used field_name for the selected facility while
+      // the public field-booking form uses field_type. Normalize all known
+      // aliases at the API boundary so the first render of the controlled
+      // dropdown is prefilled even before the client-side hydration effect.
+      const facilityCandidates = [
+        storedCollectedFields.field_type,
+        storedCollectedFields.field_name,
+        storedCollectedFields.jenis_lapangan,
+        storedCollectedFields.lapangan,
+        storedCollectedFields.nama_lapangan,
+      ]
+        .map((value) => String(value ?? "").trim())
+        .filter(Boolean);
+      const selectedFacility =
+        facilityOptions?.find((option) =>
+          facilityCandidates.some(
+            (candidate) => candidate.toLowerCase() === option.toLowerCase(),
+          ),
+        ) ??
+        facilityCandidates[0] ??
+        null;
+
+      // Auto-inject phone from session so it's always pre-filled.
+      // session.phone comes LAST so collectedFields {phone:null} cannot override the known WA number.
+      const collectedFields = {
+        ...storedCollectedFields,
+        ...(selectedFacility
+          ? { field_type: selectedFacility, field_name: selectedFacility }
+          : {}),
+        ...(session.phone ? { phone: session.phone } : {}),
+      };
+
+      // Never show "phone" as a missing field — we always know it from the WA session.
+      const missingFields = ((session.missingFields ?? []) as string[]).filter(
+        (f) => f !== "phone",
+      );
 
       res.json({
         status: session.status,

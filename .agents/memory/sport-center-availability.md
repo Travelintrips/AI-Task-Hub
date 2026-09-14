@@ -10,6 +10,17 @@ For sport center booking intents (booking_lapangan, sport_center_booking, field_
 3. Hydrates the form's `Jenis Fasilitas` field from the exact selected facility name.
 4. The public form performs the availability check while the customer chooses a date/time.
 
+The public form GET endpoint must normalize legacy facility aliases (`field_name`,
+`jenis_lapangan`, `lapangan`, `nama_lapangan`) into both `field_type` and
+`field_name` before returning `collectedFields`.
+
+**Why:** Older intake sessions may contain the selected WhatsApp facility under
+`field_name` only. The controlled dropdown is keyed by `field_type`; relying only
+on a post-render client effect caused the first form render to appear blank.
+
+**How to apply:** Treat the API response as the canonical prefill contract, and
+keep the frontend alias hydration as a compatibility fallback for old sessions.
+
 ## New table: sport_center_bookings
 Created via `runCoreMigrations()` in `artifacts/api-server/src/app.ts`:
 - columns: company_id, ai_task_id, intake_session_id, field_type, booking_date, start_time, end_time, duration_hours, booker_name, phone, status, notes

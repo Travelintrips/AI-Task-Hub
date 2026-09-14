@@ -794,6 +794,32 @@ export default function MiniFormPage() {
         }
       }
 
+      // Older sessions may contain only field_name (or another legacy
+      // facility alias). Promote it to the canonical dropdown key so the
+      // selected facility remains visible and is submitted with the form.
+      const isFieldBooking = !isPreview && type?.replace(/_/g, "-") === "field-booking";
+      if (isFieldBooking && !next.field_type) {
+        const facilityAliases = [
+          "field_type",
+          "field_name",
+          "jenis_lapangan",
+          "lapangan",
+          "nama_lapangan",
+        ];
+        const rawFacility = facilityAliases
+          .map((key) => data.collectedFields[key])
+          .find((value) => value !== null && value !== undefined && String(value).trim() !== "");
+        if (rawFacility !== undefined) {
+          const facilityValue = String(rawFacility).trim();
+          const canonicalFacility =
+            data.facilityOptions?.find(
+              (option) => option.toLowerCase() === facilityValue.toLowerCase(),
+            ) ?? facilityValue;
+          next.field_type = canonicalFacility;
+          changed = true;
+        }
+      }
+
       return changed ? next : previous;
     });
   }, [data, isPreview, type]);
