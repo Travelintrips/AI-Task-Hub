@@ -40,3 +40,10 @@ After fix: only `quick=false` or `quick=null` entries should appear in DB.
 Still in place: skip if body contains `/mini-form/` — catches any edge case where `quick` is absent on an echo.
 
 **Why:** Fonnte is the WA gateway — its echo behavior is not configurable. The only defense is server-side filtering.
+
+## Identical legitimate messages
+Webhook deduplication must use Fonnte's inbound message ID (`id`, with `message_id`/`wamid` compatibility), not only phone plus body text. Customers can legitimately send the same value twice in sequence, such as `3` for the greeting menu and then `3` for the facility menu.
+
+**Why:** A body-only 60-second dedup drops the second valid menu selection before the per-phone queue can process it, making the conversation appear stuck.
+
+**How to apply:** Suppress only a repeated provider message ID. If no provider ID exists, let the message through and rely on the `quick=true` echo filter rather than risk dropping a legitimate repeated answer.

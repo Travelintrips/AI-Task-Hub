@@ -220,11 +220,27 @@ function buildSportCenterMenuResult(): WhatsAppIntentResult {
 // forwarded by several devices to our webhook concurrently, producing multiple
 // identical webhook calls for the exact same customer message. Without dedup
 // these would each create a new intake session and send e.g. "Jadwal Tersedia!"
-// three times. We prevent this by tracking (phone, body) pairs for 60 seconds.
-const recentMessages = new Map<string, number>(); // key → epoch ms
+// three times. We prevent this by tracking the provider message id for 60 seconds.
+const recentMessages = new Map<string, number>(); // provider-message key → epoch ms
 const DEDUP_WINDOW_MS = 60_000;
-function isDuplicateMessage(from: string, body: string): boolean {
-  const key = `${from}:${body}`;
+function isDuplicateMessage(
+  from: string,
+  providerMessageId?: string | null,
+): boolean {
+  // Do not use only `from + body` as the identity. A customer can
+  // legitimately send the same value twice in a row (for example `3`:
+  // first for the greeting menu and then for the facility menu). Fonnte
+  // supplies an inbound message id; use it whenever available so only the
+  // same webhook delivery is suppressed.
+  const normalizedProviderId = providerMessageId?.trim();
+  if (!normalizedProviderId) {
+    // Without a provider identity there is no safe way to distinguish a
+    // repeated user message from a retried webhook. The quick=true echo
+    // filter remains the protection for outgoing Fonnte messages.
+    return false;
+  }
+
+  const key = `${from}:id:${normalizedProviderId}`;
   const now = Date.now();
   // Prune stale entries to avoid unbounded growth
   for (const [k, ts] of recentMessages) {
@@ -955,9 +971,20 @@ export async function processIncomingMessage({
     // avoid race conditions between quick successive messages — see phoneQueues).
     // Dedup guard: Fonnte may forward the same customer message from multiple
     // devices, producing duplicate webhook calls. If we've already queued this
-    // (from, body) pair within DEDUP_WINDOW_MS, skip to avoid triple-sends.
-    if (isDuplicateMessage(from, bodyText)) {
-      logger.info({ from, bodyText: bodyText.slice(0, 80) }, "Duplicate webhook call detected — skipping (already queued for this phone+body)");
+    // provider message id within DEDUP_WINDOW_MS, skip to avoid triple-sends.
+    const providerMessageId =
+      typeof rawPayload.id === "string"
+        ? rawPayload.id
+        : typeof rawPayload.message_id === "string"
+          ? rawPayload.message_id
+          : typeof rawPayload.wamid === "string"
+            ? rawPayload.wamid
+            : null;
+    if (isDuplicateMessage(from, providerMessageId)) {
+      logger.info(
+        { from, bodyText: bodyText.slice(0, 80), providerMessageId },
+        "Duplicate webhook call detected — skipping (same provider message identity)",
+      );
       return;
     }
     enqueueForPhone(from, () =>
