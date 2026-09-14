@@ -1647,6 +1647,7 @@ export async function processIntakeMessage({
     : null;
 
   let newCollected: Record<string, unknown>;
+  let selectedLapanganValue: string | null = null;
 
   if (isDurationDigitReply) {
     // ── Duration digit selected from the numbered menu ──────────────────
@@ -1666,6 +1667,7 @@ export async function processIntakeMessage({
     )?.fieldName ?? "field_type"; // safe fallback
 
     const lapanganValue = menuLapangan ?? namedLapangan!;
+    selectedLapanganValue = lapanganValue;
     newCollected = {
       ...existingCollected,
       [lapanganFieldKey]: lapanganValue,
@@ -1923,7 +1925,7 @@ export async function processIntakeMessage({
       action: "send_form",
       session: updated!,
       replyToUser:
-        `✅ Anda memilih *${lapanganValue}*.\n\n` +
+        `✅ Anda memilih *${selectedLapanganValue ?? String(newCollected.field_type ?? "lapangan")}*.\n\n` +
         `Saya siapkan form booking-nya. Silakan tunggu sebentar ya. 🙏`,
       collectedFields: newCollected,
       missingFields: stillMissing,
