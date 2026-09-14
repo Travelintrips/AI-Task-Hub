@@ -367,10 +367,18 @@ router.get(
       };
 
       const isFieldBookingForm = type.replace(/_/g, "-") === "field-booking";
-      const visibleFormFieldNames = new Set([
-        ...formCfg.fields.map((field) => field.name),
-        ...customFields.map((field) => field.fieldName),
-      ]);
+      // Sport Center has a complete built-in form. Do not expose custom fields
+      // from the older generic booking template (for example booking_id and
+      // cancel_reason), because those stale fields can otherwise be treated as
+      // still-required after the customer has completed the visible form.
+      const visibleFormFieldNames = new Set(
+        isFieldBookingForm
+          ? formCfg.fields.map((field) => field.name)
+          : [
+              ...formCfg.fields.map((field) => field.name),
+              ...customFields.map((field) => field.fieldName),
+            ],
+      );
 
       // Never show "phone" as a missing field — we always know it from the WA session.
       // Field-booking sessions can carry stale AI fields from the generic booking
@@ -395,7 +403,7 @@ router.get(
         ),
         facilityOptions,
         paymentSettings,
-        customFields,
+        customFields: isFieldBookingForm ? [] : customFields,
         collectedFields,
         missingFields,
         requiredDocuments: session.requiredDocuments ?? [],
@@ -593,11 +601,11 @@ router.post(
       // Do not carry stale AI fields from the generic booking template into the
       // sport-center form. Keep custom fields valid when the form actually
       // renders/submits them.
+      // For the built-in Sport Center form, only its own fields are valid.
+      // Never add arbitrary submitted keys here: stale custom template fields
+      // such as booking_id/cancel_reason would become blocking requirements.
       const formFieldNames = isFieldBookingForm
-        ? new Set([
-            ...formCfg.fields.map((field) => field.name),
-            ...Object.keys(body.fields),
-          ])
+        ? new Set(formCfg.fields.map((field) => field.name))
         : null;
       const prevMissing = (
         filterMissingFieldsForForm(session.missingFields, formFieldNames ?? undefined)

@@ -30,5 +30,8 @@ description: Conversational field collection before ai_task creation — archite
 - `apiFetch` is defined locally per frontend page — there is NO shared `@/lib/api-fetch` module
 - `expireOldIntakeSessions` uses `lte(expiresAt, now)` + `isNotNull(expiresAt)` — both conditions required
 - Template fields: loaded from `data_templates` + `data_template_fields` by `intent_code` first, then `category` as fallback
+- Sport Center mini-form owns its complete field set; exclude generic template custom fields such as `booking_id` and `cancel_reason` from both rendering and required-field validation.
 
 **Why:** Task creation from short/incomplete messages was causing noise. Intake gate ensures minimum data before task exists.
+
+**How to apply:** For `field-booking`, validate only `MINI_FORM_CONFIGS["field-booking"]` fields. Do not add arbitrary submitted keys or stale session missing-field names to the required set.
