@@ -33,6 +33,13 @@ The greeting menu's bare `"3"` is an explicit Sport Center selection. It must by
 
 **How to apply:** Preserve the active-session guard so duration/availability numeric answers keep their existing meaning; only direct bare `"3"` when no intake session is active.
 
+# Free-text Service Selection Must Consume Main-menu Context
+`mainMenuPending` is only valid for the immediate numeric response to a greeting menu. If the customer instead sends a free-text service request (for example, "mau booking lapangan olahraga"), clear the marker before the Sport Center intake starts.
+
+**Why:** Leaving the marker alive allowed a later facility digit such as `"3"` to be treated as the old greeting selection. That cancelled the active Sport Center session and started a new one, which repeated the facility menu.
+
+**How to apply:** Clear pending greeting context on any non-`1`–`6` message; never let it override a normal active intake flow.
+
 # Global Numeric Gate
 The WhatsApp route also has a global digit-5 "pertanyaan lainnya" gate that runs before active-session processing.
 
