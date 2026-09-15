@@ -585,6 +585,7 @@ async function downloadWhatsAppMedia(
 
 /**
  * POST /api/whatsapp/webhook
+ * POST /api/webhook/fonnte (compatibility alias)
  *
  * Receives incoming WhatsApp messages from the gateway.
  * - Saves raw message to whatsapp_messages
@@ -592,7 +593,9 @@ async function downloadWhatsAppMedia(
  * - Triggers AI intent detection async (does not block response)
  * - Returns 200 immediately
  */
-router.post("/whatsapp/webhook", async (req, res): Promise<void> => {
+router.post(
+  ["/whatsapp/webhook", "/webhook/fonnte"],
+  async (req, res): Promise<void> => {
   // Respond immediately — webhook gateways require fast acknowledgement
   res.sendStatus(200);
 
@@ -685,7 +688,8 @@ router.post("/whatsapp/webhook", async (req, res): Promise<void> => {
   } catch (err) {
     logger.error({ err, companyId }, "Unhandled error processing WhatsApp webhook");
   }
-});
+  },
+);
 
 export async function processIncomingMessage({
   msg,
