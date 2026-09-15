@@ -29,7 +29,7 @@ function hashToken(token: string): string {
 }
 
 function getShortLinkBaseUrl(): string {
-  return config.publicBaseUrl;
+  return config.paymentProofShortLinkBaseUrl;
 }
 
 /**

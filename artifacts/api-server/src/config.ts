@@ -51,7 +51,39 @@ export function getPublicUrl(path: string): string {
   return `${getPublicBaseUrl()}${normalizedPath}`;
 }
 
+/**
+ * Resolve the origin used specifically for payment-proof bearer links.
+ *
+ * A temporary explicit override is useful for isolated child-deployment
+ * verification. Without it, development links must follow the active Replit
+ * runtime domain rather than a stale workspace-specific PUBLIC_APP_BASE_URL.
+ */
+export function getPaymentProofShortLinkBaseUrl(): string {
+  const override = process.env.PAYMENT_PROOF_SHORT_LINK_BASE_URL?.trim();
+  if (override) return normalizeBaseUrl(override);
+
+  if (process.env.NODE_ENV === "production") {
+    const configuredBaseUrl = normalizeBaseUrl(
+      process.env.PUBLIC_APP_BASE_URL || PRODUCTION_PUBLIC_BASE_URL,
+    );
+    if (configuredBaseUrl !== PRODUCTION_PUBLIC_BASE_URL) {
+      throw new Error(
+        `PUBLIC_APP_BASE_URL must be ${PRODUCTION_PUBLIC_BASE_URL} in production`,
+      );
+    }
+    return configuredBaseUrl;
+  }
+
+  const runtimeDomain =
+    process.env.REPLIT_DEV_DOMAIN?.trim() ||
+    process.env.REPLIT_DOMAINS?.split(",")[0]?.trim();
+  if (runtimeDomain) return `https://${runtimeDomain}`;
+
+  return "http://localhost:8080";
+}
+
 const publicBaseUrl = getPublicBaseUrl();
+const paymentProofShortLinkBaseUrl = getPaymentProofShortLinkBaseUrl();
 
 export const config = {
   supabase: {
@@ -74,5 +106,5 @@ export const config = {
       process.env.PUBLIC_OBJECT_SEARCH_PATHS || `/${OBJECT_STORAGE_BUCKET_ID}/public`,
   },
   publicBaseUrl,
-  paymentProofShortLinkBaseUrl: publicBaseUrl,
+  paymentProofShortLinkBaseUrl,
 } as const;

@@ -50,12 +50,13 @@ async function redirectToPaymentProof(
 
 /**
  * New short links use a single validated 10-character root segment.
- * Non-token frontend paths are passed through to the API/static/SPA chain.
+ * The anchored RegExp prevents this handler from becoming a generic
+ * "/:token" route that can intercept normal frontend paths.
  */
 router.get(
-  "/:token",
+  /^\/([A-Za-z0-9_-]{10})$/,
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    const token = String(req.params.token ?? "");
+    const token = String(req.params[0] ?? "");
     if (!isRootPaymentProofTokenFormat(token)) {
       next();
       return;

@@ -59,36 +59,42 @@ app.use(
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
-// Public short links for private payment proofs. This intentionally lives
-// outside /api because the URL is sent to WhatsApp as /p/:token.
-app.use(paymentProofPublicRouter);
-// Some DEV ingress paths fall back to the SPA before reaching the root route.
+// Some DEV ingress paths fall back to the SPA before reaching public routes.
 // Keep an API-prefixed equivalent for the tiny frontend handoff in that case.
 app.use("/api", paymentProofPublicRouter);
 app.use("/api", router);
+// Public short links for private payment proofs. This intentionally lives
+// outside /api because the URL is sent to WhatsApp as /p/:token. It is placed
+// after application routes so the validated root-token route is last before
+// production static serving/SPA fallback.
+app.use(paymentProofPublicRouter);
 
-// Serve built frontend in production
-if (process.env.NODE_ENV === "production") {
-  const frontendDist = path.resolve(process.cwd(), "artifacts/ai-task-center/dist/public");
-  if (fs.existsSync(frontendDist)) {
-    app.use(express.static(frontendDist));
-    app.get("/{*path}", (req, res) => {
-      // Keep malformed or unknown public payment-proof links as backend 404s;
-      // never turn them into an SPA document that looks like a successful link.
-      if (
-        req.path === "/p" ||
-        req.path.startsWith("/p/") ||
-        isRootPaymentProofTokenFormat(req.path.slice(1))
-      ) {
-        res.status(404).send("Not found");
-        return;
-      }
-      res.sendFile(path.join(frontendDist, "index.html"));
-    });
-    logger.info({ frontendDist }, "Serving frontend static files");
-  } else {
-    logger.warn({ frontendDist }, "Frontend dist not found — static serving skipped");
-  }
+// Serve the built frontend whenever the bundle is available. Production always
+// serves it; the API artifact's development command builds it first so the
+// artifact router can safely send "/" through this server without allowing the
+// static web artifact to intercept validated root short-link failures.
+const frontendDist = path.resolve(
+  import.meta.dirname,
+  "../../ai-task-center/dist/public",
+);
+if (fs.existsSync(frontendDist)) {
+  app.use(express.static(frontendDist));
+  app.get("/{*path}", (req, res) => {
+    // Keep malformed or unknown public payment-proof links as backend 404s;
+    // never turn them into an SPA document that looks like a successful link.
+    if (
+      req.path === "/p" ||
+      req.path.startsWith("/p/") ||
+      isRootPaymentProofTokenFormat(req.path.slice(1))
+    ) {
+      res.status(404).send("Not found");
+      return;
+    }
+    res.sendFile(path.join(frontendDist, "index.html"));
+  });
+  logger.info({ frontendDist }, "Serving frontend static files");
+} else {
+  logger.warn({ frontendDist }, "Frontend dist not found — static serving skipped");
 }
 
 // Start background services

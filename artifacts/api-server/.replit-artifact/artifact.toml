@@ -7,10 +7,10 @@ id = "3B4_FFSkEVBkAeYMFRJ2e"
 [[services]]
 localPort = 8080
 name = "API Server"
-paths = ["/api", "/p"]
+paths = ["/api", "/p", "/"]
 
 [services.development]
-run = "pnpm --filter @workspace/api-server run dev"
+run = "pnpm --filter @workspace/ai-task-center run build && pnpm --filter @workspace/api-server run dev"
 
 [services.production]
 
