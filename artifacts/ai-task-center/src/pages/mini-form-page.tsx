@@ -989,8 +989,9 @@ export default function MiniFormPage() {
         ocrAttempt: apiError.ocrAttempt,
         maxOcrAttempts: apiError.maxOcrAttempts,
         ocrValidationFailed: apiError.ocrValidationFailed,
-        missingFields:
-          apiError.ocrValidationFailed ? ["payment_proof"] : undefined,
+        // File sudah berhasil di-upload; error ini berarti validasi OCR
+        // gagal, bukan field payment_proof yang kosong.
+        missingFields: [],
       });
     },
   });

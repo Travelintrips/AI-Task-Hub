@@ -1301,7 +1301,8 @@ export async function finalizeSportCenterBookingPayment(params: {
     (await extractPaymentProofOcr({
       fileUrl: params.paymentProofUrl.trim(),
       expectedAmount: Number(params.saved.totalPrice),
-      expectedDate: params.saved.bookingDate,
+      // Tanggal pembayaran tidak harus sama dengan tanggal main.
+      expectedDate: undefined,
     }));
   if (!paymentProofOcr.valid) {
     throw new Error(

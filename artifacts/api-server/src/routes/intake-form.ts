@@ -731,7 +731,9 @@ router.post(
         paymentProofOcr = await extractPaymentProofOcr({
           fileUrl: paymentProofUrl,
           expectedAmount,
-          expectedDate: String(merged.booking_date ?? ""),
+          // Tanggal pembayaran tidak harus sama dengan tanggal main.
+          // Customer dapat membayar beberapa hari sebelum jadwal booking.
+          expectedDate: undefined,
         });
         if (!paymentProofOcr.valid) {
           const isRetryableOcrFailure = !paymentProofOcr.serviceUnavailable;
@@ -749,11 +751,14 @@ router.post(
           const adminWhatsapp = shouldContactAdmin
             ? await getSportCenterAdminWhatsapp(session.companyId)
             : null;
+          const failureReason = paymentProofOcr.failureReason
+            ? ` (${paymentProofOcr.failureReason})`
+            : "";
           const ocrFailureMessage = paymentProofOcr.serviceUnavailable
             ? "Layanan validasi bukti pembayaran sedang tidak tersedia. Silakan coba lagi setelah layanan OCR dikonfigurasi."
-            : `Bukti pembayaran tidak lolos validasi OCR: ${
-                paymentProofOcr.failureReason ?? "hasil OCR tidak valid"
-              }. Silakan unggah bukti transfer yang lebih jelas.`;
+            : shouldContactAdmin
+              ? `Bukti pembayaran belum dapat dikonfirmasi setelah 2 percobaan${failureReason}. Silahkan hubungi Admin untuk konfirmasi.`
+              : `Bukti pembayaran tidak lolos validasi OCR${failureReason}. Silakan unggah bukti transfer yang lebih jelas.`;
 
           if (isRetryableOcrFailure) {
             const failedSubmissionFields = {
@@ -788,10 +793,11 @@ router.post(
             ocrValidationFailed: isRetryableOcrFailure,
             contactAdmin: shouldContactAdmin,
             adminWhatsapp,
-            message: shouldContactAdmin
-              ? "Bukti pembayaran belum dapat dikonfirmasi setelah 2 percobaan. Silahkan hubungi Admin untuk konfirmasi."
-              : ocrFailureMessage,
-            missingFields: ["payment_proof"],
+            message: ocrFailureMessage,
+            // File sudah ada; yang gagal adalah validasi OCR. Jangan kirim
+            // payment_proof sebagai missing field karena UI akan menampilkan
+            // pesan yang keliru bahwa file belum diunggah.
+            missingFields: [],
           });
           return;
         }

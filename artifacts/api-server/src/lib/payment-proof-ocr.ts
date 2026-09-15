@@ -285,7 +285,7 @@ export async function extractPaymentProofOcr(params: {
       Math.abs(amount - params.expectedAmount) <= 0.01;
     const dateMatches =
       expectedDate === null
-        ? transactionDate !== null
+        ? true
         : transactionDate === expectedDate;
 
     const reasons: string[] = [];
@@ -300,12 +300,14 @@ export async function extractPaymentProofOcr(params: {
         `nominal OCR Rp${amount.toLocaleString("id-ID")} tidak sama dengan total booking Rp${params.expectedAmount.toLocaleString("id-ID")}`,
       );
     }
-    if (transactionDate === null) {
-      reasons.push("tanggal transaksi tidak terbaca");
-    } else if (expectedDate !== null && !dateMatches) {
-      reasons.push(
-        `tanggal OCR ${transactionDate} tidak sama dengan tanggal booking ${expectedDate}`,
-      );
+    if (expectedDate !== null) {
+      if (transactionDate === null) {
+        reasons.push("tanggal transaksi tidak terbaca");
+      } else if (!dateMatches) {
+        reasons.push(
+          `tanggal OCR ${transactionDate} tidak sama dengan tanggal booking ${expectedDate}`,
+        );
+      }
     }
 
     const data: Record<string, unknown> = {
