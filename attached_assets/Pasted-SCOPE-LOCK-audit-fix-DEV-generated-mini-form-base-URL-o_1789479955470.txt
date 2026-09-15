@@ -1,0 +1,102 @@
+SCOPE LOCK: audit + fix DEV generated mini-form base URL only.
+
+CURRENT DEV MASTER:
+https://fe79b20c-fccd-45c0-b108-856dc6a7b9b5-00-2sampstv2gh3k.pike.replit.dev
+
+CURRENT FONNTE WEBHOOK:
+https://fe79b20c-fccd-45c0-b108-856dc6a7b9b5-00-2sampstv2gh3k.pike.replit.dev/api/webhook/fonnte
+
+Webhook bekerja.
+
+MASALAH:
+WhatsApp reply masih menghasilkan mini-form dengan hostname DEV lama:
+
+https://2656395d-b6f2-4d08-8559-21b22dacb882-00-aklvr4x1de17.sisko.replit.dev/mini-form/field-booking/<token>
+
+Padahal current DEV runtime adalah fe79b20c...pike.replit.dev.
+
+Audit end-to-end sumber URL yang digunakan untuk generate:
+
+/mini-form/field-booking/<token>
+
+Cari exact hostname lama:
+2656395d-b6f2-4d08-8559-21b22dacb882-00-aklvr4x1de17.sisko.replit.dev
+
+Cari di:
+- source
+- environment
+- Replit config
+- database/company_settings
+- PUBLIC_APP_BASE_URL
+- REPLIT_DEV_DOMAIN
+- REPLIT_DOMAINS
+- mini-form URL generator
+- webhook reply generator
+- fallback/default config
+- cached/runtime config
+
+Buktikan exact source yang menyebabkan hostname lama.
+
+DEV RULE:
+Untuk DEVELOPMENT, generated mini-form URL harus menggunakan CURRENT
+runtime DEV domain secara dinamis.
+
+Expected sekarang:
+
+https://fe79b20c-fccd-45c0-b108-856dc6a7b9b5-00-2sampstv2gh3k.pike.replit.dev/mini-form/field-booking/<token>
+
+JANGAN hardcode hostname fe79... sebagai fix.
+
+Gunakan current runtime environment/domain resolver sehingga jika Replit DEV
+domain berubah lagi, link otomatis mengikuti domain DEV yang aktif.
+
+PRODUCTION RULE:
+Production tetap canonical:
+
+https://ai-task.travelintrips.co.id
+
+Production generated links harus tetap:
+
+https://ai-task.travelintrips.co.id/mini-form/field-booking/<token>
+
+JANGAN membuat perubahan yang menyebabkan production memakai replit.dev.
+
+Pisahkan resolver dengan jelas:
+
+DEVELOPMENT
+→ current Replit runtime domain
+
+PRODUCTION
+→ PUBLIC_APP_BASE_URL / canonical
+→ https://ai-task.travelintrips.co.id
+
+JANGAN ubah:
+- booking/payment/accounting
+- OCR/auto-confirm
+- Fonnte business flow
+- token semantics
+- database schema
+- short-link 10-char logic
+
+Setelah fix, restart DEV dan test satu flow WhatsApp harmless sampai link
+mini-form dihasilkan.
+
+Pastikan:
+1. webhook diterima current DEV
+2. reply terkirim
+3. mini-form URL menggunakan current fe79...pike.replit.dev
+4. hostname 2656395d...sisko.replit.dev tidak muncul lagi
+5. link mini-form benar-benar dapat dibuka
+6. production canonical tetap ai-task.travelintrips.co.id
+
+Final report:
+
+OLD_DEV_DOMAIN_SOURCE=<exact source>
+OLD_DEV_DOMAIN_HARDCODED=YES/NO
+DEV_DOMAIN_RESOLVER_FIXED=PASS/FAIL
+CURRENT_DEV_DOMAIN_USED=PASS/FAIL
+OLD_SISKO_DOMAIN_GONE=PASS/FAIL
+DEV_MINI_FORM_OPENS=PASS/FAIL
+PROD_CANONICAL_UNCHANGED=PASS/FAIL
+SHORT_LINK_LOGIC_UNCHANGED=PASS/FAIL
+NO_BUSINESS_LOGIC_CHANGED=PASS/FAIL

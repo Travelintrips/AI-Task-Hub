@@ -13,7 +13,7 @@ const PRODUCTION_PUBLIC_BASE_URL = "https://ai-task.travelintrips.co.id";
  *
  * Production uses the configured canonical domain and refuses to fall back to
  * a generated Replit hostname. Development intentionally uses the current
- * runtime domain so preview links continue to work, even if a production
+ * runtime domain so preview links continue to work, even if a stale
  * PUBLIC_APP_BASE_URL is present in a shared environment.
  */
 export function getPublicBaseUrl(): string {
@@ -29,15 +29,17 @@ export function getPublicBaseUrl(): string {
     return configuredBaseUrl;
   }
 
-  const configuredDevelopmentBaseUrl = process.env.PUBLIC_APP_BASE_URL?.trim();
-  if (configuredDevelopmentBaseUrl) {
-    return normalizeBaseUrl(configuredDevelopmentBaseUrl);
-  }
-
   const runtimeDomain =
     process.env.REPLIT_DEV_DOMAIN?.trim() ||
     process.env.REPLIT_DOMAINS?.split(",")[0]?.trim();
   if (runtimeDomain) return `https://${runtimeDomain}`;
+
+  // Keep local/non-Replit development usable when no runtime domain exists,
+  // but never let this override an active Replit runtime domain.
+  const configuredDevelopmentBaseUrl = process.env.PUBLIC_APP_BASE_URL?.trim();
+  if (configuredDevelopmentBaseUrl) {
+    return normalizeBaseUrl(configuredDevelopmentBaseUrl);
+  }
 
   return "http://localhost:8080";
 }
