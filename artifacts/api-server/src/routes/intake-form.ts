@@ -809,6 +809,7 @@ router.post(
       // Reuse the amount persisted with the Sport Center booking in both
       // WhatsApp summaries so they cannot drift apart.
       let sportCenterTotalPrice: number | null = null;
+      let sportCenterOrderNumber: string | null = null;
 
       if (isComplete) {
         const now = new Date();
@@ -936,6 +937,7 @@ router.post(
             return null;
           });
           sportCenterTotalPrice = savedFormBooking?.totalPrice ?? null;
+          sportCenterOrderNumber = savedFormBooking?.bookingNumber ?? null;
 
           // Bridge ke tabel Sport Center canonical/public. Untuk field-booking,
           // payment dan status booking harus diselesaikan setelah bridge selesai,
@@ -979,6 +981,7 @@ router.post(
             phone: session.phone,
             fields: merged,
             totalPrice: sportCenterTotalPrice,
+            orderNumber: sportCenterOrderNumber,
           });
           await sendFonnte(session.phone, customerMsg).catch((e) =>
             logger.warn(
@@ -1346,6 +1349,7 @@ router.post(
             const notifMsg =
               `📋 *Pesanan Baru — ${isFieldBookingForm ? "Form Pemesanan Fasilitas" : formCfg.title}*\n` +
               `No. Task: *${taskNumber}*\n` +
+              `${sportCenterOrderNumber ? `Order Number: *${sportCenterOrderNumber}*\n` : ""}` +
               `\n*Detail Pesanan:*\n${fieldSummaryWa}` +
               docTextSection;
 
@@ -1746,6 +1750,7 @@ function buildFieldBookingCustomerMessage(params: {
   phone: string;
   fields: Record<string, unknown>;
   totalPrice?: number | null;
+  orderNumber?: string | null;
 }): string {
   const get = (key: string) => String(params.fields[key] ?? "").trim() || "-";
   const total =
@@ -1753,6 +1758,7 @@ function buildFieldBookingCustomerMessage(params: {
       ? `Rp ${params.totalPrice.toLocaleString("id-ID")}`
       : "-";
   const details = [
+    ...(params.orderNumber ? [["Order Number", params.orderNumber]] : []),
     ["Nama Pemesan", get("booker_name")],
     ["No.Pelanggan", params.phone],
     ["Jenis Fasilitas", get("field_type") !== "-" ? get("field_type") : get("field_name")],
