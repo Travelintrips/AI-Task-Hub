@@ -1,0 +1,190 @@
+SCOPE LOCK: short-link simplification + routing + isolated WhatsApp test only.
+
+Target final URL:
+
+https://ai-task.travelintrips.co.id/K7mQ2xN8aP
+
+Tidak lagi menggunakan /p/ untuk token BARU.
+
+JANGAN mengubah booking, payment, accounting, OCR, auto-confirm,
+Supabase storage policy, atau business logic.
+
+A. TOKEN BARU
+
+Ubah generator short-link BARU:
+
+- panjang tepat 10 karakter
+- Base64URL-safe
+- CSPRNG / crypto-secure
+- jangan Math.random
+- pertahankan hashed-token storage
+- pertahankan expiry existing
+- collision harus retry secara aman
+
+Token lama tetap backward compatible:
+- /p/<24-char-token>
+- /p/<12-char-token>
+
+JANGAN migrasikan atau merusak token existing.
+
+B. FORMAT URL BARU
+
+Untuk token baru, canonical URL menjadi:
+
+https://ai-task.travelintrips.co.id/<10-char-token>
+
+Contoh:
+https://ai-task.travelintrips.co.id/K7mQ2xN8aP
+
+Jangan hardcode hostname Replit.
+
+PUBLIC_APP_BASE_URL production tetap:
+https://ai-task.travelintrips.co.id
+
+C. ROUTING SAFETY
+
+Karena token sekarang berada di root, JANGAN membuat generic /:token
+yang menangkap semua route frontend.
+
+Short-link root hanya boleh diproses jika path:
+- single segment
+- tepat 10 karakter
+- hanya karakter Base64URL [A-Za-z0-9_-]
+
+Contoh:
+GET /K7mQ2xN8aP
+→ short-link handler
+
+Tetapi route normal seperti:
+/login
+/mini-form/...
+/ai-tasks/...
+/api/...
+/assets/...
+dan seluruh route existing
+HARUS tetap bekerja normal.
+
+Pastikan route order:
+API/existing application routes
+→ validated 10-char root short-link
+→ static assets
+→ SPA fallback LAST
+
+Invalid 10-char token:
+GET /AAAAAAAAAA
+→ backend 404
+→ BUKAN SPA 200.
+
+Pertahankan compatibility:
+GET /p/<old-token>
+→ existing short-link handler.
+
+D. CHILD DEPLOYMENT
+
+Saat custom domain belum terpasang pada child deployment,
+uji routing menggunakan:
+
+https://ai-task--robby115.replit.app
+
+Tetapi JANGAN menjadikannya canonical dan JANGAN hardcode domain tersebut.
+
+Expected:
+
+GET /
+→ 200
+
+GET /api/healthz
+→ 200
+
+GET /AAAAAAAAAA
+→ 404 backend
+
+GET /p/INVALIDTOKEN
+→ 404 backend
+
+Existing frontend routes
+→ tetap normal.
+
+E. VALID SHORT-LINK TEST
+
+Setelah routing PASS:
+
+Gunakan SATU existing payment-proof object yang aman untuk isolated test.
+
+Boleh membuat hanya short-link mapping test.
+JANGAN membuat:
+- booking
+- order
+- payment
+- accounting/journal
+- OCR
+- auto-confirm
+
+Buat token test 10 karakter.
+
+Pada child deployment test sementara:
+
+https://ai-task--robby115.replit.app/<10-char-token>
+
+Verifikasi:
+short URL
+→ 302
+→ server-generated signed Supabase URL
+→ object HTTP 200.
+
+Jika gagal, STOP.
+
+F. WHATSAPP GROUP TEST
+
+HANYA jika 302 → object 200 sudah PASS:
+
+Kirim SATU pesan test langsung melalui Fonnte existing ke WhatsApp Group
+yang sudah dikonfigurasi.
+
+Jangan menggunakan normal booking/order notification flow.
+
+Pesan:
+
+🧪 TEST LINK BUKTI PEMBAYARAN
+
+Bukti Pembayaran:
+<short-link>
+
+Ini hanya pengujian URL.
+Tidak ada booking atau pembayaran baru.
+
+PENTING:
+Karena custom domain belum terpasang pada child deployment,
+jangan mengirim ai-task.travelintrips.co.id jika domain tersebut
+belum menuju build ini.
+
+Untuk test child sementara boleh tampilkan:
+https://ai-task--robby115.replit.app/<10-char-token>
+
+Setelah custom domain benar-benar menunjuk ke deployment yang benar,
+canonical WhatsApp URL harus menjadi:
+
+https://ai-task.travelintrips.co.id/<10-char-token>
+
+Biarkan test token aktif sampai saya selesai mengklik link WhatsApp.
+
+Final report:
+
+NEW_TOKEN_LENGTH_10=PASS/FAIL
+CRYPTO_SECURE=PASS/FAIL
+OLD_12_COMPATIBILITY=PASS/FAIL
+OLD_24_COMPATIBILITY=PASS/FAIL
+ROOT_SHORT_LINK_ROUTE=PASS/FAIL
+INVALID_ROOT_TOKEN_404=PASS/FAIL
+OLD_P_ROUTE_404_OR_REDIRECT=PASS/FAIL
+SPA_FALLBACK_FIXED=PASS/FAIL
+EXISTING_FRONTEND_ROUTES=PASS/FAIL
+VALID_SHORT_LINK_302=PASS/FAIL
+SUPABASE_OBJECT_200=PASS/FAIL
+WHATSAPP_TEST_SENT=PASS/FAIL/BLOCKED
+WHATSAPP_MESSAGE_ID=<id or BLOCKED>
+TEST_SHORT_LINK=<url or BLOCKED>
+CANONICAL_URL_UNCHANGED=PASS/FAIL
+NO_BOOKING_CREATED=PASS/FAIL
+NO_PAYMENT_CREATED=PASS/FAIL
+NO_ACCOUNTING_CREATED=PASS/FAIL

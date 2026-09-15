@@ -7,10 +7,11 @@ import {
 
 const generatedTokens = Array.from({ length: 100 }, generatePaymentProofToken);
 for (const token of generatedTokens) {
-  assert.equal(token.length, 12);
-  assert.match(token, /^[A-Za-z0-9_-]{12}$/);
+  assert.equal(token.length, 10);
+  assert.match(token, /^[A-Za-z0-9_-]{10}$/);
 }
 
+assert.equal(isPaymentProofTokenFormat("K7mQ2xN8aP"), true);
 assert.equal(isPaymentProofTokenFormat("K7mQ2xN8aP4z"), true);
 assert.equal(isPaymentProofTokenFormat("A".repeat(24)), true);
 assert.equal(isPaymentProofTokenFormat("A".repeat(11)), false);
@@ -26,9 +27,9 @@ const reservedToken = await generatePaymentProofTokenWithCollisionRetry(
       throw { code: "23505" };
     }
   },
-  () => (collisionAttempts === 0 ? "AAAAAAAAAAAA" : "BBBBBBBBBBBB"),
+  () => (collisionAttempts === 0 ? "AAAAAAAAAA" : "BBBBBBBBBB"),
 );
-assert.equal(reservedToken, "BBBBBBBBBBBB");
+assert.equal(reservedToken, "BBBBBBBBBB");
 assert.equal(collisionAttempts, 2);
 
 await assert.rejects(

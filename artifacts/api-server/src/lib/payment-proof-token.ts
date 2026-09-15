@@ -1,19 +1,26 @@
 import { randomBytes } from "node:crypto";
 
-export const PAYMENT_PROOF_SHORT_LINK_TOKEN_LENGTH = 12;
+export const PAYMENT_PROOF_SHORT_LINK_TOKEN_LENGTH = 10;
 export const PAYMENT_PROOF_LEGACY_TOKEN_LENGTH = 24;
+export const PAYMENT_PROOF_COMPAT_TOKEN_LENGTH = 12;
 const PAYMENT_PROOF_TOKEN_MAX_ATTEMPTS = 3;
 
 export function generatePaymentProofToken(): string {
-  // 9 bytes encode to exactly 12 unpadded Base64URL characters.
-  return randomBytes(9).toString("base64url");
+  // Base64URL is generated from CSPRNG bytes and trimmed to the new
+  // fixed-length root token format.
+  return randomBytes(10).toString("base64url").slice(0, PAYMENT_PROOF_SHORT_LINK_TOKEN_LENGTH);
 }
 
 export function isPaymentProofTokenFormat(token: string): boolean {
   return (
+    /^[A-Za-z0-9_-]{10}$/.test(token) ||
     /^[A-Za-z0-9_-]{12}$/.test(token) ||
     /^[A-Za-z0-9_-]{24}$/.test(token)
   );
+}
+
+export function isRootPaymentProofTokenFormat(token: string): boolean {
+  return /^[A-Za-z0-9_-]{10}$/.test(token);
 }
 
 export function isUniqueConstraintViolation(error: unknown): boolean {

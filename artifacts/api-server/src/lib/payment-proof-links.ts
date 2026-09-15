@@ -67,7 +67,7 @@ export async function createPaymentProofShortLink(
   );
 
   return {
-    url: `${getShortLinkBaseUrl()}/p/${token}`,
+    url: `${getShortLinkBaseUrl()}/${token}`,
     token,
     expiresAt,
   };

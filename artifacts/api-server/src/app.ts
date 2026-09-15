@@ -16,6 +16,7 @@ import { expireOldIntakeSessions } from "./lib/intake-engine";
 import { ensurePaymentProofBucket } from "./lib/supabase";
 import { supabasePool } from "./lib/supabase-db";
 import paymentProofPublicRouter from "./routes/payment-proof-public";
+import { isRootPaymentProofTokenFormat } from "./lib/payment-proof-token";
 
 const app: Express = express();
 
@@ -74,7 +75,11 @@ if (process.env.NODE_ENV === "production") {
     app.get("/{*path}", (req, res) => {
       // Keep malformed or unknown public payment-proof links as backend 404s;
       // never turn them into an SPA document that looks like a successful link.
-      if (req.path === "/p" || req.path.startsWith("/p/")) {
+      if (
+        req.path === "/p" ||
+        req.path.startsWith("/p/") ||
+        isRootPaymentProofTokenFormat(req.path.slice(1))
+      ) {
         res.status(404).send("Not found");
         return;
       }
