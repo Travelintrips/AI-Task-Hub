@@ -1,0 +1,85 @@
+SCOPE LOCK: child deployment refresh only.
+JANGAN ubah source code atau business logic.
+
+Local routing SUDAH PASS:
+- / → 200
+- /login → 200 SPA
+- /ai-tasks/54 → 200 SPA
+- /mini-form/... → SPA
+- /AAAAAAAAAA → 404 backend
+- /p/INVALIDTOKEN → 404 backend
+- /api/healthz → 200
+
+Live deployment robby113 masih memakai routing/artifact lama.
+
+TARGET:
+https://ai-task--robby113.replit.app
+
+Tugas:
+
+1. Audit deployment configuration dan pastikan production deployment
+   menggunakan build/source TERBARU yang baru saja PASS lokal.
+
+2. Pastikan production build menjalankan:
+   frontend build → API build
+   dan API artifact menjadi production web server/router.
+
+3. Pastikan deployment run/start command menggunakan artifact API terbaru,
+   bukan web/static artifact lama.
+
+4. Publish/redeploy CHILD deployment.
+
+5. Setelah deployment selesai, buktikan build baru benar-benar aktif.
+   Catat deployment/build ID atau timestamp jika tersedia.
+
+6. Probe LIVE:
+
+GET /
+→ 200
+
+GET /login
+→ 200 SPA
+
+GET /ai-tasks/54
+→ 200 SPA
+
+GET /AAAAAAAAAA
+→ 404 backend
+
+GET /p/INVALIDTOKEN
+→ 404 backend
+
+GET /api/healthz
+→ 200
+
+7. Jangan melakukan perubahan source lagi jika local contract sudah benar.
+
+JANGAN:
+- membuat booking/order/payment
+- membuat accounting/journal
+- membuat short-link mapping
+- menjalankan OCR/auto-confirm
+- mengirim WhatsApp/Fonnte
+- mengubah token generator
+- mengubah PUBLIC_APP_BASE_URL
+
+PUBLIC_APP_BASE_URL tetap:
+https://ai-task.travelintrips.co.id
+
+Jika setelah confirmed redeploy /login masih 404:
+STOP dan laporkan exact deployment artifact/start command yang sebenarnya
+digunakan. Jangan mencoba fix code lain sebelum root cause deployment terbukti.
+
+Final:
+REDEPLOY_COMPLETED=PASS/FAIL
+LATEST_BUILD_ACTIVE=PASS/FAIL
+DEPLOYMENT_BUILD_ID=<id/timestamp>
+DEPLOYED_ENTRYPOINT=<exact>
+ROOT_200=PASS/FAIL
+LOGIN_200=PASS/FAIL
+AI_TASK_DEEP_LINK=PASS/FAIL
+INVALID_10_CHAR_404=PASS/FAIL
+OLD_P_INVALID_404=PASS/FAIL
+API_HEALTH=PASS/FAIL
+NO_SOURCE_CHANGE=PASS/FAIL
+NO_PRODUCTION_DATA_CREATED=PASS/FAIL
