@@ -1,0 +1,75 @@
+SCOPE LOCK: isolated production short-link + WhatsApp display test only.
+
+Tujuan:
+Saya ingin melihat 1 contoh nyata short-link production di WhatsApp Group:
+
+https://ai-task.travelintrips.co.id/p/<12-char-token>
+
+PENTING:
+JANGAN membuat booking/order baru.
+JANGAN membuat payment.
+JANGAN menjalankan auto-confirmation.
+JANGAN membuat jurnal/accounting.
+JANGAN menjalankan OCR.
+JANGAN mengubah business logic.
+
+Lakukan hanya setelah deployment terbaru production aktif.
+
+1. Verifikasi dahulu:
+   GET https://ai-task.travelintrips.co.id/p/INVALIDTOKEN
+   harus 404 backend, bukan SPA 200.
+   Jika masih 200 SPA, STOP.
+
+2. Untuk test gunakan 1 existing payment-proof object yang sudah ada dan aman
+   di bucket private payment-proofs.
+
+3. Buat isolated short-link record menggunakan mekanisme
+   createPaymentProofShortLink() existing.
+
+   Token harus:
+   - crypto-secure
+   - tepat 12 karakter
+   - Base64URL-safe
+
+   Hasil harus:
+   https://ai-task.travelintrips.co.id/p/<12-char-token>
+
+4. Test link tersebut secara langsung:
+   /p/<token> → 302
+   signed Supabase object → 200.
+
+   Jika gagal, STOP dan jangan kirim WhatsApp.
+
+5. Jika PASS, kirim SATU pesan TEST ke WhatsApp Group yang SUDAH
+   dikonfigurasi untuk AI Task Hub menggunakan Fonnte existing.
+
+   Isi pesan:
+
+   🧪 TEST SHORT LINK PRODUCTION
+
+   Bukti Pembayaran:
+   https://ai-task.travelintrips.co.id/p/<12-char-token>
+
+   Ini hanya pengujian URL. Tidak ada pesanan atau pembayaran baru.
+
+6. Jangan jalankan normal order notification.
+   Gunakan direct isolated test message agar tidak membuat transaksi.
+
+7. Setelah terkirim, JANGAN langsung hapus short-link test.
+   Biarkan aktif sementara agar saya dapat mengklik link dari WhatsApp
+   dan memastikan gambar terbuka.
+
+8. Laporkan:
+   DEPLOYMENT=PASS/FAIL
+   INVALID_TOKEN_404=PASS/FAIL
+   TOKEN_LENGTH_12=PASS/FAIL
+   SHORT_LINK_302=PASS/FAIL
+   PAYMENT_PROOF_200=PASS/FAIL
+   WHATSAPP_TEST_SENT=PASS/FAIL
+   WHATSAPP_MESSAGE_ID=<id>
+   SHORT_LINK=<url>
+   NO_BOOKING_CREATED=PASS/FAIL
+   NO_PAYMENT_CREATED=PASS/FAIL
+   NO_ACCOUNTING_CREATED=PASS/FAIL
+
+STOP jika langkah apa pun membutuhkan pembuatan transaksi production.
