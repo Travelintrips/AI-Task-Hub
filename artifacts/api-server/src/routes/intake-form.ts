@@ -165,6 +165,60 @@ function resolveMiniFormCustomerName(
   return phone;
 }
 
+const SPORT_CENTER_RECEIVER_CATEGORIES = [
+  "Sport Center",
+  "Lapangan",
+  "Olahraga",
+  "Booking Lapangan",
+];
+
+async function getSportCenterAdminWhatsapp(companyId: string): Promise<string | null> {
+  try {
+    const companyFilter =
+      companyId === "default"
+        ? sql`1=1`
+        : or(
+            eq(notificationReceiversTable.companyId, companyId),
+            eq(notificationReceiversTable.companyId, "default"),
+          );
+
+    const receivers = await db
+      .select({ phone: notificationReceiversTable.phone })
+      .from(notificationReceiversTable)
+      .where(
+        and(
+          companyFilter,
+          eq(notificationReceiversTable.isActive, true),
+          inArray(
+            notificationReceiversTable.category,
+            SPORT_CENTER_RECEIVER_CATEGORIES,
+          ),
+        ),
+      );
+
+    const phone = receivers
+      .map((receiver) => receiver.phone.trim())
+      .find((value) => value && !/@g\.us$/i.test(value));
+    if (phone) return phone;
+  } catch (err) {
+    logger.warn(
+      { err, companyId },
+      "intake-form: gagal mencari nomor WhatsApp Admin Sport Center",
+    );
+  }
+
+  const fallback = (
+    process.env.STAFF_NOTIFY_PHONES_SPORT_CENTER ??
+    process.env.STAFF_NOTIFY_PHONES ??
+    ""
+  )
+    .split(",")
+    .map((phone) => phone.trim())
+    .find((phone) => phone && !/@g\.us$/i.test(phone));
+
+  return fallback ?? null;
+}
+
 // ── GET /public/mini-form/types ───────────────────────────────────────────────
 
 router.get("/public/mini-form/types", (_req, res): void => {
@@ -680,17 +734,63 @@ router.post(
           expectedDate: String(merged.booking_date ?? ""),
         });
         if (!paymentProofOcr.valid) {
+          const isRetryableOcrFailure = !paymentProofOcr.serviceUnavailable;
+          const previousOcrAttempts = Math.max(
+            0,
+            Number(
+              ((session.collectedFields as Record<string, unknown>) ?? {})
+                ._payment_proof_ocr_attempts,
+            ) || 0,
+          );
+          const ocrAttempt = isRetryableOcrFailure
+            ? previousOcrAttempts + 1
+            : previousOcrAttempts;
+          const shouldContactAdmin = isRetryableOcrFailure && ocrAttempt >= 2;
+          const adminWhatsapp = shouldContactAdmin
+            ? await getSportCenterAdminWhatsapp(session.companyId)
+            : null;
+          const ocrFailureMessage = paymentProofOcr.serviceUnavailable
+            ? "Layanan validasi bukti pembayaran sedang tidak tersedia. Silakan coba lagi setelah layanan OCR dikonfigurasi."
+            : `Bukti pembayaran tidak lolos validasi OCR: ${
+                paymentProofOcr.failureReason ?? "hasil OCR tidak valid"
+              }. Silakan unggah bukti transfer yang lebih jelas.`;
+
+          if (isRetryableOcrFailure) {
+            const failedSubmissionFields = {
+              ...((session.collectedFields as Record<string, unknown>) ?? {}),
+              ...body.fields,
+              ...(session.phone ? { phone: session.phone } : {}),
+              _payment_proof_ocr_attempts: ocrAttempt,
+            };
+
+            try {
+              await db
+                .update(intakeSessionsTable)
+                .set({
+                  collectedFields: failedSubmissionFields,
+                  missingFields: ["payment_proof"],
+                  updatedAt: new Date(),
+                })
+                .where(eq(intakeSessionsTable.id, session.id));
+            } catch (attemptErr) {
+              logger.warn(
+                { attemptErr, sessionId: session.id, ocrAttempt },
+                "intake-form: gagal menyimpan jumlah percobaan OCR",
+              );
+            }
+          }
+
           res.status(paymentProofOcr.serviceUnavailable ? 503 : 422).json({
             ok: false,
             isComplete: false,
-            message:
-              (paymentProofOcr.serviceUnavailable
-                ? "Layanan validasi bukti pembayaran sedang tidak tersedia. Silakan coba lagi setelah layanan OCR dikonfigurasi."
-                : `Bukti pembayaran tidak lolos validasi OCR: `) +
-              `${paymentProofOcr.failureReason ?? "hasil OCR tidak valid"}. ` +
-              (paymentProofOcr.serviceUnavailable
-                ? ""
-                : " Silakan unggah bukti transfer yang lebih jelas."),
+            ocrAttempt,
+            maxOcrAttempts: 2,
+            ocrValidationFailed: isRetryableOcrFailure,
+            contactAdmin: shouldContactAdmin,
+            adminWhatsapp,
+            message: shouldContactAdmin
+              ? "Bukti pembayaran belum dapat dikonfirmasi setelah 2 percobaan. Silahkan hubungi Admin untuk konfirmasi."
+              : ocrFailureMessage,
             missingFields: ["payment_proof"],
           });
           return;

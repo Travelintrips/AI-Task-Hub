@@ -65,6 +65,12 @@ function formatRupiah(value: number): string {
   return `Rp ${value.toLocaleString("id-ID")}`;
 }
 
+function normalizeWhatsappPhone(value: string): string {
+  const digits = value.replace(/\D/g, "");
+  if (digits.startsWith("0")) return `62${digits.slice(1)}`;
+  return digits;
+}
+
 function formatSportCenterTimeRange(
   startTime: string,
   duration: string,
@@ -110,16 +116,31 @@ async function apiFetch(path: string, init?: RequestInit) {
       error?: string;
       message?: string;
       detail?: string;
+      contactAdmin?: boolean;
+      adminWhatsapp?: string | null;
+      ocrAttempt?: number;
+      maxOcrAttempts?: number;
+      ocrValidationFailed?: boolean;
     };
-    throw new Error(
+    const apiError = new Error(
       errorBody.error ??
-        errorBody.message ??
-        errorBody.detail ??
-        `Error ${res.status}`,
+      errorBody.message ??
+      errorBody.detail ??
+      `Error ${res.status}`,
     );
+    Object.assign(apiError, errorBody, { status: res.status });
+    throw apiError;
   }
   return res.json();
 }
+
+type MiniFormApiError = Error & {
+  contactAdmin?: boolean;
+  adminWhatsapp?: string | null;
+  ocrAttempt?: number;
+  maxOcrAttempts?: number;
+  ocrValidationFailed?: boolean;
+};
 
 interface FieldDef {
   name: string;
@@ -578,6 +599,11 @@ export default function MiniFormPage() {
     message: string;
     isComplete: boolean;
     missingFields?: string[];
+    contactAdmin?: boolean;
+    adminWhatsapp?: string | null;
+    ocrAttempt?: number;
+    maxOcrAttempts?: number;
+    ocrValidationFailed?: boolean;
   } | null>(null);
   const [uploadingFields, setUploadingFields] = useState<Set<string>>(
     new Set(),
@@ -953,7 +979,19 @@ export default function MiniFormPage() {
       });
     },
     onError: (e: Error) => {
-      setSubmitResult({ ok: false, message: e.message, isComplete: false });
+      const apiError = e as MiniFormApiError;
+      setSubmitResult({
+        ok: false,
+        message: e.message,
+        isComplete: false,
+        contactAdmin: apiError.contactAdmin,
+        adminWhatsapp: apiError.adminWhatsapp,
+        ocrAttempt: apiError.ocrAttempt,
+        maxOcrAttempts: apiError.maxOcrAttempts,
+        ocrValidationFailed: apiError.ocrValidationFailed,
+        missingFields:
+          apiError.ocrValidationFailed ? ["payment_proof"] : undefined,
+      });
     },
   });
 
@@ -1305,6 +1343,33 @@ export default function MiniFormPage() {
             {submitResult && !submitResult.isComplete && (
               <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 text-sm text-orange-700 space-y-2">
                 <p className="font-medium">{submitResult.message}</p>
+                {submitResult.contactAdmin && (
+                  <div className="rounded-lg border border-orange-200 bg-white/70 p-3 space-y-2">
+                    <p className="text-sm font-semibold text-orange-800">
+                      Silahkan hubungi Admin untuk konfirmasi.
+                    </p>
+                    {submitResult.adminWhatsapp ? (
+                      <a
+                        href={`https://wa.me/${normalizeWhatsappPhone(
+                          submitResult.adminWhatsapp,
+                        )}?text=${encodeURIComponent(
+                          `Halo Admin, saya membutuhkan bantuan konfirmasi bukti pembayaran booking Sport Center. Percobaan OCR: ${submitResult.ocrAttempt ?? 2}/${submitResult.maxOcrAttempts ?? 2}.`,
+                        )}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-green-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-green-700"
+                      >
+                        <span>💬</span>
+                        Hubungi Admin via WhatsApp
+                      </a>
+                    ) : (
+                      <p className="text-xs text-orange-700">
+                        Nomor WhatsApp Admin belum tersedia. Silakan hubungi Admin
+                        Sport Center secara manual.
+                      </p>
+                    )}
+                  </div>
+                )}
                 {submitResult.missingFields &&
                   submitResult.missingFields.length > 0 && (
                     <div>
