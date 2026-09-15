@@ -1,0 +1,104 @@
+SCOPE LOCK: live short-link + WhatsApp verification only.
+JANGAN ubah code atau business logic lagi.
+
+CURRENT CHILD DEPLOYMENT:
+https://ai-task--robby113.replit.app
+
+CANONICAL PRODUCTION URL tetap:
+https://ai-task.travelintrips.co.id
+
+Latest implementation sudah PASS lokal:
+- token baru = 10 karakter
+- format final canonical = https://ai-task.travelintrips.co.id/<10-char-token>
+- root short-link route aktif
+- old /p/ route backward compatible
+- invalid 10-char token = backend 404
+- frontend routes tetap normal
+
+1. Pastikan build TERBARU benar-benar terdeploy pada:
+https://ai-task--robby113.replit.app
+
+2. Verifikasi live:
+
+GET https://ai-task--robby113.replit.app/
+→ 200
+
+GET https://ai-task--robby113.replit.app/api/healthz
+→ 200
+
+GET https://ai-task--robby113.replit.app/AAAAAAAAAA
+→ 404 backend, BUKAN SPA
+
+GET https://ai-task--robby113.replit.app/p/INVALIDTOKEN
+→ 404 backend
+
+GET https://ai-task--robby113.replit.app/login
+→ frontend normal
+
+Jika routing gagal, STOP.
+
+3. Jika PASS, gunakan SATU existing payment-proof object yang aman.
+
+Buat hanya isolated short-link mapping.
+JANGAN membuat:
+- booking
+- order
+- payment
+- accounting/journal
+- OCR
+- auto-confirm
+
+Token test harus tepat 10 karakter.
+
+4. Untuk test deployment sementara gunakan:
+
+https://ai-task--robby113.replit.app/<10-char-token>
+
+Verifikasi:
+short-link → HTTP 302
+→ signed Supabase URL server-side
+→ payment-proof object HTTP 200
+
+Jika gagal, STOP.
+
+5. Jika 302 → object 200 PASS,
+kirim SATU pesan test langsung ke WhatsApp Group melalui Fonnte existing.
+
+JANGAN gunakan normal booking/order notification flow.
+
+Pesan:
+
+🧪 TEST LINK BUKTI PEMBAYARAN
+
+Bukti Pembayaran:
+https://ai-task--robby113.replit.app/<10-char-token>
+
+Ini hanya pengujian URL.
+Tidak ada booking atau pembayaran baru.
+
+6. Biarkan test token aktif agar link dapat saya klik dari WhatsApp.
+
+7. JANGAN mengubah:
+PUBLIC_APP_BASE_URL=https://ai-task.travelintrips.co.id
+
+JANGAN hardcode ai-task--robby113.replit.app sebagai canonical.
+Domain Replit ini hanya untuk deployment verification sementara.
+
+Final report:
+
+CHILD_LATEST_DEPLOYED=PASS/FAIL
+ROOT_200=PASS/FAIL
+API_HEALTH=PASS/FAIL
+INVALID_ROOT_404=PASS/FAIL
+OLD_P_INVALID_404=PASS/FAIL
+FRONTEND_ROUTES=PASS/FAIL
+TOKEN_LENGTH_10=PASS/FAIL
+VALID_SHORT_LINK_302=PASS/FAIL
+SUPABASE_OBJECT_200=PASS/FAIL
+WHATSAPP_TEST_SENT=PASS/FAIL/BLOCKED
+WHATSAPP_MESSAGE_ID=<id>
+TEST_SHORT_LINK=<url>
+CANONICAL_URL_UNCHANGED=PASS/FAIL
+NO_BOOKING_CREATED=PASS/FAIL
+NO_PAYMENT_CREATED=PASS/FAIL
+NO_ACCOUNTING_CREATED=PASS/FAIL
