@@ -29,6 +29,11 @@ export function getPublicBaseUrl(): string {
     return configuredBaseUrl;
   }
 
+  const configuredDevelopmentBaseUrl = process.env.PUBLIC_APP_BASE_URL?.trim();
+  if (configuredDevelopmentBaseUrl) {
+    return normalizeBaseUrl(configuredDevelopmentBaseUrl);
+  }
+
   const runtimeDomain =
     process.env.REPLIT_DEV_DOMAIN?.trim() ||
     process.env.REPLIT_DOMAINS?.split(",")[0]?.trim();
