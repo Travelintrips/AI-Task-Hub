@@ -7,7 +7,7 @@ In a multi-artifact deployment, a web artifact claiming `/` with a `/*` SPA rewr
 
 **Why:** The Express route order can be correct while the deployed artifact router still serves `index.html` before the API process receives `/p/*` or validated root-token paths. Root ownership without frontend serving instead causes the preview to show `Cannot GET /`.
 
-**How to apply:** Inspect deployment logs for static-handler registration and artifact paths before changing application routes. Scope the web artifact to assets, let the API serve the built bundle in production-style runs, and verify both root 200 and invalid root-token 404. In imported workspaces, update artifact TOML through `verifyAndReplaceArtifactToml` using an absolute sibling temp file; direct edits are rejected, and preview-path changes must be applied sequentially to avoid duplicate-root validation.
+**How to apply:** Inspect deployment logs for static-handler registration and artifact paths before changing application routes. Scope the web artifact to assets, let the API serve the built bundle in production-style runs, and verify both root 200 and invalid root-token 404. `previewPath` controls DEV Preview ownership; production route ownership comes from service `paths`. In imported workspaces, update artifact TOML through `verifyAndReplaceArtifactToml` using an absolute sibling temp file; direct edits are rejected, and preview-path changes must be applied sequentially to avoid duplicate-root validation.
 
 Live child deployments must also be checked on a normal SPA route such as `/login`: a deployment can return root 200 and invalid-token 404 while still returning 404 for frontend routes when the static/API router is serving an older or mismatched build.
 

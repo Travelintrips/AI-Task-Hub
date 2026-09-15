@@ -1,0 +1,93 @@
+SCOPE LOCK: restore DEV Preview + correct deployment artifact routing only.
+
+REGRESSION:
+Setelah perubahan artifact.toml:
+
+api-server previewPath:
+  /api → /
+
+ai-task-center previewPath:
+  / → /assets
+
+DEV Preview sekarang menampilkan:
+
+Cannot GET /
+
+Ini TIDAK BOLEH.
+
+JANGAN Publish/redeploy sebelum DEV Preview kembali normal.
+
+JANGAN ubah:
+- booking/payment/accounting
+- token/short-link business logic
+- OCR
+- Fonnte/WhatsApp logic
+- database
+- PUBLIC_APP_BASE_URL
+
+Tujuan:
+1. Restore DEV Preview agar AI Task Center tampil normal di `/`.
+2. Tetap mempertahankan production routing contract yang dibutuhkan.
+3. Jangan memakai previewPath sebagai workaround deployment jika itu merusak DEV Preview.
+
+Audit exact semantics dari:
+artifacts/api-server/.replit-artifact/artifact.toml
+artifacts/ai-task-center/.replit-artifact/artifact.toml
+
+Tentukan apakah previewPath memang khusus Preview dan bukan solusi yang benar
+untuk production route ownership.
+
+Jika iya:
+- restore preview configuration yang membuat DEV frontend normal
+- cari deployment-specific artifact/routing configuration yang benar
+- jangan membuat API preview mengambil `/` jika API DEV tidak serve frontend di `/`
+
+DEV EXPECTED:
+
+GET /
+→ 200 AI Task Center, bukan "Cannot GET /"
+
+GET /login
+→ frontend normal
+
+GET /api/healthz
+→ 200
+
+POST /api/webhook/fonnte
+→ backend existing
+
+Short-link DEV existing harus tetap dapat diproses tanpa merusak SPA.
+
+PRODUCTION CONTRACT tetap harus:
+
+/api/* → API
+/p/<old-token> → short-link backend
+/<exact-10-char-token> → short-link backend
+/login → SPA
+/ai-tasks/* → SPA
+/mini-form/* → SPA
+/assets/* → frontend assets
+
+Invalid exact 10-char token:
+→ backend 404
+
+Jangan Publish sampai DEV Preview PASS.
+
+Setelah fix lokal/Preview, verifikasi:
+
+DEV_PREVIEW_ROOT=PASS/FAIL
+DEV_LOGIN=PASS/FAIL
+DEV_API_HEALTH=PASS/FAIL
+DEV_WEBHOOK_ROUTE=PASS/FAIL
+INVALID_10_CHAR_404=PASS/FAIL
+OLD_P_INVALID_404=PASS/FAIL
+
+Lalu laporkan secara terpisah:
+
+PREVIEW_ROUTING_SOURCE=<exact>
+DEPLOYMENT_ROUTING_SOURCE=<exact>
+ROOT_CAUSE_CANNOT_GET_ROOT=<exact>
+ARTIFACT_CONFIG_FIX=<exact>
+
+STOP setelah DEV Preview normal.
+JANGAN publish dan JANGAN test WhatsApp pada tahap ini.
