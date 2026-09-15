@@ -1,0 +1,106 @@
+SCOPE LOCK: post-publish deployment verification only.
+
+JANGAN ubah source/config terlebih dahulu.
+
+DEV Preview sudah PASS dan harus tetap:
+Web previewPath="/"
+API previewPath="/api"
+
+Production deployment routing source adalah services.paths:
+API  = ["/api", "/p", "/"]
+Web  = ["/assets"]
+
+CURRENT CHILD DEPLOYMENT:
+https://ai-task-hub--robby1111.replit.app
+
+CANONICAL PRODUCTION URL tetap:
+https://ai-task.travelintrips.co.id
+
+JANGAN hardcode domain replit.app sebagai canonical URL.
+
+Setelah Publish selesai, verifikasi deployment BARU.
+
+1. Pastikan deployment/build terbaru benar-benar aktif pada:
+https://ai-task-hub--robby1111.replit.app
+
+2. Test LIVE:
+
+GET https://ai-task-hub--robby1111.replit.app/
+→ 200 dan AI Task Center tampil normal
+
+GET https://ai-task-hub--robby1111.replit.app/login
+→ 200 dan SPA tampil normal
+
+GET https://ai-task-hub--robby1111.replit.app/ai-tasks/54
+→ 200 SPA
+
+GET https://ai-task-hub--robby1111.replit.app/api/healthz
+→ 200
+
+GET https://ai-task-hub--robby1111.replit.app/AAAAAAAAAA
+→ 404 backend
+
+GET https://ai-task-hub--robby1111.replit.app/p/INVALIDTOKEN
+→ 404 backend
+
+3. Ambil nama asset JS/CSS aktual dari index.html lalu test:
+
+https://ai-task-hub--robby1111.replit.app/assets/<actual-js-file>
+→ 200
+
+https://ai-task-hub--robby1111.replit.app/assets/<actual-css-file>
+→ 200
+
+Tidak boleh 404/500.
+
+4. Pastikan secara visual:
+- homepage tampil
+- /login tampil
+- frontend tidak blank
+- JavaScript frontend berjalan
+- tidak ada "Cannot GET /"
+
+5. Audit deployment metadata dan pastikan services.paths terbaru aktif.
+
+6. Pastikan perubahan URL deployment TIDAK mengubah:
+
+PUBLIC_APP_BASE_URL=https://ai-task.travelintrips.co.id
+
+Domain:
+https://ai-task-hub--robby1111.replit.app
+
+hanya deployment host sementara, bukan canonical URL dan jangan
+disimpan sebagai hardcode.
+
+7. JANGAN:
+- membuat short-link mapping
+- membuat booking/order/payment
+- membuat accounting/journal
+- menjalankan OCR/auto-confirm
+- mengirim WhatsApp/Fonnte
+- mengubah token generator
+- mengubah PUBLIC_APP_BASE_URL
+
+8. Setelah live verification, cek DEV Preview sekali lagi:
+DEV / → tetap normal
+DEV /api/healthz → 200
+
+Final:
+
+LATEST_DEPLOYMENT_ACTIVE=PASS/FAIL
+DEPLOYMENT_HOST=ai-task-hub--robby1111.replit.app
+ROOT_200_VISUAL=PASS/FAIL
+LOGIN_200_VISUAL=PASS/FAIL
+AI_TASK_DEEP_LINK=PASS/FAIL
+ASSET_JS_200=PASS/FAIL
+ASSET_CSS_200=PASS/FAIL
+API_HEALTH=PASS/FAIL
+INVALID_10_CHAR_404=PASS/FAIL
+OLD_P_INVALID_404=PASS/FAIL
+SERVICES_PATHS_ACTIVE=PASS/FAIL
+CANONICAL_URL_UNCHANGED=PASS/FAIL
+DEV_PREVIEW_STILL_NORMAL=PASS/FAIL
+NO_PRODUCTION_DATA_CREATED=PASS/FAIL
+
+Jika semua PASS, STOP.
+Jangan lakukan valid-token atau WhatsApp test dulu.
