@@ -1,0 +1,250 @@
+URGENT SCOPE LOCK: restore DEV + production frontend availability only.
+
+ADA REGRESSION NYATA PADA DEV DAN PRODUCTION.
+
+==================================================
+CURRENT DEV CHILD
+==================================================
+
+https://e367126b-32fd-4bcb-a704-78045b9bb6c4-00-ol4marg7vcag.pike.replit.dev/
+
+KONDISI AKTUAL:
+Browser hanya menampilkan halaman putih/blank.
+Tidak ada UI Login AI Task Center.
+
+Jangan gunakan hasil audit lama yang mengatakan DEV Preview PASS.
+Kondisi visual aktual sekarang adalah BLANK.
+
+==================================================
+PRODUCTION CANONICAL
+==================================================
+
+https://ai-task.travelintrips.co.id
+
+Sebelumnya production menampilkan halaman Login AI Task Center normal.
+
+Sekarang production juga hanya blank putih.
+
+Evidence sebelumnya:
+- HTML/root masih dapat HTTP 200
+- index.html termuat
+- tetapi JS/CSS asset pernah menghasilkan HTTP 500
+- tanpa JS/CSS frontend menjadi blank
+
+==================================================
+CHILD DEPLOYMENT
+==================================================
+
+https://ai-task-hub--robby1111.replit.app
+
+Evidence:
+- / → HTTP 200 tetapi visual blank
+- /login → HTTP 200 tetapi visual blank
+- /api/healthz → 200
+- /AAAAAAAAAA → 404
+- /p/INVALIDTOKEN → 404
+
+index.html references:
+- /assets/index-Djfv-K1i.js
+- /assets/index-DK43OWcd.css
+
+dan asset tersebut pernah menghasilkan HTTP 500.
+
+==================================================
+PRIORITAS
+==================================================
+
+STOP seluruh pekerjaan short-link dan WhatsApp.
+
+Pulihkan frontend DEV terlebih dahulu.
+JANGAN publish/redeploy production sebelum DEV benar-benar tampil normal.
+
+JANGAN ubah:
+- booking
+- order
+- payment
+- accounting/journal
+- OCR
+- auto-confirm
+- database/data
+- Fonnte/WhatsApp logic
+- token generator
+- short-link logic
+- PUBLIC_APP_BASE_URL
+
+PUBLIC_APP_BASE_URL tetap:
+https://ai-task.travelintrips.co.id
+
+==================================================
+1. AUDIT DEV BLANK SCREEN
+==================================================
+
+Audit DEV URL aktual:
+
+https://e367126b-32fd-4bcb-a704-78045b9bb6c4-00-ol4marg7vcag.pike.replit.dev/
+
+Trace:
+
+GET /
+→ index.html
+
+index.html
+→ exact current JS asset
+→ exact current CSS asset
+
+Lalu probe exact asset:
+
+GET /assets/<actual-js>
+GET /assets/<actual-css>
+
+Catat:
+- HTTP status
+- Content-Type
+- response body/error
+- artifact/process yang menerima request
+
+Juga cek browser/runtime errors jika tersedia.
+
+Jangan hanya menyatakan HTTP / = 200.
+PASS hanya jika UI benar-benar tampil secara visual.
+
+==================================================
+2. AUDIT BUILD OUTPUT
+==================================================
+
+Pastikan current frontend build menghasilkan:
+
+artifacts/ai-task-center/dist/public/index.html
+
+dan actual files:
+
+artifacts/ai-task-center/dist/public/assets/<actual-js>
+artifacts/ai-task-center/dist/public/assets/<actual-css>
+
+Pastikan filename di index.html sama dengan file yang benar-benar ada.
+
+Audit apakah asset hilang karena:
+- stale build
+- wrong dist directory
+- artifact packaging
+- services.paths
+- static serving
+- API/static ownership conflict
+- frontend workflow
+- deployment artifact config
+
+==================================================
+3. PREVIEW CONFIG
+==================================================
+
+Jangan mengubah previewPath sebagai workaround.
+
+Expected DEV preview ownership tetap:
+
+Web previewPath="/"
+API previewPath="/api"
+
+Tetapi pastikan /assets/* pada DEV benar-benar dilayani oleh frontend
+artifact/runtime yang memiliki file tersebut.
+
+==================================================
+4. FIX CORRECT SOURCE LAYER
+==================================================
+
+Perbaiki hanya root cause asset serving/build/artifact.
+
+JANGAN hardcode hashed filenames seperti:
+index-Djfv-K1i.js
+
+karena filename berubah setiap build.
+
+JANGAN mengubah application/business routing yang sudah PASS.
+
+==================================================
+5. DEV GATE — WAJIB PASS DULU
+==================================================
+
+Setelah fix/restart DEV:
+
+GET DEV /
+→ 200 + Login AI Task Center tampil VISUAL
+
+GET DEV /login
+→ 200 + UI tampil VISUAL
+
+GET DEV /assets/<actual-js>
+→ 200 + JavaScript Content-Type
+
+GET DEV /assets/<actual-css>
+→ 200 + text/css
+
+GET DEV /api/healthz
+→ 200
+
+GET DEV /AAAAAAAAAA
+→ 404 backend
+
+GET DEV /p/INVALIDTOKEN
+→ 404 backend
+
+Buka DEV URL secara visual dan pastikan BUKAN blank putih.
+
+Jika DEV masih blank:
+STOP.
+JANGAN publish.
+
+==================================================
+6. PRODUCTION
+==================================================
+
+HANYA setelah DEV visual + JS + CSS semuanya PASS:
+
+siapkan minimum safe fix untuk deployment.
+
+Production setelah republish harus:
+
+https://ai-task.travelintrips.co.id/
+→ Login AI Task Center tampil normal seperti sebelum regression
+
+https://ai-task.travelintrips.co.id/login
+→ UI normal
+
+actual /assets/*.js
+→ 200
+
+actual /assets/*.css
+→ 200
+
+/api/healthz
+→ 200
+
+/AAAAAAAAAA
+→ 404 backend
+
+/p/INVALIDTOKEN
+→ 404 backend
+
+JANGAN lakukan valid-token/WhatsApp test pada tahap ini.
+
+==================================================
+FINAL REPORT
+==================================================
+
+ROOT_CAUSE_DEV_BLANK=<exact>
+ROOT_CAUSE_PROD_BLANK=<exact>
+DEV_INDEX_200=PASS/FAIL
+DEV_BUILD_ASSETS_EXIST=PASS/FAIL
+DEV_JS_200=PASS/FAIL
+DEV_CSS_200=PASS/FAIL
+DEV_VISUAL_LOGIN=PASS/FAIL
+DEV_API_HEALTH=PASS/FAIL
+INVALID_10_CHAR_404=PASS/FAIL
+OLD_P_INVALID_404=PASS/FAIL
+PREVIEW_PATH_UNCHANGED=PASS/FAIL
+PROD_FIX_READY=YES/NO
+SAFE_TO_REPUBLISH=YES/NO
+NO_BUSINESS_LOGIC_CHANGED=PASS/FAIL
+NO_PRODUCTION_DATA_CHANGED=PASS/FAIL
+
+STOP setelah DEV benar-benar normal.
+JANGAN republish jika DEV_VISUAL_LOGIN != PASS.
