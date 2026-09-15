@@ -6,21 +6,25 @@ id = "-NGg-eKyY8LjFpXuIpNsY"
 uri = "file://docs/sprint-5c-cross-memory-matching-design.md"
 type = "text"
 title = "Sprint 5C — Cross Memory Matching Architecture"
+logical_id = "9a694e47-ae8c-49c2-8d46-2b36f7dba9e4"
 
 [[outputs]]
 id = "fNXF0OHLVbmCvrkESBWed"
 uri = "file://docs/sprint-5d-recommendation-outcome-engine-design.md"
 type = "text"
 title = "Sprint 5D — Recommendation Outcome Engine Architecture"
+logical_id = "52eb4714-2c74-40ec-97a3-3341a2bb345e"
 
 [[outputs]]
 id = "qc79XLlccT07T3C-HXv2v"
 uri = "file://docs/sprint-5e-intelligence-readiness-layer-design.md"
 type = "text"
 title = "Sprint 5E — Intelligence Readiness Layer Architecture"
+logical_id = "7adc9598-5228-4a3b-966e-e08a841dbe55"
 
 [[outputs]]
 id = "HXAaSENFjhKj-Gsu1nS0u"
 uri = "file://docs/sprint-9c-report.md"
 type = "text"
 title = "Sprint 9C — Laporan Implementasi Document Validation AI"
+logical_id = "402867e2-e75d-4e4a-8a9f-6beff68ce0fa"
