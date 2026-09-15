@@ -17,11 +17,6 @@ localPort = 5173
 [services.development]
 run = "pnpm --filter @workspace/ai-task-center run dev"
 
-[services.production]
-build = [ "pnpm", "--filter", "@workspace/ai-task-center", "run", "build" ]
-publicDir = "artifacts/ai-task-center/dist/public"
-serve = "static"
-
 [services.env]
 PORT = "5173"
 BASE_PATH = "/"

@@ -15,7 +15,11 @@ run = "pnpm --filter @workspace/ai-task-center run build && pnpm --filter @works
 [services.production]
 
 [services.production.build]
-args = ["pnpm", "--filter", "@workspace/api-server", "run", "build"]
+args = [
+  "sh",
+  "-c",
+  "pnpm --filter @workspace/ai-task-center run build && pnpm --filter @workspace/api-server run build",
+]
 
 [services.production.build.env]
 NODE_ENV = "production"
