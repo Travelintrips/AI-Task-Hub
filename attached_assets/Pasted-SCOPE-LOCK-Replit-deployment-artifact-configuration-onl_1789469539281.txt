@@ -1,0 +1,125 @@
+SCOPE LOCK: Replit deployment artifact configuration only.
+
+ROOT CAUSE SUDAH TERBUKTI.
+
+JANGAN ubah application routing/source/business logic/token/database.
+
+Current child deployment:
+ai-task-hub--robby1111.replit.app
+
+Local application routing sudah PASS.
+
+Masalah ada pada deployment artifact configuration:
+
+Current deployment masih memiliki:
+
+API artifact:
+artifacts/api-server
+start:
+node --enable-source-maps artifacts/api-server/dist/index.mjs
+
+DAN static handlers:
+path=/assets
+publicDir=artifacts/ai-task-center/dist/public
+
+path=/
+publicDir=artifacts/ai-task-center/dist/public   <-- REMOVE/DISABLE THIS
+
+Static handler path=/ menyebabkan:
+/login → 404
+/ai-tasks/54 → 404
+
+Padahal API artifact terbaru sudah bertanggung jawab menyajikan
+frontend SPA + backend routing.
+
+TUGAS:
+
+1. Audit deployment/artifact manifest/config yang menghasilkan:
+   artifact path=/
+   publicDir=artifacts/ai-task-center/dist/public
+
+2. Hapus/nonaktifkan HANYA static deployment handler pada path=/.
+
+3. Jangan hapus frontend build files.
+API server tetap membutuhkan:
+artifacts/ai-task-center/dist/public
+
+4. Jika /assets static handler memang diperlukan dan tidak konflik,
+boleh dipertahankan.
+
+5. Production deployment harus memiliki SATU ownership untuk application routes:
+
+API server:
+node --enable-source-maps artifacts/api-server/dist/index.mjs
+
+API server menangani:
+/
+/login
+/ai-tasks/*
+/mini-form/*
+/p/*
+root 10-char short-link
+/api/*
+
+6. Pastikan perubahan dilakukan pada SOURCE deployment configuration/
+artifact manifest, bukan patch sementara pada running deployment.
+
+7. Build lalu publish/redeploy child deployment.
+
+8. Setelah redeploy, audit metadata lagi.
+Tidak boleh lagi terdapat:
+
+artifact path=/
+publicDir=artifacts/ai-task-center/dist/public
+
+yang mengambil alih application routes.
+
+9. Live verification:
+
+GET /
+→ 200
+
+GET /login
+→ 200 SPA
+
+GET /ai-tasks/54
+→ 200 SPA
+
+GET /AAAAAAAAAA
+→ 404 backend
+
+GET /p/INVALIDTOKEN
+→ 404 backend
+
+GET /api/healthz
+→ 200
+
+JANGAN:
+- ubah token generator
+- ubah short-link logic
+- ubah booking/payment/accounting
+- membuat production data
+- kirim WhatsApp
+- mengubah PUBLIC_APP_BASE_URL
+
+PUBLIC_APP_BASE_URL tetap:
+https://ai-task.travelintrips.co.id
+
+Jika Replit deployment system secara otomatis membuat static path=/
+dan tidak dapat dinonaktifkan dari project configuration:
+STOP dan laporkan exact source/config yang menyebabkan artifact tersebut.
+Jangan workaround dengan mengubah application routes.
+
+Final:
+ROOT_DEPLOYMENT_HANDLER_REMOVED=PASS/FAIL
+DEPLOYMENT_CONFIG_SOURCE=<file/config>
+API_SINGLE_APPLICATION_OWNER=PASS/FAIL
+REDEPLOY_COMPLETED=PASS/FAIL
+LATEST_BUILD_ACTIVE=PASS/FAIL
+LOGIN_200=PASS/FAIL
+AI_TASK_DEEP_LINK_200=PASS/FAIL
+INVALID_10_CHAR_404=PASS/FAIL
+OLD_P_INVALID_404=PASS/FAIL
+API_HEALTH=PASS/FAIL
+NO_SOURCE_BUSINESS_LOGIC_CHANGE=PASS/FAIL
+NO_PRODUCTION_DATA_CREATED=PASS/FAIL

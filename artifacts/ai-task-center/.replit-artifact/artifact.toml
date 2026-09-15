@@ -1,5 +1,5 @@
 kind = "web"
-previewPath = "/"
+previewPath = "/assets"
 title = "AI Task Center"
 version = "1.0.0"
 id = "artifacts/ai-task-center"
