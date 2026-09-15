@@ -54,3 +54,4 @@
 - [Sport center pricing names](sport-center-pricing-names.md) — facility names can use “multi guna” or “multiguna”; both must map to Rp350.000/hour.
 - [Sport center notification dedupe](sport-center-notification-dedupe.md) — company/default receiver aliases can duplicate one group; dedupe by normalized phone at send time.
 - [AI Task Hub public URL](ai-task-public-url.md) — production links use the canonical AI Task Hub domain; DEV links must prefer REPLIT_DEV_DOMAIN.
+- [Multi-artifact root routing](artifact-root-routing.md) — static "/" artifact rewrites can intercept backend short-link routes; scope static paths or give API ownership.

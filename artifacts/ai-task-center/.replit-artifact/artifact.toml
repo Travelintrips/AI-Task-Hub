@@ -11,7 +11,7 @@ version = "1.0.0"
 
 [[services]]
 name = "web"
-paths = [ "/" ]
+paths = ["/assets"]
 localPort = 5173
 
 [services.development]
@@ -21,10 +21,6 @@ run = "pnpm --filter @workspace/ai-task-center run dev"
 build = [ "pnpm", "--filter", "@workspace/ai-task-center", "run", "build" ]
 publicDir = "artifacts/ai-task-center/dist/public"
 serve = "static"
-
-[[services.production.rewrites]]
-from = "/*"
-to = "/index.html"
 
 [services.env]
 PORT = "5173"
