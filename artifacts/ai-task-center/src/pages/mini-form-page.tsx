@@ -142,6 +142,15 @@ type MiniFormApiError = Error & {
   ocrValidationFailed?: boolean;
 };
 
+type SportCenterBookingResult = {
+  orderNumber: string;
+  canonicalBookingId: number;
+  publicBookingId: number;
+  canonicalStatus: string;
+  paymentStatus: string;
+  paidAt: string | null;
+};
+
 interface FieldDef {
   name: string;
   label: string;
@@ -366,13 +375,40 @@ function ErrorState({ message }: { message: string }) {
   );
 }
 
-function SuccessState({ message }: { message: string }) {
+function SuccessState({
+  message,
+  sportCenterBooking,
+}: {
+  message: string;
+  sportCenterBooking?: SportCenterBookingResult | null;
+}) {
+  const isManualReview =
+    sportCenterBooking?.canonicalStatus === "waiting_confirmation";
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-50 to-emerald-100 p-4">
       <div className="bg-white rounded-2xl shadow-lg p-8 max-w-md w-full text-center">
         <div className="text-5xl mb-4">✅</div>
         <h2 className="text-xl font-bold text-gray-800 mb-3">Berhasil!</h2>
         <p className="text-gray-600 text-sm leading-relaxed">{message}</p>
+        {sportCenterBooking && (
+          <div className="mt-4 rounded-xl border border-green-200 bg-green-50 p-3 text-left text-xs text-green-800">
+            <p>
+              <span className="font-semibold">Order:</span>{" "}
+              {sportCenterBooking.orderNumber}
+            </p>
+            <p>
+              <span className="font-semibold">Status booking:</span>{" "}
+              {isManualReview ? "Menunggu konfirmasi Admin" : "Terkonfirmasi"}
+            </p>
+            {isManualReview && (
+              <p>
+                <span className="font-semibold">Pembayaran:</span>{" "}
+                Menunggu verifikasi manual
+              </p>
+            )}
+          </div>
+        )}
         <p className="text-xs text-gray-400 mt-4">
           Anda dapat menutup halaman ini.
         </p>
@@ -604,6 +640,7 @@ export default function MiniFormPage() {
     ocrAttempt?: number;
     maxOcrAttempts?: number;
     ocrValidationFailed?: boolean;
+    sportCenterBooking?: SportCenterBookingResult | null;
   } | null>(null);
   const maxOcrAttempts = 3;
   const [uploadingFields, setUploadingFields] = useState<Set<string>>(
@@ -982,6 +1019,7 @@ export default function MiniFormPage() {
       message: string;
       isComplete: boolean;
       missingFields?: string[];
+      sportCenterBooking?: SportCenterBookingResult | null;
     }) => {
       // A previously generated session can still return missing keys from a
       // different flow (for example cancellation). Never show those keys in
@@ -1031,7 +1069,12 @@ export default function MiniFormPage() {
   if (data.status === "submitted")
     return <SuccessState message={data.message ?? "Data sudah kami terima."} />;
   if (submitResult?.isComplete)
-    return <SuccessState message={submitResult.message} />;
+    return (
+      <SuccessState
+        message={submitResult.message}
+        sportCenterBooking={submitResult.sportCenterBooking}
+      />
+    );
 
   // Preview mode banner
   const previewBanner = isPreview ? (

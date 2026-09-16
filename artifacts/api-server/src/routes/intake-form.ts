@@ -775,6 +775,14 @@ router.post(
       // WhatsApp summaries so they cannot drift apart.
       let sportCenterTotalPrice: number | null = null;
       let sportCenterOrderNumber: string | null = null;
+      let sportCenterBookingResult: {
+        orderNumber: string;
+        canonicalBookingId: number;
+        publicBookingId: number;
+        canonicalStatus: string;
+        paymentStatus: string;
+        paidAt: string | null;
+      } | null = null;
 
       if (isComplete) {
         const now = new Date();
@@ -925,7 +933,7 @@ router.post(
                 );
               }
 
-              await finalizeSportCenterBookingPayment({
+              sportCenterBookingResult = await finalizeSportCenterBookingPayment({
                 saved: savedFormBooking,
                 canonicalBookingId: bridged.canonicalBookingId,
                 publicBookingId: bridged.publicBookingId,
@@ -1692,6 +1700,7 @@ router.post(
         isComplete,
         taskNumber,
         missingFields: stillMissing,
+        sportCenterBooking: sportCenterBookingResult,
         attachmentStatus: attachmentSummary
           ? {
               total: attachmentSummary.total,

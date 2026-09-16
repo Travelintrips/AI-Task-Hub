@@ -1290,7 +1290,15 @@ export async function finalizeSportCenterBookingPayment(params: {
   paymentProofOcr?: PaymentProofOcrResult;
   manualReview?: boolean;
   notes?: string | null;
-}): Promise<{ paymentId: number }> {
+}): Promise<{
+  paymentId: number;
+  orderNumber: string;
+  canonicalBookingId: number;
+  publicBookingId: number;
+  canonicalStatus: string;
+  paymentStatus: string;
+  paidAt: string | null;
+}> {
   const pool = supabasePool;
   if (!pool) throw new Error("Database Sport Center tidak tersedia");
   if (!params.paymentProofUrl.trim()) {
@@ -1312,7 +1320,11 @@ export async function finalizeSportCenterBookingPayment(params: {
       `Bukti pembayaran gagal divalidasi OCR: ${paymentProofOcr?.failureReason ?? "hasil OCR tidak valid"}`,
     );
   }
-  const paymentStatus = isManualReview ? "waiting_verification" : "confirmed";
+  // sport_center.sport_payments.status uses the database enum
+  // sport_center.payment_status. Its pending-review value is
+  // waiting_confirmation; waiting_verification is the payment_status used by
+  // the public/local booking representations and dashboard.
+  const paymentStatus = isManualReview ? "waiting_confirmation" : "confirmed";
   const paymentTimestampSql = isManualReview ? "NULL" : "NOW()";
   const bookingStatus = isManualReview ? "waiting_confirmation" : "confirmed";
   const publicPaymentStatus = isManualReview ? "waiting_verification" : "paid";
@@ -1532,6 +1544,31 @@ export async function finalizeSportCenterBookingPayment(params: {
       );
     }
 
+    const canonicalStateResult = await client.query<{
+      status: string;
+      paid_at: Date | string | null;
+    }>(
+      `SELECT status, paid_at
+         FROM sport_center.sport_bookings
+        WHERE id = $1`,
+      [params.canonicalBookingId],
+    );
+    const canonicalState = canonicalStateResult.rows[0];
+    if (!canonicalState) {
+      throw new Error(
+        `Canonical booking ${params.canonicalBookingId} tidak ditemukan setelah finalisasi`,
+      );
+    }
+
+    const publicStateResult = await client.query<{ payment_status: string | null }>(
+      `SELECT payment_status
+         FROM public.sport_bookings
+        WHERE id = $1`,
+      [params.publicBookingId],
+    );
+    const resolvedPaymentStatus =
+      publicStateResult.rows[0]?.payment_status ?? publicPaymentStatus;
+
     await client.query("COMMIT");
     logger.info(
       {
@@ -1542,7 +1579,17 @@ export async function finalizeSportCenterBookingPayment(params: {
       },
       "Sport Center mini-form booking/payment finalized",
     );
-    return { paymentId };
+    return {
+      paymentId,
+      orderNumber: booking.order_number,
+      canonicalBookingId: params.canonicalBookingId,
+      publicBookingId: params.publicBookingId,
+      canonicalStatus: canonicalState.status,
+      paymentStatus: resolvedPaymentStatus,
+      paidAt: canonicalState.paid_at
+        ? new Date(canonicalState.paid_at).toISOString()
+        : null,
+    };
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
     logger.error({ err, bookingId: params.canonicalBookingId }, "Sport Center mini-form finalization failed");
