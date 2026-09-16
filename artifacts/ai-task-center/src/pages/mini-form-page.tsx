@@ -1391,7 +1391,7 @@ export default function MiniFormPage() {
                 <p className="font-medium whitespace-pre-line">
                   {submitResult.message}
                 </p>
-                {submitResult.contactAdmin && (
+                {submitResult.contactAdmin && !isFieldBookingForm && (
                   <div className="rounded-lg border border-orange-200 bg-white/70 p-3 space-y-2">
                     <p className="text-sm font-semibold text-orange-800">
                       Silahkan hubungi Admin untuk konfirmasi.
@@ -1452,9 +1452,7 @@ export default function MiniFormPage() {
                 type="submit"
                 disabled={
                   mutation.isPending ||
-                  uploadingFields.size > 0 ||
-                  submitResult?.contactAdmin === true ||
-                  ocrAttemptsExhausted
+                  uploadingFields.size > 0
                 }
                 className="w-full py-3 px-6 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-semibold rounded-xl transition text-sm"
               >
@@ -1468,7 +1466,8 @@ export default function MiniFormPage() {
                     <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                     Mengupload file...
                   </span>
-                ) : submitResult?.contactAdmin || ocrAttemptsExhausted ? (
+                ) : !isFieldBookingForm &&
+                  (submitResult?.contactAdmin || ocrAttemptsExhausted) ? (
                   "Menunggu konfirmasi Admin"
                 ) : (
                   "Kirim Data"

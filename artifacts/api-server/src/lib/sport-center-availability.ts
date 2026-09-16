@@ -1288,6 +1288,7 @@ export async function finalizeSportCenterBookingPayment(params: {
   paymentMethod: string;
   paymentProofUrl: string;
   paymentProofOcr?: PaymentProofOcrResult;
+  manualReview?: boolean;
   notes?: string | null;
 }): Promise<{ paymentId: number }> {
   const pool = supabasePool;
@@ -1296,18 +1297,28 @@ export async function finalizeSportCenterBookingPayment(params: {
     throw new Error("URL bukti pembayaran wajib diisi");
   }
 
+  const isManualReview = params.manualReview === true;
   const paymentProofOcr =
     params.paymentProofOcr ??
-    (await extractPaymentProofOcr({
-      fileUrl: params.paymentProofUrl.trim(),
-      expectedAmount: Number(params.saved.totalPrice),
-      expectedDate: params.saved.bookingDate,
-    }));
-  if (!paymentProofOcr.valid) {
+    (isManualReview
+      ? null
+      : await extractPaymentProofOcr({
+          fileUrl: params.paymentProofUrl.trim(),
+          expectedAmount: Number(params.saved.totalPrice),
+          expectedDate: params.saved.bookingDate,
+        }));
+  if (!isManualReview && (!paymentProofOcr || !paymentProofOcr.valid)) {
     throw new Error(
-      `Bukti pembayaran gagal divalidasi OCR: ${paymentProofOcr.failureReason ?? "hasil OCR tidak valid"}`,
+      `Bukti pembayaran gagal divalidasi OCR: ${paymentProofOcr?.failureReason ?? "hasil OCR tidak valid"}`,
     );
   }
+  const paymentStatus = isManualReview ? "waiting_verification" : "confirmed";
+  const paymentTimestampSql = isManualReview ? "NULL" : "NOW()";
+  const bookingStatus = isManualReview ? "waiting_confirmation" : "confirmed";
+  const publicPaymentStatus = isManualReview ? "waiting_verification" : "paid";
+  const legacyStatus = isManualReview ? "pending" : "confirmed";
+  const manualReviewNote =
+    "⚠️ PERLU REVIEW MANUAL — Bukti pembayaran belum berhasil diverifikasi secara otomatis.";
 
   const client = await pool.connect();
   try {
@@ -1393,7 +1404,9 @@ export async function finalizeSportCenterBookingPayment(params: {
       providerId: `mini-form:${booking.order_number}`,
       note:
         params.notes?.trim() ||
-        "Auto-confirmed dari upload bukti pembayaran mini-form",
+        (isManualReview
+          ? "Menunggu review manual dari upload bukti pembayaran mini-form"
+          : "Auto-confirmed dari upload bukti pembayaran mini-form"),
     };
 
     const existingPaymentResult = await client.query<{ id: number }>(
@@ -1414,9 +1427,9 @@ export async function finalizeSportCenterBookingPayment(params: {
             SET amount = $1,
                 proof_url = $2,
                 payment_method = $3,
-                 status = 'confirmed',
-                confirmed_at = NOW(),
-                paid_at = NOW(),
+                status = '${paymentStatus}',
+                confirmed_at = ${paymentTimestampSql},
+                paid_at = ${paymentTimestampSql},
                 company_id = $4,
                  payment_provider = 'mandiri_direct',
                  provider_name = 'mandiri_direct',
@@ -1438,13 +1451,15 @@ export async function finalizeSportCenterBookingPayment(params: {
           paymentData.companyId,
           paymentData.providerId,
           paymentData.bankAccountId,
-          paymentData.note,
+          isManualReview
+            ? `${manualReviewNote}${paymentData.note ? `\n${paymentData.note}` : ""}`
+            : paymentData.note,
           paymentId,
-          paymentProofOcr.payerName,
-          paymentProofOcr.amount,
-          paymentProofOcr.transactionDate,
-          paymentProofOcr.rawText,
-          JSON.stringify(paymentProofOcr.data),
+          paymentProofOcr?.payerName ?? null,
+          paymentProofOcr?.amount ?? null,
+          paymentProofOcr?.transactionDate ?? null,
+          paymentProofOcr?.rawText ?? null,
+          paymentProofOcr?.data ? JSON.stringify(paymentProofOcr.data) : null,
         ],
       );
     } else {
@@ -1455,7 +1470,7 @@ export async function finalizeSportCenterBookingPayment(params: {
              provider_name, provider_order_id, provider_id, bank_account_id,
              payment_type, notes, ocr_name, ocr_amount, ocr_date, ocr_raw,
              ocr_data)
-          VALUES ($1,$2,$3,$4,'confirmed',NOW(),NOW(),$5,'mandiri_direct',
+          VALUES ($1,$2,$3,$4,'${paymentStatus}',${paymentTimestampSql},${paymentTimestampSql},$5,'mandiri_direct',
                    'mandiri_direct',$6,$6,$7,'full_payment',$8,$9,$10,$11,$12,$13)
          RETURNING id`,
         [
@@ -1466,42 +1481,45 @@ export async function finalizeSportCenterBookingPayment(params: {
           paymentData.companyId,
           paymentData.providerId,
           paymentData.bankAccountId,
-          paymentData.note,
-          paymentProofOcr.payerName,
-          paymentProofOcr.amount,
-          paymentProofOcr.transactionDate,
-          paymentProofOcr.rawText,
-          JSON.stringify(paymentProofOcr.data),
+          isManualReview
+            ? `${manualReviewNote}${paymentData.note ? `\n${paymentData.note}` : ""}`
+            : paymentData.note,
+          paymentProofOcr?.payerName ?? null,
+          paymentProofOcr?.amount ?? null,
+          paymentProofOcr?.transactionDate ?? null,
+          paymentProofOcr?.rawText ?? null,
+          paymentProofOcr?.data ? JSON.stringify(paymentProofOcr.data) : null,
         ],
       );
       paymentId = insertedPayment.rows[0]!.id;
     }
 
-    // "confirmed" is the requested booking status after a valid proof upload.
-    // Keep all three Sport Center booking representations aligned.
+     // Keep all three Sport Center booking representations aligned. A manual
+     // review stores the proof but must not mark any booking/payment as paid.
     await client.query(
       `UPDATE sport_center.sport_bookings
-           SET status = 'confirmed',
+            SET status = '${bookingStatus}',
               payment_required_now = FALSE,
-              billing_status = 'paid',
-              paid_at = NOW(),
-              completed_at = COALESCE(completed_at, NOW()),
+               paid_at = ${paymentTimestampSql},
+               completed_at = ${
+                 isManualReview ? "completed_at" : "COALESCE(completed_at, NOW())"
+               },
               updated_at = NOW()
         WHERE id = $1`,
       [params.canonicalBookingId],
     );
     await client.query(
       `UPDATE public.sport_bookings
-           SET status = 'confirmed',
-              payment_status = 'paid',
+            SET status = '${legacyStatus}',
+               payment_status = '${publicPaymentStatus}',
               updated_at = NOW()
         WHERE id = $1`,
       [params.publicBookingId],
     );
     const legacyBooking = await client.query<{ id: number }>(
       `UPDATE public.sport_center_bookings
-           SET status = 'confirmed',
-              payment_status = 'paid',
+            SET status = '${legacyStatus}',
+               payment_status = '${publicPaymentStatus}',
               payment_proof_url = $1,
               updated_at = NOW()
         WHERE booking_number = $2

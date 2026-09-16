@@ -43,6 +43,7 @@ import {
   aiTasksTable,
   notificationReceiversTable,
   intentMasterTable,
+  whatsappMessagesTable,
 } from "@workspace/db";
 import { logger } from "../lib/logger";
 import { createAdminNotification } from "../lib/admin-notifications";
@@ -165,60 +166,6 @@ function resolveMiniFormCustomerName(
   }
 
   return phone;
-}
-
-const SPORT_CENTER_RECEIVER_CATEGORIES = [
-  "Sport Center",
-  "Lapangan",
-  "Olahraga",
-  "Booking Lapangan",
-];
-
-async function getSportCenterAdminWhatsapp(companyId: string): Promise<string | null> {
-  try {
-    const companyFilter =
-      companyId === "default"
-        ? sql`1=1`
-        : or(
-            eq(notificationReceiversTable.companyId, companyId),
-            eq(notificationReceiversTable.companyId, "default"),
-          );
-
-    const receivers = await db
-      .select({ phone: notificationReceiversTable.phone })
-      .from(notificationReceiversTable)
-      .where(
-        and(
-          companyFilter,
-          eq(notificationReceiversTable.isActive, true),
-          inArray(
-            notificationReceiversTable.category,
-            SPORT_CENTER_RECEIVER_CATEGORIES,
-          ),
-        ),
-      );
-
-    const phone = receivers
-      .map((receiver) => receiver.phone.trim())
-      .find((value) => value && !/@g\.us$/i.test(value));
-    if (phone) return phone;
-  } catch (err) {
-    logger.warn(
-      { err, companyId },
-      "intake-form: gagal mencari nomor WhatsApp Admin Sport Center",
-    );
-  }
-
-  const fallback = (
-    process.env.STAFF_NOTIFY_PHONES_SPORT_CENTER ??
-    process.env.STAFF_NOTIFY_PHONES ??
-    ""
-  )
-    .split(",")
-    .map((phone) => phone.trim())
-    .find((phone) => phone && !/@g\.us$/i.test(phone));
-
-  return fallback ?? null;
 }
 
 // ── GET /public/mini-form/types ───────────────────────────────────────────────
@@ -723,6 +670,7 @@ router.post(
       }
 
       let paymentProofOcr: PaymentProofOcrResult | null = null;
+      let requiresManualPaymentReview = false;
       if (isComplete && type.replace(/_/g, "-") === "field-booking") {
         const paymentProofUrl = String(merged.payment_proof ?? "").trim();
         const previousOcrAttempts = Math.max(
@@ -733,102 +681,84 @@ router.post(
           ) || 0,
         );
 
-        // Jangan izinkan browser lama atau request manual melewati batas
-        // percobaan yang sudah tercatat di session.
+        // Setelah tiga kegagalan, submit tetap boleh dilanjutkan. Bukti
+        // disimpan untuk review manual dan tidak diverifikasi ulang oleh OCR.
         if (previousOcrAttempts >= MAX_PAYMENT_PROOF_OCR_ATTEMPTS) {
-          const adminWhatsapp = await getSportCenterAdminWhatsapp(
-            session.companyId,
+          requiresManualPaymentReview = true;
+        } else {
+          const expectedAmount = calcTotalPrice(
+            String(merged.field_type ?? merged.field_name ?? ""),
+            extractDurationHours(merged),
+            Number(merged.people_count) || 1,
           );
-          res.status(422).json({
-            ok: false,
-            isComplete: false,
-            ocrAttempt: previousOcrAttempts,
-            maxOcrAttempts: MAX_PAYMENT_PROOF_OCR_ATTEMPTS,
-            ocrValidationFailed: true,
-            contactAdmin: true,
-            adminWhatsapp,
-            message:
-              `Bukti pembayaran belum dapat dikonfirmasi secara otomatis setelah ${MAX_PAYMENT_PROOF_OCR_ATTEMPTS} kali pemeriksaan.\n` +
-              "Data pada bukti pembayaran belum sesuai dengan informasi booking Anda. Silakan hubungi Admin untuk membantu melakukan pengecekan dan konfirmasi pembayaran.",
-            missingFields: [],
+          paymentProofOcr = await extractPaymentProofOcr({
+            fileUrl: paymentProofUrl,
+            expectedAmount,
+            // Bukti harus menunjukkan tanggal transfer yang sesuai dengan
+            // tanggal booking yang dipilih customer.
+            expectedDate: String(merged.booking_date ?? ""),
           });
-          return;
-        }
-
-        const expectedAmount = calcTotalPrice(
-          String(merged.field_type ?? merged.field_name ?? ""),
-          extractDurationHours(merged),
-          Number(merged.people_count) || 1,
-        );
-        paymentProofOcr = await extractPaymentProofOcr({
-          fileUrl: paymentProofUrl,
-          expectedAmount,
-          // Bukti harus menunjukkan tanggal transfer yang sesuai dengan
-          // tanggal booking yang dipilih customer.
-          expectedDate: String(merged.booking_date ?? ""),
-        });
-        if (!paymentProofOcr.valid) {
-          const isRetryableOcrFailure = !paymentProofOcr.serviceUnavailable;
-          const ocrAttempt = isRetryableOcrFailure
-            ? previousOcrAttempts + 1
-            : previousOcrAttempts;
-          const shouldContactAdmin =
-            isRetryableOcrFailure &&
-            ocrAttempt >= MAX_PAYMENT_PROOF_OCR_ATTEMPTS;
-          const adminWhatsapp = shouldContactAdmin
-            ? await getSportCenterAdminWhatsapp(session.companyId)
-            : null;
-          const failureReason = paymentProofOcr.failureReason
-            ? ` (${paymentProofOcr.failureReason})`
-            : "";
-          const ocrFailureMessage = paymentProofOcr.serviceUnavailable
-            ? "Layanan validasi bukti pembayaran sedang tidak tersedia. Silakan coba lagi setelah layanan OCR dikonfigurasi."
-            : shouldContactAdmin
-              ? `Bukti pembayaran belum dapat dikonfirmasi secara otomatis setelah ${MAX_PAYMENT_PROOF_OCR_ATTEMPTS} kali pemeriksaan.\n` +
-                "Data pada bukti pembayaran belum sesuai dengan informasi booking Anda. Silakan hubungi Admin untuk membantu melakukan pengecekan dan konfirmasi pembayaran."
+          if (!paymentProofOcr.valid) {
+            const isRetryableOcrFailure = !paymentProofOcr.serviceUnavailable;
+            const ocrAttempt = isRetryableOcrFailure
+              ? previousOcrAttempts + 1
+              : previousOcrAttempts;
+            const shouldEnterManualReview =
+              isRetryableOcrFailure &&
+              ocrAttempt >= MAX_PAYMENT_PROOF_OCR_ATTEMPTS;
+            const ocrFailureMessage = paymentProofOcr.serviceUnavailable
+              ? "Layanan validasi bukti pembayaran sedang tidak tersedia. Silakan coba lagi setelah layanan OCR dikonfigurasi."
               : "Bukti pembayaran belum dapat diverifikasi secara otomatis.\n" +
                 "Data pada bukti pembayaran belum sesuai dengan informasi booking Anda. Silakan unggah kembali bukti transfer yang lebih jelas dan pastikan nominal serta informasi transaksi terlihat lengkap.";
 
-          if (isRetryableOcrFailure) {
-            const failedSubmissionFields = {
-              ...((session.collectedFields as Record<string, unknown>) ?? {}),
-              ...body.fields,
-              ...(session.phone ? { phone: session.phone } : {}),
-              _payment_proof_ocr_attempts: ocrAttempt,
-            };
+            if (isRetryableOcrFailure) {
+              const failedSubmissionFields = {
+                ...((session.collectedFields as Record<string, unknown>) ?? {}),
+                ...body.fields,
+                ...(session.phone ? { phone: session.phone } : {}),
+                _payment_proof_ocr_attempts: ocrAttempt,
+              };
 
-            try {
-              await db
-                .update(intakeSessionsTable)
-                .set({
-                  collectedFields: failedSubmissionFields,
-                  missingFields: ["payment_proof"],
-                  updatedAt: new Date(),
-                })
-                .where(eq(intakeSessionsTable.id, session.id));
-            } catch (attemptErr) {
-              logger.warn(
-                { attemptErr, sessionId: session.id, ocrAttempt },
-                "intake-form: gagal menyimpan jumlah percobaan OCR",
-              );
+              try {
+                await db
+                  .update(intakeSessionsTable)
+                  .set({
+                    collectedFields: failedSubmissionFields,
+                    missingFields: ["payment_proof"],
+                    updatedAt: new Date(),
+                  })
+                  .where(eq(intakeSessionsTable.id, session.id));
+              } catch (attemptErr) {
+                logger.warn(
+                  { attemptErr, sessionId: session.id, ocrAttempt },
+                  "intake-form: gagal menyimpan jumlah percobaan OCR",
+                );
+              }
             }
-          }
 
-          res.status(paymentProofOcr.serviceUnavailable ? 503 : 422).json({
-            ok: false,
-            isComplete: false,
-            ocrAttempt,
-            maxOcrAttempts: MAX_PAYMENT_PROOF_OCR_ATTEMPTS,
-            ocrValidationFailed: isRetryableOcrFailure,
-            contactAdmin: shouldContactAdmin,
-            adminWhatsapp,
-            message: ocrFailureMessage,
-            // File sudah ada; yang gagal adalah validasi OCR. Jangan kirim
-            // payment_proof sebagai missing field karena UI akan menampilkan
-            // pesan yang keliru bahwa file belum diunggah.
-            missingFields: [],
-          });
-          return;
+            if (!shouldEnterManualReview) {
+              res.status(paymentProofOcr.serviceUnavailable ? 503 : 422).json({
+                ok: false,
+                isComplete: false,
+                ocrAttempt,
+                maxOcrAttempts: MAX_PAYMENT_PROOF_OCR_ATTEMPTS,
+                ocrValidationFailed: isRetryableOcrFailure,
+                contactAdmin: false,
+                adminWhatsapp: null,
+                message: ocrFailureMessage,
+                // File sudah ada; yang gagal adalah validasi OCR. Jangan kirim
+                // payment_proof sebagai missing field karena UI akan menampilkan
+                // pesan yang keliru bahwa file belum diunggah.
+                missingFields: [],
+              });
+              return;
+            }
+
+            // Percobaan ketiga tetap membuat booking, tetapi payment dan
+            // canonical booking menunggu konfirmasi manual admin.
+            requiresManualPaymentReview = true;
+            merged._payment_proof_ocr_attempts = ocrAttempt;
+          }
         }
       }
 
@@ -1002,6 +932,7 @@ router.post(
                 paymentMethod,
                 paymentProofUrl,
                 paymentProofOcr: paymentProofOcr ?? undefined,
+                manualReview: requiresManualPaymentReview,
                 notes: String(merged.notes ?? "").trim() || null,
               });
             }
@@ -1381,12 +1312,16 @@ router.post(
                     .join("\n")
                 : "";
 
-            const notifMsg =
+             const manualReviewNotice = requiresManualPaymentReview
+               ? "\n\n⚠️ PERLU REVIEW MANUAL — Bukti pembayaran belum berhasil diverifikasi secara otomatis."
+               : "";
+             const notifMsg =
               `📋 *Pesanan Baru — ${isFieldBookingForm ? "Form Pemesanan Fasilitas" : formCfg.title}*\n` +
               `No. Task: *${taskNumber}*\n` +
               `${sportCenterOrderNumber ? `Order Number: *${sportCenterOrderNumber}*\n` : ""}` +
               `\n*Detail Pesanan:*\n${fieldSummaryWa}` +
-              docTextSection;
+               docTextSection +
+               manualReviewNotice;
 
             await Promise.allSettled(
               receivers.map((r) =>
@@ -1765,10 +1700,12 @@ router.post(
               errors: attachmentSummary.errors,
             }
           : null,
-        message: isComplete
-          ? hasAttachmentFailure
-            ? `🎉 Data Anda telah kami terima (No. Task: ${taskNumber}). Namun ${attachmentSummary!.failed} dari ${attachmentSummary!.total} dokumen gagal dikirim ke WhatsApp — tim kami tetap akan memprosesnya.`
-            : "🎉 Terima kasih! Data Anda telah kami terima dan kami akan segera memproses permintaan Anda."
+         message: isComplete
+           ? requiresManualPaymentReview
+             ? `🎉 Data Anda telah kami terima (No. Task: ${taskNumber}). Bukti pembayaran akan diperiksa manual oleh Admin sebelum booking dikonfirmasi.`
+             : hasAttachmentFailure
+               ? `🎉 Data Anda telah kami terima (No. Task: ${taskNumber}). Namun ${attachmentSummary!.failed} dari ${attachmentSummary!.total} dokumen gagal dikirim ke WhatsApp — tim kami tetap akan memprosesnya.`
+               : "🎉 Terima kasih! Data Anda telah kami terima dan kami akan segera memproses permintaan Anda."
           : `Data sebagian disimpan. Masih ada ${stillMissing.length} data yang perlu dilengkapi.`,
       });
     } catch (err) {
