@@ -87,18 +87,78 @@ function normalizeDate(value: unknown): string | null {
   const dateOnly = raw.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
   if (dateOnly) {
     const [, year, month, day] = dateOnly;
-    return `${year}-${month!.padStart(2, "0")}-${day!.padStart(2, "0")}`;
+    return buildValidDate(year!, month!, day!);
   }
 
-  const dayFirst = raw.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
-  if (dayFirst) {
-    const [, day, month, year] = dayFirst;
-    return `${year}-${month!.padStart(2, "0")}-${day!.padStart(2, "0")}`;
+  const numericDate = raw.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$/);
+  if (numericDate) {
+    const [, first, second, year] = numericDate;
+    const secondNumber = Number(second);
+
+    // Receipt screenshots may use either Indonesian DD/MM/YYYY or the
+    // browser/bank-style MM/DD/YYYY format. Values above 12 disambiguate
+    // the format; ambiguous values keep the Indonesian day-first default.
+    const day = secondNumber > 12 ? second! : first!;
+    const month = secondNumber > 12 ? first! : second!;
+    return buildValidDate(year!, month, day);
   }
 
   const parsed = new Date(raw);
   if (Number.isNaN(parsed.getTime())) return null;
   return parsed.toISOString().slice(0, 10);
+}
+
+function buildValidDate(year: string, month: string, day: string): string | null {
+  const yearNumber = Number(year);
+  const monthNumber = Number(month);
+  const dayNumber = Number(day);
+  if (
+    !Number.isInteger(yearNumber) ||
+    !Number.isInteger(monthNumber) ||
+    !Number.isInteger(dayNumber) ||
+    monthNumber < 1 ||
+    monthNumber > 12 ||
+    dayNumber < 1 ||
+    dayNumber > 31
+  ) {
+    return null;
+  }
+
+  const candidate = new Date(Date.UTC(yearNumber, monthNumber - 1, dayNumber));
+  if (
+    candidate.getUTCFullYear() !== yearNumber ||
+    candidate.getUTCMonth() !== monthNumber - 1 ||
+    candidate.getUTCDate() !== dayNumber
+  ) {
+    return null;
+  }
+  return `${yearNumber.toString().padStart(4, "0")}-${monthNumber
+    .toString()
+    .padStart(2, "0")}-${dayNumber.toString().padStart(2, "0")}`;
+}
+
+function extractTransactionDateFromText(rawText: string): string | null {
+  const text = rawText.replace(/\u00a0/g, " ");
+  const dateToken = String.raw`(\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{4})`;
+  const labeledPattern = new RegExp(
+    String.raw`(?:tanggal\s+(?:transfer|transaksi)|transaction\s+date|transfer\s+date|date\s*(?:and\s*time)?|waktu\s+transaksi)\s*:?\s*` +
+      dateToken,
+    "i",
+  );
+  const labeledMatch = text.match(labeledPattern);
+  const labeledDate = labeledMatch?.[1]
+    ? normalizeDate(labeledMatch[1])
+    : null;
+  if (labeledDate) return labeledDate;
+
+  // Some mobile-banking receipts put the date on its own line without a
+  // label. Use the first valid standalone date as a conservative fallback.
+  const candidates = text.match(new RegExp(dateToken, "gi")) ?? [];
+  for (const candidate of candidates) {
+    const normalized = normalizeDate(candidate);
+    if (normalized) return normalized;
+  }
+  return null;
 }
 
 function stripMarkdownJson(value: string): string {
@@ -146,7 +206,10 @@ Rules:
 - For Indonesian currency, a dot is a thousands separator: "Rp 30.000" means 30000, never 30.
 - amount must be a numeric number only, with no currency symbols or separators.
 - amount_text must preserve the visible amount exactly as text, including "Rp" and separators when readable.
-- transaction_date must use YYYY-MM-DD when the date is readable.
+- transaction_date must be the transfer/transaction date shown on the receipt,
+  not the booking date, due date, or statement period.
+- transaction_date must use YYYY-MM-DD when the date is readable. If the
+  transfer date is not visible or unreadable, use null; never guess.
 - Do not guess unreadable values; use null.
 - confidence must be between 0 and 1.
 - raw_text must contain the important visible/extracted receipt text.
@@ -271,10 +334,12 @@ export async function extractPaymentProofOcr(params: {
       Math.max(0, Number(parsed.confidence) || 0),
     );
     const payerName = stringOrNull(parsed.payer_name);
-    const transactionDate = normalizeDate(parsed.transaction_date);
     const reference = stringOrNull(parsed.reference);
     const bankName = stringOrNull(parsed.bank_name);
     const rawText = stringOrNull(parsed.raw_text) ?? "";
+    const transactionDate =
+      normalizeDate(parsed.transaction_date) ??
+      extractTransactionDateFromText(rawText);
     const amountFromText = extractAmountFromText(rawText);
     const amountFromAmountText = normalizeAmount(parsed.amount_text);
     const amountFromModel = normalizeAmount(parsed.amount);
@@ -283,10 +348,13 @@ export async function extractPaymentProofOcr(params: {
     const amountMatches =
       amount !== null &&
       Math.abs(amount - params.expectedAmount) <= 0.01;
+    // A payment proof must contain a readable transfer date even when the
+    // booking date is intentionally not used as an exact comparison target.
+    // Customers may pay days before the booking, but an undated proof cannot
+    // be safely audited.
     const dateMatches =
-      expectedDate === null
-        ? true
-        : transactionDate === expectedDate;
+      transactionDate !== null &&
+      (expectedDate === null || transactionDate === expectedDate);
 
     const reasons: string[] = [];
     if (!isPaymentProof) reasons.push("dokumen bukan bukti pembayaran");
@@ -300,14 +368,12 @@ export async function extractPaymentProofOcr(params: {
         `nominal OCR Rp${amount.toLocaleString("id-ID")} tidak sama dengan total booking Rp${params.expectedAmount.toLocaleString("id-ID")}`,
       );
     }
-    if (expectedDate !== null) {
-      if (transactionDate === null) {
-        reasons.push("tanggal transaksi tidak terbaca");
-      } else if (!dateMatches) {
-        reasons.push(
-          `tanggal OCR ${transactionDate} tidak sama dengan tanggal booking ${expectedDate}`,
-        );
-      }
+    if (transactionDate === null) {
+      reasons.push("tanggal transfer/transaksi tidak terbaca");
+    } else if (expectedDate !== null && !dateMatches) {
+      reasons.push(
+        `tanggal OCR ${transactionDate} tidak sama dengan tanggal booking ${expectedDate}`,
+      );
     }
 
     const data: Record<string, unknown> = {

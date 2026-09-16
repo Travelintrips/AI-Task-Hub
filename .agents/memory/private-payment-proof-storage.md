@@ -20,3 +20,9 @@ The booking form can preview a newly uploaded proof from a browser-local object 
 **Why:** The production bucket is private; rendering the persisted `getPublicUrl()` directly in the browser would fail or require exposing the payment proof publicly.
 
 **How to apply:** Revoke object URLs on replacement, deletion, and component unmount. For proof viewing after page reload or from booking history, use a short-lived signed URL or authenticated proxy.
+
+Payment-proof OCR must require a readable transfer date, while allowing the transfer date to precede the booking date.
+
+**Why:** Customers may pay several days before the sports-field booking, but an undated receipt cannot be safely audited.
+
+**How to apply:** Validate the transfer date from the model result or receipt raw text; do not use the booking date as an exact match unless the business rule changes.
