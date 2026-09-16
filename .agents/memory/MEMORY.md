@@ -56,3 +56,4 @@
 - [AI Task Hub public URL](ai-task-public-url.md) — production links use the canonical AI Task Hub domain; DEV links must prefer REPLIT_DEV_DOMAIN.
 - [Multi-artifact root routing](artifact-root-routing.md) — static "/" artifact rewrites can intercept backend short-link routes; scope static paths or give API ownership.
 - [Public link environment split](public-link-environment-split.md) — DEV public links must prefer live Replit runtime domains; production links must stay on the canonical domain.
+- [Sport Center manual-review idempotency](sport-center-manual-review-idempotency.md) — OCR failure #3 is a committed waiting_confirmation flow; retries reuse task/booking and repair only missing mirrors.

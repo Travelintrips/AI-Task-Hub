@@ -908,7 +908,7 @@ router.post(
                   '[^0-9]', '', 'g'
                 ) = regexp_replace(${session.phone}, '[^0-9]', '', 'g')`,
                 gte(whatsappMessagesTable.createdAt, conversationStart),
-                lte(whatsappMessagesTable.createdAt, newTask!.createdAt),
+                lte(whatsappMessagesTable.createdAt, new Date()),
               ),
             )
             .returning({ id: whatsappMessagesTable.id });
@@ -995,6 +995,12 @@ router.post(
               });
             }
           }
+        }
+
+        if (isFieldBookingForm && !sportCenterBookingResult) {
+          throw new Error(
+            "Booking Sport Center belum memiliki state canonical setelah submit",
+          );
         }
 
         // Kirim ringkasan langsung ke customer tanpa bergantung pada konfigurasi
@@ -1753,6 +1759,9 @@ router.post(
 
       const hasAttachmentFailure =
         attachmentSummary !== null && attachmentSummary.failed > 0;
+      const canonicalNeedsManualReview =
+        sportCenterBookingResult?.canonicalStatus === "waiting_confirmation" ||
+        sportCenterBookingResult?.paymentStatus === "waiting_verification";
 
       res.json({
         ok: true,
@@ -1769,7 +1778,7 @@ router.post(
             }
           : null,
          message: isComplete
-           ? requiresManualPaymentReview
+           ? canonicalNeedsManualReview
              ? `🎉 Data Anda telah kami terima (No. Task: ${taskNumber}). Bukti pembayaran akan diperiksa manual oleh Admin sebelum booking dikonfirmasi.`
              : hasAttachmentFailure
                ? `🎉 Data Anda telah kami terima (No. Task: ${taskNumber}). Namun ${attachmentSummary!.failed} dari ${attachmentSummary!.total} dokumen gagal dikirim ke WhatsApp — tim kami tetap akan memprosesnya.`

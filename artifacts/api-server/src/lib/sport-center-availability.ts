@@ -1291,7 +1291,7 @@ export async function finalizeSportCenterBookingPayment(params: {
   manualReview?: boolean;
   notes?: string | null;
 }): Promise<{
-  paymentId: number;
+  paymentId: number | null;
   orderNumber: string;
   canonicalBookingId: number;
   publicBookingId: number;
@@ -1430,10 +1430,13 @@ export async function finalizeSportCenterBookingPayment(params: {
       );
     }
 
-    if (!paymentCompanyId || !paymentBankAccountId) {
+    if ((!paymentCompanyId || !paymentBankAccountId) && !isManualReview) {
       throw new Error(
         `Metadata payment belum lengkap untuk facility ${booking.facility_id}`,
       );
+    }
+    if (isManualReview) {
+      paymentCompanyId = paymentCompanyId ?? 1;
     }
 
     const paymentData = {
@@ -1578,9 +1581,48 @@ export async function finalizeSportCenterBookingPayment(params: {
       [paymentData.proofUrl, booking.order_number],
     );
     if (!legacyBooking.rows[0]) {
-      throw new Error(
-        `Legacy booking ${booking.order_number} tidak ditemukan saat finalisasi`,
+      // Older production records can have the canonical/public bridge without
+      // the legacy dashboard mirror. Recreate that mirror idempotently instead
+      // of rolling back the already-valid canonical booking.
+      const recreatedLegacy = await client.query<{ id: number }>(
+        `INSERT INTO public.sport_center_bookings
+           (company_id, field_type, booking_date, start_time, end_time,
+            duration_hours, customer_name, phone, status, notes,
+            payment_status, booking_number, facility_name, total_price,
+            payment_proof_url, payment_proof_token, payment_deadline,
+            customer_phone)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$8)
+         ON CONFLICT (company_id, booking_number) DO UPDATE
+           SET status = EXCLUDED.status,
+               payment_status = EXCLUDED.payment_status,
+               payment_proof_url = EXCLUDED.payment_proof_url,
+               updated_at = NOW()
+         RETURNING id`,
+        [
+          String(paymentCompanyId ?? "default"),
+          params.saved.fieldType,
+          params.saved.bookingDate,
+          params.saved.startTime,
+          params.saved.endTime ?? null,
+          params.saved.durationHours ?? 1,
+          params.saved.bookerName ?? null,
+          params.saved.phone ?? null,
+          legacyStatus,
+          params.notes?.trim() || null,
+          publicPaymentStatus,
+          booking.order_number,
+          params.saved.facilityName,
+          params.saved.totalPrice,
+          paymentData.proofUrl,
+          params.saved.paymentProofToken,
+          params.saved.paymentDeadline,
+        ],
       );
+      if (!recreatedLegacy.rows[0]) {
+        throw new Error(
+          `Legacy booking ${booking.order_number} tidak ditemukan saat finalisasi`,
+        );
+      }
     }
 
     const canonicalStateResult = await client.query<{
