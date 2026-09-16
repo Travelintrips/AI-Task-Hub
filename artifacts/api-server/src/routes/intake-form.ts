@@ -9,7 +9,7 @@
  */
 
 import { Router, type IRouter } from "express";
-import { eq, and, or, inArray, isNull, gte, lte, sql } from "drizzle-orm";
+import { eq, and, or, inArray, isNull, gte, lte, like, sql } from "drizzle-orm";
 
 // ── Kategori alias — mapping dari nama internal sistem → nama yang dipakai di Penerima Notifikasi
 // Ini memungkinkan admin menambahkan penerima dengan nama yang lebih familiar (misal "Trucking")
@@ -801,35 +801,85 @@ router.post(
           body.submittedBy,
         );
 
-        const [newTask] = await db
-          .insert(aiTasksTable)
-          .values({
-            companyId: session.companyId,
-            taskNumber,
-            title,
-            description:
-              `Task dibuat dari mini-form (${formCfg.title}).\n` +
-              `Sumber: mini_form | Intake Session: #${session.id}\n` +
-              `Diisi oleh: ${body.submittedBy ?? session.phone}\n\n` +
-              `Data terkumpul:\n${fieldSummary}`,
-            status: "new_inquiry",
-            priority:
-              type === "complaint" || type === "fleet-repair"
-                ? "high"
-                : "medium",
-            category: session.category ?? formCfg.title,
-            customerName,
-            customerPhone: session.phone,
-            customerId: session.customerId
-              ? parseInt(session.customerId, 10) || null
-              : null,
-            aiSummary: `Form ${formCfg.title} diisi via link WhatsApp`,
-            source: "mini_form",
-            missingData: JSON.stringify([]),
-          })
-          .returning();
+        // A browser retry can arrive after the booking insert has committed but
+        // before the first response reached the customer. Reuse the task that
+        // belongs to this intake session instead of creating a second task.
+        let existingTask:
+          | { id: number; taskNumber: string | null }
+          | undefined;
+        const persistedTaskId = Number(session.taskId);
+        if (Number.isInteger(persistedTaskId) && persistedTaskId > 0) {
+          existingTask = (
+            await db
+              .select({
+                id: aiTasksTable.id,
+                taskNumber: aiTasksTable.taskNumber,
+              })
+              .from(aiTasksTable)
+              .where(eq(aiTasksTable.id, persistedTaskId))
+              .limit(1)
+          )[0];
+        }
+        if (!existingTask) {
+          existingTask = (
+            await db
+              .select({
+                id: aiTasksTable.id,
+                taskNumber: aiTasksTable.taskNumber,
+              })
+              .from(aiTasksTable)
+              .where(
+                and(
+                  eq(aiTasksTable.companyId, session.companyId),
+                  eq(aiTasksTable.source, "mini_form"),
+                  like(
+                    aiTasksTable.description,
+                    `%Intake Session: #${session.id}%`,
+                  ),
+                ),
+              )
+              .limit(1)
+          )[0];
+        }
 
-        taskId = newTask!.id;
+        if (existingTask) {
+          taskId = existingTask.id;
+          taskNumber = existingTask.taskNumber ?? taskNumber;
+          logger.info(
+            { sessionId: session.id, taskId, taskNumber },
+            "intake-form: retry detected — reusing existing mini-form task",
+          );
+        } else {
+          const [newTask] = await db
+            .insert(aiTasksTable)
+            .values({
+              companyId: session.companyId,
+              taskNumber,
+              title,
+              description:
+                `Task dibuat dari mini-form (${formCfg.title}).\n` +
+                `Sumber: mini_form | Intake Session: #${session.id}\n` +
+                `Diisi oleh: ${body.submittedBy ?? session.phone}\n\n` +
+                `Data terkumpul:\n${fieldSummary}`,
+              status: "new_inquiry",
+              priority:
+                type === "complaint" || type === "fleet-repair"
+                  ? "high"
+                  : "medium",
+              category: session.category ?? formCfg.title,
+              customerName,
+              customerPhone: session.phone,
+              customerId: session.customerId
+                ? parseInt(session.customerId, 10) || null
+                : null,
+              aiSummary: `Form ${formCfg.title} diisi via link WhatsApp`,
+              source: "mini_form",
+              missingData: JSON.stringify([]),
+            })
+            .returning();
+
+          taskId = newTask!.id;
+        }
 
         // Link the customer's recent WhatsApp conversation to the task created
         // from this form. Messages arrive before the form is submitted, so
@@ -965,14 +1015,23 @@ router.post(
           );
         }
 
-        await createAdminNotification({
-          type: "new_inquiry",
-          title: `📋 Mini Form Disubmit — ${formCfg.title}`,
-          body: `${session.phone} mengisi ${formCfg.title}. Task #${taskNumber} dibuat otomatis.`,
-          customerPhone: session.phone,
-          taskId,
-          companyId: session.companyId,
-        });
+        // Booking/payment sudah committed sebelum notifikasi dibuat. A failure
+        // here must not turn a successful mini-form submission into HTTP 500.
+        try {
+          await createAdminNotification({
+            type: "new_inquiry",
+            title: `📋 Mini Form Disubmit — ${formCfg.title}`,
+            body: `${session.phone} mengisi ${formCfg.title}. Task #${taskNumber} dibuat otomatis.`,
+            customerPhone: session.phone,
+            taskId,
+            companyId: session.companyId,
+          });
+        } catch (notificationErr) {
+          logger.error(
+            { notificationErr, sessionId: session.id, taskId },
+            "intake-form: admin notification gagal setelah booking committed (non-fatal)",
+          );
+        }
 
         // ── Kirim WA ke Penerima Notifikasi yang aktif sesuai kategori ─────────
         // Ini diisi jika ada file attachment yang dicoba dikirim, digunakan di res.json

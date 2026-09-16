@@ -1401,7 +1401,36 @@ export async function finalizeSportCenterBookingPayment(params: {
       [booking.facility_id],
     );
     const metadata = metadataResult.rows[0];
-    if (!metadata?.company_id || !metadata.bank_account_id) {
+    let paymentCompanyId = metadata?.company_id ?? null;
+    let paymentBankAccountId = metadata?.bank_account_id?.trim() || null;
+
+    // A failed OCR proof is still a valid manual-review submission. Do not
+    // turn a missing facility mapping into HTTP 500 after the booking exists.
+    // Successful OCR keeps the original strict metadata requirement.
+    if (isManualReview && (!paymentCompanyId || !paymentBankAccountId)) {
+      const fallbackSettings = await client.query<{ bank_account: string | null }>(
+        `SELECT bank_account
+           FROM sport_center.sport_settings
+          WHERE NULLIF(BTRIM(bank_account), '') IS NOT NULL
+          ORDER BY id
+          LIMIT 1`,
+      );
+      paymentBankAccountId =
+        paymentBankAccountId ??
+        fallbackSettings.rows[0]?.bank_account?.trim() ??
+        null;
+      paymentCompanyId = paymentCompanyId ?? 1;
+      logger.warn(
+        {
+          facilityId: booking.facility_id,
+          paymentCompanyId,
+          hasBankAccount: Boolean(paymentBankAccountId),
+        },
+        "Sport Center manual review: memakai metadata pembayaran fallback",
+      );
+    }
+
+    if (!paymentCompanyId || !paymentBankAccountId) {
       throw new Error(
         `Metadata payment belum lengkap untuk facility ${booking.facility_id}`,
       );
@@ -1411,8 +1440,8 @@ export async function finalizeSportCenterBookingPayment(params: {
       amount: Number(booking.total_price ?? params.saved.totalPrice ?? 0),
       proofUrl: params.paymentProofUrl.trim(),
       paymentMethod: params.paymentMethod.trim(),
-      companyId: metadata.company_id,
-      bankAccountId: metadata.bank_account_id.trim(),
+      companyId: paymentCompanyId,
+      bankAccountId: paymentBankAccountId,
       providerId: `mini-form:${booking.order_number}`,
       note:
         params.notes?.trim() ||
@@ -1431,11 +1460,12 @@ export async function finalizeSportCenterBookingPayment(params: {
       [params.canonicalBookingId],
     );
 
-    let paymentId: number;
-    if (existingPaymentResult.rows[0]) {
-      paymentId = existingPaymentResult.rows[0].id;
-      await client.query(
-        `UPDATE sport_center.sport_payments
+    let paymentId: number | null = null;
+    if (paymentBankAccountId) {
+      if (existingPaymentResult.rows[0]) {
+        paymentId = existingPaymentResult.rows[0].id;
+        await client.query(
+          `UPDATE sport_center.sport_payments
             SET amount = $1,
                 proof_url = $2,
                 payment_method = $3,
@@ -1455,28 +1485,28 @@ export async function finalizeSportCenterBookingPayment(params: {
                  ocr_raw = $12,
                  ocr_data = $13,
                  updated_at = NOW()
-           WHERE id = $8`,
-        [
-          paymentData.amount,
-          paymentData.proofUrl,
-          paymentData.paymentMethod,
-          paymentData.companyId,
-          paymentData.providerId,
-          paymentData.bankAccountId,
-          isManualReview
-            ? `${manualReviewNote}${paymentData.note ? `\n${paymentData.note}` : ""}`
-            : paymentData.note,
-          paymentId,
-          paymentProofOcr?.payerName ?? null,
-          paymentProofOcr?.amount ?? null,
-          paymentProofOcr?.transactionDate ?? null,
-          paymentProofOcr?.rawText ?? null,
-          paymentProofOcr?.data ? JSON.stringify(paymentProofOcr.data) : null,
-        ],
-      );
-    } else {
-      const insertedPayment = await client.query<{ id: number }>(
-        `INSERT INTO sport_center.sport_payments
+            WHERE id = $8`,
+          [
+            paymentData.amount,
+            paymentData.proofUrl,
+            paymentData.paymentMethod,
+            paymentData.companyId,
+            paymentData.providerId,
+            paymentData.bankAccountId,
+            isManualReview
+              ? `${manualReviewNote}${paymentData.note ? `\n${paymentData.note}` : ""}`
+              : paymentData.note,
+            paymentId,
+            paymentProofOcr?.payerName ?? null,
+            paymentProofOcr?.amount ?? null,
+            paymentProofOcr?.transactionDate ?? null,
+            paymentProofOcr?.rawText ?? null,
+            paymentProofOcr?.data ? JSON.stringify(paymentProofOcr.data) : null,
+          ],
+        );
+      } else {
+        const insertedPayment = await client.query<{ id: number }>(
+          `INSERT INTO sport_center.sport_payments
             (booking_id, amount, proof_url, payment_method, status,
             confirmed_at, paid_at, company_id, payment_provider,
              provider_name, provider_order_id, provider_id, bank_account_id,
@@ -1484,26 +1514,35 @@ export async function finalizeSportCenterBookingPayment(params: {
              ocr_data)
           VALUES ($1,$2,$3,$4,'${paymentStatus}',${paymentTimestampSql},${paymentTimestampSql},$5,'mandiri_direct',
                    'mandiri_direct',$6,$6,$7,'full_payment',$8,$9,$10,$11,$12,$13)
-         RETURNING id`,
-        [
-          params.canonicalBookingId,
-          paymentData.amount,
-          paymentData.proofUrl,
-          paymentData.paymentMethod,
-          paymentData.companyId,
-          paymentData.providerId,
-          paymentData.bankAccountId,
-          isManualReview
-            ? `${manualReviewNote}${paymentData.note ? `\n${paymentData.note}` : ""}`
-            : paymentData.note,
-          paymentProofOcr?.payerName ?? null,
-          paymentProofOcr?.amount ?? null,
-          paymentProofOcr?.transactionDate ?? null,
-          paymentProofOcr?.rawText ?? null,
-          paymentProofOcr?.data ? JSON.stringify(paymentProofOcr.data) : null,
-        ],
+            RETURNING id`,
+          [
+            params.canonicalBookingId,
+            paymentData.amount,
+            paymentData.proofUrl,
+            paymentData.paymentMethod,
+            paymentData.companyId,
+            paymentData.providerId,
+            paymentData.bankAccountId,
+            isManualReview
+              ? `${manualReviewNote}${paymentData.note ? `\n${paymentData.note}` : ""}`
+              : paymentData.note,
+            paymentProofOcr?.payerName ?? null,
+            paymentProofOcr?.amount ?? null,
+            paymentProofOcr?.transactionDate ?? null,
+            paymentProofOcr?.rawText ?? null,
+            paymentProofOcr?.data ? JSON.stringify(paymentProofOcr.data) : null,
+          ],
+        );
+        paymentId = insertedPayment.rows[0]!.id;
+      }
+    } else {
+      // The status mirrors below are still authoritative for manual review.
+      // This branch is only reachable when even the fallback settings have no
+      // bank account; successful OCR never reaches it.
+      logger.error(
+        { bookingId: params.canonicalBookingId },
+        "Sport Center manual review: payment row skipped because bank account metadata is unavailable",
       );
-      paymentId = insertedPayment.rows[0]!.id;
     }
 
      // Keep all three Sport Center booking representations aligned. A manual
