@@ -797,9 +797,24 @@ export default function MiniFormPage() {
     enabled: isPreview ? !!(templateId || token) : !!(type && token),
   });
 
-  const sessionMissingBookingDate = (data?.missingFields ?? []).some(
-    (field) => field === "booking_date" || field === "tanggal_booking",
-  );
+  const isFieldBookingForm =
+    !isPreview && type?.replace(/_/g, "-") === "field-booking";
+
+  // A date from the WhatsApp intake session is not a customer selection in
+  // this public form. Clear it when the form identity changes and only let the
+  // date input's own onChange populate booking_date.
+  useEffect(() => {
+    if (!isFieldBookingForm) return;
+
+    setValues((previous) => {
+      if (!Object.prototype.hasOwnProperty.call(previous, "booking_date")) {
+        return previous;
+      }
+      const next = { ...previous };
+      delete next.booking_date;
+      return next;
+    });
+  }, [isFieldBookingForm, token]);
 
   // Hydrate the controlled form state from the WhatsApp intake session as
   // soon as the session data arrives. Sport Center sessions historically used
@@ -816,15 +831,10 @@ export default function MiniFormPage() {
       for (const [key, rawValue] of Object.entries(data.collectedFields)) {
         if (rawValue === null || rawValue === undefined || rawValue === "") continue;
         const normalizedKey =
-          !isPreview && type?.replace(/_/g, "-") === "field-booking" && key === "field_name"
+          isFieldBookingForm && key === "field_name"
             ? "field_type"
             : key;
-        if (
-          !isPreview &&
-          type?.replace(/_/g, "-") === "field-booking" &&
-          normalizedKey === "booking_date" &&
-          sessionMissingBookingDate
-        ) {
+        if (isFieldBookingForm && normalizedKey === "booking_date") {
           continue;
         }
         if (!next[normalizedKey]) {
@@ -836,8 +846,7 @@ export default function MiniFormPage() {
       // Older sessions may contain only field_name (or another legacy
       // facility alias). Promote it to the canonical dropdown key so the
       // selected facility remains visible and is submitted with the form.
-      const isFieldBooking = !isPreview && type?.replace(/_/g, "-") === "field-booking";
-      if (isFieldBooking && !next.field_type) {
+      if (isFieldBookingForm && !next.field_type) {
         const facilityAliases = [
           "field_type",
           "field_name",
@@ -861,16 +870,12 @@ export default function MiniFormPage() {
 
       return changed ? next : previous;
     });
-  }, [data, isPreview, sessionMissingBookingDate, type]);
+  }, [data, isFieldBookingForm]);
 
   const selectedFieldType =
     values.field_type ??
     String(data?.collectedFields?.field_type ?? data?.collectedFields?.field_name ?? "");
-  const selectedBookingDate =
-    values.booking_date ??
-    (sessionMissingBookingDate
-      ? ""
-      : String(data?.collectedFields?.booking_date ?? ""));
+  const selectedBookingDate = values.booking_date ?? "";
   const selectedDuration =
     normalizeSportCenterDuration(
       values.duration ?? data?.collectedFields?.duration ?? "1 jam",
@@ -880,8 +885,6 @@ export default function MiniFormPage() {
   const selectedPaymentMethod =
     values.payment_method ??
     String(data?.collectedFields?.payment_method ?? "");
-  const isFieldBookingForm =
-    !isPreview && type?.replace(/_/g, "-") === "field-booking";
   const isGymBooking = isFieldBookingForm && isGymFacility(selectedFieldType);
   const persistedOcrAttempts =
     Number(data?.collectedFields?._payment_proof_ocr_attempts) || 0;
@@ -1120,11 +1123,7 @@ export default function MiniFormPage() {
   const prefilled: Record<string, string> = {};
   const availableStartTimes = availabilityQuery.data?.availableSlots;
   for (const [k, v] of Object.entries(data.collectedFields ?? {})) {
-    if (
-      isFieldBookingForm &&
-      k === "booking_date" &&
-      sessionMissingBookingDate
-    ) {
+    if (isFieldBookingForm && k === "booking_date") {
       continue;
     }
     if (
@@ -1143,6 +1142,19 @@ export default function MiniFormPage() {
     }
   }
   const merged = { ...prefilled, ...values };
+  const adminContactMessage = [
+    "Halo Admin, saya membutuhkan bantuan konfirmasi bukti pembayaran booking Sport Center.",
+    "",
+    `Nama Pemesan: ${merged.booker_name || "-"}`,
+    `Nomor WhatsApp: ${merged.phone || "-"}`,
+    `Jenis Fasilitas: ${merged.field_type || merged.field_name || "-"}`,
+    `Tanggal Main: ${merged.booking_date || "-"}`,
+    `Durasi Sewa: ${merged.duration || "-"}`,
+    `Jam Mulai: ${merged.start_time || "-"}`,
+    `Metode Pembayaran: ${merged.payment_method || "-"}`,
+    "",
+    `Percobaan OCR: ${submitResult?.ocrAttempt ?? maxOcrAttempts}/${submitResult?.maxOcrAttempts ?? maxOcrAttempts}`,
+  ].join("\n");
 
   function handleChange(name: string, val: string) {
     setValues((p) => ({
@@ -1389,7 +1401,7 @@ export default function MiniFormPage() {
                         href={`https://wa.me/${normalizeWhatsappPhone(
                           submitResult.adminWhatsapp,
                         )}?text=${encodeURIComponent(
-                          `Halo Admin, saya membutuhkan bantuan konfirmasi bukti pembayaran booking Sport Center. Percobaan OCR: ${submitResult.ocrAttempt ?? maxOcrAttempts}/${submitResult.maxOcrAttempts ?? maxOcrAttempts}.`,
+                          adminContactMessage,
                         )}`}
                         target="_blank"
                         rel="noopener noreferrer"
