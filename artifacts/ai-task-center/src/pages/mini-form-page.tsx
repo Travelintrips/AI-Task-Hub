@@ -605,6 +605,7 @@ export default function MiniFormPage() {
     maxOcrAttempts?: number;
     ocrValidationFailed?: boolean;
   } | null>(null);
+  const maxOcrAttempts = 3;
   const [uploadingFields, setUploadingFields] = useState<Set<string>>(
     new Set(),
   );
@@ -1354,7 +1355,7 @@ export default function MiniFormPage() {
                         href={`https://wa.me/${normalizeWhatsappPhone(
                           submitResult.adminWhatsapp,
                         )}?text=${encodeURIComponent(
-                          `Halo Admin, saya membutuhkan bantuan konfirmasi bukti pembayaran booking Sport Center. Percobaan OCR: ${submitResult.ocrAttempt ?? 2}/${submitResult.maxOcrAttempts ?? 2}.`,
+                          `Halo Admin, saya membutuhkan bantuan konfirmasi bukti pembayaran booking Sport Center. Percobaan OCR: ${submitResult.ocrAttempt ?? maxOcrAttempts}/${submitResult.maxOcrAttempts ?? maxOcrAttempts}.`,
                         )}`}
                         target="_blank"
                         rel="noopener noreferrer"
@@ -1403,7 +1404,13 @@ export default function MiniFormPage() {
             <div className="bg-white rounded-2xl shadow-sm p-4">
               <button
                 type="submit"
-                disabled={mutation.isPending || uploadingFields.size > 0}
+                disabled={
+                  mutation.isPending ||
+                  uploadingFields.size > 0 ||
+                  submitResult?.contactAdmin === true ||
+                  (Number(data.collectedFields?._payment_proof_ocr_attempts) || 0) >=
+                    maxOcrAttempts
+                }
                 className="w-full py-3 px-6 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-semibold rounded-xl transition text-sm"
               >
                 {mutation.isPending ? (
@@ -1416,6 +1423,10 @@ export default function MiniFormPage() {
                     <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                     Mengupload file...
                   </span>
+                ) : submitResult?.contactAdmin ||
+                  (Number(data.collectedFields?._payment_proof_ocr_attempts) || 0) >=
+                    maxOcrAttempts ? (
+                  "Menunggu konfirmasi Admin"
                 ) : (
                   "Kirim Data"
                 )}

@@ -731,9 +731,9 @@ router.post(
         paymentProofOcr = await extractPaymentProofOcr({
           fileUrl: paymentProofUrl,
           expectedAmount,
-          // Tanggal pembayaran tidak harus sama dengan tanggal main.
-          // Customer dapat membayar beberapa hari sebelum jadwal booking.
-          expectedDate: undefined,
+          // Bukti harus menunjukkan tanggal transfer yang sesuai dengan
+          // tanggal booking yang dipilih customer.
+          expectedDate: String(merged.booking_date ?? ""),
         });
         if (!paymentProofOcr.valid) {
           const isRetryableOcrFailure = !paymentProofOcr.serviceUnavailable;
@@ -747,7 +747,9 @@ router.post(
           const ocrAttempt = isRetryableOcrFailure
             ? previousOcrAttempts + 1
             : previousOcrAttempts;
-          const shouldContactAdmin = isRetryableOcrFailure && ocrAttempt >= 2;
+          const maxOcrAttempts = 3;
+          const shouldContactAdmin =
+            isRetryableOcrFailure && ocrAttempt >= maxOcrAttempts;
           const adminWhatsapp = shouldContactAdmin
             ? await getSportCenterAdminWhatsapp(session.companyId)
             : null;
@@ -757,7 +759,7 @@ router.post(
           const ocrFailureMessage = paymentProofOcr.serviceUnavailable
             ? "Layanan validasi bukti pembayaran sedang tidak tersedia. Silakan coba lagi setelah layanan OCR dikonfigurasi."
             : shouldContactAdmin
-              ? `Bukti pembayaran belum dapat dikonfirmasi setelah 2 percobaan${failureReason}. Silahkan hubungi Admin untuk konfirmasi.`
+              ? `Bukti pembayaran belum dapat dikonfirmasi setelah ${maxOcrAttempts} percobaan${failureReason}. Silahkan hubungi Admin untuk konfirmasi.`
               : `Bukti pembayaran tidak lolos validasi OCR${failureReason}. Silakan unggah bukti transfer yang lebih jelas.`;
 
           if (isRetryableOcrFailure) {
@@ -789,7 +791,7 @@ router.post(
             ok: false,
             isComplete: false,
             ocrAttempt,
-            maxOcrAttempts: 2,
+            maxOcrAttempts,
             ocrValidationFailed: isRetryableOcrFailure,
             contactAdmin: shouldContactAdmin,
             adminWhatsapp,
