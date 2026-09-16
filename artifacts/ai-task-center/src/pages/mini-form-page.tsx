@@ -868,6 +868,16 @@ export default function MiniFormPage() {
   const isFieldBookingForm =
     !isPreview && type?.replace(/_/g, "-") === "field-booking";
   const isGymBooking = isFieldBookingForm && isGymFacility(selectedFieldType);
+  const persistedOcrAttempts =
+    Number(data?.collectedFields?._payment_proof_ocr_attempts) || 0;
+  const latestOcrAttempt = Math.max(
+    persistedOcrAttempts,
+    submitResult?.ocrAttempt ?? 0,
+  );
+  const effectiveMaxOcrAttempts =
+    submitResult?.maxOcrAttempts ?? maxOcrAttempts;
+  const ocrAttemptsExhausted =
+    isFieldBookingForm && latestOcrAttempt >= effectiveMaxOcrAttempts;
 
   const availabilityQuery = useQuery<{
     checkedDate: string;
@@ -1408,8 +1418,7 @@ export default function MiniFormPage() {
                   mutation.isPending ||
                   uploadingFields.size > 0 ||
                   submitResult?.contactAdmin === true ||
-                  (Number(data.collectedFields?._payment_proof_ocr_attempts) || 0) >=
-                    maxOcrAttempts
+                  ocrAttemptsExhausted
                 }
                 className="w-full py-3 px-6 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-semibold rounded-xl transition text-sm"
               >
@@ -1423,9 +1432,7 @@ export default function MiniFormPage() {
                     <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                     Mengupload file...
                   </span>
-                ) : submitResult?.contactAdmin ||
-                  (Number(data.collectedFields?._payment_proof_ocr_attempts) || 0) >=
-                    maxOcrAttempts ? (
+                ) : submitResult?.contactAdmin || ocrAttemptsExhausted ? (
                   "Menunggu konfirmasi Admin"
                 ) : (
                   "Kirim Data"

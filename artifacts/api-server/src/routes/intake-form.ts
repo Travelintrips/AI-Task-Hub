@@ -73,6 +73,8 @@ import {
 import { createPaymentProofShortLink } from "../lib/payment-proof-links";
 import { validateDocument } from "../lib/document-validation-engine";
 
+const MAX_PAYMENT_PROOF_OCR_ATTEMPTS = 3;
+
 function filterMissingFieldsForForm(
   missingFields: unknown,
   visibleFieldNames?: Set<string>,
@@ -723,6 +725,34 @@ router.post(
       let paymentProofOcr: PaymentProofOcrResult | null = null;
       if (isComplete && type.replace(/_/g, "-") === "field-booking") {
         const paymentProofUrl = String(merged.payment_proof ?? "").trim();
+        const previousOcrAttempts = Math.max(
+          0,
+          Number(
+            ((session.collectedFields as Record<string, unknown>) ?? {})
+              ._payment_proof_ocr_attempts,
+          ) || 0,
+        );
+
+        // Jangan izinkan browser lama atau request manual melewati batas
+        // percobaan yang sudah tercatat di session.
+        if (previousOcrAttempts >= MAX_PAYMENT_PROOF_OCR_ATTEMPTS) {
+          const adminWhatsapp = await getSportCenterAdminWhatsapp(
+            session.companyId,
+          );
+          res.status(422).json({
+            ok: false,
+            isComplete: false,
+            ocrAttempt: previousOcrAttempts,
+            maxOcrAttempts: MAX_PAYMENT_PROOF_OCR_ATTEMPTS,
+            ocrValidationFailed: true,
+            contactAdmin: true,
+            adminWhatsapp,
+            message: `Bukti pembayaran belum dapat dikonfirmasi setelah ${MAX_PAYMENT_PROOF_OCR_ATTEMPTS} percobaan. Silahkan hubungi Admin untuk konfirmasi.`,
+            missingFields: [],
+          });
+          return;
+        }
+
         const expectedAmount = calcTotalPrice(
           String(merged.field_type ?? merged.field_name ?? ""),
           extractDurationHours(merged),
@@ -737,19 +767,12 @@ router.post(
         });
         if (!paymentProofOcr.valid) {
           const isRetryableOcrFailure = !paymentProofOcr.serviceUnavailable;
-          const previousOcrAttempts = Math.max(
-            0,
-            Number(
-              ((session.collectedFields as Record<string, unknown>) ?? {})
-                ._payment_proof_ocr_attempts,
-            ) || 0,
-          );
           const ocrAttempt = isRetryableOcrFailure
             ? previousOcrAttempts + 1
             : previousOcrAttempts;
-          const maxOcrAttempts = 3;
           const shouldContactAdmin =
-            isRetryableOcrFailure && ocrAttempt >= maxOcrAttempts;
+            isRetryableOcrFailure &&
+            ocrAttempt >= MAX_PAYMENT_PROOF_OCR_ATTEMPTS;
           const adminWhatsapp = shouldContactAdmin
             ? await getSportCenterAdminWhatsapp(session.companyId)
             : null;
@@ -759,7 +782,7 @@ router.post(
           const ocrFailureMessage = paymentProofOcr.serviceUnavailable
             ? "Layanan validasi bukti pembayaran sedang tidak tersedia. Silakan coba lagi setelah layanan OCR dikonfigurasi."
             : shouldContactAdmin
-              ? `Bukti pembayaran belum dapat dikonfirmasi setelah ${maxOcrAttempts} percobaan${failureReason}. Silahkan hubungi Admin untuk konfirmasi.`
+              ? `Bukti pembayaran belum dapat dikonfirmasi setelah ${MAX_PAYMENT_PROOF_OCR_ATTEMPTS} percobaan${failureReason}. Silahkan hubungi Admin untuk konfirmasi.`
               : `Bukti pembayaran tidak lolos validasi OCR${failureReason}. Silakan unggah bukti transfer yang lebih jelas.`;
 
           if (isRetryableOcrFailure) {
@@ -791,7 +814,7 @@ router.post(
             ok: false,
             isComplete: false,
             ocrAttempt,
-            maxOcrAttempts,
+            maxOcrAttempts: MAX_PAYMENT_PROOF_OCR_ATTEMPTS,
             ocrValidationFailed: isRetryableOcrFailure,
             contactAdmin: shouldContactAdmin,
             adminWhatsapp,
