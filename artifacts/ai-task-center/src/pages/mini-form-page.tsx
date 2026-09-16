@@ -797,6 +797,10 @@ export default function MiniFormPage() {
     enabled: isPreview ? !!(templateId || token) : !!(type && token),
   });
 
+  const sessionMissingBookingDate = (data?.missingFields ?? []).some(
+    (field) => field === "booking_date" || field === "tanggal_booking",
+  );
+
   // Hydrate the controlled form state from the WhatsApp intake session as
   // soon as the session data arrives. Sport Center sessions historically used
   // both field_name and field_type for "Jenis Lapangan"; normalize that alias
@@ -815,6 +819,14 @@ export default function MiniFormPage() {
           !isPreview && type?.replace(/_/g, "-") === "field-booking" && key === "field_name"
             ? "field_type"
             : key;
+        if (
+          !isPreview &&
+          type?.replace(/_/g, "-") === "field-booking" &&
+          normalizedKey === "booking_date" &&
+          sessionMissingBookingDate
+        ) {
+          continue;
+        }
         if (!next[normalizedKey]) {
           next[normalizedKey] = String(rawValue);
           changed = true;
@@ -849,13 +861,16 @@ export default function MiniFormPage() {
 
       return changed ? next : previous;
     });
-  }, [data, isPreview, type]);
+  }, [data, isPreview, sessionMissingBookingDate, type]);
 
   const selectedFieldType =
     values.field_type ??
     String(data?.collectedFields?.field_type ?? data?.collectedFields?.field_name ?? "");
   const selectedBookingDate =
-    values.booking_date ?? String(data?.collectedFields?.booking_date ?? "");
+    values.booking_date ??
+    (sessionMissingBookingDate
+      ? ""
+      : String(data?.collectedFields?.booking_date ?? ""));
   const selectedDuration =
     normalizeSportCenterDuration(
       values.duration ?? data?.collectedFields?.duration ?? "1 jam",
@@ -1105,6 +1120,13 @@ export default function MiniFormPage() {
   const prefilled: Record<string, string> = {};
   const availableStartTimes = availabilityQuery.data?.availableSlots;
   for (const [k, v] of Object.entries(data.collectedFields ?? {})) {
+    if (
+      isFieldBookingForm &&
+      k === "booking_date" &&
+      sessionMissingBookingDate
+    ) {
+      continue;
+    }
     if (
       isFieldBookingForm &&
       k === "start_time" &&
