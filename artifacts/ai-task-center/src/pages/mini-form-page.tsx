@@ -1354,7 +1354,9 @@ export default function MiniFormPage() {
             {/* Error banner — tampilkan field mana yang masih kosong */}
             {submitResult && !submitResult.isComplete && (
               <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 text-sm text-orange-700 space-y-2">
-                <p className="font-medium">{submitResult.message}</p>
+                <p className="font-medium whitespace-pre-line">
+                  {submitResult.message}
+                </p>
                 {submitResult.contactAdmin && (
                   <div className="rounded-lg border border-orange-200 bg-white/70 p-3 space-y-2">
                     <p className="text-sm font-semibold text-orange-800">

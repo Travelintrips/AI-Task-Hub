@@ -747,7 +747,9 @@ router.post(
             ocrValidationFailed: true,
             contactAdmin: true,
             adminWhatsapp,
-            message: `Bukti pembayaran belum dapat dikonfirmasi setelah ${MAX_PAYMENT_PROOF_OCR_ATTEMPTS} percobaan. Silahkan hubungi Admin untuk konfirmasi.`,
+            message:
+              `Bukti pembayaran belum dapat dikonfirmasi secara otomatis setelah ${MAX_PAYMENT_PROOF_OCR_ATTEMPTS} kali pemeriksaan.\n` +
+              "Data pada bukti pembayaran belum sesuai dengan informasi booking Anda. Silakan hubungi Admin untuk membantu melakukan pengecekan dan konfirmasi pembayaran.",
             missingFields: [],
           });
           return;
@@ -782,8 +784,10 @@ router.post(
           const ocrFailureMessage = paymentProofOcr.serviceUnavailable
             ? "Layanan validasi bukti pembayaran sedang tidak tersedia. Silakan coba lagi setelah layanan OCR dikonfigurasi."
             : shouldContactAdmin
-              ? `Bukti pembayaran belum dapat dikonfirmasi setelah ${MAX_PAYMENT_PROOF_OCR_ATTEMPTS} percobaan${failureReason}. Silahkan hubungi Admin untuk konfirmasi.`
-              : `Bukti pembayaran tidak lolos validasi OCR${failureReason}. Silakan unggah bukti transfer yang lebih jelas.`;
+              ? `Bukti pembayaran belum dapat dikonfirmasi secara otomatis setelah ${MAX_PAYMENT_PROOF_OCR_ATTEMPTS} kali pemeriksaan.\n` +
+                "Data pada bukti pembayaran belum sesuai dengan informasi booking Anda. Silakan hubungi Admin untuk membantu melakukan pengecekan dan konfirmasi pembayaran."
+              : "Bukti pembayaran belum dapat diverifikasi secara otomatis.\n" +
+                "Data pada bukti pembayaran belum sesuai dengan informasi booking Anda. Silakan unggah kembali bukti transfer yang lebih jelas dan pastikan nominal serta informasi transaksi terlihat lengkap.";
 
           if (isRetryableOcrFailure) {
             const failedSubmissionFields = {
