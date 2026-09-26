@@ -6,7 +6,7 @@ function normalizeBaseUrl(value: string): string {
   return value.trim().replace(/\/+$/, "");
 }
 
-const PRODUCTION_PUBLIC_BASE_URL = "https://ai-task.travelintrips.co.id";
+const PRODUCTION_PUBLIC_BASE_URL = "https://ai-task-hub.travelintrips.co.id";
 
 /**
  * Resolve the canonical origin for every public link sent by AI Task Hub.
