@@ -867,15 +867,16 @@ export async function processIncomingMessage({
 
     // 3. Save attachment reference if present
     if (attachment?.url && savedMsg.id) {
+      const attachmentUrl = attachment.url;
       try {
         await db.insert(taskAttachmentsTable).values({
           taskId: 0,
           fileName: attachment.filename ?? `attachment_${Date.now()}`,
-          fileUrl: attachment.url,
+          fileUrl: attachmentUrl,
           fileType: attachment.mimeType ?? messageType,
           documentType: resolveDocumentType(attachment.mimeType, attachment.filename),
         });
-        logger.info({ msgId: savedMsg.id, fileUrl: attachment.url }, "Attachment reference saved");
+        logger.info({ msgId: savedMsg.id, fileUrl: attachmentUrl }, "Attachment reference saved");
       } catch (attachErr) {
         logger.error({ attachErr, msgId: savedMsg.id }, "Failed to save attachment reference");
       }
@@ -897,7 +898,7 @@ export async function processIncomingMessage({
             companyId,
             documentType: docType,
             fileName,
-            fileUrl: attachment.url,
+            fileUrl: attachmentUrl,
           });
 
           logger.info(
