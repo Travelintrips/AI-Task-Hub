@@ -3,9 +3,10 @@ import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
 import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
+import { cartographer } from "@replit/vite-plugin-cartographer";
 import { mockupPreviewPlugin } from "./mockupPreviewPlugin";
 
-export default defineConfig(async ({ command }) => {
+export default defineConfig(({ command }) => {
   // Vite evaluates this config during both build and runtime startup.
   // Hostinger's build environment does not provide runtime-only PORT/BASE_PATH.
   const isBuild = command === "build";
@@ -27,14 +28,11 @@ export default defineConfig(async ({ command }) => {
       react(),
       tailwindcss(),
       runtimeErrorOverlay(),
-      ...(process.env.NODE_ENV !== "production" &&
-      process.env.REPL_ID !== undefined
+      ...(process.env.NODE_ENV !== "production" && process.env.REPL_ID !== undefined
         ? [
-            await import("@replit/vite-plugin-cartographer").then((m) =>
-              m.cartographer({
-                root: path.resolve(import.meta.dirname, ".."),
-              }),
-            ),
+            cartographer({
+              root: path.resolve(import.meta.dirname, ".."),
+            }),
           ]
         : []),
     ],
