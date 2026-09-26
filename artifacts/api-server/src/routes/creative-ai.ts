@@ -19,7 +19,7 @@ const router = Router();
 
 // ─── GET /api/creative-ai/jobs ─────────────────────────────────────────────
 
-router.get("/creative-ai/jobs", requireRole(["staff", "company_admin", "super_admin", "owner"]), async (req, res) => {
+router.get("/creative-ai/jobs", requireRole("staff", "company_admin", "super_admin", "owner"), async (req, res) => {
   try {
     // Ambil semua ai_tasks dengan category "Creative AI" + service request terkait
     const tasks = await db
@@ -129,7 +129,7 @@ router.get("/creative-ai/jobs/:taskId", async (req, res) => {
 
 router.post(
   "/creative-ai/retry/:taskId",
-  requireRole(["company_admin", "super_admin", "owner"]),
+  requireRole("company_admin", "super_admin", "owner"),
   async (req, res) => {
     const taskId = Number(req.params.taskId as string);
     if (isNaN(taskId)) return res.status(400).json({ error: "taskId tidak valid" });
@@ -174,7 +174,7 @@ router.post(
 
 router.get(
   "/creative-ai/status",
-  requireRole(["company_admin", "super_admin", "owner"]),
+  requireRole("company_admin", "super_admin", "owner"),
   (_req, res) => {
     const hasKey = Boolean(process.env.TOGETHER_AI_API_KEY);
     return res.json({
