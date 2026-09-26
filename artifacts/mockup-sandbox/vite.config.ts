@@ -5,29 +5,22 @@ import path from "path";
 import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 import { mockupPreviewPlugin } from "./mockupPreviewPlugin";
 
-const rawPort = process.env.PORT;
+export default defineConfig(({ command }) => {
+  // Vite evaluates this config during both build and runtime startup.
+  // Hostinger's build environment does not provide runtime-only PORT/BASE_PATH.
+  const isBuild = command === "build";
+  const rawPort = process.env.PORT;
+  const port = rawPort ? Number(rawPort) : 5173;
 
-if (!rawPort) {
-  throw new Error(
-    "PORT environment variable is required but was not provided.",
-  );
-}
+  if (!isBuild && (!rawPort || Number.isNaN(port) || port <= 0)) {
+    throw new Error(
+      `PORT environment variable must be a positive number; received "${rawPort ?? ""}".`,
+    );
+  }
 
-const port = Number(rawPort);
+  const basePath = process.env.BASE_PATH || "/";
 
-if (Number.isNaN(port) || port <= 0) {
-  throw new Error(`Invalid PORT value: "${rawPort}"`);
-}
-
-const basePath = process.env.BASE_PATH;
-
-if (!basePath) {
-  throw new Error(
-    "BASE_PATH environment variable is required but was not provided.",
-  );
-}
-
-export default defineConfig({
+  return {
   base: basePath,
   plugins: [
     mockupPreviewPlugin(),
