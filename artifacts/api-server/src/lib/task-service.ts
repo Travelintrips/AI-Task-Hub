@@ -661,6 +661,16 @@ async function createNewTask({
     logger.warn({ detailErr, category: result.category }, "Failed to save task detail fields — run scripts/migrate-detail-tables.mjs");
   }
 
+  // ── Creative AI — layanan kreatif diarahkan ke Sales AI ─────────────────────
+  // category pada WhatsAppIntentResult tidak memuat Creative AI; gunakan resolution
+  // string sebagai sumber category agar tetap dapat dicatat tanpa melanggar union type.
+  if (result._resolution?.category === "Creative AI") {
+    logger.info(
+      { taskId: task.id, taskNumber, category: result._resolution.category },
+      "creative-ai: task recorded; customer already redirected to Sales AI via WA gate — skipping triggerCreativeAiJob",
+    );
+  }
+
   // ── WhatsApp notification (fire-and-forget) ──────────────────────────────────
   notifyTaskCreated({
     taskId:       task.id,
