@@ -634,7 +634,7 @@ async function createNewTask({
           ${JSON.stringify(cf)}::jsonb
         ) ON CONFLICT DO NOTHING
       `);
-    } else if (cat === "Sport Center") {
+    } else if (result.division === "Sport Center" || result._resolution?.category === "Sport Center") {
       const durationHours = cf.duration_hours ? Number(cf.duration_hours) : null;
       await db.execute(sql`
         INSERT INTO sport_center_task_details
@@ -659,15 +659,6 @@ async function createNewTask({
   } catch (detailErr) {
     // Non-fatal — detail tables might not exist yet (run migrate-detail-tables.mjs)
     logger.warn({ detailErr, category: result.category }, "Failed to save task detail fields — run scripts/migrate-detail-tables.mjs");
-  }
-
-  // ── Creative AI — layanan kreatif diarahkan ke Sales AI, tidak diproses di sini ──
-  // AI Task Center hanya menyambungkan ke Sales AI; logo/desain tidak dibuat di sini.
-  if ((result.category ?? "").toLowerCase() === "creative ai" || (result.category ?? "") === "Creative AI") {
-    logger.info(
-      { taskId: task.id, taskNumber, category: result.category },
-      "creative-ai: task recorded; customer already redirected to Sales AI via WA gate — skipping triggerCreativeAiJob",
-    );
   }
 
   // ── WhatsApp notification (fire-and-forget) ──────────────────────────────────
