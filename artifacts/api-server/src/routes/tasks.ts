@@ -44,6 +44,7 @@ router.get("/tasks", requireAuth, async (req: Request, res: Response): Promise<v
     res.json(
       rows.map((r) => ({
         ...r,
+        status: normalizeAiTaskStatus(r.status) ?? r.status,
         assigneeName: r.assignedTo ?? null,
       })),
     );
@@ -68,7 +69,11 @@ router.get("/tasks/:id", requireAuth, async (req: Request, res: Response): Promi
       .limit(1);
     if (!task) { res.status(404).json({ error: "Task not found" }); return; }
 
-    res.json({ ...task, assigneeName: task.assignedTo ?? null });
+    res.json({
+      ...task,
+      status: normalizeAiTaskStatus(task.status) ?? task.status,
+      assigneeName: task.assignedTo ?? null,
+    });
   } catch (err) {
     logger.error({ err }, "GET /tasks/:id failed");
     res.status(500).json({ error: "Failed to load task" });
