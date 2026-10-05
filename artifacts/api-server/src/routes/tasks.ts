@@ -8,6 +8,30 @@ import { emitSseEvent } from "../lib/sse";
 
 const router: IRouter = Router();
 
+type LegacyTaskStatus = "pending" | "in_progress" | "completed" | "cancelled";
+const LEGACY_TASK_STATUSES: LegacyTaskStatus[] = ["pending", "in_progress", "completed", "cancelled"];
+
+function toLegacyTaskStatus(status: string): LegacyTaskStatus {
+  const canonical = normalizeAiTaskStatus(status);
+  if (canonical === "completed") return "completed";
+  if (canonical === "cancelled") return "cancelled";
+  if (canonical && [
+    "assigned", "in_progress", "waiting_customer", "waiting_vendor",
+    "quotation_ready", "approved_by_customer",
+  ].includes(canonical)) return "in_progress";
+  return "pending";
+}
+
+function taskMatchesStatus(status: string, requested: string): boolean {
+  const normalizedRequest = requested.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (LEGACY_TASK_STATUSES.includes(normalizedRequest as LegacyTaskStatus)) {
+    return toLegacyTaskStatus(status) === normalizedRequest;
+  }
+  const canonicalRequest = normalizeAiTaskStatus(requested);
+  return canonicalRequest !== null && normalizeAiTaskStatus(status) === canonicalRequest;
+}
+
+
 // ─── GET /tasks ────────────────────────────────────────────────────────────────
 
 router.get("/tasks", requireAuth, async (req: Request, res: Response): Promise<void> => {
@@ -23,12 +47,14 @@ router.get("/tasks", requireAuth, async (req: Request, res: Response): Promise<v
       .limit(300);
 
     if (status) {
-      const normalizedStatus = normalizeAiTaskStatus(status);
-      if (!normalizedStatus) {
+      const normalizedStatus = status.trim().toLowerCase().replace(/[\s-]+/g, "_");
+      const isLegacyStatus = LEGACY_TASK_STATUSES.includes(normalizedStatus as LegacyTaskStatus);
+      const canonicalStatus = normalizeAiTaskStatus(status);
+      if (!isLegacyStatus && !canonicalStatus) {
         res.status(400).json({ error: `Status tidak valid: ${status}` });
         return;
       }
-      rows = rows.filter((t) => normalizeAiTaskStatus(t.status) === normalizedStatus);
+      rows = rows.filter((t) => taskMatchesStatus(t.status, status));
     }
     if (priority) rows = rows.filter((t) => t.priority === priority);
     if (search) {
@@ -44,7 +70,7 @@ router.get("/tasks", requireAuth, async (req: Request, res: Response): Promise<v
     res.json(
       rows.map((r) => ({
         ...r,
-        status: normalizeAiTaskStatus(r.status) ?? r.status,
+        status: toLegacyTaskStatus(r.status),
         assigneeName: r.assignedTo ?? null,
       })),
     );
@@ -71,7 +97,7 @@ router.get("/tasks/:id", requireAuth, async (req: Request, res: Response): Promi
 
     res.json({
       ...task,
-      status: normalizeAiTaskStatus(task.status) ?? task.status,
+      status: toLegacyTaskStatus(task.status),
       assigneeName: task.assignedTo ?? null,
     });
   } catch (err) {
@@ -157,7 +183,11 @@ router.post("/tasks", requireAuth, async (req: Request, res: Response): Promise<
       companyId,
     }).catch((err) => logger.error({ err }, "notifyTaskCreated gagal"));
 
-    res.status(201).json(task);
+    res.status(201).json({
+      ...task,
+      status: toLegacyTaskStatus(task.status),
+      assigneeName: task.assignedTo ?? null,
+    });
   } catch (err) {
     logger.error({ err }, "POST /tasks failed");
     res.status(500).json({ error: "Failed to create task" });
@@ -277,7 +307,11 @@ router.patch("/tasks/:id", requireAuth, async (req: Request, res: Response): Pro
     }
 
     emitSseEvent("task_updated", { taskId: id }, companyId);
-    res.json(updated);
+    res.json({
+      ...updated,
+      status: toLegacyTaskStatus(updated.status),
+      assigneeName: updated.assignedTo ?? null,
+    });
   } catch (err) {
     logger.error({ err }, "PATCH /tasks/:id failed");
     res.status(500).json({ error: "Failed to update task" });
@@ -357,7 +391,11 @@ router.patch("/tasks/:id/assign", requireAuth, async (req: Request, res: Respons
     ).catch((err) => logger.error({ err }, "Notifikasi assign gagal"));
 
     emitSseEvent("task_updated", { taskId: id }, companyId);
-    res.json({ ...updated, assigneeName: member?.name ?? null });
+    res.json({
+      ...updated,
+      status: toLegacyTaskStatus(updated.status),
+      assigneeName: member?.name ?? null,
+    });
   } catch (err) {
     logger.error({ err }, "PATCH /tasks/:id/assign failed");
     res.status(500).json({ error: "Failed to assign task" });
