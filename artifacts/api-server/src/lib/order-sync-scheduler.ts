@@ -66,7 +66,7 @@ function mapStatus(orderStatus: string | null): string {
 }
 
 // ─── Pemetaan balik: status ai_task → status logistic_orders ─────────────────────
-function mapReplitStatusToOrder(replitStatus: string): string | null {
+function mapAiTaskStatusToOrder(replitStatus: string): string | null {
   switch (replitStatus) {
     case "new_inquiry":
       return "Order Received";
@@ -93,7 +93,7 @@ function mapReplitStatusToOrder(replitStatus: string): string | null {
   }
 }
 
-// ─── Push perubahan status dari Replit → Supabase logistic_orders ─────────────────
+// ─── Push perubahan status dari AI Task Hub → Supabase logistic_orders ─────────────────
 // Dipanggil dari route PATCH /ai-tasks/:id setelah status berhasil diubah.
 // task_number harus sama dengan order_number di logistic_orders (dedup key).
 // Juga mencatat ke ai_task_sync_log di Supabase.
@@ -104,14 +104,14 @@ export async function pushStatusToSupabase(
 ): Promise<void> {
   if (!SUPA_BASE || !SUPA_KEY) return;
 
-  const orderStatus = mapReplitStatusToOrder(newStatus);
+  const orderStatus = mapAiTaskStatusToOrder(newStatus);
   if (!orderStatus) {
     logger.warn({ taskNumber, newStatus }, "pushStatusToSupabase: status tidak dipetakan, dilewati");
     return;
   }
 
   // Hindari infinite loop: jangan push kalau status order sudah sama
-  // (bisa terjadi saat Supabase → Replit sync baru saja berjalan)
+  // (bisa terjadi saat Supabase → AI Task Hub sync baru saja berjalan)
   try {
     const checkUrl = `${SUPA_BASE}/logistic_orders?order_number=eq.${encodeURIComponent(taskNumber)}&select=status&limit=1`;
     const checkRes = await fetch(checkUrl, { headers: supaHeaders });
@@ -151,10 +151,10 @@ export async function pushStatusToSupabase(
       headers: { ...supaHeaders, Prefer: "return=minimal" },
       body: JSON.stringify({
         order_number: taskNumber,
-        old_status: mapReplitStatusToOrder(oldStatus) ?? oldStatus,
+        old_status: mapAiTaskStatusToOrder(oldStatus) ?? oldStatus,
         new_status: orderStatus,
-        source: "replit",
-        notes: `Replit status: ${oldStatus} → ${newStatus}`,
+        source: "ai_task_hub",
+        notes: `AI Task status: ${oldStatus} → ${newStatus}`,
       }),
     });
   } catch (err) {
