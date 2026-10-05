@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { eq, and, desc, gte, lte, count, sql } from "drizzle-orm";
-import { db, aiTasksTable, customersTable, usersTable, followUpLogsTable, quotationsTable } from "@workspace/db";
+import { db, aiTasksTable, customersTable, usersTable, followUpLogsTable, quotationsTable, normalizeAiTaskStatus } from "@workspace/db";
 import { requireAuth, getCompanyId } from "../middleware/auth";
 import { logger } from "../lib/logger";
 
@@ -42,12 +42,17 @@ router.get("/reports/overview", requireAuth, async (req: Request, res: Response)
     const tasks = await db.select().from(aiTasksTable).where(taskConditions(companyId, fromDate, toDate));
 
     const totalInquiry = tasks.length;
-    const completedTask = tasks.filter((t) => t.status === "completed").length;
+    const taskStatus = (status: string) => normalizeAiTaskStatus(status) ?? status;
+    const completedTask = tasks.filter((t) => taskStatus(t.status) === "completed").length;
     const overdueTask = tasks.filter((t) => t.slaStatus === "overdue").length;
-    const inProgressTask = tasks.filter((t) => !["completed", "cancelled"].includes(t.status)).length;
+    const inProgressTask = tasks.filter((t) => !["completed", "cancelled"].includes(taskStatus(t.status))).length;
 
     const byStatus = Object.entries(
-      tasks.reduce((acc, t) => { acc[t.status] = (acc[t.status] ?? 0) + 1; return acc; }, {} as Record<string, number>)
+      tasks.reduce((acc, t) => {
+        const status = taskStatus(t.status);
+        acc[status] = (acc[status] ?? 0) + 1;
+        return acc;
+      }, {} as Record<string, number>)
     ).map(([name, value]) => ({ name, value }));
 
     const byCategory = Object.entries(
@@ -67,7 +72,7 @@ router.get("/reports/overview", requireAuth, async (req: Request, res: Response)
       const key = t.createdAt.toISOString().slice(0, 7);
       if (!monthly[key]) monthly[key] = { total: 0, completed: 0 };
       monthly[key].total++;
-      if (t.status === "completed") monthly[key].completed++;
+      if (taskStatus(t.status) === "completed") monthly[key].completed++;
     }
     const monthlyTrend = Object.entries(monthly).sort().map(([month, v]) => ({ month, ...v }));
 
@@ -91,8 +96,9 @@ router.get("/reports/team", requireAuth, async (req: Request, res: Response): Pr
       const name = t.assignedTo ?? "Belum Ditugaskan";
       if (!staffMap[name]) staffMap[name] = { name, total: 0, completed: 0, active: 0 };
       staffMap[name].total++;
-      if (t.status === "completed") staffMap[name].completed++;
-      else staffMap[name].active++;
+      const status = normalizeAiTaskStatus(t.status) ?? t.status;
+      if (status === "completed") staffMap[name].completed++;
+      else if (status !== "cancelled") staffMap[name].active++;
     }
 
     const teamPerformance = Object.values(staffMap).map((s) => ({
