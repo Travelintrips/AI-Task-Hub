@@ -22,7 +22,7 @@ async function fetchFileBuffer(
       throw new Error("Supabase Storage is not configured");
     }
 
-    const normalizedObjectPath = objectPath.replace(/^\\/+/, "");
+    const normalizedObjectPath = objectPath.replace(/^\/+/, "");
     const { data, error } = await supabase.storage
       .from(DOCUMENT_BUCKET)
       .download(normalizedObjectPath);
@@ -39,7 +39,7 @@ async function fetchFileBuffer(
   }
 
   if (fileUrl) {
-    const resolvedUrl = /^https?:\\/\\//i.test(fileUrl)
+    const resolvedUrl = /^https?:\/\//i.test(fileUrl)
       ? fileUrl
       : getPublicUrl(fileUrl);
     const response = await fetch(resolvedUrl, { signal: AbortSignal.timeout(30_000) });
