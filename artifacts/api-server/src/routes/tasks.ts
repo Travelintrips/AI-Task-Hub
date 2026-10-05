@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { eq, desc, and } from "drizzle-orm";
-import { db, aiTasksTable, teamMembersTable, auditLogsTable } from "@workspace/db";
+import { db, aiTasksTable, teamMembersTable, auditLogsTable, normalizeAiTaskStatus } from "@workspace/db";
 import { requireAuth, getCompanyId } from "../middleware/auth";
 import { logger } from "../lib/logger";
 import { notifyStatusChanged, notifyTaskAssigned, notifyTaskCreated } from "../lib/notifications";
@@ -22,7 +22,14 @@ router.get("/tasks", requireAuth, async (req: Request, res: Response): Promise<v
       .orderBy(desc(aiTasksTable.createdAt))
       .limit(300);
 
-    if (status)   rows = rows.filter((t) => t.status   === status);
+    if (status) {
+      const normalizedStatus = normalizeAiTaskStatus(status);
+      if (!normalizedStatus) {
+        res.status(400).json({ error: `Status tidak valid: ${status}` });
+        return;
+      }
+      rows = rows.filter((t) => normalizeAiTaskStatus(t.status) === normalizedStatus);
+    }
     if (priority) rows = rows.filter((t) => t.priority === priority);
     if (search) {
       const q = search.toLowerCase();
@@ -88,6 +95,12 @@ router.post("/tasks", requireAuth, async (req: Request, res: Response): Promise<
       return;
     }
 
+    const normalizedStatus = status ? normalizeAiTaskStatus(status) : "new_inquiry";
+    if (!normalizedStatus) {
+      res.status(400).json({ error: `Status tidak valid: ${status}` });
+      return;
+    }
+
     let assignedTo: string | null = null;
     if (assigneeId) {
       const [member] = await db
@@ -111,7 +124,7 @@ router.post("/tasks", requireAuth, async (req: Request, res: Response): Promise<
         source: "manual",
         title:        title.trim(),
         description:  description ?? null,
-        status:       status ?? "new_inquiry",
+        status:       normalizedStatus,
         priority:     priority ?? "medium",
         assignedTo,
         customerName: customerName ?? null,
@@ -171,7 +184,16 @@ router.patch("/tasks/:id", requireAuth, async (req: Request, res: Response): Pro
     };
 
     const updates: Record<string, unknown> = {};
-    if (status      !== undefined) updates.status      = status;
+    let normalizedStatus: string | undefined;
+    if (status !== undefined) {
+      const parsedStatus = normalizeAiTaskStatus(status);
+      if (!parsedStatus) {
+        res.status(400).json({ error: `Status tidak valid: ${status}` });
+        return;
+      }
+      normalizedStatus = parsedStatus;
+      updates.status = parsedStatus;
+    }
     if (priority    !== undefined) updates.priority    = priority;
     if (title       !== undefined) updates.title       = title;
     if (description !== undefined) updates.description = description;
@@ -200,7 +222,7 @@ router.patch("/tasks/:id", requireAuth, async (req: Request, res: Response): Pro
 
     // ── Activity log ─────────────────────────────────────────────────────────
     const changes: string[] = [];
-    if (status   && status   !== current.status)   changes.push(`status: ${current.status} → ${status}`);
+    if (normalizedStatus && normalizedStatus !== normalizeAiTaskStatus(current.status)) changes.push(`status: ${current.status} → ${normalizedStatus}`);
     if (priority && priority !== current.priority) changes.push(`prioritas: ${current.priority} → ${priority}`);
     if (assigneeId !== undefined && assigneeId !== null) changes.push("assignee diubah");
 
@@ -216,7 +238,7 @@ router.patch("/tasks/:id", requireAuth, async (req: Request, res: Response): Pro
     // ── WhatsApp notifications (fire-and-forget) ──────────────────────────────
     const taskNumber = current.taskNumber ?? `TASK-${String(id).padStart(4, "0")}`;
 
-    if (status && status !== current.status) {
+    if (normalizedStatus && normalizedStatus !== normalizeAiTaskStatus(current.status)) {
       notifyStatusChanged(
         {
           taskId:       id,
@@ -224,7 +246,7 @@ router.patch("/tasks/:id", requireAuth, async (req: Request, res: Response): Pro
           title:        updated.title,
           customerName: updated.customerName,
           customerPhone: updated.customerPhone ?? null,
-          status:       status,
+          status:       normalizedStatus,
           priority:     updated.priority,
           companyId,
         },
