@@ -66,8 +66,8 @@ function mapStatus(orderStatus: string | null): string {
 }
 
 // ─── Pemetaan balik: status ai_task → status logistic_orders ─────────────────────
-function mapAiTaskStatusToOrder(replitStatus: string): string | null {
-  switch (replitStatus) {
+function mapAiTaskStatusToOrder(aiTaskStatus: string): string | null {
+  switch (aiTaskStatus) {
     case "new_inquiry":
       return "Order Received";
     case "waiting_documents":
