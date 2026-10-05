@@ -20,6 +20,11 @@ import { isRootPaymentProofTokenFormat } from "./lib/payment-proof-token";
 
 const app: Express = express();
 
+const trustProxyHops = Number(process.env.TRUST_PROXY_HOPS ?? "1");
+if (Number.isFinite(trustProxyHops) && trustProxyHops > 0) {
+  app.set("trust proxy", trustProxyHops);
+}
+
 app.use(
   pinoHttp({
     logger,
@@ -41,12 +46,23 @@ app.use(
 );
 
 const allowedOrigins = (() => {
-  const domains = process.env.REPLIT_DOMAINS ?? "";
-  if (!domains) return true; // dev: allow all
-  return domains
+  const configured = (process.env.CORS_ALLOWED_ORIGINS ?? "")
     .split(",")
-    .map((d) => `https://${d.trim()}`)
+    .map((origin) => origin.trim())
     .filter(Boolean);
+
+  if (configured.length > 0) return configured;
+
+  const publicBaseUrl = process.env.PUBLIC_APP_BASE_URL?.trim();
+  if (publicBaseUrl) {
+    try {
+      return [new URL(publicBaseUrl).origin];
+    } catch {
+      logger.warn({ publicBaseUrl }, "PUBLIC_APP_BASE_URL is not a valid URL");
+    }
+  }
+
+  return process.env.NODE_ENV === "production" ? [] : true;
 })();
 
 app.use(
