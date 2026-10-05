@@ -6,7 +6,7 @@ map $http_upgrade $connection_upgrade {
 server {
     listen 80;
     listen [::]:80;
-    server_name YOUR_PRODUCTION_DOMAIN;
+    server_name ai-task.travelintrips.co.id;
 
     client_max_body_size 60m;
 
@@ -29,7 +29,7 @@ server {
 server {
     listen 80;
     listen [::]:80;
-    server_name YOUR_DEVELOPMENT_DOMAIN;
+    server_name dev-ai-task.travelintrips.co.id;
 
     client_max_body_size 60m;
 
