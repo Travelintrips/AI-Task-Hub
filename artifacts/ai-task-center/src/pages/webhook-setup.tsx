@@ -75,9 +75,7 @@ function StepCard({
 export default function WebhookSetup() {
   const domain = window.location.origin;
   const fonnteWebhookUrl = `${domain}/api/webhook/fonnte`;
-  const verifyToken =
-    import.meta.env.VITE_WHATSAPP_WEBHOOK_VERIFY_TOKEN ??
-    "(lihat secret WHATSAPP_WEBHOOK_VERIFY_TOKEN)";
+  const verifyToken = "(dikonfigurasi di environment server)";
 
   return (
     <div className="p-6 max-w-3xl mx-auto w-full space-y-6">
@@ -131,7 +129,7 @@ export default function WebhookSetup() {
           <div className="bg-amber-50 border border-amber-200 rounded-md p-3 text-amber-800 text-xs">
             <p className="font-semibold mb-1">Penting:</p>
             <p>
-              URL ini berisi domain Replit Anda yang aktif. Jika domain berubah
+              URL ini menggunakan domain aplikasi yang sedang aktif. Jika domain berubah
               (misal setelah publish ke domain kustom), URL ini perlu diperbarui
               di dashboard Fonnte.
             </p>

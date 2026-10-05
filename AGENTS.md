@@ -53,13 +53,12 @@ An operations platform that receives WhatsApp messages, uses AI (OpenAI) to dete
 
 ## Required environment secrets
 
-Only true secrets need to be set as Replit secrets. Non-sensitive URLs/paths
-(Supabase project URL, object-storage bucket id, AI proxy URL) are hardcoded
-in `artifacts/api-server/src/config.ts` with env-var override, so they survive
-repl restarts without re-configuration.
+Runtime configuration is supplied through environment files on the server.
+Secrets must never be committed to Git. Development and production use separate
+Hostinger runtime environment files and separate Supabase projects.
 
 - `DATABASE_URL` / `SUPABASE_DATABASE_URL` — Postgres connection string
-- `OPENAI_API_KEY` — only needed if NOT using the Replit AI Integrations proxy
+- `OPENAI_API_KEY` — OpenAI API key used by server-side AI features
 - `SUPABASE_ANON_KEY` — Supabase anonymous/public key
 - `SUPABASE_SERVICE_ROLE_KEY` — Supabase service role key (for storage operations)
 - `SESSION_SECRET` — Express session secret

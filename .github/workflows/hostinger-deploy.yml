@@ -1,0 +1,111 @@
+name: Deploy AI Task Hub to Hostinger
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Environment to deploy
+        required: true
+        type: choice
+        options:
+          - development
+          - production
+
+concurrency:
+  group: hostinger-${{ github.event_name == 'workflow_dispatch' && inputs.target || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  deploy-production:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.target == 'production') ||
+      (github.event_name == 'push' && github.ref_name == 'main' && vars.HOSTINGER_AUTO_DEPLOY == 'true')
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Configure SSH
+        env:
+          SSH_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
+          HOST: ${{ secrets.HOSTINGER_HOST }}
+          PORT: ${{ secrets.HOSTINGER_PORT }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY"
+          test -n "$HOST"
+          test -n "$PORT"
+          install -m 0700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_hostinger
+          chmod 0600 ~/.ssh/id_hostinger
+          ssh-keyscan -p "$PORT" "$HOST" >> ~/.ssh/known_hosts
+
+      - name: Deploy production
+        env:
+          HOST: ${{ secrets.HOSTINGER_HOST }}
+          PORT: ${{ secrets.HOSTINGER_PORT }}
+          USERNAME: ${{ secrets.HOSTINGER_USER }}
+          APP_ROOT: ${{ vars.HOSTINGER_APP_ROOT }}
+        run: |
+          set -euo pipefail
+          test -n "$USERNAME"
+          REMOTE_ROOT="${APP_ROOT:-\$HOME/apps/ai-task/production}"
+          ssh -i ~/.ssh/id_hostinger -p "$PORT" "$USERNAME@$HOST" \
+            "set -euo pipefail; \
+             APP_ROOT=\"$REMOTE_ROOT\"; \
+             if [ ! -d \"\$APP_ROOT/.git\" ]; then \
+               mkdir -p \"\$(dirname \"\$APP_ROOT\")\"; \
+               git clone --branch main --single-branch https://github.com/Travelintrips/AI-Task-Hub.git \"\$APP_ROOT\"; \
+             fi; \
+             cd \"\$APP_ROOT\"; \
+             git fetch origin main; \
+             git checkout -B main origin/main; \
+             git reset --hard origin/main; \
+             AI_TASK_APP_ROOT=\"\$APP_ROOT\" bash deploy/hostinger/deploy.sh production"
+
+  deploy-development:
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.target == 'development') ||
+      (github.event_name == 'push' && github.ref_name == 'develop' && vars.HOSTINGER_AUTO_DEPLOY == 'true')
+    runs-on: ubuntu-latest
+    environment: development
+    steps:
+      - name: Configure SSH
+        env:
+          SSH_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
+          HOST: ${{ secrets.HOSTINGER_HOST }}
+          PORT: ${{ secrets.HOSTINGER_PORT }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY"
+          test -n "$HOST"
+          test -n "$PORT"
+          install -m 0700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_hostinger
+          chmod 0600 ~/.ssh/id_hostinger
+          ssh-keyscan -p "$PORT" "$HOST" >> ~/.ssh/known_hosts
+
+      - name: Deploy development
+        env:
+          HOST: ${{ secrets.HOSTINGER_HOST }}
+          PORT: ${{ secrets.HOSTINGER_PORT }}
+          USERNAME: ${{ secrets.HOSTINGER_USER }}
+          APP_ROOT: ${{ vars.HOSTINGER_APP_ROOT }}
+        run: |
+          set -euo pipefail
+          test -n "$USERNAME"
+          REMOTE_ROOT="${APP_ROOT:-\$HOME/apps/ai-task/development}"
+          ssh -i ~/.ssh/id_hostinger -p "$PORT" "$USERNAME@$HOST" \
+            "set -euo pipefail; \
+             APP_ROOT=\"$REMOTE_ROOT\"; \
+             if [ ! -d \"\$APP_ROOT/.git\" ]; then \
+               mkdir -p \"\$(dirname \"\$APP_ROOT\")\"; \
+               git clone --branch develop --single-branch https://github.com/Travelintrips/AI-Task-Hub.git \"\$APP_ROOT\"; \
+             fi; \
+             cd \"\$APP_ROOT\"; \
+             git fetch origin develop; \
+             git checkout -B develop origin/develop; \
+             git reset --hard origin/develop; \
+             AI_TASK_APP_ROOT=\"\$APP_ROOT\" bash deploy/hostinger/deploy.sh development"

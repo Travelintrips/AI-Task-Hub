@@ -1,0 +1,14 @@
+.git
+.github
+node_modules
+**/node_modules
+**/dist
+.env
+.env.*
+*.env
+.cache
+.local
+coverage
+tmp
+.replit*
+attached_assets/screenshots

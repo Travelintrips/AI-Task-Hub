@@ -2,7 +2,7 @@
  * Buat bucket Supabase Storage "exportimport" untuk dokumen freight/PPJK.
  * Jalankan: node scripts/create-exportimport-bucket.mjs
  *
- * Env vars yang dibutuhkan (set di Replit Secrets atau .env lokal):
+ * Env vars yang dibutuhkan (set di environment server atau .env lokal):
  *   SUPABASE_URL                  — URL project Supabase (prod)
  *   SUPABASE_SERVICE_ROLE_KEY     — Service role key (prod)
  *   atau
@@ -14,19 +14,17 @@ import { createClient } from "@supabase/supabase-js";
 
 const BUCKET_NAME = "exportimport";
 
-const supabaseUrl =
-  process.env.SUPABASE_URL ||
-  process.env.SUPABASE_URL_DEV ||
-  "https://xssrfshdrtdfupgqwfdw.supabase.co"; // dev fallback
+const isProduction = process.env.NODE_ENV === "production";
+const urlEnvName = isProduction ? "SUPABASE_URL" : "SUPABASE_URL_DEV";
+const keyEnvName = isProduction
+  ? "SUPABASE_SERVICE_ROLE_KEY"
+  : "SUPABASE_SERVICE_ROLE_KEY_DEV";
 
-const supabaseKey =
-  process.env.SUPABASE_SERVICE_ROLE_KEY ||
-  process.env.SUPABASE_SERVICE_ROLE_KEY_DEV;
+const supabaseUrl = process.env[urlEnvName]?.trim();
+const supabaseKey = process.env[keyEnvName]?.trim();
 
-if (!supabaseKey) {
-  console.error(
-    "ERROR: SUPABASE_SERVICE_ROLE_KEY atau SUPABASE_SERVICE_ROLE_KEY_DEV harus diset."
-  );
+if (!supabaseUrl || !supabaseKey) {
+  console.error(`ERROR: ${urlEnvName} dan ${keyEnvName} harus diset.`);
   process.exit(1);
 }
 

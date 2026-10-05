@@ -8,17 +8,21 @@
 
 import { Pool } from "pg";
 
-const connectionString =
-  process.env.SUPABASE_DATABASE_URL ||
-  process.env.SUPABASE_DATABASE_URL_DEV ||
-  process.env.DATABASE_URL ||
-  "postgresql://postgres:password@helium/heliumdb?sslmode=disable";
+const isProduction = process.env.NODE_ENV === "production";
+const databaseEnvName = isProduction
+  ? "SUPABASE_DATABASE_URL"
+  : "SUPABASE_DATABASE_URL_DEV";
+const connectionString = process.env[databaseEnvName]?.trim();
 
-console.log(`▶ Connecting to DB (${connectionString.includes("supabase") ? "Supabase" : "Replit"})`);
+if (!connectionString) {
+  throw new Error(`${databaseEnvName} must be set`);
+}
+
+console.log(`▶ Connecting to Supabase (${isProduction ? "production" : "development"})`);
 
 const pool = new Pool({
   connectionString,
-  ssl: connectionString.includes("supabase.co") ? { rejectUnauthorized: false } : false,
+  ssl: { rejectUnauthorized: false },
 });
 
 async function main() {

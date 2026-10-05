@@ -7,8 +7,8 @@ import { config } from "../config";
 const isProduction = process.env.NODE_ENV === "production";
 const supabaseUrl = isProduction ? config.supabase.url : config.supabase.urlDev;
 const supabaseServiceKey = isProduction
-  ? process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY_DEV
-  : process.env.SUPABASE_SERVICE_ROLE_KEY_DEV || process.env.SUPABASE_SERVICE_ROLE_KEY;
+  ? process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()
+  : process.env.SUPABASE_SERVICE_ROLE_KEY_DEV?.trim();
 
 if (!supabaseUrl || !supabaseServiceKey) {
   logger.warn("Supabase credentials not set — storage features will be unavailable");
@@ -20,19 +20,19 @@ export const supabase = supabaseUrl && supabaseServiceKey
     })
   : null;
 
-const BUCKET = "ai-task-center-documents";
+export const DOCUMENT_BUCKET = "ai-task-center-documents";
 export const PAYMENT_PROOF_BUCKET = "payment-proofs";
 
 export async function ensureBucket(): Promise<void> {
   if (!supabase) return;
   const { data: buckets } = await supabase.storage.listBuckets();
-  const exists = buckets?.some((b) => b.name === BUCKET);
+  const exists = buckets?.some((b) => b.name === DOCUMENT_BUCKET);
   if (!exists) {
-    const { error } = await supabase.storage.createBucket(BUCKET, { public: true });
+    const { error } = await supabase.storage.createBucket(DOCUMENT_BUCKET, { public: true });
     if (error) {
       logger.error({ error }, "Failed to create Supabase bucket");
     } else {
-      logger.info({ bucket: BUCKET }, "Created Supabase storage bucket");
+      logger.info({ bucket: DOCUMENT_BUCKET }, "Created Supabase storage bucket");
     }
   }
 }
@@ -72,7 +72,7 @@ export async function getUploadUrl(filename: string, _mimeType: string): Promise
   const path = `uploads/${Date.now()}_${safeName}`;
 
   const { data, error } = await supabase.storage
-    .from(BUCKET)
+    .from(DOCUMENT_BUCKET)
     .createSignedUploadUrl(path);
 
   if (error || !data) {
@@ -83,7 +83,7 @@ export async function getUploadUrl(filename: string, _mimeType: string): Promise
   // PENTING: getPublicUrl() SELALU mengembalikan URL (bahkan jika bucket private),
   // jadi kita TIDAK bisa mengandalkan format URL saja. Kita harus cek aksesibilitas
   // setelah file di-upload (lihat getAccessibleUrl).
-  const { data: publicData } = supabase.storage.from(BUCKET).getPublicUrl(path);
+  const { data: publicData } = supabase.storage.from(DOCUMENT_BUCKET).getPublicUrl(path);
 
   logger.info({ path, publicUrl: publicData.publicUrl, mode: "public" }, "getUploadUrl: signed upload URL created, public URL generated");
   return {
@@ -103,7 +103,7 @@ export async function getUploadUrl(filename: string, _mimeType: string): Promise
 export async function getAccessibleUrl(
   storagePath: string,
   originalUrl: string,
-  bucketName: string = BUCKET,
+  bucketName: string = DOCUMENT_BUCKET,
 ): Promise<{ url: string; mode: "public" | "signed" | "original" }> {
   if (!supabase) {
     return { url: originalUrl, mode: "original" };
@@ -169,7 +169,7 @@ export function extractStoragePath(publicUrl: string): string | null {
  */
 export function extractStorageBucket(publicUrl: string): string | null {
   try {
-    for (const bucketName of [BUCKET, PAYMENT_PROOF_BUCKET]) {
+    for (const bucketName of [DOCUMENT_BUCKET, PAYMENT_PROOF_BUCKET]) {
       if (publicUrl.includes(`/object/public/${bucketName}/`)) {
         return bucketName;
       }
@@ -188,12 +188,12 @@ export async function uploadBuffer(
   if (!supabase) throw new Error("Supabase not configured");
 
   const { error } = await supabase.storage
-    .from(BUCKET)
+    .from(DOCUMENT_BUCKET)
     .upload(objectPath, buffer, { contentType: mimeType, upsert: true });
 
   if (error) throw new Error(`Upload failed: ${error.message}`);
 
-  const { data: publicData } = supabase.storage.from(BUCKET).getPublicUrl(objectPath);
+  const { data: publicData } = supabase.storage.from(DOCUMENT_BUCKET).getPublicUrl(objectPath);
   return { publicUrl: publicData.publicUrl, path: objectPath };
 }
 

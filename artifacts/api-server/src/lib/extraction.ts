@@ -5,7 +5,8 @@ const pdfParse = require("pdf-parse/lib/pdf-parse") as (buffer: Buffer, options?
 import * as XLSX from "xlsx";
 import mammoth from "mammoth";
 import { openai } from "./openai";
-import { ObjectStorageService } from "./objectStorage";
+import { DOCUMENT_BUCKET, supabase } from "./supabase";
+import { getPublicUrl } from "../config";
 import { logger } from "./logger";
 
 export type ExtractionResult =
@@ -17,23 +18,39 @@ async function fetchFileBuffer(
   objectPath: string | null | undefined,
 ): Promise<Buffer> {
   if (objectPath) {
-    const service = new ObjectStorageService();
-    const file = await service.getObjectEntityFile(objectPath);
-    const response = await service.downloadObject(file);
-    const arrayBuffer = await response.arrayBuffer();
-    return Buffer.from(arrayBuffer as ArrayBuffer);
+    if (!supabase) {
+      throw new Error("Supabase Storage is not configured");
+    }
+
+    const normalizedObjectPath = objectPath.replace(/^\/+/, "");
+    const { data, error } = await supabase.storage
+      .from(DOCUMENT_BUCKET)
+      .download(normalizedObjectPath);
+
+    if (!error && data) {
+      const arrayBuffer = await data.arrayBuffer();
+      return Buffer.from(arrayBuffer);
+    }
+
+    logger.warn(
+      { objectPath: normalizedObjectPath, error },
+      "Supabase Storage download by objectPath failed; trying fileUrl fallback",
+    );
   }
 
   if (fileUrl) {
-    const response = await fetch(fileUrl, { signal: AbortSignal.timeout(30_000) });
+    const resolvedUrl = /^https?:\/\//i.test(fileUrl)
+      ? fileUrl
+      : getPublicUrl(fileUrl);
+    const response = await fetch(resolvedUrl, { signal: AbortSignal.timeout(30_000) });
     if (!response.ok) {
       throw new Error(`Failed to fetch file: HTTP ${response.status}`);
     }
     const arrayBuffer = await response.arrayBuffer();
-    return Buffer.from(arrayBuffer as ArrayBuffer);
+    return Buffer.from(arrayBuffer);
   }
 
-  throw new Error("No file URL or object path available for extraction");
+  throw new Error("No readable Supabase object path or file URL available for extraction");
 }
 
 function resolveMimeType(mimeType: string | null | undefined, filename: string): string {

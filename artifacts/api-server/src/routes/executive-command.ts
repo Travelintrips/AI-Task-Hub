@@ -1187,7 +1187,7 @@ router.get(
 
       const events: TimelineEvent[] = [];
 
-      // 1. Audit logs (Replit DB)
+      // 1. Audit logs (Supabase DB)
       const auditRows = await safeRows<{
         id: number;
         action: string;
@@ -1221,7 +1221,7 @@ router.get(
         });
       }
 
-      // 2. AI Tasks recently created (Replit DB)
+      // 2. AI Tasks recently created (Supabase DB)
       const taskRows = await safeRows<{
         id: number;
         title: string;
@@ -1254,7 +1254,7 @@ router.get(
         });
       }
 
-      // 3. Purchasing intel signals (Replit DB)
+      // 3. Purchasing intel signals (Supabase DB)
       const signalRows = await safeRows<{
         id: number;
         signal_type: string;

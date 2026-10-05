@@ -360,7 +360,7 @@ export default function CreativeAiPage() {
           <div>
             <p className="font-medium">TOGETHER_AI_API_KEY belum di-set</p>
             <p className="text-xs text-orange-600 mt-0.5">
-              Tambahkan API key Together.ai di Replit Secrets untuk mengaktifkan logo generation.
+              Tambahkan API key Together.ai di environment server untuk mengaktifkan logo generation.
               Daftar gratis di <span className="underline">together.ai</span>.
             </p>
           </div>

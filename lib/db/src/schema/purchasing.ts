@@ -1,7 +1,7 @@
 /**
- * Sprint 6B — Purchasing Intelligence (Replit DB layer)
+ * Sprint 6B — Purchasing Intelligence (Supabase DB layer)
  *
- * Tabel-tabel ini hidup di Replit DB (intelligence/materialized layer).
+ * Tabel-tabel ini hidup di Supabase DB (intelligence/materialized layer).
  * Supabase tetap menjadi operational source of truth.
  *
  * Tables:
@@ -156,7 +156,7 @@ export const purchasingSignalsTable = pgTable("purchasing_signals", {
   sourceId: integer("source_id").notNull(),
   logisticOrderId: integer("logistic_order_id"),
   purchaseRequestId: integer("purchase_request_id"),
-  // → logistic_purchase_requests.id (Replit)
+  // → logistic_purchase_requests.id (AI Task Hub)
 
   recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
