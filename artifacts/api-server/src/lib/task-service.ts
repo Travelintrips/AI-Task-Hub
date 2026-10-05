@@ -6,7 +6,7 @@ import {
   whatsappMessagesTable,
   auditLogsTable,
   adminNotificationsTable,
-  AI_TASK_STATUSES,
+  AI_TASK_ACTIVE_STATUSES,
   normalizeAiTaskStatus,
   type AiTask,
   type AiTaskStatus,
@@ -21,9 +21,7 @@ import { notifyTaskCreated } from "./notifications";
 
 // ─── Status vocabulary ────────────────────────────────────────────────────────
 
-const ACTIVE_STATUSES: AiTaskStatus[] = AI_TASK_STATUSES.filter(
-  (status): status is AiTaskStatus => status !== "completed" && status !== "cancelled",
-);
+const ACTIVE_STATUSES: AiTaskStatus[] = [...AI_TASK_ACTIVE_STATUSES];
 export { ACTIVE_STATUSES };
 
 // ─── Missing data helpers ─────────────────────────────────────────────────────
