@@ -1,34 +1,36 @@
 # AI Task Hub — Hostinger DEV + PROD
 
-AI Task Hub no longer requires Replit at runtime. Both environments run the same Dockerized application on Hostinger and differ by branch, local port, domain, and runtime environment variables.
+AI Task Hub no longer requires Replit at runtime. Both environments run the same application on Hostinger and differ by branch, local port, public domain, and runtime environment variables.
 
 ## Environment layout
 
-| Environment | Git branch | Local bind | Supabase variables |
-| --- | --- | --- | --- |
-| Production | main | 127.0.0.1:18080 | SUPABASE_URL, SUPABASE_DATABASE_URL, SUPABASE_SERVICE_ROLE_KEY |
-| Development | develop | 127.0.0.1:18081 | SUPABASE_URL_DEV, SUPABASE_DATABASE_URL_DEV, SUPABASE_SERVICE_ROLE_KEY_DEV |
+| Environment | Git branch | Local bind | Public domain | Supabase variables |
+| --- | --- | --- | --- | --- |
+| Production | main | 127.0.0.1:18080 | https://ai-task.travelintrips.co.id | SUPABASE_URL, SUPABASE_DATABASE_URL, SUPABASE_SERVICE_ROLE_KEY |
+| Development | develop | 127.0.0.1:18081 | https://dev-ai-task.travelintrips.co.id | SUPABASE_URL_DEV, SUPABASE_DATABASE_URL_DEV, SUPABASE_SERVICE_ROLE_KEY_DEV |
 
-The API serves the built React frontend, so each environment needs only one application container.
+The API serves the built React frontend, so each environment needs only one application runtime.
 
 ## One-time Hostinger VPS setup
 
-Requirements: Docker Engine with the Compose plugin, Git, Nginx, and TLS certificates.
+Requirements: Docker Engine with the Compose plugin or the approved direct-runtime launcher, Git, Nginx, and TLS certificates.
 
 1. Clone the repository on the VPS.
-2. Run sudo bash deploy/hostinger/bootstrap.sh.
+2. Run sudo bash deploy/hostinger/bootstrap.sh when using the Docker deployment path.
 3. Fill /etc/ai-task/production.env with production credentials.
 4. Fill /etc/ai-task/development.env with development credentials. Never copy production database or service-role credentials into DEV.
-5. Copy deploy/hostinger/nginx-ai-task.conf.example into your Nginx configuration and replace both domain placeholders.
-6. Point the production and development DNS A records to the Hostinger VPS.
+5. Install deploy/hostinger/nginx-ai-task.conf.example into Nginx.
+6. Point these DNS A records to the Hostinger VPS:
+   - ai-task.travelintrips.co.id
+   - dev-ai-task.travelintrips.co.id
 7. Issue TLS certificates for both domains and reload Nginx.
 8. Deploy with:
    - bash deploy/hostinger/deploy.sh production
    - bash deploy/hostinger/deploy.sh development
 
 Health endpoints:
-- https://PRODUCTION_DOMAIN/api/healthz
-- https://DEVELOPMENT_DOMAIN/api/healthz
+- https://ai-task.travelintrips.co.id/api/healthz
+- https://dev-ai-task.travelintrips.co.id/api/healthz
 
 ## GitHub automatic deployment
 
