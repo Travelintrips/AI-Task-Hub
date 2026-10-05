@@ -7,8 +7,8 @@ import { config } from "../config";
 const isProduction = process.env.NODE_ENV === "production";
 const supabaseUrl = isProduction ? config.supabase.url : config.supabase.urlDev;
 const supabaseServiceKey = isProduction
-  ? process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY_DEV
-  : process.env.SUPABASE_SERVICE_ROLE_KEY_DEV || process.env.SUPABASE_SERVICE_ROLE_KEY;
+  ? process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()
+  : process.env.SUPABASE_SERVICE_ROLE_KEY_DEV?.trim();
 
 if (!supabaseUrl || !supabaseServiceKey) {
   logger.warn("Supabase credentials not set — storage features will be unavailable");
@@ -26,9 +26,9 @@ export const PAYMENT_PROOF_BUCKET = "payment-proofs";
 export async function ensureBucket(): Promise<void> {
   if (!supabase) return;
   const { data: buckets } = await supabase.storage.listBuckets();
-  const exists = buckets?.some((b) => b.name === BUCKET);
+  const exists = buckets?.some((b) => b.name === DOCUMENT_BUCKET);
   if (!exists) {
-    const { error } = await supabase.storage.createBucket(BUCKET, { public: true });
+    const { error } = await supabase.storage.createBucket(DOCUMENT_BUCKET, { public: true });
     if (error) {
       logger.error({ error }, "Failed to create Supabase bucket");
     } else {
