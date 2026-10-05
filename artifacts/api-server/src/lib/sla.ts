@@ -1,5 +1,5 @@
-import { db, aiTasksTable } from "@workspace/db";
-import { eq, and, isNull, lte, ne } from "drizzle-orm";
+import { db, aiTasksTable, AI_TASK_TERMINAL_STATUS_VARIANTS } from "@workspace/db";
+import { eq, and, isNull, lte, notInArray } from "drizzle-orm";
 import { logger } from "./logger";
 
 export const SLA_HOURS_BY_CATEGORY: Record<string, number> = {
@@ -40,7 +40,7 @@ export async function refreshSlaStatuses(companyId = "default"): Promise<void> {
     const tasks = await db
       .select({ id: aiTasksTable.id, overdueAt: aiTasksTable.overdueAt, completedAt: aiTasksTable.completedAt, slaStatus: aiTasksTable.slaStatus })
       .from(aiTasksTable)
-      .where(and(eq(aiTasksTable.companyId, companyId), ne(aiTasksTable.status, "completed"), ne(aiTasksTable.status, "cancelled")));
+      .where(and(eq(aiTasksTable.companyId, companyId), notInArray(aiTasksTable.status, AI_TASK_TERMINAL_STATUS_VARIANTS)));
 
     for (const t of tasks) {
       const newStatus = calcSlaStatus(t.overdueAt, t.completedAt);
