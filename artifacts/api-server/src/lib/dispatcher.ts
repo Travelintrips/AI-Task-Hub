@@ -1,5 +1,5 @@
-import { db, aiTasksTable, teamMembersTable } from "@workspace/db";
-import { eq, and, ne, count, sql } from "drizzle-orm";
+import { db, aiTasksTable, teamMembersTable, AI_TASK_TERMINAL_STATUS_VARIANTS, normalizeAiTaskStatus } from "@workspace/db";
+import { eq, and, count, sql, notInArray } from "drizzle-orm";
 import { openai } from "./openai";
 import { logger } from "./logger";
 
@@ -71,8 +71,7 @@ async function getWorkloadMap(companyId: string): Promise<Map<string, number>> {
     .from(aiTasksTable)
     .where(and(
       eq(aiTasksTable.companyId, companyId),
-      ne(aiTasksTable.status, "completed"),
-      ne(aiTasksTable.status, "cancelled"),
+      notInArray(aiTasksTable.status, AI_TASK_TERMINAL_STATUS_VARIANTS),
     ))
     .groupBy(aiTasksTable.assignedTo);
 
@@ -231,6 +230,9 @@ export async function suggestAssignment(taskId: number, companyId: string): Prom
   const [task] = await db.select().from(aiTasksTable).where(eq(aiTasksTable.id, taskId)).limit(1);
   if (!task) return null;
 
+  const canonicalStatus = normalizeAiTaskStatus(task.status);
+  if (canonicalStatus === "completed" || canonicalStatus === "cancelled") return null;
+
   const members = await db.select().from(teamMembersTable);
   if (members.length === 0) {
     return {
@@ -303,8 +305,7 @@ export async function getTeamWorkload(companyId: string): Promise<MemberWorkload
     .from(aiTasksTable)
     .where(and(
       eq(aiTasksTable.companyId, companyId),
-      ne(aiTasksTable.status, "completed"),
-      ne(aiTasksTable.status, "cancelled"),
+      notInArray(aiTasksTable.status, AI_TASK_TERMINAL_STATUS_VARIANTS),
     ));
 
   return members.map((m) => {
