@@ -59,6 +59,16 @@ export function getAiTaskStatusVariants(status: AiTaskStatus): string[] {
   return Array.from(new Set([status, titleCase, ...aliases]));
 }
 
+export const AI_TASK_TERMINAL_STATUSES = ["completed", "cancelled"] as const;
+
+export const AI_TASK_TERMINAL_STATUS_VARIANTS = Array.from(new Set(
+  AI_TASK_TERMINAL_STATUSES.flatMap((status) => getAiTaskStatusVariants(status)),
+));
+
+export const AI_TASK_ACTIVE_STATUSES: AiTaskStatus[] = AI_TASK_STATUSES.filter(
+  (status) => !AI_TASK_TERMINAL_STATUSES.includes(status as (typeof AI_TASK_TERMINAL_STATUSES)[number]),
+);
+
 export const aiTasksTable = pgTable("ai_tasks", {
   id: serial("id").primaryKey(),
   companyId: text("company_id").notNull().default("default"),
