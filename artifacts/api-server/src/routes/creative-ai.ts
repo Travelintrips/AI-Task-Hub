@@ -184,7 +184,7 @@ router.get(
       status:      hasKey ? "ready" : "missing_api_key",
       message:     hasKey
         ? "API key tersedia, siap generate logo"
-        : "TOGETHER_AI_API_KEY belum di-set di Replit Secrets",
+        : "TOGETHER_AI_API_KEY belum di-set di environment server",
     });
   },
 );
