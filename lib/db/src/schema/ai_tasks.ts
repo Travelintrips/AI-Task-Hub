@@ -21,6 +21,54 @@ export const AI_TASK_STATUSES = [
 
 export type AiTaskStatus = (typeof AI_TASK_STATUSES)[number];
 
+const AI_TASK_STATUS_ALIASES: Record<string, AiTaskStatus> = {
+  pending: "new_inquiry",
+  draft: "new_inquiry",
+  new: "new_inquiry",
+  waiting_doc: "waiting_documents",
+  review: "ready_for_review",
+  processing: "in_progress",
+  done: "completed",
+  paid: "completed",
+  canceled: "cancelled",
+};
+
+/**
+ * Convert legacy/display status values to the canonical ai_tasks vocabulary.
+ * Examples: "New Inquiry" -> "new_inquiry", "pending" -> "new_inquiry".
+ * Returns null for unknown values so API callers can reject invalid input.
+ */
+export function normalizeAiTaskStatus(value: string | null | undefined): AiTaskStatus | null {
+  if (!value) return null;
+  const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if ((AI_TASK_STATUSES as readonly string[]).includes(normalized)) {
+    return normalized as AiTaskStatus;
+  }
+  return AI_TASK_STATUS_ALIASES[normalized] ?? null;
+}
+
+/** Values that may already exist in older rows/clients for a canonical status. */
+export function getAiTaskStatusVariants(status: AiTaskStatus): string[] {
+  const titleCase = status
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+  const aliases = Object.entries(AI_TASK_STATUS_ALIASES)
+    .filter(([, canonical]) => canonical === status)
+    .map(([alias]) => alias);
+  return Array.from(new Set([status, titleCase, ...aliases]));
+}
+
+export const AI_TASK_TERMINAL_STATUSES = ["completed", "cancelled"] as const;
+
+export const AI_TASK_TERMINAL_STATUS_VARIANTS = Array.from(new Set(
+  AI_TASK_TERMINAL_STATUSES.flatMap((status) => getAiTaskStatusVariants(status)),
+));
+
+export const AI_TASK_ACTIVE_STATUSES: AiTaskStatus[] = AI_TASK_STATUSES.filter(
+  (status) => !AI_TASK_TERMINAL_STATUSES.includes(status as (typeof AI_TASK_TERMINAL_STATUSES)[number]),
+);
+
 export const aiTasksTable = pgTable("ai_tasks", {
   id: serial("id").primaryKey(),
   companyId: text("company_id").notNull().default("default"),

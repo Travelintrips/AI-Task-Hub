@@ -2,17 +2,23 @@ import {
   db, aiTasksTable, escalationRulesTable, escalationLogsTable,
   taskCommentsTable, auditLogsTable, teamMembersTable,
   approvalRequestsTable,
+  getAiTaskStatusVariants,
+  type AiTaskStatus,
 } from "@workspace/db";
 import { eq, and, gte, inArray } from "drizzle-orm";
 import { sendFonnte } from "./fonnte";
 import { logger } from "./logger";
 
 // Active task statuses that could trigger escalation
-const ACTIVE_STATUSES = [
+const ACTIVE_STATUSES: AiTaskStatus[] = [
   "new_inquiry", "waiting_documents", "documents_received",
   "audit_in_progress", "missing_data", "ready_for_review",
   "assigned", "in_progress", "waiting_customer", "waiting_vendor",
 ];
+
+const ACTIVE_STATUS_VALUES = Array.from(new Set(
+  ACTIVE_STATUSES.flatMap((status) => getAiTaskStatusVariants(status)),
+));
 
 function buildEscalationMessage(
   template: string | null,
@@ -41,7 +47,7 @@ async function runEscalations(): Promise<void> {
   const tasks = await db
     .select()
     .from(aiTasksTable)
-    .where(inArray(aiTasksTable.status, ACTIVE_STATUSES))
+    .where(inArray(aiTasksTable.status, ACTIVE_STATUS_VALUES))
     .limit(500);
 
   for (const task of tasks) {

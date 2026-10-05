@@ -6,7 +6,10 @@ import {
   whatsappMessagesTable,
   auditLogsTable,
   adminNotificationsTable,
+  AI_TASK_ACTIVE_STATUSES,
+  normalizeAiTaskStatus,
   type AiTask,
+  type AiTaskStatus,
 } from "@workspace/db";
 import { type WhatsAppIntentResult, IMPORT_REQUIRED_FIELDS } from "./whatsapp-ai";
 import type { IntentResolution } from "./intent-engine";
@@ -18,23 +21,7 @@ import { notifyTaskCreated } from "./notifications";
 
 // ─── Status vocabulary ────────────────────────────────────────────────────────
 
-export type AiTaskStatus =
-  | "New Inquiry"
-  | "Waiting Documents"
-  | "Ready for Review"
-  | "Assigned"
-  | "In Progress"
-  | "Waiting Customer"
-  | "Completed";
-
-const ACTIVE_STATUSES: AiTaskStatus[] = [
-  "New Inquiry",
-  "Waiting Documents",
-  "Ready for Review",
-  "Assigned",
-  "In Progress",
-  "Waiting Customer",
-];
+const ACTIVE_STATUSES: AiTaskStatus[] = [...AI_TASK_ACTIVE_STATUSES];
 export { ACTIVE_STATUSES };
 
 // ─── Missing data helpers ─────────────────────────────────────────────────────
@@ -106,9 +93,9 @@ export function generateTaskTitle(
 
 export function determineInitialStatus(result: WhatsAppIntentResult): AiTaskStatus {
   const hasMissingData = result.missing_data.length > 0;
-  if (hasMissingData && result.needs_document_audit) return "Waiting Documents";
-  if (result.needs_admin_review && !hasMissingData)  return "Ready for Review";
-  return "New Inquiry";
+  if (hasMissingData && result.needs_document_audit) return "waiting_documents";
+  if (result.needs_admin_review && !hasMissingData)  return "ready_for_review";
+  return "new_inquiry";
 }
 
 // ─── AI summary builder ───────────────────────────────────────────────────────
@@ -185,14 +172,16 @@ export async function findAnyActiveTaskForCustomer({
       and(
         eq(aiTasksTable.companyId, companyId),
         eq(aiTasksTable.customerPhone, customerPhone),
-        ne(aiTasksTable.status, "Completed"),
         gte(aiTasksTable.createdAt, thirtyDaysAgo),
       ),
     )
-    .orderBy(desc(aiTasksTable.updatedAt))   // most recently active first
-    .limit(1);
+    .orderBy(desc(aiTasksTable.updatedAt))
+    .limit(20);
 
-  return rows[0] ?? null;
+  return rows.find((row) => {
+    const status = normalizeAiTaskStatus(row.status);
+    return status !== "completed" && status !== "cancelled";
+  }) ?? null;
 }
 
 // ─── Missing data resolution ──────────────────────────────────────────────────
@@ -311,7 +300,7 @@ export interface CreateTaskOutput {
  * Core conversation-continuity entry point.
  *
  * Flow:
- * 1. Look up any active task from this customer (last 30 days, not Completed).
+ * 1. Look up any active task from this customer (last 30 days, not completed/cancelled).
  * 2. If none → create a brand-new task.
  * 3. If one exists:
  *    a. Check for a topic change (different category, not General Inquiry, Medium+ priority).
@@ -320,8 +309,8 @@ export interface CreateTaskOutput {
  *       - Append the message as a customer comment.
  *       - Compute which missing-data fields are now resolved.
  *       - Update missingData column and aiSummary on the task.
- *       - If all missing data resolved → escalate to "Ready for Review".
- *       - If customer replied while status was "Waiting Customer" → "In Progress".
+ *       - If all missing data resolved → escalate to "ready_for_review".
+ *       - If customer replied while status was "waiting_customer" → "in_progress".
  *
  * Sprint 2A: accepts optional `resolution` from IntentEngine for DB-driven
  * missing data, SLA, and document requirements.
@@ -363,13 +352,15 @@ export async function createTaskFromWhatsAppMessage(
         existingCategory,
       );
 
-      // Determine new status
-      let newStatus = existingTask.status as AiTaskStatus;
-      if (existingTask.status === "Waiting Customer") {
-        newStatus = "In Progress";
+      // Determine new status using the canonical ai_tasks vocabulary.
+      // Legacy rows are normalized opportunistically when they are touched.
+      const currentStatus = normalizeAiTaskStatus(existingTask.status) ?? "new_inquiry";
+      let newStatus: AiTaskStatus = currentStatus;
+      if (currentStatus === "waiting_customer") {
+        newStatus = "in_progress";
       }
-      if (allResolved && ["Waiting Documents", "New Inquiry", "In Progress"].includes(existingTask.status)) {
-        newStatus = "Ready for Review";
+      if (allResolved && ["waiting_documents", "new_inquiry", "in_progress", "missing_data"].includes(currentStatus)) {
+        newStatus = "ready_for_review";
       }
 
       // Build the resolution note for the comment thread

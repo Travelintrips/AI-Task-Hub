@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { eq, ne, desc, and, ilike, or, isNull, gte, lte, SQL } from "drizzle-orm";
+import { eq, ne, desc, and, ilike, or, isNull, gte, lte, inArray, SQL } from "drizzle-orm";
 import {
   db,
   aiTasksTable,
@@ -7,6 +7,9 @@ import {
   auditLogsTable,
   teamMembersTable,
   whatsappMessagesTable,
+  getAiTaskStatusVariants,
+  normalizeAiTaskStatus,
+  type AiTaskStatus,
 } from "@workspace/db";
 import { requireAuth, getCompanyId, getCompanyIdForWrite } from "../middleware/auth";
 import { logger } from "../lib/logger";
@@ -32,7 +35,14 @@ router.get("/ai-tasks", requireAuth, async (req: Request, res: Response): Promis
     const conditions: SQL[] = [];
     if (companyId) conditions.push(eq(aiTasksTable.companyId, companyId));
 
-    if (status)   conditions.push(eq(aiTasksTable.status, status));
+    if (status) {
+      const normalizedStatus = normalizeAiTaskStatus(status);
+      if (!normalizedStatus) {
+        res.status(400).json({ error: `Status tidak valid: ${status}` });
+        return;
+      }
+      conditions.push(inArray(aiTasksTable.status, getAiTaskStatusVariants(normalizedStatus)));
+    }
     if (priority) conditions.push(eq(aiTasksTable.priority, priority));
     if (category) conditions.push(eq(aiTasksTable.category, category));
     if (division) conditions.push(eq(aiTasksTable.division, division));
@@ -69,7 +79,10 @@ router.get("/ai-tasks", requireAuth, async (req: Request, res: Response): Promis
       );
     }
 
-    res.json(rows);
+    res.json(rows.map((row) => ({
+      ...row,
+      status: normalizeAiTaskStatus(row.status) ?? row.status,
+    })));
   } catch (err) {
     logger.error({ err }, "GET /ai-tasks failed");
     res.status(500).json({ error: "Failed to load AI tasks" });
@@ -101,7 +114,11 @@ router.get("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): Pr
       .where(eq(taskCommentsTable.taskId, id))
       .orderBy(taskCommentsTable.createdAt);
 
-    res.json({ ...task, comments });
+    res.json({
+      ...task,
+      status: normalizeAiTaskStatus(task.status) ?? task.status,
+      comments,
+    });
   } catch (err) {
     logger.error({ err }, "GET /ai-tasks/:id failed");
     res.status(500).json({ error: "Failed to load AI task" });
@@ -127,6 +144,12 @@ router.post("/ai-tasks", requireAuth, async (req: Request, res: Response): Promi
       return;
     }
 
+    const normalizedStatus = status ? normalizeAiTaskStatus(status) : "new_inquiry";
+    if (!normalizedStatus) {
+      res.status(400).json({ error: `Status tidak valid: ${status}` });
+      return;
+    }
+
     // Buat nomor task unik
     const now   = new Date();
     const yymm  = `${String(now.getFullYear()).slice(-2)}${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -146,7 +169,7 @@ router.post("/ai-tasks", requireAuth, async (req: Request, res: Response): Promi
         category:        category ?? null,
         division:        division ?? null,
         priority:        priority ?? "medium",
-        status:          (status as string) ?? "new_inquiry",
+        status:          normalizedStatus,
         assignedTo:      assignedTo ?? null,
         assignedRole:    assignedRole ?? null,
         assignedDivision: assignedDivision ?? null,
@@ -219,7 +242,20 @@ router.patch("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): 
     } = req.body as Record<string, string | number | null | undefined>;
 
     const updates: Partial<typeof aiTasksTable.$inferInsert> = {};
-    if (status         !== undefined) updates.status         = status         as string;
+    let normalizedStatus: AiTaskStatus | undefined;
+    if (status !== undefined) {
+      if (typeof status !== "string") {
+        res.status(400).json({ error: "status harus berupa string" });
+        return;
+      }
+      const parsedStatus = normalizeAiTaskStatus(status);
+      if (!parsedStatus) {
+        res.status(400).json({ error: `Status tidak valid: ${status}` });
+        return;
+      }
+      normalizedStatus = parsedStatus;
+      updates.status = parsedStatus;
+    }
     if (priority       !== undefined) updates.priority       = priority       as string;
     if (assignedTo     !== undefined) updates.assignedTo     = assignedTo     as string | null;
     if (assignedRole   !== undefined) updates.assignedRole   = assignedRole   as string | null;
@@ -239,8 +275,8 @@ router.patch("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): 
 
     // ── Activity log ─────────────────────────────────────────────────────────
     const changes: string[] = [];
-    if (status && status !== current.status)
-      changes.push(`status: ${current.status} → ${status}`);
+    if (normalizedStatus && normalizedStatus !== normalizeAiTaskStatus(current.status))
+      changes.push(`status: ${current.status} → ${normalizedStatus}`);
     if (assignedTo && assignedTo !== current.assignedTo)
       changes.push(`petugas: ${assignedTo}`);
 
@@ -254,8 +290,8 @@ router.patch("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): 
     }
 
     // ── Sinkron balik ke Supabase logistic_orders (fire-and-forget) ──────────
-    if (status && status !== current.status && current.taskNumber) {
-      pushStatusToSupabase(current.taskNumber, current.status, status as string)
+    if (normalizedStatus && normalizedStatus !== normalizeAiTaskStatus(current.status) && current.taskNumber) {
+      pushStatusToSupabase(current.taskNumber, current.status, normalizedStatus)
         .catch((err) => logger.error({ err }, "pushStatusToSupabase gagal"));
     }
 
@@ -286,12 +322,11 @@ router.patch("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): 
       companyId: eventCompanyId,
     };
 
-    const isNowCompleted =
-      status &&
-      status !== current.status &&
-      (status === "completed" || status === "Completed");
+    const currentCanonicalStatus = normalizeAiTaskStatus(current.status);
+    const statusChanged = normalizedStatus !== undefined && normalizedStatus !== currentCanonicalStatus;
+    const isNowCompleted = statusChanged && normalizedStatus === "completed";
 
-    if (status && status !== current.status) {
+    if (statusChanged) {
       if (isNowCompleted) {
         // Kirim notifikasi khusus "selesai" dengan ringkasan ke customer
         notifyTaskCompleted({

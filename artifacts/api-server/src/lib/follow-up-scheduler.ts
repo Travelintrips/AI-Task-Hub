@@ -1,13 +1,17 @@
-import { db, aiTasksTable, followUpLogsTable, taskCommentsTable, auditLogsTable } from "@workspace/db";
-import { eq, and, lt, lte, or, isNull, gte } from "drizzle-orm";
+import { db, aiTasksTable, followUpLogsTable, taskCommentsTable, auditLogsTable, getAiTaskStatusVariants, type AiTaskStatus } from "@workspace/db";
+import { eq, and, lt, lte, isNull, gte, inArray } from "drizzle-orm";
 import { sendFonnte } from "./fonnte";
 import { logger } from "./logger";
 
-const FOLLOW_UP_STATUSES = [
+const FOLLOW_UP_STATUSES: AiTaskStatus[] = [
   "waiting_documents",
   "waiting_customer",
   "missing_data",
 ];
+
+const FOLLOW_UP_STATUS_VALUES = Array.from(new Set(
+  FOLLOW_UP_STATUSES.flatMap((status) => getAiTaskStatusVariants(status)),
+));
 
 function buildFollowUpMessage(task: { taskNumber: string | null; title: string; customerName: string | null; missingData: string | null }, round: number): string {
   const name = task.customerName ? `*${task.customerName}*` : "Bapak/Ibu";
@@ -29,11 +33,11 @@ function buildFollowUpMessage(task: { taskNumber: string | null; title: string; 
 async function runFollowUps(): Promise<void> {
   const now = new Date();
 
-  const tasks = await db.select().from(aiTasksTable).where(
-    and(
-      or(...FOLLOW_UP_STATUSES.map((s) => eq(aiTasksTable.status, s))),
-    )
-  ).limit(200);
+  const tasks = await db
+    .select()
+    .from(aiTasksTable)
+    .where(inArray(aiTasksTable.status, FOLLOW_UP_STATUS_VALUES))
+    .limit(200);
 
   for (const task of tasks) {
     if (!task.customerPhone) continue;

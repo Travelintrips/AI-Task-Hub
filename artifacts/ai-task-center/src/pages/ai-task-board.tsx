@@ -51,7 +51,7 @@ interface AiTask {
 
 const STATUSES = [
   "New Inquiry", "Waiting Documents", "Ready for Review",
-  "Assigned", "In Progress", "Completed",
+  "Assigned", "In Progress", "Completed", "Cancelled",
 ] as const;
 
 type TaskStatus = typeof STATUSES[number];
@@ -63,6 +63,7 @@ const STATUS_CONFIG: Record<TaskStatus, { dot: string; badge: string; cardBorder
   "Assigned":          { dot: "bg-indigo-500", badge: "bg-indigo-100 text-indigo-700",cardBorder: "border-indigo-200", cardText: "text-indigo-700" },
   "In Progress":       { dot: "bg-orange-500", badge: "bg-orange-100 text-orange-700",cardBorder: "border-orange-200", cardText: "text-orange-700" },
   "Completed":         { dot: "bg-green-500",  badge: "bg-green-100 text-green-700",  cardBorder: "border-green-200",  cardText: "text-green-700"  },
+  "Cancelled":         { dot: "bg-gray-500",   badge: "bg-gray-100 text-gray-700",    cardBorder: "border-gray-200",   cardText: "text-gray-700"   },
 };
 
 const PRIORITY_BADGE: Record<string, string> = {
@@ -92,7 +93,7 @@ function normalizeStatus(status: string): TaskStatus {
   if (status === "assigned") return "Assigned";
   if (status === "in_progress" || status === "processing" || status === "waiting_customer" || status === "waiting_vendor" || status === "quotation_ready" || status === "approved_by_customer") return "In Progress";
   if (status === "completed" || status === "done" || status === "paid") return "Completed";
-  if (status === "cancelled") return "Completed";
+  if (status === "cancelled" || status === "canceled") return "Cancelled";
   return "New Inquiry";
 }
 
@@ -151,7 +152,7 @@ function StatusCards({
   }, [tasks]);
 
   return (
-    <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+    <div className="grid grid-cols-3 sm:grid-cols-7 gap-2">
       {STATUSES.map((s) => {
         const cfg = STATUS_CONFIG[s];
         const active = activeFilter === s;

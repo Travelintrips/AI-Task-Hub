@@ -19,7 +19,7 @@ An operations platform that receives WhatsApp messages, uses AI (OpenAI) to dete
 - pnpm workspaces, Node.js 24, TypeScript 5.9
 - Frontend: React + Vite + Tailwind CSS + shadcn/ui + Wouter + TanStack Query
 - API: Express 5
-- DB: PostgreSQL + Drizzle ORM (Replit managed)
+- DB: Supabase PostgreSQL + Drizzle ORM (separate DEV/PROD projects)
 - Validation: Zod (`zod/v4`), `drizzle-zod`
 - API codegen: Orval (from OpenAPI spec)
 - Build: esbuild (CJS bundle)
@@ -41,7 +41,7 @@ An operations platform that receives WhatsApp messages, uses AI (OpenAI) to dete
 - WhatsApp webhook at `POST /api/webhook/whatsapp` auto-creates tasks from messages using OpenAI intent detection
 - Supabase Storage used for document uploads via presigned URLs; OpenAI audits documents on demand
 - All activity (task events, messages, audits) recorded in the `activity` table for the dashboard feed
-- Drizzle ORM with Replit managed Postgres; Supabase used only for file storage (not as primary DB)
+- Drizzle ORM connects to Supabase PostgreSQL as the primary database; Supabase Storage is used for file storage. Development and production use separate Supabase projects selected by `NODE_ENV`.
 
 ## Product
 

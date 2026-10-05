@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { eq, and, isNull, ne, desc } from "drizzle-orm";
-import { db, aiTasksTable, auditLogsTable, dispatcherLogsTable, teamMembersTable } from "@workspace/db";
+import { eq, and, isNull, desc, notInArray } from "drizzle-orm";
+import { db, aiTasksTable, auditLogsTable, dispatcherLogsTable, teamMembersTable, AI_TASK_TERMINAL_STATUS_VARIANTS, normalizeAiTaskStatus } from "@workspace/db";
 import { requireAuth, getCompanyId } from "../middleware/auth";
 import { logger } from "../lib/logger";
 import { suggestAssignment, getTeamWorkload } from "../lib/dispatcher";
@@ -30,8 +30,7 @@ router.get("/dispatcher/queue", requireAuth, async (req: Request, res: Response)
       .where(and(
         eq(aiTasksTable.companyId, companyId),
         isNull(aiTasksTable.assignedTo),
-        ne(aiTasksTable.status, "completed"),
-        ne(aiTasksTable.status, "cancelled"),
+        notInArray(aiTasksTable.status, AI_TASK_TERMINAL_STATUS_VARIANTS),
       ))
       .orderBy(desc(aiTasksTable.createdAt))
       .limit(50);
@@ -86,10 +85,16 @@ router.post("/dispatcher/assign", requireAuth, async (req: Request, res: Respons
     const [task] = await db.select().from(aiTasksTable).where(eq(aiTasksTable.id, taskId)).limit(1);
     if (!task) { res.status(404).json({ error: "Task tidak ditemukan" }); return; }
 
-    // Update task assignment
+    // Update task assignment and canonicalize any legacy status value.
+    const currentStatus = normalizeAiTaskStatus(task.status) ?? "new_inquiry";
+    if (currentStatus === "completed" || currentStatus === "cancelled") {
+      res.status(409).json({ error: "Task terminal tidak dapat ditugaskan" });
+      return;
+    }
+    const nextStatus = currentStatus === "new_inquiry" ? "in_progress" : currentStatus;
     const [updated] = await db
       .update(aiTasksTable)
-      .set({ assignedTo: memberName, status: task.status === "new_inquiry" ? "in_progress" : task.status })
+      .set({ assignedTo: memberName, status: nextStatus })
       .where(eq(aiTasksTable.id, taskId))
       .returning();
 
@@ -188,7 +193,7 @@ router.post("/dispatcher/auto-dispatch", requireAuth, async (req: Request, res: 
 
     const tasksToDispatch = taskIds
       ? await db.select().from(aiTasksTable).where(and(eq(aiTasksTable.companyId, companyId), ...taskIds.map((id) => eq(aiTasksTable.id, id))))
-      : await db.select().from(aiTasksTable).where(and(eq(aiTasksTable.companyId, companyId), isNull(aiTasksTable.assignedTo), ne(aiTasksTable.status, "completed"), ne(aiTasksTable.status, "cancelled"))).limit(20);
+      : await db.select().from(aiTasksTable).where(and(eq(aiTasksTable.companyId, companyId), isNull(aiTasksTable.assignedTo), notInArray(aiTasksTable.status, AI_TASK_TERMINAL_STATUS_VARIANTS))).limit(20);
 
     const results: { taskId: number; assignedTo: string | null; explanation: string }[] = [];
 
@@ -197,7 +202,13 @@ router.post("/dispatcher/auto-dispatch", requireAuth, async (req: Request, res: 
         const suggestion = await suggestAssignment(task.id, companyId);
         if (!suggestion?.topCandidate) { results.push({ taskId: task.id, assignedTo: null, explanation: "Tidak ada kandidat tersedia" }); continue; }
 
-        await db.update(aiTasksTable).set({ assignedTo: suggestion.topCandidate.memberName, status: task.status === "new_inquiry" ? "in_progress" : task.status }).where(eq(aiTasksTable.id, task.id));
+        const currentStatus = normalizeAiTaskStatus(task.status) ?? "new_inquiry";
+        if (currentStatus === "completed" || currentStatus === "cancelled") {
+          results.push({ taskId: task.id, assignedTo: null, explanation: "Task sudah terminal" });
+          continue;
+        }
+        const nextStatus = currentStatus === "new_inquiry" ? "in_progress" : currentStatus;
+        await db.update(aiTasksTable).set({ assignedTo: suggestion.topCandidate.memberName, status: nextStatus }).where(eq(aiTasksTable.id, task.id));
         results.push({ taskId: task.id, assignedTo: suggestion.topCandidate.memberName, explanation: suggestion.explanation });
       } catch (err) {
         results.push({ taskId: task.id, assignedTo: null, explanation: "Error saat dispatch" });

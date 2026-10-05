@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { count, eq, ne, desc, sql } from "drizzle-orm";
+import { count, eq, desc, sql, inArray, notInArray } from "drizzle-orm";
 import {
   db,
   aiTasksTable,
@@ -7,6 +7,9 @@ import {
   documentsTable,
   teamMembersTable,
   auditLogsTable,
+  AI_TASK_TERMINAL_STATUS_VARIANTS,
+  getAiTaskStatusVariants,
+  normalizeAiTaskStatus,
 } from "@workspace/db";
 import { requireAuth, getCompanyId } from "../middleware/auth";
 import { logger } from "../lib/logger";
@@ -18,11 +21,11 @@ const router: IRouter = Router();
 router.get("/dashboard/stats", requireAuth, async (_req: Request, res: Response): Promise<void> => {
   try {
     const [totalTasks] = await db.select({ count: count() }).from(aiTasksTable);
-    const [pendingTasks] = await db.select({ count: count() }).from(aiTasksTable).where(ne(aiTasksTable.status, "completed"));
-    const [completedTasks] = await db.select({ count: count() }).from(aiTasksTable).where(eq(aiTasksTable.status, "completed"));
+    const [pendingTasks] = await db.select({ count: count() }).from(aiTasksTable).where(notInArray(aiTasksTable.status, AI_TASK_TERMINAL_STATUS_VARIANTS));
+    const [completedTasks] = await db.select({ count: count() }).from(aiTasksTable).where(inArray(aiTasksTable.status, getAiTaskStatusVariants("completed")));
     const [urgentTasks] = await db.select({ count: count() }).from(aiTasksTable).where(eq(aiTasksTable.priority, "urgent"));
 
-    const [activeAiTasks] = await db.select({ count: count() }).from(aiTasksTable).where(ne(aiTasksTable.status, "completed"));
+    const [activeAiTasks] = await db.select({ count: count() }).from(aiTasksTable).where(notInArray(aiTasksTable.status, AI_TASK_TERMINAL_STATUS_VARIANTS));
 
     const [totalMessages] = await db.select({ count: count() }).from(whatsappMessagesTable);
     const [pendingMessages] = await db.select({ count: count() }).from(whatsappMessagesTable).where(eq(whatsappMessagesTable.processed, false));
@@ -91,8 +94,8 @@ router.get("/dashboard/analytics", requireAuth, async (req: Request, res: Respon
         TO_CHAR(DATE_TRUNC('month', created_at), 'Mon YY') AS month,
         DATE_TRUNC('month', created_at) AS month_date,
         COUNT(*) AS total,
-        COUNT(*) FILTER (WHERE status = 'completed') AS completed,
-        COUNT(*) FILTER (WHERE status NOT IN ('completed', 'cancelled')) AS active
+        COUNT(*) FILTER (WHERE LOWER(REPLACE(status, ' ', '_')) IN ('completed', 'done', 'paid')) AS completed,
+        COUNT(*) FILTER (WHERE LOWER(REPLACE(status, ' ', '_')) NOT IN ('completed', 'done', 'paid', 'cancelled', 'canceled')) AS active
       FROM ai_tasks
       ${companyFilter}
         AND created_at >= NOW() - INTERVAL '6 months'
@@ -129,10 +132,10 @@ router.get("/dashboard/analytics", requireAuth, async (req: Request, res: Respon
       SELECT
         COALESCE(assigned_to, 'Belum Diassign') AS name,
         COUNT(*) AS total,
-        COUNT(*) FILTER (WHERE status = 'completed') AS completed,
-        COUNT(*) FILTER (WHERE status NOT IN ('completed', 'cancelled')) AS active,
+        COUNT(*) FILTER (WHERE LOWER(REPLACE(status, ' ', '_')) IN ('completed', 'done', 'paid')) AS completed,
+        COUNT(*) FILTER (WHERE LOWER(REPLACE(status, ' ', '_')) NOT IN ('completed', 'done', 'paid', 'cancelled', 'canceled')) AS active,
         ROUND(
-          100.0 * COUNT(*) FILTER (WHERE status = 'completed') / NULLIF(COUNT(*), 0)
+          100.0 * COUNT(*) FILTER (WHERE LOWER(REPLACE(status, ' ', '_')) IN ('completed', 'done', 'paid')) / NULLIF(COUNT(*), 0)
         ) AS completion_rate
       FROM ai_tasks
       ${companyFilter}
@@ -152,6 +155,15 @@ router.get("/dashboard/analytics", requireAuth, async (req: Request, res: Respon
       GROUP BY status
       ORDER BY value DESC
     `);
+
+    // Merge legacy/display values into the canonical ai_tasks status vocabulary.
+    const canonicalStatusCounts = new Map<string, number>();
+    for (const row of byStatus.rows as Array<{ name: unknown; value: unknown }>) {
+      const rawName = String(row.name ?? "unknown");
+      const name = normalizeAiTaskStatus(rawName) ?? rawName;
+      canonicalStatusCounts.set(name, (canonicalStatusCounts.get(name) ?? 0) + Number(row.value ?? 0));
+    }
+    const canonicalByStatus = Array.from(canonicalStatusCounts, ([name, value]) => ({ name, value }));
 
     // 6. Distribusi prioritas
     const byPriority = await db.execute(sql`
@@ -181,7 +193,7 @@ router.get("/dashboard/analytics", requireAuth, async (req: Request, res: Respon
     const thisMonthResult = await db.execute(sql`
       SELECT
         COUNT(*) AS new_tasks,
-        COUNT(*) FILTER (WHERE status = 'completed') AS completed
+        COUNT(*) FILTER (WHERE LOWER(REPLACE(status, ' ', '_')) IN ('completed', 'done', 'paid')) AS completed
       FROM ai_tasks
       ${companyFilter}
         AND created_at >= DATE_TRUNC('month', NOW())
@@ -191,7 +203,7 @@ router.get("/dashboard/analytics", requireAuth, async (req: Request, res: Respon
     const lastMonthResult = await db.execute(sql`
       SELECT
         COUNT(*) AS new_tasks,
-        COUNT(*) FILTER (WHERE status = 'completed') AS completed
+        COUNT(*) FILTER (WHERE LOWER(REPLACE(status, ' ', '_')) IN ('completed', 'done', 'paid')) AS completed
       FROM ai_tasks
       ${companyFilter}
         AND created_at >= DATE_TRUNC('month', NOW() - INTERVAL '1 month')
@@ -204,7 +216,7 @@ router.get("/dashboard/analytics", requireAuth, async (req: Request, res: Respon
       byCategory:      byCategory.rows,
       byDivision:      byDivision.rows,
       teamPerformance: teamPerformance.rows,
-      byStatus:        byStatus.rows,
+      byStatus:        canonicalByStatus,
       byPriority:      byPriority.rows,
       messageTrend:    messageTrend.rows,
       summary: {
