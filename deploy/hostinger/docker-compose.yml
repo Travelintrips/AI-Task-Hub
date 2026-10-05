@@ -1,0 +1,26 @@
+services:
+  app:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    image: ${IMAGE_NAME:-ai-task-hub}:${IMAGE_TAG:-latest}
+    container_name: ${CONTAINER_NAME:-ai-task-hub}
+    restart: unless-stopped
+    env_file:
+      - ${APP_ENV_FILE}
+    environment:
+      NODE_ENV: ${NODE_ENV}
+      PORT: "8080"
+    ports:
+      - "127.0.0.1:${HOST_PORT}:8080"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8080/api/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+    stop_grace_period: 30s
