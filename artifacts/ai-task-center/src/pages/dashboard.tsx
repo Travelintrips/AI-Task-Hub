@@ -68,7 +68,10 @@ const ALL_STATUSES = [
   "In Progress",
   "Waiting Customer",
   "Completed",
+  "Cancelled",
 ] as const;
+
+type DashboardStatus = typeof ALL_STATUSES[number];
 
 const STATUS_CONFIG: Record<string, { dot: string; badge: string; card: string; cardText: string }> = {
   "New Inquiry":       { dot: "bg-blue-500",   badge: "bg-blue-100 text-blue-700 border-blue-200",    card: "bg-blue-50 border-blue-200",    cardText: "text-blue-700" },
@@ -78,7 +81,22 @@ const STATUS_CONFIG: Record<string, { dot: string; badge: string; card: string; 
   "In Progress":       { dot: "bg-orange-500", badge: "bg-orange-100 text-orange-700 border-orange-200", card: "bg-orange-50 border-orange-200", cardText: "text-orange-700" },
   "Waiting Customer":  { dot: "bg-teal-500",   badge: "bg-teal-100 text-teal-700 border-teal-200",    card: "bg-teal-50 border-teal-200",    cardText: "text-teal-700" },
   "Completed":         { dot: "bg-green-500",  badge: "bg-green-100 text-green-700 border-green-200", card: "bg-green-50 border-green-200",  cardText: "text-green-700" },
+  "Cancelled":         { dot: "bg-gray-500",   badge: "bg-gray-100 text-gray-700 border-gray-200",   card: "bg-gray-50 border-gray-200",    cardText: "text-gray-700" },
 };
+
+function normalizeStatus(status: string): DashboardStatus {
+  if ((ALL_STATUSES as readonly string[]).includes(status)) return status as DashboardStatus;
+  const normalized = status.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (["pending", "draft", "new", "new_inquiry"].includes(normalized)) return "New Inquiry";
+  if (["waiting_documents", "waiting_doc"].includes(normalized)) return "Waiting Documents";
+  if (["documents_received", "audit_in_progress", "missing_data", "ready_for_review", "review"].includes(normalized)) return "Ready for Review";
+  if (normalized === "assigned") return "Assigned";
+  if (["in_progress", "processing", "waiting_vendor", "quotation_ready", "approved_by_customer"].includes(normalized)) return "In Progress";
+  if (normalized === "waiting_customer") return "Waiting Customer";
+  if (["completed", "done", "paid"].includes(normalized)) return "Completed";
+  if (["cancelled", "canceled"].includes(normalized)) return "Cancelled";
+  return "New Inquiry";
+}
 
 const PRIORITY_CONFIG: Record<string, { label: string; dot: string; badge: string }> = {
   high:   { label: "High",   dot: "bg-red-500",   badge: "bg-red-100 text-red-700 border-red-200" },
@@ -162,11 +180,12 @@ function SummaryCard({
 // ─── Status Badge ─────────────────────────────────────────────────────────────
 
 function StatusBadge({ status }: { status: string }) {
-  const cfg = STATUS_CONFIG[status] ?? { dot: "bg-gray-400", badge: "bg-gray-100 text-gray-600 border-gray-200" };
+  const displayStatus = normalizeStatus(status);
+  const cfg = STATUS_CONFIG[displayStatus] ?? { dot: "bg-gray-400", badge: "bg-gray-100 text-gray-600 border-gray-200" };
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] font-medium whitespace-nowrap ${cfg.badge}`}>
       <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
-      {status}
+      {displayStatus}
     </span>
   );
 }
@@ -270,7 +289,7 @@ export default function Dashboard() {
       queryClient.setQueryData<AiTask[]>(queryKey, (prev = []) =>
         prev.map((t) => (t.id === updated.id ? { ...t, status: updated.status } : t)),
       );
-      toast({ title: `Status diubah ke "${updated.status}"` });
+      toast({ title: `Status diubah ke "${normalizeStatus(updated.status)}"` });
     },
     onError: () => toast({ title: "Gagal memperbarui status", variant: "destructive" }),
   });
@@ -292,7 +311,8 @@ export default function Dashboard() {
     const map: Record<string, number> = {};
     for (const s of SUMMARY_STATUSES) map[s] = 0;
     for (const t of tasks) {
-      if (t.status in map) map[t.status]++;
+      const displayStatus = normalizeStatus(t.status);
+      if (displayStatus in map) map[displayStatus]++;
     }
     return map;
   }, [tasks]);
@@ -660,7 +680,7 @@ function TaskRow({ task, onStatusChange }: { task: AiTask; onStatusChange: (s: s
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">
-            {ALL_STATUSES.filter((s) => s !== task.status).map((s) => {
+            {ALL_STATUSES.filter((s) => s !== normalizeStatus(task.status)).map((s) => {
               const cfg = STATUS_CONFIG[s];
               return (
                 <DropdownMenuItem key={s} onClick={() => onStatusChange(s)} className="text-xs gap-2">
@@ -702,7 +722,7 @@ function MobileTaskCard({ task, onStatusChange }: { task: AiTask; onStatusChange
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48">
-              {ALL_STATUSES.filter((s) => s !== task.status).map((s) => {
+              {ALL_STATUSES.filter((s) => s !== normalizeStatus(task.status)).map((s) => {
                 const cfg = STATUS_CONFIG[s];
                 return (
                   <DropdownMenuItem key={s} onClick={() => onStatusChange(s)} className="text-xs gap-2">
