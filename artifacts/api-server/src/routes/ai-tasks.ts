@@ -28,12 +28,16 @@ router.get("/ai-tasks", requireAuth, async (req: Request, res: Response): Promis
     const companyId = getCompanyId(req);
     const {
       status, priority, category, division, search,
-      dateFrom, dateTo,
+      dateFrom, dateTo, companyId: requestedCompanyId, assignedTo,
     } = req.query as Record<string, string | undefined>;
 
     // Build DB-level WHERE conditions
     const conditions: SQL[] = [];
-    if (companyId) conditions.push(eq(aiTasksTable.companyId, companyId));
+    if (companyId) {
+      conditions.push(eq(aiTasksTable.companyId, companyId));
+    } else if (requestedCompanyId && requestedCompanyId !== "all") {
+      conditions.push(eq(aiTasksTable.companyId, requestedCompanyId));
+    }
 
     if (status) {
       const normalizedStatus = normalizeAiTaskStatus(status);
@@ -46,6 +50,7 @@ router.get("/ai-tasks", requireAuth, async (req: Request, res: Response): Promis
     if (priority) conditions.push(eq(aiTasksTable.priority, priority));
     if (category) conditions.push(eq(aiTasksTable.category, category));
     if (division) conditions.push(eq(aiTasksTable.division, division));
+    if (assignedTo && assignedTo !== "all") conditions.push(eq(aiTasksTable.assignedTo, assignedTo));
     if (dateFrom) {
       const from = new Date(dateFrom);
       if (!isNaN(from.getTime())) conditions.push(gte(aiTasksTable.createdAt, from));
