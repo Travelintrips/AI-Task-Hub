@@ -5,8 +5,8 @@ import { logger } from "./logger";
 const apiKey = config.openai.apiKey;
 const baseURL = config.openai.baseUrl;
 
-if (!apiKey || apiKey === "_DUMMY_API_KEY_") {
-  logger.info({ baseURL }, "Using Replit AI Integrations proxy for OpenAI");
+if (!apiKey || apiKey === "_NOT_CONFIGURED_") {
+  logger.warn("OPENAI_API_KEY not set — OpenAI features will be unavailable");
 }
 
 export const openai = new OpenAI({
