@@ -79,7 +79,10 @@ router.get("/ai-tasks", requireAuth, async (req: Request, res: Response): Promis
       );
     }
 
-    res.json(rows);
+    res.json(rows.map((row) => ({
+      ...row,
+      status: normalizeAiTaskStatus(row.status) ?? row.status,
+    })));
   } catch (err) {
     logger.error({ err }, "GET /ai-tasks failed");
     res.status(500).json({ error: "Failed to load AI tasks" });
@@ -111,7 +114,11 @@ router.get("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): Pr
       .where(eq(taskCommentsTable.taskId, id))
       .orderBy(taskCommentsTable.createdAt);
 
-    res.json({ ...task, comments });
+    res.json({
+      ...task,
+      status: normalizeAiTaskStatus(task.status) ?? task.status,
+      comments,
+    });
   } catch (err) {
     logger.error({ err }, "GET /ai-tasks/:id failed");
     res.status(500).json({ error: "Failed to load AI task" });
