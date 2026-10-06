@@ -21,8 +21,12 @@ $password = (($bytes | ForEach-Object { $_.ToString("x2") }) -join "")
 
 try {
   $sql = "alter role ai_task_runtime_login with login password '$password' valid until 'infinity';"
-  & npx -y supabase@latest db query --project-ref $ProjectRef --linked $sql *> $null
-  if ($LASTEXITCODE -ne 0) { throw "Supabase database role rotation failed" }
+  $previousErrorActionPreference = $ErrorActionPreference
+  $ErrorActionPreference = "Continue"
+  & npx -y supabase@latest db query --project-ref $ProjectRef --linked $sql 1>$null 2>$null
+  $supabaseExitCode = $LASTEXITCODE
+  $ErrorActionPreference = $previousErrorActionPreference
+  if ($supabaseExitCode -ne 0) { throw "Supabase database role rotation failed" }
 
   $databaseUrl = "postgresql://ai_task_runtime_login.${ProjectRef}:${password}@${PoolerHost}:5432/postgres"
   $databaseUrl | gh secret set SUPABASE_DATABASE_URL --env $Environment -R $Repository
