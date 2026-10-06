@@ -1,19 +1,105 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Activity, Eye, EyeOff } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
+import { apiGetGoogleConfig } from "@/lib/auth-api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 
+declare global {
+  interface Window {
+    google?: {
+      accounts: {
+        id: {
+          initialize: (config: {
+            client_id: string;
+            callback: (response: { credential?: string }) => void;
+          }) => void;
+          renderButton: (
+            parent: HTMLElement,
+            options: Record<string, string | number | boolean>,
+          ) => void;
+        };
+      };
+    };
+  }
+}
+
 export default function Login() {
-  const { login } = useAuth();
+  const { login, loginWithGoogle } = useAuth();
   const { toast } = useToast();
   const [email, setEmail]         = useState("");
   const [password, setPassword]   = useState("");
   const [loading, setLoading]     = useState(false);
   const [showPassword, setShowPw] = useState(false);
+  const googleButtonRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const renderGoogleButton = async () => {
+      try {
+        const { clientId } = await apiGetGoogleConfig();
+        if (cancelled || !googleButtonRef.current) return;
+
+        const initialize = () => {
+          if (cancelled || !googleButtonRef.current || !window.google) return;
+          googleButtonRef.current.innerHTML = "";
+          window.google.accounts.id.initialize({
+            client_id: clientId,
+            callback: async ({ credential }) => {
+              if (!credential) return;
+              setLoading(true);
+              try {
+                await loginWithGoogle(credential);
+              } catch (err: unknown) {
+                const msg = err instanceof Error ? err.message : "Login Google gagal";
+                toast({ title: "Login Google gagal", description: msg, variant: "destructive" });
+              } finally {
+                setLoading(false);
+              }
+            },
+          });
+          window.google.accounts.id.renderButton(googleButtonRef.current, {
+            type: "standard",
+            theme: "outline",
+            size: "large",
+            text: "signin_with",
+            shape: "rectangular",
+            width: 320,
+          });
+        };
+
+        if (window.google) {
+          initialize();
+          return;
+        }
+
+        const existing = document.querySelector<HTMLScriptElement>('script[data-google-identity="true"]');
+        if (existing) {
+          existing.addEventListener("load", initialize, { once: true });
+          return;
+        }
+
+        const script = document.createElement("script");
+        script.src = "https://accounts.google.com/gsi/client";
+        script.async = true;
+        script.defer = true;
+        script.dataset.googleIdentity = "true";
+        script.addEventListener("load", initialize, { once: true });
+        document.head.appendChild(script);
+      } catch (err) {
+        console.error("Failed to initialize Google login", err);
+      }
+    };
+
+    void renderGoogleButton();
+    return () => {
+      cancelled = true;
+    };
+  }, [loginWithGoogle, toast]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -44,7 +130,17 @@ export default function Login() {
             <CardTitle className="text-lg">Masuk</CardTitle>
             <CardDescription>Gunakan email dan password yang terdaftar</CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
+            <div className="flex justify-center">
+              <div ref={googleButtonRef} aria-label="Masuk dengan Google" />
+            </div>
+
+            <div className="flex items-center gap-3">
+              <div className="h-px flex-1 bg-border" />
+              <span className="text-xs text-muted-foreground">atau</span>
+              <div className="h-px flex-1 bg-border" />
+            </div>
+
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
@@ -88,11 +184,8 @@ export default function Login() {
           </CardContent>
         </Card>
 
-        <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-xs text-blue-700 space-y-1">
-          <p className="font-semibold">Akun Admin Awal:</p>
-          <p>Email: <span className="font-mono">diva@admin.com</span></p>
-          <p>Password: <span className="font-mono">admin123</span></p>
-          <p className="text-blue-500 text-[11px]">Ganti password setelah login pertama</p>
+        <div className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">
+          Gunakan akun Google perusahaan atau email/password yang sudah terdaftar.
         </div>
         <p className="text-center text-xs text-muted-foreground">
           Belum ada akun admin?{" "}
