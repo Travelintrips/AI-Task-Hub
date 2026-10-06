@@ -34,7 +34,7 @@ router.get("/intake-sessions", requireAuth, async (req, res): Promise<void> => {
     if (status) {
       const statuses = status.split(",").filter(Boolean);
       if (statuses.length > 0) {
-        conditions.push(inArray(intakeSessionsTable.status, statuses as ("collecting" | "ready_for_task" | "submitted" | "cancelled" | "expired")[]));
+        conditions.push(inArray(intakeSessionsTable.status, statuses as ("collecting" | "form_sent" | "ready_for_task" | "submitted" | "cancelled" | "expired")[]));
       }
     }
     if (phone) {
