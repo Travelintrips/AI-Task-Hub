@@ -1,4 +1,5 @@
-import { pgTable, text, serial, timestamp, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, boolean } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -25,7 +26,7 @@ export const ROLE_HIERARCHY: Record<UserRole, number> = {
 };
 
 export const usersTable = pgTable("users", {
-  id:           serial("id").primaryKey(),
+  id:           text("id").primaryKey().default(sql`(gen_random_uuid())::text`),
   companyId:    text("company_id").notNull().default("default"),
   name:         text("name").notNull(),
   email:        text("email").notNull().unique(),
