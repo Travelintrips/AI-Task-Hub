@@ -15,7 +15,11 @@ router.get("/healthz", (_req, res) => {
 
 router.get("/readyz", async (_req, res): Promise<void> => {
   try {
-    await pool.query("select 1");
+    await Promise.all([
+      pool.query("select 1"),
+      pool.query("select 1 from public.conversation_intake_sessions limit 0"),
+      pool.query("select 1 from public.admin_notifications limit 0"),
+    ]);
     res.json({ status: "ready", database: "ok" });
   } catch {
     res.status(503).json({ status: "degraded", database: "unavailable" });
