@@ -85,7 +85,14 @@ import HoldingDashboardPage from "@/pages/holding-dashboard";
 import AiOperationsPage from "@/pages/ai-operations";
 import NotificationReceiversPage from "@/pages/notification-receivers";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: 1,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
 
 function AppRouter() {
   const { isAuthenticated, isLoading } = useAuth();
