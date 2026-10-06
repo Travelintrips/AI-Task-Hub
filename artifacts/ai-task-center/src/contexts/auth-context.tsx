@@ -10,7 +10,6 @@ interface AuthContextValue {
   isLoading: boolean;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<void>;
-  loginWithGoogle: (credential: string) => Promise<void>;
   logout: () => void;
   refreshUser: () => Promise<void>;
 }
@@ -23,30 +22,59 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setLoading] = useState(true);
 
   useEffect(() => {
-    initAuthTokenGetter();
-    if (token) {
-      apiGetMe()
-        .then((me) => setUser(me))
-        .catch(() => {
+    let cancelled = false;
+
+    const bootstrapAuth = async () => {
+      initAuthTokenGetter();
+
+      const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+      const supabaseAccessToken = hash.get("access_token");
+
+      if (supabaseAccessToken) {
+        try {
+          const { token: t, user: u } = await apiGoogleLogin(supabaseAccessToken);
+          if (cancelled) return;
+          storeAuth(t, u);
+          setToken(t);
+          setUser(u);
+        } catch {
+          if (cancelled) return;
           clearAuth();
-          setUser(null);
           setToken(null);
-        })
-        .finally(() => setLoading(false));
-    } else {
-      setLoading(false);
-    }
+          setUser(null);
+        } finally {
+          window.history.replaceState(null, "", window.location.pathname + window.location.search);
+          if (!cancelled) setLoading(false);
+        }
+        return;
+      }
+
+      if (token) {
+        try {
+          const me = await apiGetMe();
+          if (!cancelled) setUser(me);
+        } catch {
+          if (!cancelled) {
+            clearAuth();
+            setUser(null);
+            setToken(null);
+          }
+        } finally {
+          if (!cancelled) setLoading(false);
+        }
+      } else {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    void bootstrapAuth();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {
     const { token: t, user: u } = await apiLogin(email, password);
-    storeAuth(t, u);
-    setToken(t);
-    setUser(u);
-  }, []);
-
-  const loginWithGoogle = useCallback(async (credential: string) => {
-    const { token: t, user: u } = await apiGoogleLogin(credential);
     storeAuth(t, u);
     setToken(t);
     setUser(u);
@@ -71,7 +99,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     <AuthContext.Provider value={{
       user, token, isLoading,
       isAuthenticated: !!token && !!user,
-      login, loginWithGoogle, logout, refreshUser,
+      login, logout, refreshUser,
     }}>
       {children}
     </AuthContext.Provider>
