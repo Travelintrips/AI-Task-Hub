@@ -65,14 +65,10 @@ async function authFetch<T>(path: string, options: RequestInit = {}): Promise<T>
   return res.json() as Promise<T>;
 }
 
-export async function apiGetGoogleConfig(): Promise<{ clientId: string }> {
-  return authFetch("/api/auth/google/config");
-}
-
-export async function apiGoogleLogin(credential: string): Promise<{ token: string; user: AuthUser }> {
+export async function apiGoogleLogin(accessToken: string): Promise<{ token: string; user: AuthUser }> {
   return authFetch("/api/auth/google", {
     method: "POST",
-    body: JSON.stringify({ credential }),
+    body: JSON.stringify({ accessToken }),
   });
 }
 
