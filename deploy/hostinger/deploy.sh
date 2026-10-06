@@ -63,6 +63,32 @@ docker compose \
 for attempt in $(seq 1 45); do
   status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$CONTAINER_NAME" 2>/dev/null || true)"
   if [ "$status" = "healthy" ]; then
+    if [ "$TARGET" = "production" ]; then
+      echo "Running production database readiness check..."
+      if ! docker exec "$CONTAINER_NAME" node -e '
+        const { Pool } = require("pg");
+        const pool = new Pool({
+          connectionString: process.env.SUPABASE_DATABASE_URL,
+          ssl: process.env.DB_SSL === "false" ? false : { rejectUnauthorized: false },
+        });
+        Promise.all([
+          pool.query("select 1"),
+          pool.query("select 1 from public.conversation_intake_sessions limit 0"),
+          pool.query("select 1 from public.admin_notifications limit 0"),
+        ]).then(async () => {
+          console.log("AI_TASK_DB_READY");
+          await pool.end();
+        }).catch(async (err) => {
+          console.error("AI_TASK_DB_NOT_READY", err.code || err.message);
+          try { await pool.end(); } catch {}
+          process.exit(1);
+        });
+      '; then
+        echo "Production database readiness check failed" >&2
+        docker compose --env-file "$COMPOSE_ENV" -f deploy/hostinger/docker-compose.yml logs --tail=120 app >&2
+        exit 1
+      fi
+    fi
     echo "AI Task Hub $TARGET is healthy on 127.0.0.1:$HOST_PORT"
     docker compose --env-file "$COMPOSE_ENV" -f deploy/hostinger/docker-compose.yml ps
     exit 0

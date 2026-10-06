@@ -52,6 +52,7 @@ jobs:
           SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
         run: |
           set -euo pipefail
+          test -n "$SUPABASE_DATABASE_URL"
           REMOTE_ROOT="${APP_ROOT:-\$HOME/apps/ai-task/production}"
           {
             printf '%s\n' "${SUPABASE_DATABASE_URL:-}"
@@ -86,7 +87,7 @@ jobs:
           from pathlib import Path
           
           source = json.loads(Path(os.environ['SECRET_FILE']).read_text())
-          required = ['SUPABASE_URL', 'SUPABASE_DATABASE_URL', 'SUPABASE_ANON_KEY']
+          required = ['SUPABASE_URL', 'SUPABASE_ANON_KEY']
           missing = [k for k in required if not source.get(k)]
           if missing:
               raise SystemExit('Missing runtime bootstrap values: ' + ', '.join(missing))
@@ -99,7 +100,7 @@ jobs:
               'TRUST_PROXY_HOPS': '1',
               'LOG_LEVEL': 'info',
               'SUPABASE_URL': source['SUPABASE_URL'],
-              'SUPABASE_DATABASE_URL': source['SUPABASE_DATABASE_URL'],
+              'SUPABASE_DATABASE_URL': '',
               'SUPABASE_ANON_KEY': source['SUPABASE_ANON_KEY'],
               'SESSION_SECRET': os.environ['SESSION_SECRET'],
               'SUPABASE_SERVICE_ROLE_KEY': '',
