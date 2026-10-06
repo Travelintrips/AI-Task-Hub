@@ -214,8 +214,16 @@ router.post("/auth/google", async (req: Request, res: Response): Promise<void> =
 
     const authUser = data.user;
     const email = authUser.email?.toLowerCase().trim();
-    const provider = authUser.app_metadata?.provider;
-    if (!email || !authUser.email_confirmed_at || provider !== "google") {
+    const primaryProvider = authUser.app_metadata?.provider;
+    const linkedProviders = Array.isArray(authUser.app_metadata?.providers)
+      ? authUser.app_metadata.providers
+      : [];
+    const hasGoogleIdentity =
+      primaryProvider === "google" ||
+      linkedProviders.includes("google") ||
+      (authUser.identities ?? []).some((identity) => identity.provider === "google");
+
+    if (!email || !authUser.email_confirmed_at || !hasGoogleIdentity) {
       res.status(401).json({ error: "Verified Google account required" });
       return;
     }
@@ -227,12 +235,19 @@ router.post("/auth/google", async (req: Request, res: Response): Promise<void> =
       return;
     }
 
-    await pool.query(
-      "update public.users set last_login_at = now(), updated_at = now() where id = $1",
-      [user.id],
-    );
-    user.last_login_at = new Date();
-    user.updated_at = new Date();
+    try {
+      await pool.query(
+        "update public.users set last_login_at = now(), updated_at = now() where id = $1",
+        [user.id],
+      );
+      user.last_login_at = new Date();
+      user.updated_at = new Date();
+    } catch (err) {
+      logger.warn(
+        { err, userId: user.id },
+        "Failed to update Google login timestamp; continuing login",
+      );
+    }
 
     const token = signToken({
       // AuthUser is still typed as number for legacy modules, but production user IDs
