@@ -49,20 +49,15 @@ jobs:
           PORT: '22'
           USERNAME: root
           APP_ROOT: ${{ vars.HOSTINGER_APP_ROOT }}
+          SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
         run: |
           set -euo pipefail
           REMOTE_ROOT="${APP_ROOT:-\$HOME/apps/ai-task/production}"
-          ssh -i ~/.ssh/id_hostinger -p "$PORT" \
-            -o StrictHostKeyChecking=accept-new \
-            -o UserKnownHostsFile=~/.ssh/known_hosts \
-            -o ConnectTimeout=20 \
-            -o ConnectionAttempts=3 \
-            -o ServerAliveInterval=30 \
-            -o ServerAliveCountMax=30 \
-            -o TCPKeepAlive=yes \
-            "$USERNAME@$HOST" 'bash -s' -- "$REMOTE_ROOT" <<'REMOTE'
+          {
+            printf '%s\n' "${SUPABASE_DATABASE_URL:-}"
+            printf '%s\n' "$REMOTE_ROOT"
+            cat <<'REMOTE'
           set -euo pipefail
-          APP_ROOT="$1"
           if [ ! -d "$APP_ROOT/.git" ]; then
             mkdir -p "$(dirname "$APP_ROOT")"
             git clone --branch main --single-branch https://github.com/Travelintrips/AI-Task-Hub.git "$APP_ROOT"
@@ -121,6 +116,34 @@ jobs:
             chmod 0600 /etc/ai-task/production.env
           fi
 
+          if [ -n "${SUPABASE_DATABASE_URL:-}" ]; then
+            python3 - <<'PY'
+          import os
+          from pathlib import Path
+          
+          env_path = Path('/etc/ai-task/production.env')
+          new_url = os.environ.get('SUPABASE_DATABASE_URL', '').strip()
+          if not new_url:
+              raise SystemExit(0)
+          
+          lines = env_path.read_text().splitlines()
+          key = 'SUPABASE_DATABASE_URL'
+          updated = False
+          output = []
+          for line in lines:
+              if line.startswith(key + '='):
+                  output.append(key + '=' + new_url)
+                  updated = True
+              else:
+                  output.append(line)
+          if not updated:
+              output.append(key + '=' + new_url)
+          env_path.write_text('\n'.join(output) + '\n')
+          PY
+            chmod 0600 /etc/ai-task/production.env
+            echo "Production database runtime secret synchronized."
+          fi
+
           AI_TASK_APP_ROOT="$APP_ROOT" bash deploy/hostinger/deploy.sh production
 
           cat >/etc/nginx/sites-available/ai-task.cstlogistic.co.id <<'NGINX'
@@ -158,6 +181,15 @@ jobs:
           certbot --nginx -d ai-task.cstlogistic.co.id --non-interactive --agree-tos --register-unsafely-without-email --redirect
           curl -fsS http://127.0.0.1:18080/api/healthz >/dev/null
           REMOTE
+          } | ssh -i ~/.ssh/id_hostinger -p "$PORT" \
+            -o StrictHostKeyChecking=accept-new \
+            -o UserKnownHostsFile=~/.ssh/known_hosts \
+            -o ConnectTimeout=20 \
+            -o ConnectionAttempts=3 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=30 \
+            -o TCPKeepAlive=yes \
+            "$USERNAME@$HOST" 'IFS= read -r SUPABASE_DATABASE_URL; IFS= read -r APP_ROOT; export SUPABASE_DATABASE_URL APP_ROOT; bash -s'
   deploy-development:
     if: >-
       (github.event_name == 'workflow_dispatch' && inputs.target == 'development') ||
