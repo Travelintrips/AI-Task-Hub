@@ -3,7 +3,7 @@ import jwt from "jsonwebtoken";
 import type { UserRole } from "@workspace/db";
 
 export interface AuthUser {
-  id: number;
+  id: string;
   email: string;
   role: UserRole;
   companyId: string;
