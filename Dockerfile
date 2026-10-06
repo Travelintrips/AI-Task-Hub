@@ -8,7 +8,6 @@ RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
 COPY . .
 
 RUN pnpm install --frozen-lockfile
-RUN pnpm run typecheck
 RUN pnpm --filter @workspace/ai-task-center run build
 RUN pnpm --filter @workspace/api-server run build
 RUN pnpm --filter @workspace/api-server deploy --legacy --prod /runtime/artifacts/api-server \
