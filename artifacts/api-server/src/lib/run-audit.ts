@@ -65,6 +65,7 @@ export async function runAuditForTask(taskId: number): Promise<typeof documentAu
     title: `Audit dokumen selesai — ${statusLabel[audit.auditStatus] ?? audit.auditStatus}`,
     body: `Task #${taskId} · Missing: ${Array.isArray(audit.missingFields) ? (audit.missingFields as string[]).length : 0} · Mismatch: ${Array.isArray(audit.mismatchFields) ? (audit.mismatchFields as string[]).length : 0}`,
     taskId,
+    customerName: "System",
   }).returning();
 
   emitSseEvent(
