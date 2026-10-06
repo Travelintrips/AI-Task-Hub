@@ -53,10 +53,10 @@ jobs:
           set -euo pipefail
           REMOTE_ROOT="${APP_ROOT:-\$HOME/apps/ai-task/production}"
           ssh -i ~/.ssh/id_hostinger -p "$PORT" \
-  -o ServerAliveInterval=30 \
-  -o ServerAliveCountMax=30 \
-  -o TCPKeepAlive=yes \
-  "$USERNAME@$HOST" 'bash -s' -- "$REMOTE_ROOT" <<'REMOTE'
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=30 \
+            -o TCPKeepAlive=yes \
+            "$USERNAME@$HOST" 'bash -s' -- "$REMOTE_ROOT" <<'REMOTE'
           set -euo pipefail
           APP_ROOT="$1"
           if [ ! -d "$APP_ROOT/.git" ]; then
