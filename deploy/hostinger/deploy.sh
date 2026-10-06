@@ -55,10 +55,20 @@ if [ -z "${HOST_PORT:-}" ] || [ -z "${CONTAINER_NAME:-}" ]; then
   exit 1
 fi
 
+echo "Building AI Task Hub image (bounded to 12 minutes)..."
+if ! timeout --foreground --kill-after=30s 12m docker compose \
+  --env-file "$COMPOSE_ENV" \
+  -f deploy/hostinger/docker-compose.yml \
+  build; then
+  echo "Docker build failed or exceeded 12 minutes; keeping the current container untouched." >&2
+  docker compose --env-file "$COMPOSE_ENV" -f deploy/hostinger/docker-compose.yml ps >&2 || true
+  exit 1
+fi
+
 docker compose \
   --env-file "$COMPOSE_ENV" \
   -f deploy/hostinger/docker-compose.yml \
-  up -d --build --remove-orphans
+  up -d --remove-orphans
 
 for attempt in $(seq 1 45); do
   status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$CONTAINER_NAME" 2>/dev/null || true)"

@@ -20,11 +20,30 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck
+        run: pnpm run typecheck
+
   deploy-production:
+    needs: verify
     if: >-
       (github.event_name == 'workflow_dispatch' && inputs.target == 'production') ||
       (github.event_name == 'push' && github.ref_name == 'main' && vars.HOSTINGER_AUTO_DEPLOY == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     environment: production
     steps:
       - name: Configure SSH
@@ -171,11 +190,13 @@ jobs:
           nginx -t
           systemctl reload nginx
 
-          if ! command -v certbot >/dev/null 2>&1; then
-            apt-get update -qq
-            DEBIAN_FRONTEND=noninteractive apt-get install -y -qq certbot python3-certbot-nginx
+          if [ ! -f /etc/letsencrypt/live/ai-task.cstlogistic.co.id/fullchain.pem ]; then
+            if ! command -v certbot >/dev/null 2>&1; then
+              timeout 300s apt-get update -qq
+              timeout 300s env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq certbot python3-certbot-nginx
+            fi
+            timeout 180s certbot --nginx -d ai-task.cstlogistic.co.id --non-interactive --agree-tos --register-unsafely-without-email --redirect
           fi
-          certbot --nginx -d ai-task.cstlogistic.co.id --non-interactive --agree-tos --register-unsafely-without-email --redirect
           curl -fsS http://127.0.0.1:18080/api/healthz >/dev/null
           REMOTE
           } | ssh -i ~/.ssh/id_hostinger -p "$PORT" \
@@ -188,10 +209,12 @@ jobs:
             -o TCPKeepAlive=yes \
             "$USERNAME@$HOST" 'IFS= read -r SUPABASE_DATABASE_URL; IFS= read -r SUPABASE_URL; IFS= read -r SUPABASE_ANON_KEY; IFS= read -r SUPABASE_SERVICE_ROLE_KEY; IFS= read -r OPENAI_API_KEY; IFS= read -r APP_ROOT; export SUPABASE_DATABASE_URL SUPABASE_URL SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY OPENAI_API_KEY APP_ROOT; bash -s'
   deploy-development:
+    needs: verify
     if: >-
       (github.event_name == 'workflow_dispatch' && inputs.target == 'development') ||
       (github.event_name == 'push' && github.ref_name == 'develop' && vars.HOSTINGER_AUTO_DEPLOY == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     environment: development
     steps:
       - name: Configure SSH
