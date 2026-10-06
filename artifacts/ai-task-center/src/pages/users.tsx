@@ -114,7 +114,7 @@ export default function Users() {
   });
 
   const editMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: EditForm }) =>
+    mutationFn: ({ id, data }: { id: string; data: EditForm }) =>
       apiUpdateUser(id, data),
     onSuccess: () => {
       toast({ title: "Pengguna diperbarui" });
@@ -125,7 +125,7 @@ export default function Users() {
   });
 
   const toggleMutation = useMutation({
-    mutationFn: ({ id, isActive }: { id: number; isActive: boolean }) =>
+    mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) =>
       apiUpdateUser(id, { isActive }),
     onSuccess: (_, vars) => {
       toast({ title: vars.isActive ? "Pengguna diaktifkan" : "Pengguna dinonaktifkan" });
@@ -135,7 +135,7 @@ export default function Users() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: number) => apiDeleteUser(id),
+    mutationFn: (id: string) => apiDeleteUser(id),
     onSuccess: () => {
       toast({ title: "Pengguna dihapus" });
       qc.invalidateQueries({ queryKey: ["auth-users"] });
@@ -145,7 +145,7 @@ export default function Users() {
   });
 
   const resetMutation = useMutation({
-    mutationFn: ({ id, newPassword }: { id: number; newPassword?: string }) =>
+    mutationFn: ({ id, newPassword }: { id: string; newPassword?: string }) =>
       apiResetUserPassword(id, newPassword || undefined),
     onSuccess: (data) => {
       if (data.tempPassword) {
