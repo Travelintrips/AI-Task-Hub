@@ -277,7 +277,7 @@ async function createTaskFromOrder(o: LogisticOrder): Promise<number> {
         body: `${category} · Status: ${status}${o.customer_name ? ` · ${o.customer_name}` : ""}`,
         taskId: task.id,
         customerPhone: o.phone ?? null,
-        customerName: o.customer_name ?? null,
+        customerName: o.customer_name ?? o.phone ?? "Unknown",
       })
       .returning();
 
