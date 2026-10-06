@@ -2,11 +2,16 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { eq, asc } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
+import { OAuth2Client } from "google-auth-library";
 import { db, usersTable, type UserRole, USER_ROLES } from "@workspace/db";
 import { signToken, requireAuth, requireRole, type AuthUser } from "../middleware/auth";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
+const GOOGLE_OAUTH_CLIENT_ID =
+  process.env.GOOGLE_CLIENT_ID?.trim() ||
+  "751551151000-fqrgt8si0pgnchqkn3pfo6nmqienv38f.apps.googleusercontent.com";
+const googleOAuthClient = new OAuth2Client(GOOGLE_OAUTH_CLIENT_ID);
 
 // ─── POST /auth/setup ──────────────────────────────────────────────────────────
 // Creates first super_admin when no users exist. Use only on initial setup.
@@ -105,6 +110,69 @@ router.post("/auth/login", async (req: Request, res: Response): Promise<void> =>
   } catch (err) {
     logger.error({ err }, "POST /auth/login failed — database unavailable");
     res.status(503).json({ error: "Login service temporarily unavailable" });
+  }
+});
+
+// ─── Google Sign-In ────────────────────────────────────────────────────────────
+
+router.get("/auth/google/config", (_req: Request, res: Response): void => {
+  res.json({ clientId: GOOGLE_OAUTH_CLIENT_ID });
+});
+
+router.post("/auth/google", async (req: Request, res: Response): Promise<void> => {
+  const { credential } = req.body as { credential?: string };
+
+  if (!credential) {
+    res.status(400).json({ error: "Google credential is required" });
+    return;
+  }
+
+  try {
+    const ticket = await googleOAuthClient.verifyIdToken({
+      idToken: credential,
+      audience: GOOGLE_OAUTH_CLIENT_ID,
+    });
+    const payload = ticket.getPayload();
+    const email = payload?.email?.toLowerCase().trim();
+
+    if (!email || payload?.email_verified !== true) {
+      res.status(401).json({ error: "Google account email is not verified" });
+      return;
+    }
+
+    const [user] = await db
+      .select()
+      .from(usersTable)
+      .where(eq(usersTable.email, email))
+      .limit(1);
+
+    if (!user || !user.isActive) {
+      res.status(403).json({ error: "Google account is not registered or is inactive" });
+      return;
+    }
+
+    await db
+      .update(usersTable)
+      .set({ lastLoginAt: new Date() })
+      .where(eq(usersTable.id, user.id));
+
+    const token = signToken({
+      id: user.id as unknown as number,
+      email: user.email,
+      role: user.role as UserRole,
+      companyId: user.companyId,
+      name: user.name,
+    });
+
+    logger.info(
+      { userId: user.id, email: user.email, role: user.role },
+      "User logged in with Google",
+    );
+
+    res.json({ token, user: safeUser(user) });
+  } catch (err) {
+    logger.warn({ err }, "Google login verification failed");
+    res.status(401).json({ error: "Google login verification failed" });
   }
 });
 
