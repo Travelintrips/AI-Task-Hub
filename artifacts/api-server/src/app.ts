@@ -141,8 +141,16 @@ setInterval(() => {
     .catch(() => {});
 }, 60 * 60 * 1000);
 
+const shouldRunStartupMigrations =
+  process.env.RUN_STARTUP_MIGRATIONS === "true" ||
+  (process.env.RUN_STARTUP_MIGRATIONS !== "false" && process.env.NODE_ENV !== "production");
+
+if (!shouldRunStartupMigrations) {
+  logger.info("Startup DDL migrations disabled for this runtime");
+}
+
 // ── Sprint 9A startup migrations (idempotent) ──────────────────────────────────
-if (supabasePool) {
+if (shouldRunStartupMigrations && supabasePool) {
   supabasePool.query(`
     CREATE TABLE IF NOT EXISTS payment_proof_short_links (
       id             BIGSERIAL PRIMARY KEY,
@@ -166,7 +174,7 @@ if (supabasePool) {
     );
 }
 
-if (supabasePool) {
+if (shouldRunStartupMigrations && supabasePool) {
   supabasePool.query(`
     CREATE TABLE IF NOT EXISTS conversation_intake_sessions (
       id                 SERIAL PRIMARY KEY,
@@ -324,7 +332,7 @@ if (supabasePool) {
 }
 
 // ── Sprint 10A-1 startup migrations (idempotent) ──────────────────────────────
-if (supabasePool) {
+if (shouldRunStartupMigrations && supabasePool) {
   supabasePool.query(`
     CREATE TABLE IF NOT EXISTS whatsapp_commands (
       id          SERIAL PRIMARY KEY,
@@ -403,7 +411,7 @@ if (supabasePool) {
 }
 
 // ── Sprint 10A-3 startup migrations (idempotent) ──────────────────────────────
-if (supabasePool) {
+if (shouldRunStartupMigrations && supabasePool) {
   supabasePool.query(`
     CREATE TABLE IF NOT EXISTS vendor_portal_tokens (
       id             SERIAL PRIMARY KEY,
@@ -441,7 +449,7 @@ if (supabasePool) {
 }
 
 // ── Sprint 10A-4 startup migrations (idempotent, split per statement) ─────────
-if (supabasePool) {
+if (shouldRunStartupMigrations && supabasePool) {
   const run10A4 = async () => {
     await supabasePool!.query(`
       CREATE TABLE IF NOT EXISTS driver_portal_tokens (
@@ -548,7 +556,7 @@ if (supabasePool) {
 // ── Core table startup migrations (idempotent) ─────────────────────────────────
 // Creates essential Drizzle-managed tables if they don't exist.
 // These are created via raw SQL (not Drizzle push) so they survive env resets.
-if (supabasePool) {
+if (shouldRunStartupMigrations && supabasePool) {
   const runCoreMigrations = async () => {
     // ── whatsapp_messages ─────────────────────────────────────────────────────
     // Step 1: CREATE (no-op if already exists)

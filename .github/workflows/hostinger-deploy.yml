@@ -99,6 +99,7 @@ jobs:
               'CORS_ALLOWED_ORIGINS': 'https://ai-task.cstlogistic.co.id',
               'TRUST_PROXY_HOPS': '1',
               'LOG_LEVEL': 'info',
+              'RUN_STARTUP_MIGRATIONS': 'false',
               'SUPABASE_URL': source['SUPABASE_URL'],
               'SUPABASE_DATABASE_URL': '',
               'SUPABASE_ANON_KEY': source['SUPABASE_ANON_KEY'],
