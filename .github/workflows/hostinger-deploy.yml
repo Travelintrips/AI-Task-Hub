@@ -41,7 +41,14 @@ jobs:
           printf '%s\n' "$SSH_KEY" > ~/.ssh/id_hostinger
           chmod 0600 ~/.ssh/id_hostinger
           echo "private_key_public_fingerprint=$(ssh-keygen -y -f ~/.ssh/id_hostinger | ssh-keygen -lf - | awk '{print $2}')"
-          ssh-keyscan -p "$PORT" "$HOST" >> ~/.ssh/known_hosts
+          : > ~/.ssh/known_hosts
+          for attempt in 1 2 3 4 5; do
+            if ssh-keyscan -T 10 -p "$PORT" "$HOST" >> ~/.ssh/known_hosts 2>/dev/null; then
+              break
+            fi
+            sleep 5
+          done
+          test -s ~/.ssh/known_hosts
 
       - name: Deploy production
         env:
@@ -174,7 +181,14 @@ jobs:
           install -m 0700 -d ~/.ssh
           printf '%s\n' "$SSH_KEY" > ~/.ssh/id_hostinger
           chmod 0600 ~/.ssh/id_hostinger
-          ssh-keyscan -p "$PORT" "$HOST" >> ~/.ssh/known_hosts
+          : > ~/.ssh/known_hosts
+          for attempt in 1 2 3 4 5; do
+            if ssh-keyscan -T 10 -p "$PORT" "$HOST" >> ~/.ssh/known_hosts 2>/dev/null; then
+              break
+            fi
+            sleep 5
+          done
+          test -s ~/.ssh/known_hosts
 
       - name: Deploy development
         env:
