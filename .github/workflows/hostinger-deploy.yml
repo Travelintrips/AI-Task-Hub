@@ -30,8 +30,8 @@ jobs:
       - name: Configure SSH
         env:
           SSH_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
-          HOST: ${{ secrets.HOSTINGER_HOST }}
-          PORT: ${{ secrets.HOSTINGER_PORT }}
+          HOST: ${{ secrets.HOSTINGER_HOST || '72.61.210.205' }}
+          PORT: ${{ secrets.HOSTINGER_PORT || '22' }}
         run: |
           set -euo pipefail
           test -n "$SSH_KEY"
@@ -44,9 +44,9 @@ jobs:
 
       - name: Deploy production
         env:
-          HOST: ${{ secrets.HOSTINGER_HOST }}
-          PORT: ${{ secrets.HOSTINGER_PORT }}
-          USERNAME: ${{ secrets.HOSTINGER_USER }}
+          HOST: ${{ secrets.HOSTINGER_HOST || '72.61.210.205' }}
+          PORT: ${{ secrets.HOSTINGER_PORT || '22' }}
+          USERNAME: ${{ secrets.HOSTINGER_USER || 'root' }}
           APP_ROOT: ${{ vars.HOSTINGER_APP_ROOT }}
         run: |
           set -euo pipefail
@@ -75,8 +75,8 @@ jobs:
       - name: Configure SSH
         env:
           SSH_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
-          HOST: ${{ secrets.HOSTINGER_HOST }}
-          PORT: ${{ secrets.HOSTINGER_PORT }}
+          HOST: ${{ secrets.HOSTINGER_HOST || '72.61.210.205' }}
+          PORT: ${{ secrets.HOSTINGER_PORT || '22' }}
         run: |
           set -euo pipefail
           test -n "$SSH_KEY"
@@ -89,9 +89,9 @@ jobs:
 
       - name: Deploy development
         env:
-          HOST: ${{ secrets.HOSTINGER_HOST }}
-          PORT: ${{ secrets.HOSTINGER_PORT }}
-          USERNAME: ${{ secrets.HOSTINGER_USER }}
+          HOST: ${{ secrets.HOSTINGER_HOST || '72.61.210.205' }}
+          PORT: ${{ secrets.HOSTINGER_PORT || '22' }}
+          USERNAME: ${{ secrets.HOSTINGER_USER || 'root' }}
           APP_ROOT: ${{ vars.HOSTINGER_APP_ROOT }}
         run: |
           set -euo pipefail
