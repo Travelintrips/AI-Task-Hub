@@ -1,105 +1,20 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { Activity, Eye, EyeOff } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
-import { apiGetGoogleConfig } from "@/lib/auth-api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 
-declare global {
-  interface Window {
-    google?: {
-      accounts: {
-        id: {
-          initialize: (config: {
-            client_id: string;
-            callback: (response: { credential?: string }) => void;
-          }) => void;
-          renderButton: (
-            parent: HTMLElement,
-            options: Record<string, string | number | boolean>,
-          ) => void;
-        };
-      };
-    };
-  }
-}
-
 export default function Login() {
-  const { login, loginWithGoogle } = useAuth();
+  const { login } = useAuth();
   const { toast } = useToast();
   const [email, setEmail]         = useState("");
   const [password, setPassword]   = useState("");
   const [loading, setLoading]     = useState(false);
   const [showPassword, setShowPw] = useState(false);
-  const googleButtonRef = useRef<HTMLDivElement | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    const renderGoogleButton = async () => {
-      try {
-        const { clientId } = await apiGetGoogleConfig();
-        if (cancelled || !googleButtonRef.current) return;
-
-        const initialize = () => {
-          if (cancelled || !googleButtonRef.current || !window.google) return;
-          googleButtonRef.current.innerHTML = "";
-          window.google.accounts.id.initialize({
-            client_id: clientId,
-            callback: async ({ credential }) => {
-              if (!credential) return;
-              setLoading(true);
-              try {
-                await loginWithGoogle(credential);
-              } catch (err: unknown) {
-                const msg = err instanceof Error ? err.message : "Login Google gagal";
-                toast({ title: "Login Google gagal", description: msg, variant: "destructive" });
-              } finally {
-                setLoading(false);
-              }
-            },
-          });
-          window.google.accounts.id.renderButton(googleButtonRef.current, {
-            type: "standard",
-            theme: "outline",
-            size: "large",
-            text: "signin_with",
-            shape: "rectangular",
-            width: 320,
-          });
-        };
-
-        if (window.google) {
-          initialize();
-          return;
-        }
-
-        const existing = document.querySelector<HTMLScriptElement>('script[data-google-identity="true"]');
-        if (existing) {
-          existing.addEventListener("load", initialize, { once: true });
-          return;
-        }
-
-        const script = document.createElement("script");
-        script.src = "https://accounts.google.com/gsi/client";
-        script.async = true;
-        script.defer = true;
-        script.dataset.googleIdentity = "true";
-        script.addEventListener("load", initialize, { once: true });
-        document.head.appendChild(script);
-      } catch (err) {
-        console.error("Failed to initialize Google login", err);
-      }
-    };
-
-    void renderGoogleButton();
-    return () => {
-      cancelled = true;
-    };
-  }, [loginWithGoogle, toast]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -131,9 +46,15 @@ export default function Login() {
             <CardDescription>Gunakan email dan password yang terdaftar</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="flex justify-center">
-              <div ref={googleButtonRef} aria-label="Masuk dengan Google" />
-            </div>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              disabled={loading}
+              onClick={() => window.location.assign("/api/auth/google/start")}
+            >
+              Masuk dengan Google
+            </Button>
 
             <div className="flex items-center gap-3">
               <div className="h-px flex-1 bg-border" />
