@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
 import {
   getStoredToken, getStoredUser, storeAuth, clearAuth, initAuthTokenGetter,
-  apiLogin, apiGetMe, type AuthUser,
+  apiLogin, apiGoogleLogin, apiGetMe, type AuthUser,
 } from "@/lib/auth-api";
 
 interface AuthContextValue {
@@ -10,6 +10,7 @@ interface AuthContextValue {
   isLoading: boolean;
   isAuthenticated: boolean;
   login: (email: string, password: string) => Promise<void>;
+  loginWithGoogle: (credential: string) => Promise<void>;
   logout: () => void;
   refreshUser: () => Promise<void>;
 }
@@ -44,6 +45,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(u);
   }, []);
 
+  const loginWithGoogle = useCallback(async (credential: string) => {
+    const { token: t, user: u } = await apiGoogleLogin(credential);
+    storeAuth(t, u);
+    setToken(t);
+    setUser(u);
+  }, []);
+
   const logout = useCallback(() => {
     clearAuth();
     setToken(null);
@@ -63,7 +71,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     <AuthContext.Provider value={{
       user, token, isLoading,
       isAuthenticated: !!token && !!user,
-      login, logout, refreshUser,
+      login, loginWithGoogle, logout, refreshUser,
     }}>
       {children}
     </AuthContext.Provider>
