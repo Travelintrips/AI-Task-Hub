@@ -11,8 +11,13 @@ if (-not (Get-Command npx -ErrorAction SilentlyContinue)) { throw "npx is requir
 if (-not (Get-Command gh -ErrorAction SilentlyContinue)) { throw "GitHub CLI (gh) is required" }
 
 $bytes = New-Object byte[] 32
-[Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
-$password = ([Convert]::ToHexString($bytes)).ToLowerInvariant()
+$rng = [Security.Cryptography.RandomNumberGenerator]::Create()
+try {
+  $rng.GetBytes($bytes)
+} finally {
+  $rng.Dispose()
+}
+$password = (($bytes | ForEach-Object { $_.ToString("x2") }) -join "")
 
 try {
   $sql = "alter role ai_task_runtime_login with login password '$password' valid until 'infinity';"
