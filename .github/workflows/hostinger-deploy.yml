@@ -40,6 +40,7 @@ jobs:
           install -m 0700 -d ~/.ssh
           printf '%s\n' "$SSH_KEY" > ~/.ssh/id_hostinger
           chmod 0600 ~/.ssh/id_hostinger
+          echo "private_key_public_fingerprint=$(ssh-keygen -y -f ~/.ssh/id_hostinger | ssh-keygen -lf - | awk '{print $2}')"
           ssh-keyscan -p "$PORT" "$HOST" >> ~/.ssh/known_hosts
 
       - name: Deploy production
