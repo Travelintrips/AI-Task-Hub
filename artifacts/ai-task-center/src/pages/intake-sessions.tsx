@@ -314,7 +314,7 @@ function SessionDetailDialog({
 export default function IntakeSessionsPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [statusFilter, setStatusFilter] = useState<string>("collecting,ready_for_task");
+  const [statusFilter, setStatusFilter] = useState<string>("collecting,form_sent,ready_for_task");
   const [phoneFilter, setPhoneFilter] = useState("");
   const [selectedSession, setSelectedSession] = useState<IntakeSession | null>(null);
 
@@ -421,7 +421,7 @@ export default function IntakeSessionsPage() {
             <SelectValue placeholder="Filter Status" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="collecting,ready_for_task">Aktif</SelectItem>
+            <SelectItem value="collecting,form_sent,ready_for_task">Aktif</SelectItem>
             <SelectItem value="collecting">Sedang Mengumpulkan</SelectItem>
             <SelectItem value="form_sent">Form Dikirim</SelectItem>
             <SelectItem value="ready_for_task">Siap Buat Task</SelectItem>
