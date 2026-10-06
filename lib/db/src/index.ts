@@ -17,6 +17,9 @@ if (!connectionString) {
 
 export const pool = new Pool({
   connectionString,
+  max: 10,
+  idleTimeoutMillis: 30_000,
+  connectionTimeoutMillis: 5_000,
   ssl: process.env.DB_SSL === "false" ? false : { rejectUnauthorized: false },
 });
 
