@@ -15,10 +15,11 @@ const SUPA_KEY = process.env.SUPABASE_URL
   ? (process.env.SUPABASE_SERVICE_ROLE_KEY || "")
   : (process.env.SUPABASE_SERVICE_ROLE_KEY_DEV || process.env.SUPABASE_SERVICE_ROLE_KEY || "");
 
-const supaHeaders = {
+const isNewSecretKey = SUPA_KEY.startsWith("sb_secret_");
+const supaHeaders: Record<string, string> = {
   apikey: SUPA_KEY,
-  Authorization: `Bearer ${SUPA_KEY}`,
   "Content-Type": "application/json",
+  ...(isNewSecretKey ? {} : { Authorization: `Bearer ${SUPA_KEY}` }),
 };
 
 // ─── Tipe baris logistic_orders (subset yang dipakai) ─────────────────────────────

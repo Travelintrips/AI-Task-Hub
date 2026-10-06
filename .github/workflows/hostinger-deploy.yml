@@ -50,12 +50,23 @@ jobs:
           USERNAME: root
           APP_ROOT: ${{ vars.HOSTINGER_APP_ROOT }}
           SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           set -euo pipefail
           test -n "$SUPABASE_DATABASE_URL"
+          test -n "$SUPABASE_URL"
+          test -n "$SUPABASE_ANON_KEY"
+          test -n "$SUPABASE_SERVICE_ROLE_KEY"
           REMOTE_ROOT="${APP_ROOT:-\$HOME/apps/ai-task/production}"
           {
             printf '%s\n' "${SUPABASE_DATABASE_URL:-}"
+            printf '%s\n' "${SUPABASE_URL:-}"
+            printf '%s\n' "${SUPABASE_ANON_KEY:-}"
+            printf '%s\n' "${SUPABASE_SERVICE_ROLE_KEY:-}"
+            printf '%s\n' "${OPENAI_API_KEY:-}"
             printf '%s\n' "$REMOTE_ROOT"
             cat <<'REMOTE'
           set -euo pipefail
@@ -75,76 +86,60 @@ jobs:
           fi
 
           if [ ! -f /etc/ai-task/production.env ]; then
-            SECRET_FILE="$(ls -1t attached_assets/Pasted--SESSION-SECRET-* 2>/dev/null | head -n1 || true)"
-            if [ -z "$SECRET_FILE" ]; then
-              echo 'No bootstrap runtime source found.' >&2
-              exit 1
-            fi
             SESSION_SECRET="$(openssl rand -base64 48 | tr -d '\n')"
-            export SECRET_FILE SESSION_SECRET
-            python3 - <<'PY'
-          import json, os
-          from pathlib import Path
-          
-          source = json.loads(Path(os.environ['SECRET_FILE']).read_text())
-          required = ['SUPABASE_URL', 'SUPABASE_ANON_KEY']
-          missing = [k for k in required if not source.get(k)]
-          if missing:
-              raise SystemExit('Missing runtime bootstrap values: ' + ', '.join(missing))
-          
-          env = {
-              'NODE_ENV': 'production',
-              'PORT': '8080',
-              'PUBLIC_APP_BASE_URL': 'https://ai-task.cstlogistic.co.id',
-              'CORS_ALLOWED_ORIGINS': 'https://ai-task.cstlogistic.co.id',
-              'TRUST_PROXY_HOPS': '1',
-              'LOG_LEVEL': 'info',
-              'RUN_STARTUP_MIGRATIONS': 'false',
-              'SUPABASE_URL': source['SUPABASE_URL'],
-              'SUPABASE_DATABASE_URL': '',
-              'SUPABASE_ANON_KEY': source['SUPABASE_ANON_KEY'],
-              'SESSION_SECRET': os.environ['SESSION_SECRET'],
-              'SUPABASE_SERVICE_ROLE_KEY': '',
-              'OPENAI_API_KEY': '',
-              'OPENAI_BASE_URL': 'https://api.openai.com/v1',
-              'FONNTE_TOKEN': '',
-              'WHATSAPP_WEBHOOK_VERIFY_TOKEN': '',
-              'SC_DOMAIN': 'https://sc.travelintrips.co.id',
-          }
-          Path('/etc/ai-task/production.env').write_text(
-              ''.join(f'{k}={v}\n' for k, v in env.items())
-          )
-          PY
+            export SESSION_SECRET
+            cat >/etc/ai-task/production.env <<EOF
+          NODE_ENV=production
+          PORT=8080
+          PUBLIC_APP_BASE_URL=https://ai-task.cstlogistic.co.id
+          CORS_ALLOWED_ORIGINS=https://ai-task.cstlogistic.co.id
+          TRUST_PROXY_HOPS=1
+          LOG_LEVEL=info
+          RUN_STARTUP_MIGRATIONS=false
+          SESSION_SECRET=$SESSION_SECRET
+          OPENAI_BASE_URL=https://api.openai.com/v1
+          FONNTE_TOKEN=
+          WHATSAPP_WEBHOOK_VERIFY_TOKEN=
+          SC_DOMAIN=https://sc.travelintrips.co.id
+          EOF
             chmod 0600 /etc/ai-task/production.env
           fi
 
-          if [ -n "${SUPABASE_DATABASE_URL:-}" ]; then
-            python3 - <<'PY'
+          python3 - <<'PY'
           import os
           from pathlib import Path
-          
+
           env_path = Path('/etc/ai-task/production.env')
-          new_url = os.environ.get('SUPABASE_DATABASE_URL', '').strip()
-          if not new_url:
-              raise SystemExit(0)
-          
+          updates = {
+              key: os.environ.get(key, '').strip()
+              for key in (
+                  'SUPABASE_DATABASE_URL',
+                  'SUPABASE_URL',
+                  'SUPABASE_ANON_KEY',
+                  'SUPABASE_SERVICE_ROLE_KEY',
+                  'OPENAI_API_KEY',
+              )
+              if os.environ.get(key, '').strip()
+          }
+
           lines = env_path.read_text().splitlines()
-          key = 'SUPABASE_DATABASE_URL'
-          updated = False
+          seen = set()
           output = []
           for line in lines:
-              if line.startswith(key + '='):
-                  output.append(key + '=' + new_url)
-                  updated = True
-              else:
-                  output.append(line)
-          if not updated:
-              output.append(key + '=' + new_url)
+              if '=' in line:
+                  key = line.split('=', 1)[0]
+                  if key in updates:
+                      output.append(f'{key}={updates[key]}')
+                      seen.add(key)
+                      continue
+              output.append(line)
+          for key, value in updates.items():
+              if key not in seen:
+                  output.append(f'{key}={value}')
           env_path.write_text('\n'.join(output) + '\n')
           PY
-            chmod 0600 /etc/ai-task/production.env
-            echo "Production database runtime secret synchronized."
-          fi
+          chmod 0600 /etc/ai-task/production.env
+          echo "Production runtime secrets synchronized."
 
           AI_TASK_APP_ROOT="$APP_ROOT" bash deploy/hostinger/deploy.sh production
 
@@ -191,7 +186,7 @@ jobs:
             -o ServerAliveInterval=30 \
             -o ServerAliveCountMax=30 \
             -o TCPKeepAlive=yes \
-            "$USERNAME@$HOST" 'IFS= read -r SUPABASE_DATABASE_URL; IFS= read -r APP_ROOT; export SUPABASE_DATABASE_URL APP_ROOT; bash -s'
+            "$USERNAME@$HOST" 'IFS= read -r SUPABASE_DATABASE_URL; IFS= read -r SUPABASE_URL; IFS= read -r SUPABASE_ANON_KEY; IFS= read -r SUPABASE_SERVICE_ROLE_KEY; IFS= read -r OPENAI_API_KEY; IFS= read -r APP_ROOT; export SUPABASE_DATABASE_URL SUPABASE_URL SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY OPENAI_API_KEY APP_ROOT; bash -s'
   deploy-development:
     if: >-
       (github.event_name == 'workflow_dispatch' && inputs.target == 'development') ||
