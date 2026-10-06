@@ -66,23 +66,16 @@ for attempt in $(seq 1 45); do
     if [ "$TARGET" = "production" ]; then
       echo "Running production database readiness check..."
       if ! docker exec "$CONTAINER_NAME" node -e '
-        const { Pool } = require("pg");
-        const pool = new Pool({
-          connectionString: process.env.SUPABASE_DATABASE_URL,
-          ssl: process.env.DB_SSL === "false" ? false : { rejectUnauthorized: false },
-        });
-        Promise.all([
-          pool.query("select 1"),
-          pool.query("select 1 from public.conversation_intake_sessions limit 0"),
-          pool.query("select 1 from public.admin_notifications limit 0"),
-        ]).then(async () => {
-          console.log("AI_TASK_DB_READY");
-          await pool.end();
-        }).catch(async (err) => {
-          console.error("AI_TASK_DB_NOT_READY", err.code || err.message);
-          try { await pool.end(); } catch {}
-          process.exit(1);
-        });
+        fetch("http://127.0.0.1:8080/api/readyz")
+          .then(async (res) => {
+            const body = await res.text();
+            if (!res.ok) throw new Error("HTTP " + res.status + " " + body);
+            console.log("AI_TASK_DB_READY", body);
+          })
+          .catch((err) => {
+            console.error("AI_TASK_DB_NOT_READY", err.message);
+            process.exit(1);
+          });
       '; then
         echo "Production database readiness check failed" >&2
         docker compose --env-file "$COMPOSE_ENV" -f deploy/hostinger/docker-compose.yml logs --tail=120 app >&2
