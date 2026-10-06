@@ -4,7 +4,7 @@ const TOKEN_KEY = "ai_task_center_token";
 const USER_KEY  = "ai_task_center_user";
 
 export interface AuthUser {
-  id: number;
+  id: string;
   companyId: string;
   name: string;
   email: string;
@@ -102,7 +102,7 @@ export async function apiCreateUser(data: {
 }
 
 export async function apiUpdateUser(
-  id: number,
+  id: string,
   data: Partial<{ name: string; role: string; division: string; phone: string; isActive: boolean }>,
 ): Promise<AuthUser> {
   return authFetch(`/api/auth/users/${id}`, {
@@ -111,7 +111,7 @@ export async function apiUpdateUser(
   });
 }
 
-export async function apiDeleteUser(id: number): Promise<void> {
+export async function apiDeleteUser(id: string): Promise<void> {
   return authFetch(`/api/auth/users/${id}`, { method: "DELETE" });
 }
 
@@ -123,7 +123,7 @@ export async function apiChangePassword(currentPassword: string, newPassword: st
 }
 
 export async function apiResetUserPassword(
-  id: number,
+  id: string,
   newPassword?: string,
 ): Promise<{ message: string; tempPassword?: string }> {
   return authFetch(`/api/auth/users/${id}/reset-password`, {
