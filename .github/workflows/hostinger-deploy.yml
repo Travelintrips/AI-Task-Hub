@@ -52,7 +52,11 @@ jobs:
         run: |
           set -euo pipefail
           REMOTE_ROOT="${APP_ROOT:-\$HOME/apps/ai-task/production}"
-          ssh -i ~/.ssh/id_hostinger -p "$PORT" "$USERNAME@$HOST" 'bash -s' -- "$REMOTE_ROOT" <<'REMOTE'
+          ssh -i ~/.ssh/id_hostinger -p "$PORT" \
+  -o ServerAliveInterval=30 \
+  -o ServerAliveCountMax=30 \
+  -o TCPKeepAlive=yes \
+  "$USERNAME@$HOST" 'bash -s' -- "$REMOTE_ROOT" <<'REMOTE'
           set -euo pipefail
           APP_ROOT="$1"
           if [ ! -d "$APP_ROOT/.git" ]; then
@@ -182,7 +186,11 @@ jobs:
           set -euo pipefail
           test -n "$USERNAME"
           REMOTE_ROOT="${APP_ROOT:-\$HOME/apps/ai-task/development}"
-          ssh -i ~/.ssh/id_hostinger -p "$PORT" "$USERNAME@$HOST" \
+          ssh -i ~/.ssh/id_hostinger -p "$PORT" \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=30 \
+            -o TCPKeepAlive=yes \
+            "$USERNAME@$HOST" \
             "set -euo pipefail; \
              APP_ROOT=\"$REMOTE_ROOT\"; \
              if [ ! -d \"\$APP_ROOT/.git\" ]; then \
