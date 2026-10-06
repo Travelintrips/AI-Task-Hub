@@ -23,7 +23,7 @@ jobs:
   deploy-production:
     if: >-
       (github.event_name == 'workflow_dispatch' && inputs.target == 'production') ||
-      (github.event_name == 'push' && github.ref_name == 'main')
+      (github.event_name == 'push' && github.ref_name == 'main' && vars.HOSTINGER_AUTO_DEPLOY == 'true')
     runs-on: ubuntu-latest
     environment: production
     steps:
