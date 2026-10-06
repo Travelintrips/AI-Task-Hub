@@ -25,6 +25,7 @@ jobs:
       (github.event_name == 'workflow_dispatch' && inputs.target == 'production') ||
       (github.event_name == 'push' && github.ref_name == 'main' && vars.HOSTINGER_AUTO_DEPLOY == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     environment: production
     steps:
       - name: Configure SSH
@@ -171,11 +172,13 @@ jobs:
           nginx -t
           systemctl reload nginx
 
-          if ! command -v certbot >/dev/null 2>&1; then
-            apt-get update -qq
-            DEBIAN_FRONTEND=noninteractive apt-get install -y -qq certbot python3-certbot-nginx
+          if [ ! -f /etc/letsencrypt/live/ai-task.cstlogistic.co.id/fullchain.pem ]; then
+            if ! command -v certbot >/dev/null 2>&1; then
+              timeout 300s apt-get update -qq
+              timeout 300s env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq certbot python3-certbot-nginx
+            fi
+            timeout 180s certbot --nginx -d ai-task.cstlogistic.co.id --non-interactive --agree-tos --register-unsafely-without-email --redirect
           fi
-          certbot --nginx -d ai-task.cstlogistic.co.id --non-interactive --agree-tos --register-unsafely-without-email --redirect
           curl -fsS http://127.0.0.1:18080/api/healthz >/dev/null
           REMOTE
           } | ssh -i ~/.ssh/id_hostinger -p "$PORT" \
@@ -192,6 +195,7 @@ jobs:
       (github.event_name == 'workflow_dispatch' && inputs.target == 'development') ||
       (github.event_name == 'push' && github.ref_name == 'develop' && vars.HOSTINGER_AUTO_DEPLOY == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     environment: development
     steps:
       - name: Configure SSH
