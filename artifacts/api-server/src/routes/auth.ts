@@ -178,7 +178,7 @@ router.post("/auth/google", async (req: Request, res: Response): Promise<void> =
       .where(eq(usersTable.id, user.id));
 
     const token = signToken({
-      id: user.id as unknown as number,
+      id: user.id,
       email: user.email,
       role: user.role as UserRole,
       companyId: user.companyId,
@@ -277,7 +277,7 @@ router.post(
   async (req: Request, res: Response): Promise<void> => {
     const rawId = req.params.id as string;
     const [target] = await db.select().from(usersTable)
-      .where(eq(usersTable.id, rawId as unknown as number)).limit(1);
+      .where(eq(usersTable.id, rawId)).limit(1);
 
     const { newPassword } = req.body as { newPassword?: string };
     if (!target) { res.status(404).json({ error: "User not found" }); return; }
@@ -299,7 +299,7 @@ router.post(
     }
 
     const passwordHash = await bcrypt.hash(tempPassword, 12);
-    await db.update(usersTable).set({ passwordHash, updatedAt: new Date() }).where(eq(usersTable.id, rawId as unknown as number));
+    await db.update(usersTable).set({ passwordHash, updatedAt: new Date() }).where(eq(usersTable.id, rawId));
 
     logger.info({ resetBy: req.user!.id, targetUserId: rawId }, "Password reset by admin");
 
@@ -372,8 +372,8 @@ router.patch(
   requireAuth,
   requireRole("company_admin", "super_admin"),
   async (req: Request, res: Response): Promise<void> => {
-    const id = Number(req.params.id);
-    if (isNaN(id)) { res.status(400).json({ error: "Invalid user ID" }); return; }
+    const id = req.params.id as string;
+    if (!id) { res.status(400).json({ error: "Invalid user ID" }); return; }
 
     const { name, role, division, phone, isActive } = req.body as {
       name?: string; role?: string; division?: string; phone?: string; isActive?: boolean;
@@ -413,8 +413,8 @@ router.delete(
   requireAuth,
   requireRole("super_admin"),
   async (req: Request, res: Response): Promise<void> => {
-    const id = Number(req.params.id);
-    if (isNaN(id)) { res.status(400).json({ error: "Invalid user ID" }); return; }
+    const id = req.params.id as string;
+    if (!id) { res.status(400).json({ error: "Invalid user ID" }); return; }
     if (id === req.user!.id) { res.status(400).json({ error: "Cannot delete your own account" }); return; }
 
     const [deleted] = await db.delete(usersTable).where(eq(usersTable.id, id)).returning();
