@@ -2,17 +2,12 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { eq, asc } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
-import { OAuth2Client } from "google-auth-library";
+import { createClient } from "@supabase/supabase-js";
 import { db, usersTable, type UserRole, USER_ROLES } from "@workspace/db";
 import { signToken, requireAuth, requireRole, type AuthUser } from "../middleware/auth";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
-const GOOGLE_OAUTH_CLIENT_ID =
-  process.env.GOOGLE_CLIENT_ID?.trim() ||
-  "751551151000-fqrgt8si0pgnchqkn3pfo6nmqienv38f.apps.googleusercontent.com";
-const googleOAuthClient = new OAuth2Client(GOOGLE_OAUTH_CLIENT_ID);
-
 // ─── POST /auth/setup ──────────────────────────────────────────────────────────
 // Creates first super_admin when no users exist. Use only on initial setup.
 
@@ -113,30 +108,56 @@ router.post("/auth/login", async (req: Request, res: Response): Promise<void> =>
   }
 });
 
-// ─── Google Sign-In ────────────────────────────────────────────────────────────
+// ─── Google Sign-In via Supabase OAuth ─────────────────────────────────────────
 
-router.get("/auth/google/config", (_req: Request, res: Response): void => {
-  res.json({ clientId: GOOGLE_OAUTH_CLIENT_ID });
+router.get("/auth/google/start", (_req: Request, res: Response): void => {
+  const supabaseUrl = process.env.SUPABASE_URL?.trim();
+  const appBaseUrl = process.env.PUBLIC_APP_BASE_URL?.trim();
+
+  if (!supabaseUrl || !appBaseUrl) {
+    res.status(503).json({ error: "Google login is not configured" });
+    return;
+  }
+
+  const authorizeUrl = new URL("/auth/v1/authorize", supabaseUrl);
+  authorizeUrl.searchParams.set("provider", "google");
+  authorizeUrl.searchParams.set("redirect_to", appBaseUrl.replace(/\/$/, "") + "/");
+  res.redirect(302, authorizeUrl.toString());
 });
 
 router.post("/auth/google", async (req: Request, res: Response): Promise<void> => {
-  const { credential } = req.body as { credential?: string };
+  const { accessToken } = req.body as { accessToken?: string };
+  const supabaseUrl = process.env.SUPABASE_URL?.trim();
+  const publishableKey = process.env.SUPABASE_ANON_KEY?.trim();
 
-  if (!credential) {
-    res.status(400).json({ error: "Google credential is required" });
+  if (!accessToken) {
+    res.status(400).json({ error: "Supabase access token is required" });
+    return;
+  }
+  if (!supabaseUrl || !publishableKey) {
+    res.status(503).json({ error: "Google login is not configured" });
     return;
   }
 
   try {
-    const ticket = await googleOAuthClient.verifyIdToken({
-      idToken: credential,
-      audience: GOOGLE_OAUTH_CLIENT_ID,
+    const supabase = createClient(supabaseUrl, publishableKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+      },
     });
-    const payload = ticket.getPayload();
-    const email = payload?.email?.toLowerCase().trim();
+    const { data, error } = await supabase.auth.getUser(accessToken);
+    if (error || !data.user) {
+      res.status(401).json({ error: "Invalid Supabase session" });
+      return;
+    }
 
-    if (!email || payload?.email_verified !== true) {
-      res.status(401).json({ error: "Google account email is not verified" });
+    const authUser = data.user;
+    const email = authUser.email?.toLowerCase().trim();
+    const provider = authUser.app_metadata?.provider;
+    if (!email || !authUser.email_confirmed_at || provider !== "google") {
+      res.status(401).json({ error: "Verified Google account required" });
       return;
     }
 
@@ -166,12 +187,12 @@ router.post("/auth/google", async (req: Request, res: Response): Promise<void> =
 
     logger.info(
       { userId: user.id, email: user.email, role: user.role },
-      "User logged in with Google",
+      "User logged in with Google via Supabase OAuth",
     );
 
     res.json({ token, user: safeUser(user) });
   } catch (err) {
-    logger.warn({ err }, "Google login verification failed");
+    logger.warn({ err }, "Supabase Google login verification failed");
     res.status(401).json({ error: "Google login verification failed" });
   }
 });
