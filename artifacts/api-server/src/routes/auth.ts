@@ -3,69 +3,11 @@ import { eq, asc } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { createClient } from "@supabase/supabase-js";
-import { db, pool, usersTable, type UserRole, USER_ROLES } from "@workspace/db";
+import { db, usersTable, type UserRole, USER_ROLES } from "@workspace/db";
 import { signToken, requireAuth, requireRole, type AuthUser } from "../middleware/auth";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
-
-type ProductionAuthUserRow = {
-  id: string;
-  company_id: number | null;
-  name: string;
-  email: string | null;
-  role: string;
-  division: string | null;
-  phone: string | null;
-  is_active: boolean;
-  last_login_at: Date | null;
-  created_at: Date;
-  updated_at: Date;
-};
-
-async function findProductionAuthUserByEmail(email: string): Promise<ProductionAuthUserRow | null> {
-  const result = await pool.query<ProductionAuthUserRow>(
-    `select id, company_id, name, email, role, division, phone, is_active,
-            last_login_at, created_at, updated_at
-       from public.users
-      where lower(email) = lower($1)
-      limit 1`,
-    [email],
-  );
-  return result.rows[0] ?? null;
-}
-
-async function findProductionAuthUserById(id: string): Promise<ProductionAuthUserRow | null> {
-  const result = await pool.query<ProductionAuthUserRow>(
-    `select id, company_id, name, email, role, division, phone, is_active,
-            last_login_at, created_at, updated_at
-       from public.users
-      where id = $1
-      limit 1`,
-    [id],
-  );
-  return result.rows[0] ?? null;
-}
-
-function normalizeCompanyId(value: number | null): string {
-  return value == null ? "default" : String(value);
-}
-
-function safeProductionUser(user: ProductionAuthUserRow) {
-  return {
-    id: user.id,
-    companyId: normalizeCompanyId(user.company_id),
-    name: user.name,
-    email: user.email ?? "",
-    role: user.role,
-    division: user.division,
-    phone: user.phone,
-    isActive: user.is_active,
-    lastLoginAt: user.last_login_at?.toISOString() ?? null,
-    createdAt: user.created_at.toISOString(),
-    updatedAt: user.updated_at.toISOString(),
-  };
-}
 
 // ─── POST /auth/setup ──────────────────────────────────────────────────────────
 // Creates first super_admin when no users exist. Use only on initial setup.
@@ -228,43 +170,62 @@ router.post("/auth/google", async (req: Request, res: Response): Promise<void> =
       return;
     }
 
-    const user = await findProductionAuthUserByEmail(email);
+    const metadata = authUser.app_metadata ?? {};
+    const aiTaskId = typeof metadata.ai_task_user_id === "string"
+      ? metadata.ai_task_user_id
+      : "";
+    const aiTaskRole = typeof metadata.ai_task_role === "string"
+      ? metadata.ai_task_role
+      : "";
+    const aiTaskCompanyId = typeof metadata.ai_task_company_id === "string"
+      ? metadata.ai_task_company_id
+      : "default";
+    const aiTaskName = typeof metadata.ai_task_name === "string" && metadata.ai_task_name.trim()
+      ? metadata.ai_task_name.trim()
+      : (authUser.user_metadata?.full_name ?? email);
+    const aiTaskActive = metadata.ai_task_active === true;
 
-    if (!user || !user.is_active) {
+    if (
+      !aiTaskId ||
+      !aiTaskActive ||
+      !USER_ROLES.includes(aiTaskRole as UserRole)
+    ) {
       res.status(403).json({ error: "Google account is not registered or is inactive" });
       return;
     }
 
-    try {
-      await pool.query(
-        "update public.users set last_login_at = now(), updated_at = now() where id = $1",
-        [user.id],
-      );
-      user.last_login_at = new Date();
-      user.updated_at = new Date();
-    } catch (err) {
-      logger.warn(
-        { err, userId: user.id },
-        "Failed to update Google login timestamp; continuing login",
-      );
-    }
-
+    const role = aiTaskRole as UserRole;
     const token = signToken({
-      // AuthUser is still typed as number for legacy modules, but production user IDs
-      // are TEXT. A TypeScript assertion preserves the real runtime string in the JWT.
-      id: user.id as unknown as number,
-      email: user.email ?? email,
-      role: user.role as UserRole,
-      companyId: normalizeCompanyId(user.company_id),
-      name: user.name,
+      // Legacy modules type AuthUser.id as number, but production user IDs are TEXT.
+      // Keep the runtime string intact inside the signed JWT.
+      id: aiTaskId as unknown as number,
+      email,
+      role,
+      companyId: aiTaskCompanyId,
+      name: aiTaskName,
     });
 
+    const now = new Date().toISOString();
+    const user = {
+      id: aiTaskId,
+      companyId: aiTaskCompanyId,
+      name: aiTaskName,
+      email,
+      role,
+      division: null,
+      phone: null,
+      isActive: true,
+      lastLoginAt: now,
+      createdAt: now,
+      updatedAt: now,
+    };
+
     logger.info(
-      { userId: user.id, email: user.email, role: user.role },
+      { userId: aiTaskId, email, role },
       "User logged in with Google via Supabase OAuth",
     );
 
-    res.json({ token, user: safeProductionUser(user) });
+    res.json({ token, user });
   } catch (err) {
     logger.warn({ err }, "Supabase Google login verification failed");
     res.status(401).json({ error: "Google login verification failed" });
@@ -281,12 +242,20 @@ router.post("/auth/logout", (_req: Request, res: Response): void => {
 
 router.get("/auth/me", requireAuth, async (req: Request, res: Response): Promise<void> => {
   if (process.env.NODE_ENV === "production") {
-    const productionUser = await findProductionAuthUserById(String(req.user!.id));
-    if (!productionUser) {
-      res.status(404).json({ error: "User not found" });
-      return;
-    }
-    res.json(safeProductionUser(productionUser));
+    const now = new Date().toISOString();
+    res.json({
+      id: req.user!.id,
+      companyId: req.user!.companyId,
+      name: req.user!.name,
+      email: req.user!.email,
+      role: req.user!.role,
+      division: null,
+      phone: null,
+      isActive: true,
+      lastLoginAt: null,
+      createdAt: now,
+      updatedAt: now,
+    });
     return;
   }
 
