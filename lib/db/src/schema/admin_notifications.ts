@@ -10,7 +10,7 @@ export const adminNotificationsTable = pgTable("admin_notifications", {
   body: text("body").notNull(),
   taskId: integer("task_id"),
   customerPhone: text("customer_phone"),
-  customerName: text("customer_name"),
+  customerName: text("customer_name").notNull(),
   isRead: boolean("is_read").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
