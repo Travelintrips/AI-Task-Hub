@@ -51,7 +51,7 @@ router.get("/intake-sessions", requireAuth, async (req, res): Promise<void> => {
     res.json({ data: sessions, total: sessions.length });
   } catch (err) {
     logger.error({ err }, "GET /intake-sessions failed");
-    res.status(500).json({ error: "Gagal mengambil data intake sessions" });
+    res.status(503).json({ error: "Database intake session sedang tidak tersedia" });
   }
 });
 
