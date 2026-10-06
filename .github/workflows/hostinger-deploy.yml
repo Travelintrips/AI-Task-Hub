@@ -49,9 +49,22 @@ jobs:
           PORT: '22'
           USERNAME: root
           APP_ROOT: ${{ vars.HOSTINGER_APP_ROOT }}
+          SUPABASE_DATABASE_URL_SECRET: ${{ secrets.SUPABASE_DATABASE_URL }}
         run: |
           set -euo pipefail
+          test -n "$SUPABASE_DATABASE_URL_SECRET"
           REMOTE_ROOT="${APP_ROOT:-\$HOME/apps/ai-task/production}"
+          DB_ENV_FILE="$RUNNER_TEMP/ai-task-db.env"
+          umask 077
+          printf 'SUPABASE_DATABASE_URL=%s\n' "$SUPABASE_DATABASE_URL_SECRET" > "$DB_ENV_FILE"
+          scp -i ~/.ssh/id_hostinger -P "$PORT" \
+            -o StrictHostKeyChecking=accept-new \
+            -o UserKnownHostsFile=~/.ssh/known_hosts \
+            -o ConnectTimeout=20 \
+            -o ConnectionAttempts=3 \
+            "$DB_ENV_FILE" "$USERNAME@$HOST:/tmp/ai-task-db.env"
+          rm -f "$DB_ENV_FILE"
+
           ssh -i ~/.ssh/id_hostinger -p "$PORT" \
             -o StrictHostKeyChecking=accept-new \
             -o UserKnownHostsFile=~/.ssh/known_hosts \
@@ -62,6 +75,7 @@ jobs:
             -o TCPKeepAlive=yes \
             "$USERNAME@$HOST" 'bash -s' -- "$REMOTE_ROOT" <<'REMOTE'
           set -euo pipefail
+          trap 'rm -f /tmp/ai-task-db.env' EXIT
           APP_ROOT="$1"
           if [ ! -d "$APP_ROOT/.git" ]; then
             mkdir -p "$(dirname "$APP_ROOT")"
@@ -91,7 +105,7 @@ jobs:
           from pathlib import Path
           
           source = json.loads(Path(os.environ['SECRET_FILE']).read_text())
-          required = ['SUPABASE_URL', 'SUPABASE_DATABASE_URL', 'SUPABASE_ANON_KEY']
+          required = ['SUPABASE_URL', 'SUPABASE_ANON_KEY']
           missing = [k for k in required if not source.get(k)]
           if missing:
               raise SystemExit('Missing runtime bootstrap values: ' + ', '.join(missing))
@@ -104,7 +118,7 @@ jobs:
               'TRUST_PROXY_HOPS': '1',
               'LOG_LEVEL': 'info',
               'SUPABASE_URL': source['SUPABASE_URL'],
-              'SUPABASE_DATABASE_URL': source['SUPABASE_DATABASE_URL'],
+              'SUPABASE_DATABASE_URL': source.get('SUPABASE_DATABASE_URL', ''),
               'SUPABASE_ANON_KEY': source['SUPABASE_ANON_KEY'],
               'SESSION_SECRET': os.environ['SESSION_SECRET'],
               'SUPABASE_SERVICE_ROLE_KEY': '',
@@ -120,6 +134,32 @@ jobs:
           PY
             chmod 0600 /etc/ai-task/production.env
           fi
+
+          test -s /tmp/ai-task-db.env
+          python3 - <<'PY'
+          from pathlib import Path
+
+          runtime = Path('/etc/ai-task/production.env')
+          incoming = Path('/tmp/ai-task-db.env').read_text().strip()
+          key, sep, value = incoming.partition('=')
+          if key != 'SUPABASE_DATABASE_URL' or not sep or not value:
+              raise SystemExit('Invalid database runtime secret payload')
+
+          lines = runtime.read_text().splitlines()
+          replaced = False
+          out = []
+          for line in lines:
+              if line.startswith('SUPABASE_DATABASE_URL='):
+                  out.append(f'SUPABASE_DATABASE_URL={value}')
+                  replaced = True
+              else:
+                  out.append(line)
+          if not replaced:
+              out.append(f'SUPABASE_DATABASE_URL={value}')
+          runtime.write_text('\n'.join(out) + '\n')
+          PY
+          chmod 0600 /etc/ai-task/production.env
+          rm -f /tmp/ai-task-db.env
 
           AI_TASK_APP_ROOT="$APP_ROOT" bash deploy/hostinger/deploy.sh production
 
@@ -157,6 +197,7 @@ jobs:
           fi
           certbot --nginx -d ai-task.cstlogistic.co.id --non-interactive --agree-tos --register-unsafely-without-email --redirect
           curl -fsS http://127.0.0.1:18080/api/healthz >/dev/null
+          curl -fsS http://127.0.0.1:18080/api/readyz >/dev/null
           REMOTE
   deploy-development:
     if: >-
