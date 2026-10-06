@@ -51,21 +51,105 @@ jobs:
           APP_ROOT: ${{ vars.HOSTINGER_APP_ROOT }}
         run: |
           set -euo pipefail
-          test -n "$USERNAME"
           REMOTE_ROOT="${APP_ROOT:-\$HOME/apps/ai-task/production}"
-          ssh -i ~/.ssh/id_hostinger -p "$PORT" "$USERNAME@$HOST" \
-            "set -euo pipefail; \
-             APP_ROOT=\"$REMOTE_ROOT\"; \
-             if [ ! -d \"\$APP_ROOT/.git\" ]; then \
-               mkdir -p \"\$(dirname \"\$APP_ROOT\")\"; \
-               git clone --branch main --single-branch https://github.com/Travelintrips/AI-Task-Hub.git \"\$APP_ROOT\"; \
-             fi; \
-             cd \"\$APP_ROOT\"; \
-             git fetch origin main; \
-             git checkout -B main origin/main; \
-             git reset --hard origin/main; \
-             AI_TASK_APP_ROOT=\"\$APP_ROOT\" bash deploy/hostinger/deploy.sh production"
+          ssh -i ~/.ssh/id_hostinger -p "$PORT" "$USERNAME@$HOST" 'bash -s' -- "$REMOTE_ROOT" <<'REMOTE'
+          set -euo pipefail
+          APP_ROOT="$1"
+          if [ ! -d "$APP_ROOT/.git" ]; then
+            mkdir -p "$(dirname "$APP_ROOT")"
+            git clone --branch main --single-branch https://github.com/Travelintrips/AI-Task-Hub.git "$APP_ROOT"
+          fi
+          cd "$APP_ROOT"
+          git fetch origin main
+          git checkout -B main origin/main
+          git reset --hard origin/main
 
+          install -d -m 0750 /etc/ai-task
+          if [ ! -f /etc/ai-task/compose.production.env ]; then
+            cp deploy/hostinger/compose.production.env.example /etc/ai-task/compose.production.env
+            chmod 0640 /etc/ai-task/compose.production.env
+          fi
+
+          if [ ! -f /etc/ai-task/production.env ]; then
+            SECRET_FILE="$(ls -1t attached_assets/Pasted--SESSION-SECRET-* 2>/dev/null | head -n1 || true)"
+            if [ -z "$SECRET_FILE" ]; then
+              echo 'No bootstrap runtime source found.' >&2
+              exit 1
+            fi
+            SESSION_SECRET="$(openssl rand -base64 48 | tr -d '\n')"
+            export SECRET_FILE SESSION_SECRET
+            python3 - <<'PY'
+import json, os
+from pathlib import Path
+
+source = json.loads(Path(os.environ['SECRET_FILE']).read_text())
+required = ['SUPABASE_URL', 'SUPABASE_DATABASE_URL', 'SUPABASE_ANON_KEY']
+missing = [k for k in required if not source.get(k)]
+if missing:
+    raise SystemExit('Missing runtime bootstrap values: ' + ', '.join(missing))
+
+env = {
+    'NODE_ENV': 'production',
+    'PORT': '8080',
+    'PUBLIC_APP_BASE_URL': 'https://ai-task.cstlogistic.co.id',
+    'CORS_ALLOWED_ORIGINS': 'https://ai-task.cstlogistic.co.id',
+    'TRUST_PROXY_HOPS': '1',
+    'LOG_LEVEL': 'info',
+    'SUPABASE_URL': source['SUPABASE_URL'],
+    'SUPABASE_DATABASE_URL': source['SUPABASE_DATABASE_URL'],
+    'SUPABASE_ANON_KEY': source['SUPABASE_ANON_KEY'],
+    'SESSION_SECRET': os.environ['SESSION_SECRET'],
+    'SUPABASE_SERVICE_ROLE_KEY': '',
+    'OPENAI_API_KEY': '',
+    'OPENAI_BASE_URL': 'https://api.openai.com/v1',
+    'FONNTE_TOKEN': '',
+    'WHATSAPP_WEBHOOK_VERIFY_TOKEN': '',
+    'SC_DOMAIN': 'https://sc.travelintrips.co.id',
+}
+Path('/etc/ai-task/production.env').write_text(
+    ''.join(f'{k}={v}\n' for k, v in env.items())
+)
+PY
+            chmod 0600 /etc/ai-task/production.env
+          fi
+
+          AI_TASK_APP_ROOT="$APP_ROOT" bash deploy/hostinger/deploy.sh production
+
+          cat >/etc/nginx/sites-available/ai-task.cstlogistic.co.id <<'NGINX'
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ai-task.cstlogistic.co.id;
+
+    client_max_body_size 60m;
+
+    location / {
+        proxy_pass http://127.0.0.1:18080;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+}
+NGINX
+          ln -sfn /etc/nginx/sites-available/ai-task.cstlogistic.co.id /etc/nginx/sites-enabled/ai-task.cstlogistic.co.id
+          nginx -t
+          systemctl reload nginx
+
+          if ! command -v certbot >/dev/null 2>&1; then
+            apt-get update -qq
+            DEBIAN_FRONTEND=noninteractive apt-get install -y -qq certbot python3-certbot-nginx
+          fi
+          certbot --nginx -d ai-task.cstlogistic.co.id --non-interactive --agree-tos --register-unsafely-without-email --redirect
+          curl -fsS http://127.0.0.1:18080/api/healthz >/dev/null
+          REMOTE
   deploy-development:
     if: >-
       (github.event_name == 'workflow_dispatch' && inputs.target == 'development') ||
