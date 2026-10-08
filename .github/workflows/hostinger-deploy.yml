@@ -20,18 +20,37 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck
+        run: pnpm run typecheck
+
   deploy-production:
+    needs: verify
     if: >-
       (github.event_name == 'workflow_dispatch' && inputs.target == 'production') ||
       (github.event_name == 'push' && github.ref_name == 'main' && vars.HOSTINGER_AUTO_DEPLOY == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     environment: production
     steps:
       - name: Configure SSH
         env:
           SSH_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
-          HOST: ${{ secrets.HOSTINGER_HOST }}
-          PORT: ${{ secrets.HOSTINGER_PORT }}
+          HOST: 72.61.210.205
+          PORT: '22'
         run: |
           set -euo pipefail
           test -n "$SSH_KEY"
@@ -40,43 +59,169 @@ jobs:
           install -m 0700 -d ~/.ssh
           printf '%s\n' "$SSH_KEY" > ~/.ssh/id_hostinger
           chmod 0600 ~/.ssh/id_hostinger
-          ssh-keyscan -p "$PORT" "$HOST" >> ~/.ssh/known_hosts
+          echo "private_key_public_fingerprint=$(ssh-keygen -y -f ~/.ssh/id_hostinger | ssh-keygen -lf - | awk '{print $2}')"
+          touch ~/.ssh/known_hosts
 
       - name: Deploy production
         env:
-          HOST: ${{ secrets.HOSTINGER_HOST }}
-          PORT: ${{ secrets.HOSTINGER_PORT }}
-          USERNAME: ${{ secrets.HOSTINGER_USER }}
+          HOST: 72.61.210.205
+          PORT: '22'
+          USERNAME: root
           APP_ROOT: ${{ vars.HOSTINGER_APP_ROOT }}
+          SUPABASE_DATABASE_URL: ${{ secrets.SUPABASE_DATABASE_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           set -euo pipefail
-          test -n "$USERNAME"
+          test -n "$SUPABASE_DATABASE_URL"
+          test -n "$SUPABASE_URL"
+          test -n "$SUPABASE_ANON_KEY"
+          test -n "$SUPABASE_SERVICE_ROLE_KEY"
           REMOTE_ROOT="${APP_ROOT:-\$HOME/apps/ai-task/production}"
-          ssh -i ~/.ssh/id_hostinger -p "$PORT" "$USERNAME@$HOST" \
-            "set -euo pipefail; \
-             APP_ROOT=\"$REMOTE_ROOT\"; \
-             if [ ! -d \"\$APP_ROOT/.git\" ]; then \
-               mkdir -p \"\$(dirname \"\$APP_ROOT\")\"; \
-               git clone --branch main --single-branch https://github.com/Travelintrips/AI-Task-Hub.git \"\$APP_ROOT\"; \
-             fi; \
-             cd \"\$APP_ROOT\"; \
-             git fetch origin main; \
-             git checkout -B main origin/main; \
-             git reset --hard origin/main; \
-             AI_TASK_APP_ROOT=\"\$APP_ROOT\" bash deploy/hostinger/deploy.sh production"
+          {
+            printf '%s\n' "${SUPABASE_DATABASE_URL:-}"
+            printf '%s\n' "${SUPABASE_URL:-}"
+            printf '%s\n' "${SUPABASE_ANON_KEY:-}"
+            printf '%s\n' "${SUPABASE_SERVICE_ROLE_KEY:-}"
+            printf '%s\n' "${OPENAI_API_KEY:-}"
+            printf '%s\n' "$REMOTE_ROOT"
+            cat <<'REMOTE'
+          set -euo pipefail
+          if [ ! -d "$APP_ROOT/.git" ]; then
+            mkdir -p "$(dirname "$APP_ROOT")"
+            git clone --branch main --single-branch https://github.com/Travelintrips/AI-Task-Hub.git "$APP_ROOT"
+          fi
+          cd "$APP_ROOT"
+          git fetch origin main
+          git checkout -B main origin/main
+          git reset --hard origin/main
 
+          install -d -m 0750 /etc/ai-task
+          if [ ! -f /etc/ai-task/compose.production.env ]; then
+            cp deploy/hostinger/compose.production.env.example /etc/ai-task/compose.production.env
+            chmod 0640 /etc/ai-task/compose.production.env
+          fi
+
+          if [ ! -f /etc/ai-task/production.env ]; then
+            SESSION_SECRET="$(openssl rand -base64 48 | tr -d '\n')"
+            export SESSION_SECRET
+            cat >/etc/ai-task/production.env <<EOF
+          NODE_ENV=production
+          PORT=8080
+          PUBLIC_APP_BASE_URL=https://ai-task.cstlogistic.co.id
+          CORS_ALLOWED_ORIGINS=https://ai-task.cstlogistic.co.id
+          TRUST_PROXY_HOPS=1
+          LOG_LEVEL=info
+          RUN_STARTUP_MIGRATIONS=false
+          SESSION_SECRET=$SESSION_SECRET
+          OPENAI_BASE_URL=https://api.openai.com/v1
+          FONNTE_TOKEN=
+          WHATSAPP_WEBHOOK_VERIFY_TOKEN=
+          SC_DOMAIN=https://sc.travelintrips.co.id
+          EOF
+            chmod 0600 /etc/ai-task/production.env
+          fi
+
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          env_path = Path('/etc/ai-task/production.env')
+          updates = {
+              key: os.environ.get(key, '').strip()
+              for key in (
+                  'SUPABASE_DATABASE_URL',
+                  'SUPABASE_URL',
+                  'SUPABASE_ANON_KEY',
+                  'SUPABASE_SERVICE_ROLE_KEY',
+                  'OPENAI_API_KEY',
+              )
+              if os.environ.get(key, '').strip()
+          }
+
+          lines = env_path.read_text().splitlines()
+          seen = set()
+          output = []
+          for line in lines:
+              if '=' in line:
+                  key = line.split('=', 1)[0]
+                  if key in updates:
+                      output.append(f'{key}={updates[key]}')
+                      seen.add(key)
+                      continue
+              output.append(line)
+          for key, value in updates.items():
+              if key not in seen:
+                  output.append(f'{key}={value}')
+          env_path.write_text('\n'.join(output) + '\n')
+          PY
+          chmod 0600 /etc/ai-task/production.env
+          echo "Production runtime secrets synchronized."
+
+          AI_TASK_APP_ROOT="$APP_ROOT" bash deploy/hostinger/deploy.sh production
+
+          cat >/etc/nginx/sites-available/ai-task.cstlogistic.co.id <<'NGINX'
+          server {
+              listen 80;
+              listen [::]:80;
+              server_name ai-task.cstlogistic.co.id;
+          
+              client_max_body_size 60m;
+          
+              location / {
+                  proxy_pass http://127.0.0.1:18080;
+                  proxy_http_version 1.1;
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto $scheme;
+                  proxy_set_header Upgrade $http_upgrade;
+                  proxy_set_header Connection "upgrade";
+                  proxy_buffering off;
+                  proxy_cache off;
+                  proxy_read_timeout 3600s;
+                  proxy_send_timeout 3600s;
+              }
+          }
+          NGINX
+          ln -sfn /etc/nginx/sites-available/ai-task.cstlogistic.co.id /etc/nginx/sites-enabled/ai-task.cstlogistic.co.id
+          nginx -t
+          systemctl reload nginx
+
+          if [ ! -f /etc/letsencrypt/live/ai-task.cstlogistic.co.id/fullchain.pem ]; then
+            if ! command -v certbot >/dev/null 2>&1; then
+              timeout 300s apt-get update -qq
+              timeout 300s env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq certbot python3-certbot-nginx
+            fi
+            timeout 180s certbot --nginx -d ai-task.cstlogistic.co.id --non-interactive --agree-tos --register-unsafely-without-email --redirect
+          fi
+          curl -fsS http://127.0.0.1:18080/api/healthz >/dev/null
+          REMOTE
+          } | ssh -i ~/.ssh/id_hostinger -p "$PORT" \
+            -o StrictHostKeyChecking=accept-new \
+            -o UserKnownHostsFile=~/.ssh/known_hosts \
+            -o ConnectTimeout=20 \
+            -o ConnectionAttempts=3 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=30 \
+            -o TCPKeepAlive=yes \
+            "$USERNAME@$HOST" 'IFS= read -r SUPABASE_DATABASE_URL; IFS= read -r SUPABASE_URL; IFS= read -r SUPABASE_ANON_KEY; IFS= read -r SUPABASE_SERVICE_ROLE_KEY; IFS= read -r OPENAI_API_KEY; IFS= read -r APP_ROOT; export SUPABASE_DATABASE_URL SUPABASE_URL SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY OPENAI_API_KEY APP_ROOT; bash -s'
   deploy-development:
+    needs: verify
     if: >-
       (github.event_name == 'workflow_dispatch' && inputs.target == 'development') ||
       (github.event_name == 'push' && github.ref_name == 'develop' && vars.HOSTINGER_AUTO_DEPLOY == 'true')
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     environment: development
     steps:
       - name: Configure SSH
         env:
           SSH_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
-          HOST: ${{ secrets.HOSTINGER_HOST }}
-          PORT: ${{ secrets.HOSTINGER_PORT }}
+          HOST: 72.61.210.205
+          PORT: '22'
         run: |
           set -euo pipefail
           test -n "$SSH_KEY"
@@ -85,19 +230,27 @@ jobs:
           install -m 0700 -d ~/.ssh
           printf '%s\n' "$SSH_KEY" > ~/.ssh/id_hostinger
           chmod 0600 ~/.ssh/id_hostinger
-          ssh-keyscan -p "$PORT" "$HOST" >> ~/.ssh/known_hosts
+          touch ~/.ssh/known_hosts
 
       - name: Deploy development
         env:
-          HOST: ${{ secrets.HOSTINGER_HOST }}
-          PORT: ${{ secrets.HOSTINGER_PORT }}
-          USERNAME: ${{ secrets.HOSTINGER_USER }}
+          HOST: 72.61.210.205
+          PORT: '22'
+          USERNAME: root
           APP_ROOT: ${{ vars.HOSTINGER_APP_ROOT }}
         run: |
           set -euo pipefail
           test -n "$USERNAME"
           REMOTE_ROOT="${APP_ROOT:-\$HOME/apps/ai-task/development}"
-          ssh -i ~/.ssh/id_hostinger -p "$PORT" "$USERNAME@$HOST" \
+          ssh -i ~/.ssh/id_hostinger -p "$PORT" \
+            -o StrictHostKeyChecking=accept-new \
+            -o UserKnownHostsFile=~/.ssh/known_hosts \
+            -o ConnectTimeout=20 \
+            -o ConnectionAttempts=3 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=30 \
+            -o TCPKeepAlive=yes \
+            "$USERNAME@$HOST" \
             "set -euo pipefail; \
              APP_ROOT=\"$REMOTE_ROOT\"; \
              if [ ! -d \"\$APP_ROOT/.git\" ]; then \

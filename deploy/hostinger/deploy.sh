@@ -55,14 +55,43 @@ if [ -z "${HOST_PORT:-}" ] || [ -z "${CONTAINER_NAME:-}" ]; then
   exit 1
 fi
 
+echo "Building AI Task Hub image (bounded to 12 minutes)..."
+if ! timeout --foreground --kill-after=30s 12m docker compose \
+  --env-file "$COMPOSE_ENV" \
+  -f deploy/hostinger/docker-compose.yml \
+  build; then
+  echo "Docker build failed or exceeded 12 minutes; keeping the current container untouched." >&2
+  docker compose --env-file "$COMPOSE_ENV" -f deploy/hostinger/docker-compose.yml ps >&2 || true
+  exit 1
+fi
+
 docker compose \
   --env-file "$COMPOSE_ENV" \
   -f deploy/hostinger/docker-compose.yml \
-  up -d --build --remove-orphans
+  up -d --remove-orphans
 
 for attempt in $(seq 1 45); do
   status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$CONTAINER_NAME" 2>/dev/null || true)"
   if [ "$status" = "healthy" ]; then
+    if [ "$TARGET" = "production" ]; then
+      echo "Running production database readiness check..."
+      if ! docker exec "$CONTAINER_NAME" node -e '
+        fetch("http://127.0.0.1:8080/api/readyz")
+          .then(async (res) => {
+            const body = await res.text();
+            if (!res.ok) throw new Error("HTTP " + res.status + " " + body);
+            console.log("AI_TASK_DB_READY", body);
+          })
+          .catch((err) => {
+            console.error("AI_TASK_DB_NOT_READY", err.message);
+            process.exit(1);
+          });
+      '; then
+        echo "Production database readiness check failed" >&2
+        docker compose --env-file "$COMPOSE_ENV" -f deploy/hostinger/docker-compose.yml logs --tail=120 app >&2
+        exit 1
+      fi
+    fi
     echo "AI Task Hub $TARGET is healthy on 127.0.0.1:$HOST_PORT"
     docker compose --env-file "$COMPOSE_ENV" -f deploy/hostinger/docker-compose.yml ps
     exit 0

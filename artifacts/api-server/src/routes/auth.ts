@@ -2,6 +2,7 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { eq, asc } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
+import { createClient } from "@supabase/supabase-js";
 import { db, usersTable, type UserRole, USER_ROLES } from "@workspace/db";
 import { signToken, requireAuth, requireRole, type AuthUser } from "../middleware/auth";
 import { logger } from "../lib/logger";
@@ -108,6 +109,129 @@ router.post("/auth/login", async (req: Request, res: Response): Promise<void> =>
   }
 });
 
+// ─── Google Sign-In via Supabase OAuth ─────────────────────────────────────────
+
+router.get("/auth/google/start", (_req: Request, res: Response): void => {
+  const supabaseUrl = process.env.SUPABASE_URL?.trim();
+  const appBaseUrl = process.env.PUBLIC_APP_BASE_URL?.trim();
+
+  if (!supabaseUrl || !appBaseUrl) {
+    res.status(503).json({ error: "Google login is not configured" });
+    return;
+  }
+
+  const authorizeUrl = new URL("/auth/v1/authorize", supabaseUrl);
+  authorizeUrl.searchParams.set("provider", "google");
+  authorizeUrl.searchParams.set("redirect_to", appBaseUrl.replace(/\/$/, "") + "/");
+  res.redirect(302, authorizeUrl.toString());
+});
+
+router.post("/auth/google", async (req: Request, res: Response): Promise<void> => {
+  const { accessToken } = req.body as { accessToken?: string };
+  const supabaseUrl = process.env.SUPABASE_URL?.trim();
+  const publishableKey = process.env.SUPABASE_ANON_KEY?.trim();
+
+  if (!accessToken) {
+    res.status(400).json({ error: "Supabase access token is required" });
+    return;
+  }
+  if (!supabaseUrl || !publishableKey) {
+    res.status(503).json({ error: "Google login is not configured" });
+    return;
+  }
+
+  try {
+    const supabase = createClient(supabaseUrl, publishableKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+        detectSessionInUrl: false,
+      },
+    });
+    const { data, error } = await supabase.auth.getUser(accessToken);
+    if (error || !data.user) {
+      res.status(401).json({ error: "Invalid Supabase session" });
+      return;
+    }
+
+    const authUser = data.user;
+    const email = authUser.email?.toLowerCase().trim();
+    const primaryProvider = authUser.app_metadata?.provider;
+    const linkedProviders = Array.isArray(authUser.app_metadata?.providers)
+      ? authUser.app_metadata.providers
+      : [];
+    const hasGoogleIdentity =
+      primaryProvider === "google" ||
+      linkedProviders.includes("google") ||
+      (authUser.identities ?? []).some((identity) => identity.provider === "google");
+
+    if (!email || !authUser.email_confirmed_at || !hasGoogleIdentity) {
+      res.status(401).json({ error: "Verified Google account required" });
+      return;
+    }
+
+    const metadata = authUser.app_metadata ?? {};
+    const aiTaskId = typeof metadata.ai_task_user_id === "string"
+      ? metadata.ai_task_user_id
+      : "";
+    const aiTaskRole = typeof metadata.ai_task_role === "string"
+      ? metadata.ai_task_role
+      : "";
+    const aiTaskCompanyId = typeof metadata.ai_task_company_id === "string"
+      ? metadata.ai_task_company_id
+      : "default";
+    const aiTaskName = typeof metadata.ai_task_name === "string" && metadata.ai_task_name.trim()
+      ? metadata.ai_task_name.trim()
+      : (authUser.user_metadata?.full_name ?? email);
+    const aiTaskActive = metadata.ai_task_active === true;
+
+    if (
+      !aiTaskId ||
+      !aiTaskActive ||
+      !USER_ROLES.includes(aiTaskRole as UserRole)
+    ) {
+      res.status(403).json({ error: "Google account is not registered or is inactive" });
+      return;
+    }
+
+    const role = aiTaskRole as UserRole;
+    const token = signToken({
+      // Legacy modules type AuthUser.id as number, but production user IDs are TEXT.
+      // Keep the runtime string intact inside the signed JWT.
+      id: aiTaskId as unknown as number,
+      email,
+      role,
+      companyId: aiTaskCompanyId,
+      name: aiTaskName,
+    });
+
+    const now = new Date().toISOString();
+    const user = {
+      id: aiTaskId,
+      companyId: aiTaskCompanyId,
+      name: aiTaskName,
+      email,
+      role,
+      division: null,
+      phone: null,
+      isActive: true,
+      lastLoginAt: now,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    logger.info(
+      { userId: aiTaskId, email, role },
+      "User logged in with Google via Supabase OAuth",
+    );
+
+    res.json({ token, user });
+  } catch (err) {
+    logger.warn({ err }, "Supabase Google login verification failed");
+    res.status(401).json({ error: "Google login verification failed" });
+  }
+});
+
 // ─── POST /auth/logout ─────────────────────────────────────────────────────────
 
 router.post("/auth/logout", (_req: Request, res: Response): void => {
@@ -117,6 +241,24 @@ router.post("/auth/logout", (_req: Request, res: Response): void => {
 // ─── GET /auth/me ──────────────────────────────────────────────────────────────
 
 router.get("/auth/me", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  if (process.env.NODE_ENV === "production") {
+    const now = new Date().toISOString();
+    res.json({
+      id: req.user!.id,
+      companyId: req.user!.companyId,
+      name: req.user!.name,
+      email: req.user!.email,
+      role: req.user!.role,
+      division: null,
+      phone: null,
+      isActive: true,
+      lastLoginAt: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+    return;
+  }
+
   const [user] = await db
     .select()
     .from(usersTable)

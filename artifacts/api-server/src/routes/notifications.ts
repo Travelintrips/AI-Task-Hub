@@ -32,55 +32,75 @@ router.get("/events", (req: Request, res: Response): void => {
 });
 
 // GET /api/notifications
-router.get("/notifications", async (req, res): Promise<void> => {
-  const companyId = (req.headers["x-company-id"] as string | undefined) ?? "default";
+router.get("/notifications", requireAuth, async (req, res): Promise<void> => {
+  const companyId = getCompanyId(req);
   const unreadOnly = req.query.unreadOnly === "true";
   const limit = Math.min(parseInt(req.query.limit as string ?? "50", 10), 100);
 
   try {
-    const conditions = [eq(adminNotificationsTable.companyId, companyId)];
-    if (unreadOnly) conditions.push(eq(adminNotificationsTable.isRead, false));
+    const companyFilter = companyId !== null
+      ? eq(adminNotificationsTable.companyId, companyId)
+      : undefined;
+    const unreadFilter = unreadOnly ? eq(adminNotificationsTable.isRead, false) : undefined;
+    const where = companyFilter && unreadFilter
+      ? and(companyFilter, unreadFilter)
+      : companyFilter ?? unreadFilter;
 
     const rows = await db
       .select()
       .from(adminNotificationsTable)
-      .where(and(...conditions))
+      .where(where)
       .orderBy(desc(adminNotificationsTable.createdAt))
       .limit(limit);
 
     res.json(rows);
   } catch (err) {
     logger.error({ err }, "Failed to list notifications");
-    res.status(500).json({ error: "Internal server error" });
+    res.status(503).json({ error: "Notification database unavailable" });
   }
 });
 
 // GET /api/notifications/unread-count
-router.get("/notifications/unread-count", async (req, res): Promise<void> => {
-  const companyId = (req.headers["x-company-id"] as string | undefined) ?? "default";
+router.get("/notifications/unread-count", requireAuth, async (req, res): Promise<void> => {
+  const companyId = getCompanyId(req);
 
   try {
+    const unreadFilter = eq(adminNotificationsTable.isRead, false);
+    const where = companyId !== null
+      ? and(eq(adminNotificationsTable.companyId, companyId), unreadFilter)
+      : unreadFilter;
+
     const [row] = await db
       .select({ count: count() })
       .from(adminNotificationsTable)
-      .where(and(eq(adminNotificationsTable.companyId, companyId), eq(adminNotificationsTable.isRead, false)));
+      .where(where);
 
-    res.json({ count: row?.count ?? 0 });
+    res.json({ count: Number(row?.count ?? 0) });
   } catch (err) {
     logger.error({ err }, "Failed to count unread notifications");
-    res.status(500).json({ error: "Internal server error" });
+    res.status(503).json({ error: "Notification database unavailable" });
   }
 });
 
 // PATCH /api/notifications/:id/read
-router.patch("/notifications/:id/read", async (req, res): Promise<void> => {
-  const id = parseInt(req.params.id, 10);
+router.patch("/notifications/:id/read", requireAuth, async (req, res): Promise<void> => {
+  const id = parseInt(String(req.params.id), 10);
+  if (!Number.isFinite(id)) {
+    res.status(400).json({ error: "Invalid notification ID" });
+    return;
+  }
+
+  const companyId = getCompanyId(req);
 
   try {
+    const where = companyId !== null
+      ? and(eq(adminNotificationsTable.id, id), eq(adminNotificationsTable.companyId, companyId))
+      : eq(adminNotificationsTable.id, id);
+
     const [updated] = await db
       .update(adminNotificationsTable)
       .set({ isRead: true })
-      .where(eq(adminNotificationsTable.id, id))
+      .where(where)
       .returning();
 
     if (!updated) {
@@ -90,24 +110,29 @@ router.patch("/notifications/:id/read", async (req, res): Promise<void> => {
     res.json(updated);
   } catch (err) {
     logger.error({ err, id }, "Failed to mark notification as read");
-    res.status(500).json({ error: "Internal server error" });
+    res.status(503).json({ error: "Notification database unavailable" });
   }
 });
 
 // POST /api/notifications/read-all
-router.post("/notifications/read-all", async (req, res): Promise<void> => {
-  const companyId = (req.headers["x-company-id"] as string | undefined) ?? "default";
+router.post("/notifications/read-all", requireAuth, async (req, res): Promise<void> => {
+  const companyId = getCompanyId(req);
 
   try {
+    const unreadFilter = eq(adminNotificationsTable.isRead, false);
+    const where = companyId !== null
+      ? and(eq(adminNotificationsTable.companyId, companyId), unreadFilter)
+      : unreadFilter;
+
     await db
       .update(adminNotificationsTable)
       .set({ isRead: true })
-      .where(and(eq(adminNotificationsTable.companyId, companyId), eq(adminNotificationsTable.isRead, false)));
+      .where(where);
 
     res.json({ count: 0 });
   } catch (err) {
     logger.error({ err }, "Failed to mark all notifications as read");
-    res.status(500).json({ error: "Internal server error" });
+    res.status(503).json({ error: "Notification database unavailable" });
   }
 });
 

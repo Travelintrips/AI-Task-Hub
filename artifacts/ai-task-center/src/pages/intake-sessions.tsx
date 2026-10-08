@@ -314,11 +314,11 @@ function SessionDetailDialog({
 export default function IntakeSessionsPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const [statusFilter, setStatusFilter] = useState<string>("collecting,ready_for_task");
+  const [statusFilter, setStatusFilter] = useState<string>("collecting,form_sent,ready_for_task");
   const [phoneFilter, setPhoneFilter] = useState("");
   const [selectedSession, setSelectedSession] = useState<IntakeSession | null>(null);
 
-  const { data, isLoading, refetch } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ["intake-sessions", statusFilter, phoneFilter],
     queryFn: async () => {
       const params = new URLSearchParams({ limit: "100" });
@@ -326,7 +326,8 @@ export default function IntakeSessionsPage() {
       if (phoneFilter.trim()) params.set("phone", phoneFilter.trim());
       return apiFetch(`/intake-sessions?${params}`) as Promise<{ data: IntakeSession[]; total: number }>;
     },
-    refetchInterval: 15000,
+    retry: 1,
+    refetchInterval: (query) => query.state.status === "error" ? false : 60_000,
   });
 
   const sessions = data?.data ?? [];
@@ -420,7 +421,7 @@ export default function IntakeSessionsPage() {
             <SelectValue placeholder="Filter Status" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="collecting,ready_for_task">Aktif</SelectItem>
+            <SelectItem value="collecting,form_sent,ready_for_task">Aktif</SelectItem>
             <SelectItem value="collecting">Sedang Mengumpulkan</SelectItem>
             <SelectItem value="form_sent">Form Dikirim</SelectItem>
             <SelectItem value="ready_for_task">Siap Buat Task</SelectItem>
@@ -443,6 +444,17 @@ export default function IntakeSessionsPage() {
       {isLoading ? (
         <div className="flex items-center justify-center py-12 text-muted-foreground">
           <RefreshCw className="w-4 h-4 animate-spin mr-2" /> Memuat...
+        </div>
+      ) : isError ? (
+        <div className="flex flex-col items-center justify-center py-12 text-muted-foreground gap-3">
+          <AlertCircle className="w-8 h-8 text-red-500" />
+          <div className="text-center">
+            <p className="font-medium text-foreground">Gagal memuat intake session</p>
+            <p className="text-xs mt-1">{error instanceof Error ? error.message : "Backend sedang tidak siap"}</p>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => refetch()}>
+            <RefreshCw className="w-4 h-4 mr-2" /> Coba Lagi
+          </Button>
         </div>
       ) : sessions.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-muted-foreground">

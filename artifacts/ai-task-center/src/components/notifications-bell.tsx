@@ -22,6 +22,24 @@ function authHeaders(): Record<string, string> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+async function notificationFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`${BASE}/api${path}`, {
+    ...init,
+    headers: {
+      ...authHeaders(),
+      ...(init?.headers ?? {}),
+    },
+  });
+  const body = await res.json().catch(() => null) as { error?: string } | T | null;
+  if (!res.ok) {
+    const message = body && typeof body === "object" && "error" in body
+      ? String(body.error ?? res.statusText)
+      : res.statusText;
+    throw new Error(message || `HTTP ${res.status}`);
+  }
+  return body as T;
+}
+
 interface AdminNotification {
   id: number;
   type: string;
@@ -87,27 +105,22 @@ export function NotificationsBell() {
   // ── Data fetching (fallback polling removed — SSE handles refresh) ─────────
   const { data: countData } = useQuery<{ count: number }>({
     queryKey: ["notifications-count"],
-    queryFn: async () => {
-      const res = await fetch(`${BASE}/api/notifications/unread-count`, { headers: authHeaders() });
-      return res.json();
-    },
-    refetchInterval: 60_000, // safety fallback every 60s (was 15s)
+    queryFn: () => notificationFetch<{ count: number }>("/notifications/unread-count"),
+    retry: 1,
+    refetchInterval: (query) => query.state.status === "error" ? false : 60_000,
   });
 
   const { data: notifications = [] } = useQuery<AdminNotification[]>({
     queryKey: ["notifications-list"],
-    queryFn: async () => {
-      const res = await fetch(`${BASE}/api/notifications?limit=20`, { headers: authHeaders() });
-      return res.json();
-    },
+    queryFn: () => notificationFetch<AdminNotification[]>("/notifications?limit=20"),
     enabled: open,
-    refetchInterval: open ? 60_000 : false,
+    retry: 1,
+    refetchInterval: (query) => open && query.state.status !== "error" ? 60_000 : false,
   });
 
   const markRead = useMutation({
-    mutationFn: async (id: number) => {
-      await fetch(`${BASE}/api/notifications/${id}/read`, { method: "PATCH", headers: authHeaders() });
-    },
+    mutationFn: (id: number) =>
+      notificationFetch<AdminNotification>(`/notifications/${id}/read`, { method: "PATCH" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["notifications-count"] });
       queryClient.invalidateQueries({ queryKey: ["notifications-list"] });
@@ -115,9 +128,8 @@ export function NotificationsBell() {
   });
 
   const markAllRead = useMutation({
-    mutationFn: async () => {
-      await fetch(`${BASE}/api/notifications/read-all`, { method: "POST", headers: authHeaders() });
-    },
+    mutationFn: () =>
+      notificationFetch<{ count: number }>("/notifications/read-all", { method: "POST" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["notifications-count"] });
       queryClient.invalidateQueries({ queryKey: ["notifications-list"] });

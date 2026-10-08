@@ -34,7 +34,7 @@ router.get("/intake-sessions", requireAuth, async (req, res): Promise<void> => {
     if (status) {
       const statuses = status.split(",").filter(Boolean);
       if (statuses.length > 0) {
-        conditions.push(inArray(intakeSessionsTable.status, statuses as ("collecting" | "ready_for_task" | "submitted" | "cancelled" | "expired")[]));
+        conditions.push(inArray(intakeSessionsTable.status, statuses as ("collecting" | "form_sent" | "ready_for_task" | "submitted" | "cancelled" | "expired")[]));
       }
     }
     if (phone) {
@@ -51,7 +51,7 @@ router.get("/intake-sessions", requireAuth, async (req, res): Promise<void> => {
     res.json({ data: sessions, total: sessions.length });
   } catch (err) {
     logger.error({ err }, "GET /intake-sessions failed");
-    res.status(500).json({ error: "Gagal mengambil data intake sessions" });
+    res.status(503).json({ error: "Database intake session sedang tidak tersedia" });
   }
 });
 

@@ -65,6 +65,13 @@ async function authFetch<T>(path: string, options: RequestInit = {}): Promise<T>
   return res.json() as Promise<T>;
 }
 
+export async function apiGoogleLogin(accessToken: string): Promise<{ token: string; user: AuthUser }> {
+  return authFetch("/api/auth/google", {
+    method: "POST",
+    body: JSON.stringify({ accessToken }),
+  });
+}
+
 export async function apiLogin(email: string, password: string): Promise<{ token: string; user: AuthUser }> {
   return authFetch("/api/auth/login", {
     method: "POST",

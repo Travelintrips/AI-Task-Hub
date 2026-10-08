@@ -15,6 +15,7 @@ export default function Login() {
   const [loading, setLoading]     = useState(false);
   const [showPassword, setShowPw] = useState(false);
 
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -44,7 +45,23 @@ export default function Login() {
             <CardTitle className="text-lg">Masuk</CardTitle>
             <CardDescription>Gunakan email dan password yang terdaftar</CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              disabled={loading}
+              onClick={() => window.location.assign("/api/auth/google/start")}
+            >
+              Masuk dengan Google
+            </Button>
+
+            <div className="flex items-center gap-3">
+              <div className="h-px flex-1 bg-border" />
+              <span className="text-xs text-muted-foreground">atau</span>
+              <div className="h-px flex-1 bg-border" />
+            </div>
+
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
@@ -88,11 +105,8 @@ export default function Login() {
           </CardContent>
         </Card>
 
-        <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-xs text-blue-700 space-y-1">
-          <p className="font-semibold">Akun Admin Awal:</p>
-          <p>Email: <span className="font-mono">diva@admin.com</span></p>
-          <p>Password: <span className="font-mono">admin123</span></p>
-          <p className="text-blue-500 text-[11px]">Ganti password setelah login pertama</p>
+        <div className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">
+          Gunakan akun Google perusahaan atau email/password yang sudah terdaftar.
         </div>
         <p className="text-center text-xs text-muted-foreground">
           Belum ada akun admin?{" "}

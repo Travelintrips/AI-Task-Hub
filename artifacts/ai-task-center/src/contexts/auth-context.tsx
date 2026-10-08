@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
 import {
   getStoredToken, getStoredUser, storeAuth, clearAuth, initAuthTokenGetter,
-  apiLogin, apiGetMe, type AuthUser,
+  apiLogin, apiGoogleLogin, apiGetMe, type AuthUser,
 } from "@/lib/auth-api";
 
 interface AuthContextValue {
@@ -22,19 +22,55 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setLoading] = useState(true);
 
   useEffect(() => {
-    initAuthTokenGetter();
-    if (token) {
-      apiGetMe()
-        .then((me) => setUser(me))
-        .catch(() => {
+    let cancelled = false;
+
+    const bootstrapAuth = async () => {
+      initAuthTokenGetter();
+
+      const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+      const supabaseAccessToken = hash.get("access_token");
+
+      if (supabaseAccessToken) {
+        try {
+          const { token: t, user: u } = await apiGoogleLogin(supabaseAccessToken);
+          if (cancelled) return;
+          storeAuth(t, u);
+          setToken(t);
+          setUser(u);
+        } catch {
+          if (cancelled) return;
           clearAuth();
-          setUser(null);
           setToken(null);
-        })
-        .finally(() => setLoading(false));
-    } else {
-      setLoading(false);
-    }
+          setUser(null);
+        } finally {
+          window.history.replaceState(null, "", window.location.pathname + window.location.search);
+          if (!cancelled) setLoading(false);
+        }
+        return;
+      }
+
+      if (token) {
+        try {
+          const me = await apiGetMe();
+          if (!cancelled) setUser(me);
+        } catch {
+          if (!cancelled) {
+            clearAuth();
+            setUser(null);
+            setToken(null);
+          }
+        } finally {
+          if (!cancelled) setLoading(false);
+        }
+      } else {
+        if (!cancelled) setLoading(false);
+      }
+    };
+
+    void bootstrapAuth();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {
