@@ -278,15 +278,19 @@ router.post("/governance/approval-requests/:id/decide", requireAuth, requireRole
       return;
     }
 
-    const [existing] = await db.select().from(approvalRequestsTable).where(eq(approvalRequestsTable.id, id)).limit(1);
+    const companyId = getCompanyId(req) ?? "default";
+    const [existing] = await db.select().from(approvalRequestsTable)
+      .where(and(eq(approvalRequestsTable.id, id), eq(approvalRequestsTable.companyId, companyId)))
+      .limit(1);
     if (!existing) { res.status(404).json({ error: "Approval request tidak ditemukan" }); return; }
     if (existing.status !== "pending") { res.status(409).json({ error: `Request sudah ${existing.status}` }); return; }
 
     const [updated] = await db.update(approvalRequestsTable)
       .set({ status: decision, decidedBy: req.user?.name ?? "system", decidedAt: new Date(), notes: notes ?? null, updatedAt: new Date() })
-      .where(eq(approvalRequestsTable.id, id))
+      .where(and(eq(approvalRequestsTable.id, id), eq(approvalRequestsTable.companyId, companyId), eq(approvalRequestsTable.status, "pending")))
       .returning();
 
+    if (!updated) { res.status(409).json({ error: "Approval sudah diproses" }); return; }
     res.json(updated);
   } catch (err) {
     logger.error({ err }, "POST /governance/approval-requests/:id/decide failed");
