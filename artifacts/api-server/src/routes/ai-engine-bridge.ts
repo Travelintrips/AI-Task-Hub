@@ -26,7 +26,7 @@ async function engineRequest(path: string, method: "GET" | "POST", payload?: unk
     const response = await fetch(config.url + path, {
       method,
       headers: {
-        Authorization: "Bearer " + config.token,
+        "x-ai-task-engine-key": config.token,
         Accept: "application/json",
         ...(payload === undefined ? {} : { "Content-Type": "application/json" }),
       },
