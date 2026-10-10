@@ -40,7 +40,7 @@ async function engineRequest(path: string, method: "GET" | "POST", payload?: unk
 }
 
 // Explicit opt-in only: never dispatch customer tasks automatically.
-router.get("/integrations/ai-engine/status", requireAuth, async (_req: Request, res: Response): Promise<void> => {
+router.get("/integrations/ai-engine/status", requireAuth, requireRole("company_admin"), async (_req: Request, res: Response): Promise<void> => {
   if (!engineConfig()) { res.status(503).json({ connected: false, reason: "not_configured" }); return; }
   try {
     await engineRequest("/api/ai/coding/bridge/runtime-status", "GET");
