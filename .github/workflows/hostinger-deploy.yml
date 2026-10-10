@@ -46,6 +46,23 @@ jobs:
     timeout-minutes: 20
     environment: production
     steps:
+      - name: Checkout production candidate for DEV-first verification
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Refuse production without validated live DEV
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: ${{ github.sha }}
+          DEV_CI_WORKFLOW: AI Task DEV Verify
+          DEV_E2E_APPROVED_SHA: ${{ vars.DEV_E2E_APPROVED_SHA }}
+          DEV_PUBLIC_HEALTH_URL: ${{ vars.DEV_PUBLIC_HEALTH_URL }}
+        run: |
+          set -euo pipefail
+          test "${{ github.ref }}" = "refs/heads/main" || { echo "::error::PROD can only run from main"; exit 1; }
+          node scripts/verify-dev-first-promotion.mjs
       - name: Configure SSH
         env:
           SSH_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
