@@ -76,4 +76,22 @@ router.post("/integrations/ai-engine/dispatch/:taskId", requireAuth, requireRole
   }
 });
 
+router.get("/integrations/ai-engine/tasks/:taskId/timeline", requireAuth, requireRole("company_admin"), async (req: Request, res: Response): Promise<void> => {
+  const taskId = Number(req.params.taskId);
+  const companyId = getCompanyId(req);
+  if (!Number.isSafeInteger(taskId) || taskId <= 0) { res.status(400).json({ error: "INVALID_TASK_ID" }); return; }
+  if (!companyId) { res.status(403).json({ error: "TENANT_REQUIRED" }); return; }
+  const [task] = await db.select().from(aiTasksTable)
+    .where(and(eq(aiTasksTable.id, taskId), eq(aiTasksTable.companyId, companyId))).limit(1);
+  if (!task) { res.status(404).json({ error: "TASK_NOT_FOUND" }); return; }
+  if (task.category !== "coding") { res.status(409).json({ error: "NOT_CODING_TASK" }); return; }
+  const externalCommandId = "ai-task:" + companyId + ":" + taskId;
+  try {
+    const timeline = await engineRequest("/api/ai/coding/bridge/ai-task-timeline?externalCommandId=" + encodeURIComponent(externalCommandId), "GET");
+    res.json({ taskId, timeline });
+  } catch (error) {
+    res.status(502).json({ error: error instanceof Error ? error.message : "AI_ENGINE_UNAVAILABLE" });
+  }
+});
+
 export default router;
