@@ -22,6 +22,10 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 
+# Worker-thread entrypoints generated during the build resolve under /workspace.
+# Preserve the build-time absolute path without copying the runtime twice.
+RUN ln -s /app /workspace
+
 COPY --from=build --chown=node:node /runtime/ /app/
 
 USER node
