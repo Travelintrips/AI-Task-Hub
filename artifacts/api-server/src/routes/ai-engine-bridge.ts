@@ -1,7 +1,7 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { and, eq } from "drizzle-orm";
 import { db, aiTasksTable } from "@workspace/db";
-import { requireAuth, getCompanyId } from "../middleware/auth";
+import { requireAuth, requireRole, getCompanyId } from "../middleware/auth";
 
 const router: IRouter = Router();
 const MAX_TIMEOUT_MS = 8000;
@@ -50,7 +50,7 @@ router.get("/integrations/ai-engine/status", requireAuth, async (_req: Request, 
   }
 });
 
-router.post("/integrations/ai-engine/dispatch/:taskId", requireAuth, async (req: Request, res: Response): Promise<void> => {
+router.post("/integrations/ai-engine/dispatch/:taskId", requireAuth, requireRole("company_admin"), async (req: Request, res: Response): Promise<void> => {
   const taskId = Number(req.params.taskId);
   if (!Number.isSafeInteger(taskId) || taskId <= 0) { res.status(400).json({ error: "INVALID_TASK_ID" }); return; }
   const companyId = getCompanyId(req);
@@ -67,7 +67,6 @@ router.post("/integrations/ai-engine/dispatch/:taskId", requireAuth, async (req:
     const result = await engineRequest("/api/ai/coding/bridge/commands", "POST", {
       externalCommandId: "ai-task:" + companyId + ":" + task.id,
       source: "ai-task-hub",
-      commandType: "CODING_REQUEST",
       instruction: task.title + (task.description ? "\n\n" + task.description : ""),
       metadata: { sourceTaskId: task.id, sourceTaskNumber: task.taskNumber, companyId },
     });
