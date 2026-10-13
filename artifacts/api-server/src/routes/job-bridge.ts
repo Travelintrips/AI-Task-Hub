@@ -164,7 +164,7 @@ router.post("/bridge/jobs/:id/result", requireBridge, async (req: Request, res: 
     }
     const event = await client.query(
       `INSERT INTO ${schema}.job_events (job_id, event_id, kind, sender, payload)
-       VALUES ($1,$2,'RESULT_RECORDED',$3,jsonb_build_object('callbackId',$4))
+       VALUES ($1,$2,'RESULT_RECORDED',$3,jsonb_build_object('callbackId',$4::text))
        RETURNING id`, [id, eventId, owner, callbackId],
     );
     await client.query(
@@ -210,7 +210,7 @@ router.post("/bridge/jobs/:id/ack", requireReceipt, async (req: Request, res: Re
     }
     const receipt = await client.query(
       `INSERT INTO ${schema}.job_events (job_id,event_id,kind,sender,payload)
-       VALUES ($1,$2,'CALLBACK_ACK',$3,jsonb_build_object('callbackId',$4))
+       VALUES ($1,$2,'CALLBACK_ACK',$3,jsonb_build_object('callbackId',$4::text))
        RETURNING id`, [id, eventId, receiver, callbackId],
     );
     await client.query(
@@ -257,7 +257,7 @@ router.post("/bridge/jobs/:id/fail", requireBridge, async (req: Request, res: Re
     }
     const receipt = await client.query(
       `INSERT INTO ${schema}.job_events (job_id,event_id,kind,sender,payload)
-       VALUES ($1,$2,'WORKER_FAILED',$3,jsonb_build_object('reason',$4))
+       VALUES ($1,$2,'WORKER_FAILED',$3,jsonb_build_object('reason',$4::text))
        RETURNING id`, [id,eventId,owner,reason],
     );
     await client.query(
