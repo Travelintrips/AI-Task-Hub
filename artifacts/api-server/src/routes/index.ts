@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import healthRouter from "./health";
+import jobBridgeRouter from "./job-bridge";
 import tasksRouter from "./tasks";
 import teamRouter from "./team";
 import messagesRouter from "./messages";
@@ -84,6 +85,7 @@ router.use(authRouter);
 
 // Application routes
 router.use(healthRouter);
+router.use(jobBridgeRouter);
 router.use(tasksRouter);
 router.use(teamRouter);
 router.use(messagesRouter);

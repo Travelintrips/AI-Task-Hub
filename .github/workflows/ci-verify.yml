@@ -27,3 +27,4 @@ jobs:
       - run: pnpm run typecheck
       - run: pnpm -r --filter './artifacts/**' --if-present run build
       - run: pnpm --filter @workspace/api-server test:short-links
+      - run: pnpm --filter @workspace/api-server test:job-bridge

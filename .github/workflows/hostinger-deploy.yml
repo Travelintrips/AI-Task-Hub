@@ -38,6 +38,8 @@ jobs:
         run: pnpm run typecheck
       - name: Short-link routing regression tests
         run: pnpm --filter @workspace/api-server test:short-links
+      - name: Unified job bridge tests
+        run: pnpm --filter @workspace/api-server test:job-bridge
 
   deploy-production:
     needs: verify
