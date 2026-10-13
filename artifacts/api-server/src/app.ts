@@ -77,8 +77,10 @@ app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 // Some DEV ingress paths fall back to the SPA before reaching public routes.
 // Keep an API-prefixed equivalent for the tiny frontend handoff in that case.
-app.use("/api", paymentProofPublicRouter);
+// Match registered API routes before the legacy short-link fallback.
+// Tokens can look identical to real API paths (e.g. /api/audit-logs).
 app.use("/api", router);
+app.use("/api", paymentProofPublicRouter);
 // Public short links for private payment proofs. This intentionally lives
 // outside /api because the URL is sent to WhatsApp as /p/:token. It is placed
 // after application routes so the validated root-token route is last before
