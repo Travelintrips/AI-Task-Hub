@@ -6,6 +6,12 @@ import {
   safeUuid, isTerminal, matchServiceSecret, validLeaseSeconds,
 } from "../lib/job-bridge-validation";
 
+import {
+  parseAiCoreExternalId,
+  observeKind,
+  verifyAndAckAiCoreSource,
+} from "../lib/ai-core-source-verifier";
+
 const router = Router();
 const schema = "ai_task_bridge";
 const uuidParam = (req: Request) => String(req.params.id ?? "");
@@ -77,6 +83,107 @@ router.post("/bridge/jobs", requireBridge, async (req: Request, res: Response): 
     }
     res.status(created ? 201 : 200).json({ accepted: true, created, task: job });
   } catch (error) { queryError(res, error); }
+});
+
+// Source-verified lifecycle observation. AI Core remains the sole dispatcher.
+// The receiver checks the persisted AI Core record and cannot be convinced
+// that a job is finished by a producer-supplied status alone.
+router.post("/bridge/jobs/:id/source-event", requireBridge, async (req: Request, res: Response): Promise<void> => {
+  const id = uuidParam(req);
+  const eventId = requiredString(req.body?.eventId, 180);
+  const claimedStatus = requiredString(req.body?.status, 40);
+  if (!safeUuid(id) || !eventId || !claimedStatus || !eventId.startsWith("ai-core:")) {
+    res.status(400).json({ error: "Invalid source lifecycle event" }); return;
+  }
+  const client = await pool.connect().catch(() => null);
+  if (!client) { res.status(503).json({ error: "Job registry temporarily unavailable" }); return; }
+  let callbackToVerify: string | null = null;
+  try {
+    await client.query("BEGIN");
+    const locked = await client.query(
+      `SELECT id,source,external_id,status,callback_id FROM ${schema}.jobs WHERE id=$1 FOR UPDATE`, [id],
+    );
+    const job = locked.rows[0];
+    const key = job && job.source === "AI_CORE" ? parseAiCoreExternalId(job.external_id) : null;
+    if (!key) {
+      await client.query("ROLLBACK");
+      res.status(404).json({ error: "AI Core source job not found" }); return;
+    }
+    const previous = await client.query(
+      `SELECT job_id,id FROM ${schema}.job_events WHERE event_id=$1`, [eventId],
+    );
+    if (previous.rows[0]) {
+      if (previous.rows[0].job_id !== id) {
+        await client.query("ROLLBACK");
+        res.status(409).json({ error: "Event collision" }); return;
+      }
+      callbackToVerify = job.status === "WAITING_FOR_ACK" ? job.callback_id : null;
+      await client.query("COMMIT");
+      res.json({ accepted: true, duplicate: true, status: job.status, receiptId: previous.rows[0].id });
+    } else {
+      const canonical = await client.query(
+        key.kind === "coding-task"
+          ? "SELECT status,result_summary FROM ai_platform.ai_coding_tasks WHERE id=$1"
+          : "SELECT status,worker_id,error_message FROM ai_platform.ai_coding_workstreams WHERE id=$1",
+        [key.id],
+      );
+      const record = canonical.rows[0];
+      if (!record || record.status !== claimedStatus) {
+        await client.query("ROLLBACK");
+        res.status(409).json({ error: "AI Core persisted status did not match lifecycle event" }); return;
+      }
+      if (isTerminal(job.status) || job.status === "WAITING_FOR_ACK") {
+        await client.query("ROLLBACK");
+        res.status(409).json({ error: "Job already closing or terminal" }); return;
+      }
+      const worker = key.kind === "coding-workstream" && typeof record.worker_id === "string"
+        ? record.worker_id.slice(0, 120) : null;
+      const eventKind = key.kind === "coding-task" && ["CODING","RUNNING"].includes(claimedStatus) ? "SOURCE_PROGRESS" : observeKind(claimedStatus);
+      const receipt = await client.query(
+        `INSERT INTO ${schema}.job_events(job_id,event_id,kind,sender,payload)
+         VALUES($1,$2,$3,'ai-core-source-observer',
+         jsonb_build_object('status',$4::text,'worker',$5::text))
+         RETURNING id`,
+        [id,eventId,eventKind,claimedStatus,worker],
+      );
+      let finalStatus = job.status;
+      if (claimedStatus === "COMPLETED") {
+        callbackToVerify = "core-source:" + id;
+        const summary = String(record.result_summary ?? "AI Core canonical source marked completed").slice(0,2000);
+        await client.query(
+          `UPDATE ${schema}.jobs SET status='WAITING_FOR_ACK',callback_id=$2,
+           result_summary=$3,updated_at=now() WHERE id=$1`, [id,callbackToVerify,summary],
+        );
+        finalStatus = "WAITING_FOR_ACK";
+      } else if (claimedStatus === "FAILED" || claimedStatus === "CANCELLED") {
+        await client.query(
+          `UPDATE ${schema}.jobs SET status='FAILED',result_summary=$2,updated_at=now()
+           WHERE id=$1`,
+          [id,String(record.error_message ?? record.result_summary ?? claimedStatus).slice(0,2000)],
+        );
+        finalStatus = "FAILED";
+      } else {
+        const running = ["CLAIMED","RUNNING","ANALYZING","CODING","TESTING","COMMITTING","PR_CREATED"].includes(claimedStatus);
+        finalStatus = running ? "RUNNING" : job.status;
+        await client.query(
+          `UPDATE ${schema}.jobs SET status=$2,owner=COALESCE($3,owner),updated_at=now() WHERE id=$1`,
+          [id,finalStatus,worker],
+        );
+      }
+      await client.query("COMMIT");
+      res.status(202).json({ accepted: true, status: finalStatus, receiptId: receipt.rows[0].id });
+    }
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    queryError(res, error);
+  } finally { client.release(); }
+  // Independently verify the canonical database after committing result.
+  // This verifier cannot be controlled with only a worker-supplied result.
+  if (callbackToVerify) {
+    void verifyAndAckAiCoreSource(id,callbackToVerify).catch((error: unknown) => {
+      console.error("AI Core canonical ACK verification failed", error instanceof Error ? error.name : "unknown");
+    });
+  }
 });
 
 // Atomic leasing. A stale worker cannot update a job after another owner takes its lease.
