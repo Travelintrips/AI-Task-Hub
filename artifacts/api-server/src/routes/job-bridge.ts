@@ -13,7 +13,8 @@ const uuidParam = (req: Request) => String(req.params.id ?? "");
 function serviceAuth(envName: "AI_TASK_BRIDGE_TOKEN" | "AI_TASK_BRIDGE_ACK_TOKEN") {
   return (req: Request, res: Response, next: NextFunction): void => {
     const expected = process.env[envName];
-    if (!expected || expected.length < 32) {
+    if (!expected || expected.length < 32 ||
+        (envName === "AI_TASK_BRIDGE_ACK_TOKEN" && expected === process.env.AI_TASK_BRIDGE_TOKEN)) {
       res.status(503).json({ error: "Bridge service not configured" });
       return;
     }
