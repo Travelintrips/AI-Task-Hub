@@ -164,7 +164,10 @@ jobs:
 
           AI_TASK_APP_ROOT="$APP_ROOT" bash deploy/hostinger/deploy.sh production
 
-          cat >/etc/nginx/sites-available/ai-task.cstlogistic.co.id <<'NGINX'
+          # Preserve the existing TLS-enabled virtual host on subsequent deploys.
+          # Certbot manages SSL directives in this file after first issuance.
+          if [ ! -f /etc/nginx/sites-available/ai-task.cstlogistic.co.id ]; then
+            cat >/etc/nginx/sites-available/ai-task.cstlogistic.co.id <<'NGINX'
           server {
               listen 80;
               listen [::]:80;
@@ -188,6 +191,7 @@ jobs:
               }
           }
           NGINX
+          fi
           ln -sfn /etc/nginx/sites-available/ai-task.cstlogistic.co.id /etc/nginx/sites-enabled/ai-task.cstlogistic.co.id
           nginx -t
           systemctl reload nginx
@@ -200,6 +204,11 @@ jobs:
             timeout 180s certbot --nginx -d ai-task.cstlogistic.co.id --non-interactive --agree-tos --register-unsafely-without-email --redirect
           fi
           curl -fsS http://127.0.0.1:18080/api/healthz >/dev/null
+          # Fail deployment if the public HTTPS vhost was lost or the API route
+          # is shadowed by the 10-character payment-proof token fallback.
+          curl -fsS --max-time 15 https://ai-task.cstlogistic.co.id/api/readyz | grep -q '"status":"ready"'
+          audit_status="$(curl -sS --max-time 15 -o /dev/null -w '%{http_code}' https://ai-task.cstlogistic.co.id/api/audit-logs)"
+          test "$audit_status" = "401"
           REMOTE
           } | ssh -i ~/.ssh/id_hostinger -p "$PORT" \
             -o StrictHostKeyChecking=accept-new \
