@@ -36,6 +36,8 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Typecheck
         run: pnpm run typecheck
+      - name: Short-link routing regression tests
+        run: pnpm --filter @workspace/api-server test:short-links
 
   deploy-production:
     needs: verify
