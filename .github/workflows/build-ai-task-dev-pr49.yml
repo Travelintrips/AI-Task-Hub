@@ -8,6 +8,10 @@ on:
       - .github/workflows/build-ai-task-dev-pr49.yml
       - artifacts/api-server/src/routes/job-bridge.ts
       - artifacts/api-server/src/lib/ai-core-source-verifier.ts
+      - artifacts/api-server/src/lib/ai-core-source-reconciliation.ts
+      - artifacts/api-server/src/lib/ai-core-source-reconciliation-policy.ts
+      - artifacts/api-server/src/index.ts
+      - artifacts/api-server/tests/run-job-bridge-tests.mjs
 
 permissions:
   contents: read
