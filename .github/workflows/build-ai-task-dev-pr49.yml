@@ -6,6 +6,8 @@ on:
       - feat/ai-core-source-verified-lifecycle-20261014
     paths:
       - .github/workflows/build-ai-task-dev-pr49.yml
+      - artifacts/api-server/src/routes/job-bridge.ts
+      - artifacts/api-server/src/lib/ai-core-source-verifier.ts
 
 permissions:
   contents: read

@@ -44,6 +44,10 @@ try {
   assert.ok(route.includes("requireReceipt"), "ACK requires separate receiver credential");
   assert.ok(route.includes("WAITING_FOR_ACK"), "Result cannot directly mark job completed");
   assert.ok(route.includes("FOR UPDATE"), "Result and ACK must lock job rows");
+  assert.ok(route.includes('replayed: true, status: "WAITING_FOR_ACK"'),
+    "An interrupted source ACK can be retried without an event-id collision");
+  assert.ok(route.includes('job.callback_id === "core-source:" + id'),
+    "Only the canonical receiver-owned callback is eligible for ACK replay");
   assert.ok(route.includes("lease_until <= now()"), "Ownership change must be fenced by lease");
   assert.ok(schema.includes("UNIQUE (source, idempotency_key)"));
   assert.ok(schema.includes("event_id text NOT NULL UNIQUE"));

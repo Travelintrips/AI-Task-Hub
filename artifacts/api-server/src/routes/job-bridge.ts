@@ -117,7 +117,9 @@ router.post("/bridge/jobs/:id/source-event", requireBridge, async (req: Request,
         await client.query("ROLLBACK");
         res.status(409).json({ error: "Event collision" }); return;
       }
-      callbackToVerify = job.status === "WAITING_FOR_ACK" ? job.callback_id : null;
+      callbackToVerify = job.status === "WAITING_FOR_ACK" &&
+        claimedStatus === "COMPLETED" && job.callback_id === "core-source:" + id
+          ? job.callback_id : null;
       await client.query("COMMIT");
       res.json({ accepted: true, duplicate: true, status: job.status, receiptId: previous.rows[0].id });
     } else {
@@ -132,10 +134,21 @@ router.post("/bridge/jobs/:id/source-event", requireBridge, async (req: Request,
         await client.query("ROLLBACK");
         res.status(409).json({ error: "AI Core persisted status did not match lifecycle event" }); return;
       }
-      if (isTerminal(job.status) || job.status === "WAITING_FOR_ACK") {
+      // After a timeout or process restart, the producer may replay with a
+      // different eventId. Recheck the canonical source and resume the
+      // receiver-owned ACK rather than leaving WAITING_FOR_ACK stranded.
+      if (job.status === "WAITING_FOR_ACK" && claimedStatus === "COMPLETED" &&
+          job.callback_id === "core-source:" + id) {
+        callbackToVerify = job.callback_id;
+        await client.query("COMMIT");
+        res.status(202).json({ accepted: true, replayed: true, status: "WAITING_FOR_ACK" });
+      } else if (isTerminal(job.status) && job.status === claimedStatus) {
+        await client.query("COMMIT");
+        res.json({ accepted: true, duplicate: true, status: job.status });
+      } else if (isTerminal(job.status) || job.status === "WAITING_FOR_ACK") {
         await client.query("ROLLBACK");
         res.status(409).json({ error: "Job already closing or terminal" }); return;
-      }
+      } else {
       const worker = key.kind === "coding-workstream" && typeof record.worker_id === "string"
         ? record.worker_id.slice(0, 120) : null;
       const eventKind = key.kind === "coding-task" && ["CODING","RUNNING"].includes(claimedStatus) ? "SOURCE_PROGRESS" : observeKind(claimedStatus);
@@ -172,6 +185,7 @@ router.post("/bridge/jobs/:id/source-event", requireBridge, async (req: Request,
       }
       await client.query("COMMIT");
       res.status(202).json({ accepted: true, status: finalStatus, receiptId: receipt.rows[0].id });
+      }
     }
   } catch (error) {
     await client.query("ROLLBACK").catch(() => undefined);
