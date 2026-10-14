@@ -33,14 +33,31 @@ jobs:
           printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/ai-task-dev-key"
           chmod 0600 "$HOME/.ssh/ai-task-dev-key"
 
-      - name: Transfer image without changing running containers
+      - name: Transfer compiled application and build a DEV-only overlay
         run: |
           set -euo pipefail
-          docker save ai-task-hub:dev-pr49 | gzip -1 | ssh \
+          mkdir -p /tmp/ai-task-dev-overlay/artifacts/api-server
+          mkdir -p /tmp/ai-task-dev-overlay/artifacts/ai-task-center
+          cid="$(docker create ai-task-hub:dev-pr49)"
+          trap 'docker rm "$cid" >/dev/null 2>&1 || true' EXIT
+          docker cp "$cid":/app/artifacts/api-server/dist /tmp/ai-task-dev-overlay/artifacts/api-server/dist
+          docker cp "$cid":/app/artifacts/ai-task-center/dist /tmp/ai-task-dev-overlay/artifacts/ai-task-center/dist
+
+          cat >/tmp/ai-task-dev-overlay/Dockerfile <<'DOCKERFILE'
+          FROM ai-task-hub:bridge-dev-runtime-fixed
+          COPY artifacts/api-server/dist/ /app/artifacts/api-server/dist/
+          COPY artifacts/ai-task-center/dist/ /app/artifacts/ai-task-center/dist/
+          DOCKERFILE
+
+          tar -C /tmp/ai-task-dev-overlay -czf - . | ssh \
             -i "$HOME/.ssh/ai-task-dev-key" \
             -o StrictHostKeyChecking=accept-new \
             -o ConnectTimeout=20 \
             -o ServerAliveInterval=30 \
             -o ServerAliveCountMax=10 \
             root@72.61.210.205 \
-            'docker load >/dev/null && docker image inspect ai-task-hub:dev-pr49 --format "DEV_FEATURE_IMAGE_READY={{.Id}}"'
+            'set -euo pipefail;
+             mkdir -p /root/apps/ai-task/dev-pr49-overlay;
+             tar -xzf - -C /root/apps/ai-task/dev-pr49-overlay;
+             docker build -t ai-task-hub:dev-pr49 -f /root/apps/ai-task/dev-pr49-overlay/Dockerfile /root/apps/ai-task/dev-pr49-overlay;
+             docker image inspect ai-task-hub:dev-pr49 --format "DEV_FEATURE_IMAGE_READY={{.Id}}"'
