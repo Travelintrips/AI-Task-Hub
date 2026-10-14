@@ -1,0 +1,46 @@
+name: Build isolated AI Task DEV image
+
+on:
+  push:
+    branches:
+      - feat/ai-core-source-verified-lifecycle-20261014
+    paths:
+      - .github/workflows/build-ai-task-dev-pr49.yml
+
+permissions:
+  contents: read
+
+jobs:
+  build-dev-receiver:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    environment: development
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build feature image on GitHub runner
+        run: |
+          set -euo pipefail
+          docker build --tag ai-task-hub:dev-pr49 --file Dockerfile .
+
+      - name: Configure development deploy key
+        env:
+          SSH_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY"
+          install -m 0700 -d "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/ai-task-dev-key"
+          chmod 0600 "$HOME/.ssh/ai-task-dev-key"
+
+      - name: Transfer image without changing running containers
+        run: |
+          set -euo pipefail
+          docker save ai-task-hub:dev-pr49 | gzip -1 | ssh \
+            -i "$HOME/.ssh/ai-task-dev-key" \
+            -o StrictHostKeyChecking=accept-new \
+            -o ConnectTimeout=20 \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=10 \
+            root@72.61.210.205 \
+            'docker load >/dev/null && docker image inspect ai-task-hub:dev-pr49 --format "DEV_FEATURE_IMAGE_READY={{.Id}}"'
