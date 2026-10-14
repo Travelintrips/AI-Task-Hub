@@ -53,6 +53,8 @@ jobs:
           FROM ai-task-hub:bridge-dev-runtime-fixed
           COPY artifacts/api-server/dist/ /app/artifacts/api-server/dist/
           COPY artifacts/ai-task-center/dist/ /app/artifacts/ai-task-center/dist/
+          # The isolated DEV runtime listens on PORT=18183, not 8080.
+          HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=5 CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||'8080')+'/api/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
           DOCKERFILE
 
           tar -C /tmp/ai-task-dev-overlay -czf - . | ssh \
