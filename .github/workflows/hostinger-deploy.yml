@@ -85,7 +85,7 @@ jobs:
           test -n "$SUPABASE_URL"
           test -n "$SUPABASE_ANON_KEY"
           test -n "$SUPABASE_SERVICE_ROLE_KEY"
-          REMOTE_ROOT="${APP_ROOT:-\$HOME/apps/ai-task/production}"
+          REMOTE_ROOT="${APP_ROOT:-/root/apps/ai-task/production}"
           {
             printf '%s\n' "${SUPABASE_DATABASE_URL:-}"
             printf '%s\n' "${SUPABASE_URL:-}"
@@ -295,7 +295,7 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$USERNAME"
-          REMOTE_ROOT="${APP_ROOT:-\$HOME/apps/ai-task/development}"
+          REMOTE_ROOT="${APP_ROOT:-/root/apps/ai-task/development}"
           ssh -i ~/.ssh/id_hostinger -p "$PORT" \
             -o StrictHostKeyChecking=accept-new \
             -o UserKnownHostsFile=~/.ssh/known_hosts \
