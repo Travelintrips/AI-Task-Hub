@@ -4,6 +4,7 @@ import { requireAuth, requireRole } from "../middleware/auth";
 import {
   bridgeSources, sessionStates, requiredString, inList,
   safeUuid, isTerminal, matchServiceSecret, validLeaseSeconds,
+  projectAiCoreObservedStatus,
 } from "../lib/job-bridge-validation";
 
 import {
@@ -176,8 +177,7 @@ router.post("/bridge/jobs/:id/source-event", requireBridge, async (req: Request,
         );
         finalStatus = "FAILED";
       } else {
-        const running = ["CLAIMED","RUNNING","ANALYZING","CODING","TESTING","COMMITTING","PR_CREATED"].includes(claimedStatus);
-        finalStatus = running ? "RUNNING" : job.status;
+        finalStatus = projectAiCoreObservedStatus(claimedStatus, job.status);
         await client.query(
           `UPDATE ${schema}.jobs SET status=$2,owner=COALESCE($3,owner),updated_at=now() WHERE id=$1`,
           [id,finalStatus,worker],
