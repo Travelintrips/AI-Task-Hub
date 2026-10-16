@@ -44,13 +44,42 @@ try {
   assert.ok(route.includes("requireReceipt"), "ACK requires separate receiver credential");
   assert.ok(route.includes("WAITING_FOR_ACK"), "Result cannot directly mark job completed");
   assert.ok(route.includes("FOR UPDATE"), "Result and ACK must lock job rows");
+  assert.ok(route.includes('replayed: true, status: "WAITING_FOR_ACK"'),
+    "An interrupted source ACK can be retried without an event-id collision");
+  assert.ok(route.includes('job.callback_id === "core-source:" + id'),
+    "Only the canonical receiver-owned callback is eligible for ACK replay");
   assert.ok(route.includes("lease_until <= now()"), "Ownership change must be fenced by lease");
   assert.ok(schema.includes("UNIQUE (source, idempotency_key)"));
   assert.ok(schema.includes("event_id text NOT NULL UNIQUE"));
   for (const table of ["jobs", "job_events", "sessions"]) {
     assert.ok(schema.includes(`ALTER TABLE ai_task_bridge.${table} ENABLE ROW LEVEL SECURITY`));
   }
-  console.log("Unified job registry invariant tests passed");
+  const policyFile = path.join(outputDir, "ai-core-source-policy.test.mjs");
+  await build({
+    entryPoints: [path.join(artifactDir, "src/lib/ai-core-source-reconciliation-policy.ts")],
+    bundle: true, format: "esm", platform: "node", outfile: policyFile, logLevel: "silent",
+  });
+  const policy = await import(pathToFileURL(policyFile).href);
+  const dev = {
+    NODE_ENV: "development",
+    RUN_STARTUP_MIGRATIONS: "false",
+    AI_TASK_DEV_SOURCE_RECONCILE_ENABLED: "true",
+    AI_TASK_DEV_EXPECTED_PROJECT_ID: "xssrfshdrtdfupgqwfdw",
+    SUPABASE_DATABASE_URL_DEV: "postgres://example.dev/xssrfshdrtdfupgqwfdw",
+  };
+  assert.equal(policy.devSourceReconciliationEnabled(dev), true);
+  assert.equal(policy.devSourceReconciliationEnabled({ ...dev, NODE_ENV: "production" }), false);
+  assert.equal(policy.devSourceReconciliationEnabled({ ...dev, RUN_STARTUP_MIGRATIONS: "true" }), false);
+  assert.equal(policy.devSourceReconciliationEnabled({ ...dev, AI_TASK_DEV_SOURCE_RECONCILE_ENABLED: "false" }), false);
+  assert.equal(policy.devSourceReconciliationEnabled({ ...dev, AI_TASK_DEV_EXPECTED_PROJECT_ID: "wrongproject" }), false);
+  assert.equal(policy.devSourceReconciliationEnabled({ ...dev, SUPABASE_PROD_DATABASE_URL: "postgres://prod" }), false);
+  assert.equal(policy.devSourceReconciliationEnabled({ ...dev, SUPABASE_DATABASE_URL: "postgres://prod" }), false);
+  const reconcileCode = await readFile(path.join(artifactDir, "src/lib/ai-core-source-reconciliation.ts"), "utf8");
+  assert.ok(reconcileCode.includes("verifyAndAckAiCoreSource"), "No unverified ACKs are synthesized");
+  assert.ok(reconcileCode.includes("FOR UPDATE"), "Reconciliation locks each source job");
+  assert.ok(reconcileCode.includes("ON CONFLICT(event_id) DO NOTHING"), "Replay must be idempotent");
+  console.log("Unified job registry and DEV-only source reconciliation invariant tests passed");
 } finally {
   await rm(outputFile, { force: true });
+  await rm(path.join(outputDir, "ai-core-source-policy.test.mjs"), { force: true });
 }
