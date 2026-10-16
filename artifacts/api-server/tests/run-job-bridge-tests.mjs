@@ -31,6 +31,9 @@ try {
   assert.equal(bridge.isTerminal("WAITING_FOR_ACK"), false);
   assert.equal(bridge.isTerminal("COMPLETED"), true);
   assert.equal(bridge.isTerminal("FAILED"), true);
+  assert.equal(bridge.projectAiCoreObservedStatus("ANALYZING", "QUEUED"), "RUNNING");
+  assert.equal(bridge.projectAiCoreObservedStatus("REVIEW_REQUIRED", "QUEUED"), "REVIEW_REQUIRED");
+  assert.equal(bridge.projectAiCoreObservedStatus("UNKNOWN", "QUEUED"), "QUEUED");
   assert.equal(bridge.safeUuid("not-a-uuid"), false);
   assert.equal(bridge.safeUuid("550e8400-e29b-41d4-a716-446655440000"), true);
   const expectedSecret = "abcde12345abcde12345abcde12345abcde12345";
