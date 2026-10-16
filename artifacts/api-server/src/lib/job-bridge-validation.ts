@@ -14,6 +14,20 @@ export function inList<T extends string>(value: unknown, values: readonly T[]): 
   return typeof value === "string" && values.some((item) => item === value);
 }
 
+const activeAiCoreSourceStatuses = [
+  "CLAIMED", "RUNNING", "ANALYZING", "CODING", "TESTING", "COMMITTING", "PR_CREATED",
+] as const;
+
+/** Preserve source-owned review state without granting AI Task execution authority. */
+export function projectAiCoreObservedStatus(
+  claimedStatus: string,
+  currentStatus: string,
+): string {
+  if (inList(claimedStatus, activeAiCoreSourceStatuses)) return "RUNNING";
+  if (claimedStatus === "REVIEW_REQUIRED") return "REVIEW_REQUIRED";
+  return currentStatus;
+}
+
 export function safeUuid(value: unknown): value is string {
   return typeof value === "string" &&
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
