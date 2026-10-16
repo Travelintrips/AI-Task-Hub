@@ -34,6 +34,8 @@ jobs:
           cache: pnpm
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      - name: Validate production audit shell
+        run: bash -n deploy/hostinger/verify-ai-task-ledger-prod.sh
       - name: Typecheck
         run: pnpm run typecheck
       - name: Short-link routing regression tests
@@ -133,6 +135,7 @@ jobs:
           from pathlib import Path
 
           env_path = Path('/etc/ai-task/production.env')
+          expected_project_id = 'nzdweipzckfszczzqtuw'
           updates = {
               key: os.environ.get(key, '').strip()
               for key in (
@@ -144,13 +147,21 @@ jobs:
               )
               if os.environ.get(key, '').strip()
           }
+          updates.update({
+              'NODE_ENV': 'production',
+              'RUN_STARTUP_MIGRATIONS': 'false',
+              'AI_TASK_DEV_SOURCE_RECONCILE_ENABLED': 'false',
+              'AI_TASK_PROD_SOURCE_RECONCILE_ENABLED': 'true',
+              'AI_TASK_PROD_RECONCILE_SCHEMA_READY': 'true',
+              'AI_TASK_PROD_EXPECTED_PROJECT_ID': expected_project_id,
+          })
 
           lines = env_path.read_text().splitlines()
           seen = set()
           output = []
           for line in lines:
               if '=' in line:
-                  key = line.split('=', 1)[0]
+                  key = line.split('=', 1)[0].strip()
                   if key in updates:
                       output.append(f'{key}={updates[key]}')
                       seen.add(key)
@@ -159,10 +170,37 @@ jobs:
           for key, value in updates.items():
               if key not in seen:
                   output.append(f'{key}={value}')
-          env_path.write_text('\n'.join(output) + '\n')
+          env_path.write_text('\n'.join(output).rstrip() + '\n')
+
+          values = {}
+          for raw in env_path.read_text().splitlines():
+              line = raw.strip()
+              if not line or line.startswith('#') or '=' not in line:
+                  continue
+              key, value = line.split('=', 1)
+              values[key.strip()] = value.strip().strip('"').strip("'")
+
+          checks = {
+              'node_env': values.get('NODE_ENV') == 'production',
+              'startup_migrations_off': values.get('RUN_STARTUP_MIGRATIONS') == 'false',
+              'dev_reconciler_off': values.get('AI_TASK_DEV_SOURCE_RECONCILE_ENABLED') != 'true',
+              'prod_reconciler_on': values.get('AI_TASK_PROD_SOURCE_RECONCILE_ENABLED') == 'true',
+              'schema_ready': values.get('AI_TASK_PROD_RECONCILE_SCHEMA_READY') == 'true',
+              'expected_project': values.get('AI_TASK_PROD_EXPECTED_PROJECT_ID') == expected_project_id,
+              'database_match': expected_project_id in values.get('SUPABASE_DATABASE_URL', ''),
+              'no_dev_database': not any(values.get(key) for key in (
+                  'SUPABASE_DATABASE_URL_DEV',
+                  'SUPABASE_DEV_DATABASE_URL',
+                  'SUPABASE_PROD_DATABASE_URL',
+              )),
+          }
+          for key, passed in checks.items():
+              print(f'AI_TASK_PROD_INTERLOCK_{key.upper()}={passed}')
+          if not all(checks.values()):
+              raise SystemExit('AI Task production reconciliation interlock validation failed')
           PY
           chmod 0600 /etc/ai-task/production.env
-          echo "Production runtime secrets synchronized."
+          echo "Production runtime secrets and reconciliation interlocks synchronized."
 
           AI_TASK_APP_ROOT="$APP_ROOT" bash deploy/hostinger/deploy.sh production
 
@@ -211,6 +249,9 @@ jobs:
           curl -fsS --max-time 15 https://ai-task.cstlogistic.co.id/api/readyz | grep -q '"status":"ready"'
           audit_status="$(curl -sS --max-time 15 -o /dev/null -w '%{http_code}' https://ai-task.cstlogistic.co.id/api/audit-logs)"
           test "$audit_status" = "401"
+          AI_TASK_LEDGER_AUDIT_FAIL_ON_STALE=false \
+            AI_TASK_LEDGER_AUDIT_STALE_MINUTES=20 \
+            bash "$APP_ROOT/deploy/hostinger/verify-ai-task-ledger-prod.sh"
           REMOTE
           } | ssh -i ~/.ssh/id_hostinger -p "$PORT" \
             -o StrictHostKeyChecking=accept-new \
