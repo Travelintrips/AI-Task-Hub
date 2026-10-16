@@ -134,7 +134,60 @@ try {
     "Non-terminal review state must not synthesize an ACK");
   assert.ok(reconcileCode.includes("sourceReconciliationEnabled"),
     "Source reconciliation must remain behind environment and project gates");
-  console.log("Unified job registry and environment-gated source reconciliation invariant tests passed");
+
+  const deployWorkflow = await readFile(
+    path.join(projectDir, ".github/workflows/hostinger-deploy.yml"), "utf8",
+  );
+  const monitorWorkflow = await readFile(
+    path.join(projectDir, ".github/workflows/ai-task-ledger-prod-monitor.yml"), "utf8",
+  );
+  const prodAuditScriptPath = path.join(
+    projectDir, "deploy/hostinger/verify-ai-task-ledger-prod.sh",
+  );
+  const prodAuditScript = await readFile(prodAuditScriptPath, "utf8");
+
+  for (const marker of [
+    "AI_TASK_PROD_SOURCE_RECONCILE_ENABLED': 'true'",
+    "AI_TASK_PROD_RECONCILE_SCHEMA_READY': 'true'",
+    "AI_TASK_PROD_EXPECTED_PROJECT_ID': expected_project_id",
+    "AI_TASK_DEV_SOURCE_RECONCILE_ENABLED': 'false'",
+    "RUN_STARTUP_MIGRATIONS': 'false'",
+    "AI_TASK_PROD_INTERLOCK_",
+    "verify-ai-task-ledger-prod.sh",
+  ]) {
+    assert.ok(deployWorkflow.includes(marker), `Production deploy is missing interlock marker: ${marker}`);
+  }
+  assert.ok(deployWorkflow.includes("AI_TASK_LEDGER_AUDIT_FAIL_ON_STALE=false"),
+    "Deployment must reject mismatches and invalid ACKs without blocking on unrelated stale work");
+
+  for (const marker of [
+    "cron: \"17 * * * *\"",
+    "issues: write",
+    "AI_TASK_LEDGER_AUDIT_FAIL_ON_STALE=true",
+    "[AI Task] PROD ledger reconciliation degraded",
+    "ai-task-ledger-fingerprint:",
+    "state:\"closed\"",
+  ]) {
+    assert.ok(monitorWorkflow.includes(marker), `Production monitor is missing invariant: ${marker}`);
+  }
+
+  for (const marker of [
+    "BEGIN READ ONLY",
+    "statement_timeout: 15_000",
+    "nzdweipzckfszczzqtuw",
+    "AI_TASK_BRIDGE_TOKEN_invalid",
+    "bridge_tokens_not_distinct",
+    "mismatch_count",
+    "review_ack_violation_count",
+    "stale_active_count",
+    "AI_TASK_LEDGER_AUDIT=",
+  ]) {
+    assert.ok(prodAuditScript.includes(marker), `Read-only production audit is missing invariant: ${marker}`);
+  }
+  assert.equal(prodAuditScript.includes("set -x"), false,
+    "Production audit must never enable shell tracing around runtime secrets");
+
+  console.log("Unified job registry, production deploy, and ledger monitor invariant tests passed");
 } finally {
   await rm(outputFile, { force: true });
   await rm(path.join(outputDir, "ai-core-source-policy.test.mjs"), { force: true });

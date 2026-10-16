@@ -24,6 +24,7 @@ jobs:
           version: '10.33.0'
           run_install: false
       - run: pnpm install --frozen-lockfile
+      - run: bash -n deploy/hostinger/verify-ai-task-ledger-prod.sh
       - run: pnpm run typecheck
       - run: pnpm -r --filter './artifacts/**' --if-present run build
       - run: pnpm --filter @workspace/api-server test:short-links
