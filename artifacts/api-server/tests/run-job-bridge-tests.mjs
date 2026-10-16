@@ -159,6 +159,12 @@ try {
   }
   assert.ok(deployWorkflow.includes("AI_TASK_LEDGER_AUDIT_FAIL_ON_STALE=false"),
     "Deployment must reject mismatches and invalid ACKs without blocking on unrelated stale work");
+  assert.ok(deployWorkflow.includes('REMOTE_ROOT="${APP_ROOT:-/root/apps/ai-task/production}"'),
+    "Production deployment must default to the canonical absolute application root");
+  assert.ok(deployWorkflow.includes('REMOTE_ROOT="${APP_ROOT:-/root/apps/ai-task/development}"'),
+    "Development deployment must default to the canonical absolute application root");
+  assert.equal(deployWorkflow.includes('\\$HOME/apps/ai-task/'), false,
+    "Deployment defaults must not create a literal $HOME directory on the VPS");
 
   for (const marker of [
     "cron: \"17 * * * *\"",
