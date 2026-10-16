@@ -1,11 +1,11 @@
 /**
- * DEV-only source-database reconciliation for passive AI Core ledger events.
+ * Environment-gated source-database reconciliation for passive AI Core ledger events.
  * It never claims or dispatches a worker, and independently verifies every ACK.
  */
 import { pool } from "@workspace/db";
 import { logger } from "./logger";
 import { canonicalAiCoreSource, parseAiCoreExternalId, verifyAndAckAiCoreSource } from "./ai-core-source-verifier";
-import { devSourceReconciliationEnabled } from "./ai-core-source-reconciliation-policy";
+import { sourceReconciliationEnabled } from "./ai-core-source-reconciliation-policy";
 import { aiCoreSourceReconciliationPlan } from "./job-bridge-validation";
 
 type Job = { id: string; external_id: string; status: string; callback_id: string | null; source?: string };
@@ -92,10 +92,10 @@ async function reconcileOne(job: Job): Promise<boolean> {
 let timer: ReturnType<typeof setInterval> | null = null;
 let running = false;
 
-export async function reconcileAiCoreSourceTerminalJobs(): Promise<{
+export async function reconcileAiCoreSourceJobs(): Promise<{
   scanned: number; repaired: number; errors: number;
 }> {
-  if (!devSourceReconciliationEnabled() || running) return { scanned: 0, repaired: 0, errors: 0 };
+  if (!sourceReconciliationEnabled() || running) return { scanned: 0, repaired: 0, errors: 0 };
   running = true;
   try {
     const result = await pool.query<Job>(
@@ -112,25 +112,29 @@ export async function reconcileAiCoreSourceTerminalJobs(): Promise<{
       } catch (error) {
         errors += 1;
         logger.warn({ jobId: job.id, errorName: error instanceof Error ? error.name : "unknown" },
-          "[ai-task-dev] source reconciliation will retry");
+          "[ai-task-source] source reconciliation will retry");
       }
     }
     if (repaired > 0 || errors > 0) logger.info({
       scanned: result.rows.length, repaired, errors,
-    }, "[ai-task-dev] source reconciliation batch");
+    }, "[ai-task-source] source reconciliation batch");
     return { scanned: result.rows.length, repaired, errors };
   } finally {
     running = false;
   }
 }
 
-export function startDevAiCoreSourceReconciliationRuntime(): void {
-  if (!devSourceReconciliationEnabled() || timer) return;
-  const poll = () => void reconcileAiCoreSourceTerminalJobs().catch((error: unknown) => {
+export function startAiCoreSourceReconciliationRuntime(): void {
+  if (!sourceReconciliationEnabled() || timer) return;
+  const poll = () => void reconcileAiCoreSourceJobs().catch((error: unknown) => {
     logger.warn({ errorName: error instanceof Error ? error.name : "unknown" },
-      "[ai-task-dev] reconciliation batch will retry");
+      "[ai-task-source] reconciliation batch will retry");
   });
   poll();
   timer = setInterval(poll, POLL_MS);
   timer.unref?.();
 }
+
+// Compatibility aliases for callers that still use the original DEV-only names.
+export const reconcileAiCoreSourceTerminalJobs = reconcileAiCoreSourceJobs;
+export const startDevAiCoreSourceReconciliationRuntime = startAiCoreSourceReconciliationRuntime;
