@@ -6,6 +6,7 @@ import { pool } from "@workspace/db";
 import { logger } from "./logger";
 import { canonicalAiCoreSource, parseAiCoreExternalId, verifyAndAckAiCoreSource } from "./ai-core-source-verifier";
 import { devSourceReconciliationEnabled } from "./ai-core-source-reconciliation-policy";
+import { aiCoreSourceReconciliationPlan } from "./job-bridge-validation";
 
 type Job = { id: string; external_id: string; status: string; callback_id: string | null; source?: string };
 const POLL_MS = 60_000;
@@ -21,8 +22,9 @@ async function reconcileOne(job: Job): Promise<boolean> {
   if (!["QUEUED", "WAITING_FOR_WORKER", "SUSPECTED_STALL", "RUNNING"].includes(job.status)) return false;
 
   const initial = await canonicalAiCoreSource(source);
-  if (initial?.status !== "COMPLETED" && initial?.status !== "FAILED") return false;
-  const terminal = initial.status;
+  const plan = aiCoreSourceReconciliationPlan(initial?.status);
+  if (!plan) return false;
+  const observed = plan.sourceStatus;
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -43,30 +45,34 @@ async function reconcileOne(job: Job): Promise<boolean> {
         : "SELECT status,error_message FROM ai_platform.ai_coding_workstreams WHERE id=$1",
       [source.id],
     );
-    if (record.rows[0]?.status !== terminal) {
+    if (record.rows[0]?.status !== observed) {
       await client.query("ROLLBACK");
       return false;
     }
-    const kind = terminal === "COMPLETED" ? "RESULT_RECORDED" : "WORKER_FAILED";
-    const eventId = "ai-task:source-reconcile:" + job.id + ":" + terminal;
+    const eventId = "ai-task:source-reconcile:" + job.id + ":" + observed;
     const summary = String(record.rows[0]?.result_summary ??
-      record.rows[0]?.error_message ?? "AI Core canonical source " + terminal).slice(0, 2000);
+      record.rows[0]?.error_message ?? "AI Core canonical source " + observed).slice(0, 2000);
     await client.query(
       "INSERT INTO ai_task_bridge.job_events(job_id,event_id,kind,sender,payload) " +
       "VALUES($1,$2,$3,'ai-task-source-reconciler',jsonb_build_object('status',$4::text)) " +
       "ON CONFLICT(event_id) DO NOTHING",
-      [job.id, eventId, kind, terminal],
+      [job.id, eventId, plan.eventKind, observed],
     );
-    if (terminal === "COMPLETED") {
+    if (plan.ledgerStatus === "WAITING_FOR_ACK") {
       await client.query(
         "UPDATE ai_task_bridge.jobs SET status='WAITING_FOR_ACK',callback_id=$2," +
         "result_summary=$3,updated_at=now() WHERE id=$1",
         [job.id, "core-source:" + job.id, summary],
       );
-    } else {
+    } else if (plan.ledgerStatus === "FAILED") {
       await client.query(
         "UPDATE ai_task_bridge.jobs SET status='FAILED',result_summary=$2,updated_at=now() WHERE id=$1",
         [job.id, summary],
+      );
+    } else {
+      await client.query(
+        "UPDATE ai_task_bridge.jobs SET status='REVIEW_REQUIRED',updated_at=now() WHERE id=$1",
+        [job.id],
       );
     }
     await client.query("COMMIT");
@@ -78,8 +84,9 @@ async function reconcileOne(job: Job): Promise<boolean> {
   }
 
   // The receiver ACK is a separate transaction and independently rechecks
-  // the persisted AI Core source. No ACK is inferred from result insertion.
-  return terminal === "FAILED" || verifyAndAckAiCoreSource(job.id, "core-source:" + job.id);
+  // the persisted AI Core source. REVIEW_REQUIRED is non-terminal and never
+  // creates or infers a callback acknowledgement.
+  return !plan.requiresAck || verifyAndAckAiCoreSource(job.id, "core-source:" + job.id);
 }
 
 let timer: ReturnType<typeof setInterval> | null = null;
