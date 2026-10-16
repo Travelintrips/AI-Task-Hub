@@ -86,6 +86,7 @@ try {
     NODE_ENV: "development",
     RUN_STARTUP_MIGRATIONS: "false",
     AI_TASK_DEV_SOURCE_RECONCILE_ENABLED: "true",
+    AI_TASK_PROD_SOURCE_RECONCILE_ENABLED: "false",
     AI_TASK_DEV_EXPECTED_PROJECT_ID: "xssrfshdrtdfupgqwfdw",
     SUPABASE_DATABASE_URL_DEV: "postgres://example.dev/xssrfshdrtdfupgqwfdw",
   };
@@ -96,6 +97,33 @@ try {
   assert.equal(policy.devSourceReconciliationEnabled({ ...dev, AI_TASK_DEV_EXPECTED_PROJECT_ID: "wrongproject" }), false);
   assert.equal(policy.devSourceReconciliationEnabled({ ...dev, SUPABASE_PROD_DATABASE_URL: "postgres://prod" }), false);
   assert.equal(policy.devSourceReconciliationEnabled({ ...dev, SUPABASE_DATABASE_URL: "postgres://prod" }), false);
+  assert.equal(policy.sourceReconciliationEnabled(dev), true);
+  const prod = {
+    NODE_ENV: "production",
+    RUN_STARTUP_MIGRATIONS: "false",
+    AI_TASK_DEV_SOURCE_RECONCILE_ENABLED: "false",
+    AI_TASK_PROD_SOURCE_RECONCILE_ENABLED: "true",
+    AI_TASK_PROD_RECONCILE_SCHEMA_READY: "true",
+    AI_TASK_PROD_EXPECTED_PROJECT_ID: "nzdweipzckfszczzqtuw",
+    SUPABASE_DATABASE_URL:
+      "postgres://ai_task_runtime_login.nzdweipzckfszczzqtuw@example.prod/postgres",
+  };
+  assert.equal(policy.prodSourceReconciliationEnabled(prod), true);
+  assert.equal(policy.sourceReconciliationEnabled(prod), true);
+  assert.equal(policy.prodSourceReconciliationEnabled({ ...prod, NODE_ENV: "development" }), false);
+  assert.equal(policy.prodSourceReconciliationEnabled({ ...prod, RUN_STARTUP_MIGRATIONS: "true" }), false);
+  assert.equal(policy.prodSourceReconciliationEnabled({ ...prod, AI_TASK_PROD_SOURCE_RECONCILE_ENABLED: "false" }), false);
+  assert.equal(policy.prodSourceReconciliationEnabled({ ...prod, AI_TASK_PROD_RECONCILE_SCHEMA_READY: "false" }), false);
+  assert.equal(policy.prodSourceReconciliationEnabled({ ...prod, AI_TASK_PROD_EXPECTED_PROJECT_ID: "wrongproject" }), false);
+  assert.equal(policy.prodSourceReconciliationEnabled({ ...prod, SUPABASE_DATABASE_URL_DEV: "postgres://dev" }), false);
+  assert.equal(policy.prodSourceReconciliationEnabled({ ...prod, AI_TASK_DEV_SOURCE_RECONCILE_ENABLED: "true" }), false);
+  assert.equal(policy.sourceReconciliationEnabled({
+    ...dev,
+    AI_TASK_PROD_SOURCE_RECONCILE_ENABLED: "true",
+  }), false);
+  const indexCode = await readFile(path.join(artifactDir, "src/index.ts"), "utf8");
+  assert.ok(indexCode.includes("startAiCoreSourceReconciliationRuntime"),
+    "The environment-gated source reconciler must start with the API runtime");
   const reconcileCode = await readFile(path.join(artifactDir, "src/lib/ai-core-source-reconciliation.ts"), "utf8");
   assert.ok(reconcileCode.includes("verifyAndAckAiCoreSource"), "No unverified ACKs are synthesized");
   assert.ok(reconcileCode.includes("FOR UPDATE"), "Reconciliation locks each source job");
@@ -104,7 +132,9 @@ try {
     "Canonical review-required work must be mirrored without dispatch");
   assert.ok(reconcileCode.includes("!plan.requiresAck"),
     "Non-terminal review state must not synthesize an ACK");
-  console.log("Unified job registry and DEV-only source reconciliation invariant tests passed");
+  assert.ok(reconcileCode.includes("sourceReconciliationEnabled"),
+    "Source reconciliation must remain behind environment and project gates");
+  console.log("Unified job registry and environment-gated source reconciliation invariant tests passed");
 } finally {
   await rm(outputFile, { force: true });
   await rm(path.join(outputDir, "ai-core-source-policy.test.mjs"), { force: true });
