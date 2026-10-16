@@ -1,6 +1,6 @@
 import app from "./app";
 import { logger } from "./lib/logger";
-import { startDevAiCoreSourceReconciliationRuntime } from "./lib/ai-core-source-reconciliation";
+import { startAiCoreSourceReconciliationRuntime } from "./lib/ai-core-source-reconciliation";
 
 const rawPort = process.env["PORT"] ?? "8080";
 const host = process.env["HOST"]?.trim() || "127.0.0.1";
@@ -18,5 +18,5 @@ app.listen(port, host, (err) => {
   }
 
   logger.info({ host, port }, "Server listening");
-  startDevAiCoreSourceReconciliationRuntime();
+  startAiCoreSourceReconciliationRuntime();
 });
