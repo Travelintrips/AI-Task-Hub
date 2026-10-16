@@ -24,11 +24,15 @@ WORKDIR /app
 
 COPY --from=build --chown=node:node /runtime/ /app/
 
+# esbuild worker paths are resolved from the build-stage workspace. Preserve
+# that absolute path in the runtime image without duplicating application data.
+RUN ln -s /app /workspace
+
 USER node
 
 EXPOSE 8080
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=5 \
-  CMD node -e "fetch('http://127.0.0.1:8080/api/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+  CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||'8080')+'/api/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 CMD ["node", "--enable-source-maps", "artifacts/api-server/dist/index.mjs"]
