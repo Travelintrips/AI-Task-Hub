@@ -34,6 +34,25 @@ try {
   assert.equal(bridge.projectAiCoreObservedStatus("ANALYZING", "QUEUED"), "RUNNING");
   assert.equal(bridge.projectAiCoreObservedStatus("REVIEW_REQUIRED", "QUEUED"), "REVIEW_REQUIRED");
   assert.equal(bridge.projectAiCoreObservedStatus("UNKNOWN", "QUEUED"), "QUEUED");
+  assert.deepEqual(bridge.aiCoreSourceReconciliationPlan("COMPLETED"), {
+    sourceStatus: "COMPLETED",
+    eventKind: "RESULT_RECORDED",
+    ledgerStatus: "WAITING_FOR_ACK",
+    requiresAck: true,
+  });
+  assert.deepEqual(bridge.aiCoreSourceReconciliationPlan("FAILED"), {
+    sourceStatus: "FAILED",
+    eventKind: "WORKER_FAILED",
+    ledgerStatus: "FAILED",
+    requiresAck: false,
+  });
+  assert.deepEqual(bridge.aiCoreSourceReconciliationPlan("REVIEW_REQUIRED"), {
+    sourceStatus: "REVIEW_REQUIRED",
+    eventKind: "SOURCE_PROGRESS",
+    ledgerStatus: "REVIEW_REQUIRED",
+    requiresAck: false,
+  });
+  assert.equal(bridge.aiCoreSourceReconciliationPlan("RUNNING"), null);
   assert.equal(bridge.safeUuid("not-a-uuid"), false);
   assert.equal(bridge.safeUuid("550e8400-e29b-41d4-a716-446655440000"), true);
   const expectedSecret = "abcde12345abcde12345abcde12345abcde12345";
@@ -81,6 +100,10 @@ try {
   assert.ok(reconcileCode.includes("verifyAndAckAiCoreSource"), "No unverified ACKs are synthesized");
   assert.ok(reconcileCode.includes("FOR UPDATE"), "Reconciliation locks each source job");
   assert.ok(reconcileCode.includes("ON CONFLICT(event_id) DO NOTHING"), "Replay must be idempotent");
+  assert.ok(reconcileCode.includes("status='REVIEW_REQUIRED'"),
+    "Canonical review-required work must be mirrored without dispatch");
+  assert.ok(reconcileCode.includes("!plan.requiresAck"),
+    "Non-terminal review state must not synthesize an ACK");
   console.log("Unified job registry and DEV-only source reconciliation invariant tests passed");
 } finally {
   await rm(outputFile, { force: true });
