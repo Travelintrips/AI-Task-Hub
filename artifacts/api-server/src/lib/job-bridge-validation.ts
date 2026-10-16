@@ -14,6 +14,44 @@ export function inList<T extends string>(value: unknown, values: readonly T[]): 
   return typeof value === "string" && values.some((item) => item === value);
 }
 
+export type AiCoreSourceReconciliationPlan = {
+  sourceStatus: "COMPLETED" | "FAILED" | "REVIEW_REQUIRED";
+  eventKind: "RESULT_RECORDED" | "WORKER_FAILED" | "SOURCE_PROGRESS";
+  ledgerStatus: "WAITING_FOR_ACK" | "FAILED" | "REVIEW_REQUIRED";
+  requiresAck: boolean;
+};
+
+/** Map a canonical AI Core source status to a passive ledger transition. */
+export function aiCoreSourceReconciliationPlan(
+  status: unknown,
+): AiCoreSourceReconciliationPlan | null {
+  if (status === "COMPLETED") {
+    return {
+      sourceStatus: status,
+      eventKind: "RESULT_RECORDED",
+      ledgerStatus: "WAITING_FOR_ACK",
+      requiresAck: true,
+    };
+  }
+  if (status === "FAILED") {
+    return {
+      sourceStatus: status,
+      eventKind: "WORKER_FAILED",
+      ledgerStatus: "FAILED",
+      requiresAck: false,
+    };
+  }
+  if (status === "REVIEW_REQUIRED") {
+    return {
+      sourceStatus: status,
+      eventKind: "SOURCE_PROGRESS",
+      ledgerStatus: "REVIEW_REQUIRED",
+      requiresAck: false,
+    };
+  }
+  return null;
+}
+
 const activeAiCoreSourceStatuses = [
   "CLAIMED", "RUNNING", "ANALYZING", "CODING", "TESTING", "COMMITTING", "PR_CREATED",
 ] as const;
