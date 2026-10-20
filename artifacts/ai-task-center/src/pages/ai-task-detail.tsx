@@ -549,13 +549,15 @@ export default function AiTaskDetail() {
   });
 
   const startExecutionMutation = useMutation({
-    mutationFn: () =>
+    mutationFn: (mode: "worker" | "chatgpt") =>
       apiFetch(`/ai-tasks/${id}/execution`, {
         method: "POST",
-        body: JSON.stringify({}),
+        body: JSON.stringify(mode === "chatgpt"
+          ? { mode: "chatgpt", accountAlias: "GPT01" }
+          : { mode: "worker" }),
       }),
-    onSuccess: () => {
-      toast({ title: "Execution dikirim ke AI Core DEV" });
+    onSuccess: (_data, mode) => {
+      toast({ title: mode === "chatgpt" ? "Execution dikirim ke ChatGPT via AI Core DEV" : "Execution dikirim ke worker AI Core DEV" });
       void queryClient.invalidateQueries({ queryKey: ["ai-task-execution", id] });
     },
     onError: (err: Error) => {
@@ -924,14 +926,25 @@ export default function AiTaskDetail() {
               Sync
             </Button>
             {!executionData?.execution && (
-              <Button
-                size="sm"
-                disabled={!executionData?.bridgeConfigured || startExecutionMutation.isPending}
-                onClick={() => startExecutionMutation.mutate()}
-              >
-                {startExecutionMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Send className="h-3.5 w-3.5 mr-1" />}
-                Start Execution
-              </Button>
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!executionData?.bridgeConfigured || startExecutionMutation.isPending}
+                  onClick={() => startExecutionMutation.mutate("worker")}
+                >
+                  {startExecutionMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Send className="h-3.5 w-3.5 mr-1" />}
+                  Run Worker
+                </Button>
+                <Button
+                  size="sm"
+                  disabled={!executionData?.bridgeConfigured || startExecutionMutation.isPending}
+                  onClick={() => startExecutionMutation.mutate("chatgpt")}
+                >
+                  {startExecutionMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Brain className="h-3.5 w-3.5 mr-1" />}
+                  Run ChatGPT
+                </Button>
+              </>
             )}
           </div>
         </div>
@@ -1015,7 +1028,7 @@ export default function AiTaskDetail() {
           </div>
         ) : (
           <div className="mt-4 rounded-lg border border-dashed border-gray-200 p-5 text-center text-xs text-gray-500">
-            Belum ada execution. Klik Start Execution untuk mengirim task ini ke AI Core DEV.
+            Belum ada execution. Pilih Run Worker untuk bounded worker atau Run ChatGPT untuk jalur ChatGPT dengan callback + Ed25519 attestation + final ACK.
           </div>
         )}
       </div>
