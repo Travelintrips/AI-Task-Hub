@@ -24,6 +24,23 @@ import { Textarea } from "@/components/ui/textarea";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+interface ExecutionJobLite {
+  id: string;
+  taskId: number | null;
+  status: string;
+  progress: number;
+  workerId: string | null;
+  assignedClientId: string | null;
+  callbackVerified: boolean;
+  attestationVerified: boolean;
+  finalAckVerified: boolean;
+}
+
+interface ExecutionMapPayload {
+  byTask: Record<string, ExecutionJobLite>;
+  bridgeConfigured: boolean;
+}
+
 interface AiTask {
   id: number;
   taskNumber: string | null;
@@ -182,7 +199,7 @@ function StatusCards({
 
 // ─── Task Row ─────────────────────────────────────────────────────────────────
 
-function TaskRow({ task, highlight }: { task: AiTask; highlight?: string }) {
+function TaskRow({ task, highlight, execution }: { task: AiTask; highlight?: string; execution?: ExecutionJobLite }) {
   const normalized = normalizeStatus(task.status);
   const cfg = STATUS_CONFIG[normalized];
   const age = formatDistanceToNow(new Date(task.createdAt), { addSuffix: true });
@@ -236,6 +253,17 @@ function TaskRow({ task, highlight }: { task: AiTask; highlight?: string }) {
         </span>
       </td>
       <td className="px-3 py-2.5 whitespace-nowrap">
+        <div className="min-w-[110px]">
+          <div className="mb-1 flex items-center justify-between gap-2">
+            <span className="text-[11px] font-medium capitalize text-gray-600">{execution?.status ?? "not started"}</span>
+            <span className="text-[11px] tabular-nums text-gray-400">{execution?.progress ?? 0}%</span>
+          </div>
+          <div className="h-1.5 overflow-hidden rounded-full bg-gray-100">
+            <div className="h-full rounded-full bg-blue-500" style={{ width: `${execution?.progress ?? 0}%` }} />
+          </div>
+        </div>
+      </td>
+      <td className="px-3 py-2.5 whitespace-nowrap">
         <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold capitalize ${PRIORITY_BADGE[task.priority] ?? "bg-gray-100 text-gray-700"}`}>
           {task.priority}
         </span>
@@ -273,7 +301,7 @@ function TableSkeleton() {
     <tbody>
       {Array.from({ length: 8 }).map((_, i) => (
         <tr key={i} className="border-b border-gray-100">
-          {Array.from({ length: 11 }).map((__, j) => (
+          {Array.from({ length: 12 }).map((__, j) => (
             <td key={j} className="px-3 py-2.5">
               <Skeleton className="h-4 w-full rounded" />
             </td>
@@ -508,10 +536,18 @@ export default function AiTaskBoard() {
     staleTime: 15_000,
   });
 
+  const { data: executionMapData } = useQuery<ExecutionMapPayload>({
+    queryKey: ["ai-task-execution-map"],
+    queryFn: () => apiFetch<ExecutionMapPayload>(`${BASE}/api/executions/active-map`),
+    refetchInterval: 10_000,
+    staleTime: 3_000,
+  });
+
   // SSE realtime — invalidate saat ada task baru / update
   useServerEvents({
     new_task:     () => void queryClient.invalidateQueries({ queryKey: ["ai-tasks"] }),
     task_updated: () => void queryClient.invalidateQueries({ queryKey: ["ai-tasks"] }),
+    execution_updated: () => void queryClient.invalidateQueries({ queryKey: ["ai-task-execution-map"] }),
   });
 
   // Client-side filter: status + search (debounced)
@@ -760,7 +796,7 @@ export default function AiTaskBoard() {
         <table className="w-full text-left border-collapse min-w-[960px]">
           <thead className="sticky top-0 z-10 bg-gray-50 border-b border-gray-200">
             <tr>
-              {["No. Task", "Pelanggan", "Judul", "Status", "Prioritas", "Kategori", "Divisi", "AI Intent", "Audit", "Pesan Terakhir", "Assignee"].map((h) => (
+              {["No. Task", "Pelanggan", "Judul", "Status", "Progress", "Prioritas", "Kategori", "Divisi", "AI Intent", "Audit", "Pesan Terakhir", "Assignee"].map((h) => (
                 <th key={h} className="px-3 py-2 text-[11px] font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
                   {h}
                 </th>
@@ -772,7 +808,7 @@ export default function AiTaskBoard() {
           ) : filtered.length === 0 ? (
             <tbody>
               <tr>
-                <td colSpan={11} className="px-3 py-16 text-center">
+                <td colSpan={12} className="px-3 py-16 text-center">
                   <div className="flex flex-col items-center gap-3 text-gray-400">
                     <Search className="w-10 h-10 opacity-25" />
                     <div>
@@ -797,7 +833,7 @@ export default function AiTaskBoard() {
           ) : (
             <tbody>
               {filtered.map((task) => (
-                <TaskRow key={task.id} task={task} highlight={debouncedSearch} />
+                <TaskRow key={task.id} task={task} highlight={debouncedSearch} execution={executionMapData?.byTask[String(task.id)]} />
               ))}
             </tbody>
           )}
