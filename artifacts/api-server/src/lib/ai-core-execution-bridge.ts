@@ -15,7 +15,7 @@ function safeBaseUrl(): string | null {
 }
 
 function bridgeToken(): string | null {
-  const token = process.env.AI_TASK_BRIDGE_TOKEN?.trim();
+  const token = process.env.AI_TASK_ENGINE_SERVICE_KEY?.trim();
   return token && token.length >= 32 ? token : null;
 }
 
@@ -36,7 +36,7 @@ async function bridgeFetch(path: string, init?: RequestInit): Promise<Response> 
     ...init,
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
+      "x-ai-task-engine-key": token,
       ...(init?.headers ?? {}),
     },
     signal: AbortSignal.timeout(8_000),
@@ -51,7 +51,7 @@ export async function submitAiTaskCommand(input: {
   companyId: string;
   taskId: number;
 }) {
-  const response = await bridgeFetch("/ai/coding/bridge/ai-task/commands", {
+  const response = await bridgeFetch("/ai/coding/bridge/commands", {
     method: "POST",
     body: JSON.stringify({
       externalCommandId: input.externalCommandId,
@@ -88,7 +88,7 @@ export async function submitAiTaskCommand(input: {
 
 export async function fetchAiTaskCommandTimeline(externalCommandId: string) {
   const response = await bridgeFetch(
-    `/ai/coding/bridge/ai-task/timeline?externalCommandId=${encodeURIComponent(externalCommandId)}`,
+    `/ai/coding/bridge/ai-task-timeline?externalCommandId=${encodeURIComponent(externalCommandId)}`,
     { method: "GET" },
   );
   if (response.status === 404) return null;
