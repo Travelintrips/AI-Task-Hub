@@ -15,7 +15,7 @@ function safeBaseUrl(): string | null {
 }
 
 function bridgeToken(): string | null {
-  const token = process.env.AI_TASK_ENGINE_SERVICE_KEY?.trim();
+  const token = process.env.AI_TASK_BRIDGE_TOKEN?.trim();
   return token && token.length >= 32 ? token : null;
 }
 
