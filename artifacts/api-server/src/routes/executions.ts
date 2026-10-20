@@ -76,15 +76,32 @@ async function syncExecution(execution: typeof aiExecutionJobsTable.$inferSelect
   let startedAt = execution.startedAt;
   let completedAt = execution.completedAt;
 
+  const commandMetadata = asRecord(timeline.commandMetadata);
+  if (commandMetadata["e2eCode"] === "MCP_ACK_VERIFIED") {
+    finalAckVerified = true;
+  }
+  if (commandMetadata["deliveryCode"] === "DELIVERY_CONFIRMED") {
+    callbackVerified = true;
+  }
+  workerId ||= typeof commandMetadata["completedBy"] === "string"
+    ? commandMetadata["completedBy"]
+    : typeof commandMetadata["assignedClientId"] === "string"
+      ? commandMetadata["assignedClientId"]
+      : null;
+
   for (const response of timeline.responses) {
     const checkpoint = asRecord(response.checkpoint);
     const metadata = asRecord(response.metadata);
     const hasFlag = flag(checkpoint, metadata);
     const getText = textValue(checkpoint, metadata);
 
-    callbackVerified ||= hasFlag(["callbackVerified", "verifiedCallback", "callback_verified"]);
+    callbackVerified ||= hasFlag(["callbackVerified", "verifiedCallback", "callback_verified"]) ||
+      checkpoint["deliveryCode"] === "DELIVERY_CONFIRMED" ||
+      metadata["deliveryCode"] === "DELIVERY_CONFIRMED";
     attestationVerified ||= hasFlag(["attestationVerified", "verifiedAttestation", "attestation_verified"]);
-    finalAckVerified ||= hasFlag(["finalAckVerified", "ackVerified", "final_ack_verified"]);
+    finalAckVerified ||= hasFlag(["finalAckVerified", "ackVerified", "final_ack_verified"]) ||
+      checkpoint["e2eCode"] === "MCP_ACK_VERIFIED" ||
+      metadata["e2eCode"] === "MCP_ACK_VERIFIED";
     workerId ||= getText(["workerId", "worker_id", "assignedClientId"]);
 
     const [existingEvent] = await db
