@@ -13,7 +13,9 @@ import { logger } from "../lib/logger";
 import {
   aiCoreBridgeConfigured,
   buildAiTaskExternalCommandId,
+  fetchAiTaskChatGptTimeline,
   fetchAiTaskCommandTimeline,
+  submitAiTaskChatGptCommand,
   submitAiTaskCommand,
 } from "../lib/ai-core-execution-bridge";
 
@@ -62,7 +64,18 @@ function textValue(...sources: Array<Record<string, unknown>>): (names: string[]
 
 async function syncExecution(execution: typeof aiExecutionJobsTable.$inferSelect) {
   if (!aiCoreBridgeConfigured() || !execution.externalId.startsWith("ai-task:")) return execution;
-  const timeline = await fetchAiTaskCommandTimeline(execution.externalId);
+  const executionMetadata = asRecord(execution.metadata);
+  const verificationMode = executionMetadata["verificationMode"] === "chatgpt-attested"
+    ? "chatgpt-attested"
+    : "bounded-worker";
+  const remoteCorrelationId = typeof executionMetadata["remoteCorrelationId"] === "string"
+    ? executionMetadata["remoteCorrelationId"]
+    : null;
+  const timeline = verificationMode === "chatgpt-attested"
+    ? execution.commandId && remoteCorrelationId
+      ? await fetchAiTaskChatGptTimeline(execution.commandId, remoteCorrelationId)
+      : null
+    : await fetchAiTaskCommandTimeline(execution.externalId);
   if (!timeline) return execution;
 
   let status = execution.status;
@@ -76,10 +89,6 @@ async function syncExecution(execution: typeof aiExecutionJobsTable.$inferSelect
   let startedAt = execution.startedAt;
   let completedAt = execution.completedAt;
 
-  const executionMetadata = asRecord(execution.metadata);
-  const verificationMode = executionMetadata["verificationMode"] === "chatgpt-attested"
-    ? "chatgpt-attested"
-    : "bounded-worker";
   const requiresAttestedFinalAck = verificationMode === "chatgpt-attested";
 
   const commandMetadata = asRecord(timeline.commandMetadata);
@@ -104,7 +113,13 @@ async function syncExecution(execution: typeof aiExecutionJobsTable.$inferSelect
     callbackVerified ||= hasFlag(["callbackVerified", "verifiedCallback", "callback_verified"]) ||
       checkpoint["deliveryCode"] === "DELIVERY_CONFIRMED" ||
       metadata["deliveryCode"] === "DELIVERY_CONFIRMED";
-    attestationVerified ||= hasFlag(["attestationVerified", "verifiedAttestation", "attestation_verified"]);
+    const attestation = asRecord(metadata["attestation"]);
+    attestationVerified ||= hasFlag(["attestationVerified", "verifiedAttestation", "attestation_verified"]) ||
+      (metadata["verified"] === true &&
+       metadata["verifiedAssistantReply"] === true &&
+       attestation["algorithm"] === "Ed25519" &&
+       typeof attestation["signature"] === "string" &&
+       String(attestation["signature"]).length > 80);
     finalAckVerified ||= hasFlag(["finalAckVerified", "ackVerified", "final_ack_verified"]) ||
       checkpoint["e2eCode"] === "MCP_ACK_VERIFIED" ||
       metadata["e2eCode"] === "MCP_ACK_VERIFIED";
@@ -339,6 +354,10 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
     }
 
     const body = req.body as Record<string, unknown>;
+    const mode = body.mode === "chatgpt" ? "chatgpt" : "worker";
+    const accountAlias = typeof body.accountAlias === "string" && /^GPT[0-9]{2,4}$/.test(body.accountAlias.trim().toUpperCase())
+      ? body.accountAlias.trim().toUpperCase()
+      : process.env.AI_TASK_DEFAULT_GPT_ALIAS?.trim().toUpperCase() || "GPT01";
     const requestedClientId = typeof body.assignedClientId === "string" ? body.assignedClientId.trim() : "";
     // No implicit worker forcing here. AI Core owns generic worker selection and
     // capability/availability policy. A client ID is forwarded only when the
@@ -347,14 +366,13 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
     const instruction = typeof body.instruction === "string" && body.instruction.trim()
       ? body.instruction.trim()
       : [task.title, task.description].filter(Boolean).join("\n\n");
-    if (!instruction || instruction.length > 50_000) {
-      res.status(400).json({ error: "Instruction required" }); return;
+    const maxInstructionLength = mode === "chatgpt" ? 2_000 : 50_000;
+    if (!instruction || instruction.length > maxInstructionLength) {
+      res.status(400).json({ error: "Instruction required or too long" }); return;
     }
 
     const externalId = buildAiTaskExternalCommandId(companyId, taskId);
-    const verificationMode = assignedClientId?.includes("chatgpt-wake")
-      ? "chatgpt-attested"
-      : "bounded-worker";
+    const verificationMode = mode === "chatgpt" ? "chatgpt-attested" : "bounded-worker";
     const [existing] = await db.select().from(aiExecutionJobsTable)
       .where(and(eq(aiExecutionJobsTable.source, "AI_TASK"), eq(aiExecutionJobsTable.externalId, externalId)))
       .limit(1);
@@ -373,9 +391,12 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
 
     if (existing) {
       reused = true;
+      const nextCorrelationId = randomUUID();
+      const remoteCorrelationId = `${externalId}:${nextCorrelationId}`;
       const [reset] = await db.update(aiExecutionJobsTable).set({
         instruction,
-        assignedClientId,
+        correlationId: nextCorrelationId,
+        assignedClientId: mode === "chatgpt" ? null : assignedClientId,
         status: "queued",
         progress: 5,
         errorMessage: null,
@@ -386,6 +407,8 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
           createdByUserId: req.user?.id ?? null,
           environment: "development",
           verificationMode,
+          remoteCorrelationId,
+          ...(mode === "chatgpt" ? { accountAlias } : {}),
         },
       }).where(eq(aiExecutionJobsTable.id, existing.id)).returning();
       execution = reset ?? existing;
@@ -401,46 +424,66 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
         title: task.title,
         instruction,
         correlationId,
-        assignedClientId,
+        assignedClientId: mode === "chatgpt" ? null : assignedClientId,
         status: "queued",
         progress: 5,
         metadata: {
-        createdByUserId: req.user?.id ?? null,
-        environment: "development",
-        verificationMode,
-      },
+          createdByUserId: req.user?.id ?? null,
+          environment: "development",
+          verificationMode,
+          remoteCorrelationId: `${externalId}:${correlationId}`,
+          ...(mode === "chatgpt" ? { accountAlias } : {}),
+        },
       }).returning();
       execution = created;
     }
 
     try {
-      const remote = await submitAiTaskCommand({
-        externalCommandId: externalId,
-        instruction,
-        assignedClientId,
-        correlationId: execution.correlationId,
-        companyId,
-        taskId,
-      });
+      const executionMeta = asRecord(execution.metadata);
+      const remoteCorrelationId = typeof executionMeta["remoteCorrelationId"] === "string"
+        ? executionMeta["remoteCorrelationId"]
+        : `${externalId}:${execution.correlationId}`;
+      const remote = mode === "chatgpt"
+        ? await submitAiTaskChatGptCommand({
+            accountAlias,
+            instruction,
+            jobAlias: task.taskNumber ?? `TASK${taskId}`,
+            correlationId: remoteCorrelationId,
+          })
+        : await submitAiTaskCommand({
+            externalCommandId: externalId,
+            instruction,
+            assignedClientId,
+            correlationId: execution.correlationId,
+            companyId,
+            taskId,
+          });
+      const remoteCommandId = "command" in remote ? remoteCommandId : remote.commandId;
+      const remoteClientId = remoteClientId;
       const [updated] = await db.update(aiExecutionJobsTable).set({
-        commandId: remote.command.id,
+        commandId: remoteCommandId,
         status: "dispatched",
         progress: 15,
-        assignedClientId: remote.clientId,
-        workerId: remote.clientId,
-        metadata: { ...(execution.metadata ?? {}), remoteCreated: remote.created },
+        assignedClientId: remoteClientId,
+        workerId: remoteClientId,
+        metadata: {
+          ...executionMeta,
+          remoteCreated: remote.created,
+          remoteCorrelationId,
+          ...(mode === "chatgpt" ? { accountAlias } : {}),
+        },
       }).where(eq(aiExecutionJobsTable.id, execution.id)).returning();
       await db.insert(aiExecutionEventsTable).values({
         executionId: execution.id,
         taskId,
         companyId,
-        eventId: `dispatch:${remote.command.id}:${randomUUID()}`,
+        eventId: `dispatch:${remoteCommandId}:${randomUUID()}`,
         eventType: remote.created ? "DISPATCHED" : "REDISPATCHED",
         phase: "dispatch",
         status: "dispatched",
         message: remote.created ? "Command accepted by AI Core bridge." : "Existing AI Core command re-dispatched to worker.",
-        workerId: remote.clientId,
-        payload: { commandId: remote.command.id, created: remote.created, clientId: remote.clientId },
+        workerId: remoteClientId,
+        payload: { commandId: remoteCommandId, created: remote.created, clientId: remoteClientId },
       });
       emitSseEvent("execution_updated", { executionId: execution.id, taskId, status: "dispatched", progress: 15 }, companyId);
       res.status(remote.created ? 201 : 200).json({ execution: updated ?? execution, reused: reused || !remote.created });
