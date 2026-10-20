@@ -76,6 +76,12 @@ async function syncExecution(execution: typeof aiExecutionJobsTable.$inferSelect
   let startedAt = execution.startedAt;
   let completedAt = execution.completedAt;
 
+  const executionMetadata = asRecord(execution.metadata);
+  const verificationMode = executionMetadata["verificationMode"] === "chatgpt-attested"
+    ? "chatgpt-attested"
+    : "bounded-worker";
+  const requiresAttestedFinalAck = verificationMode === "chatgpt-attested";
+
   const commandMetadata = asRecord(timeline.commandMetadata);
   if (commandMetadata["e2eCode"] === "MCP_ACK_VERIFIED") {
     finalAckVerified = true;
@@ -145,11 +151,16 @@ async function syncExecution(execution: typeof aiExecutionJobsTable.$inferSelect
       status = "failed";
       progress = 100;
       errorMessage = response.message;
+      callbackVerified = true;
       completedAt = new Date(response.createdAt);
     } else if (response.kind === "COMPLETED") {
       resultSummary = response.message;
+      callbackVerified = true;
       completedAt = new Date(response.createdAt);
-      if (finalAckVerified) {
+      if (!requiresAttestedFinalAck) {
+        status = "completed";
+        progress = 100;
+      } else if (callbackVerified && attestationVerified && finalAckVerified) {
         status = "completed";
         progress = 100;
       } else {
@@ -159,7 +170,7 @@ async function syncExecution(execution: typeof aiExecutionJobsTable.$inferSelect
     }
   }
 
-  if (callbackVerified && attestationVerified && finalAckVerified) {
+  if (requiresAttestedFinalAck && callbackVerified && attestationVerified && finalAckVerified) {
     status = "completed";
     progress = 100;
     completedAt ??= new Date();
@@ -384,7 +395,11 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
         assignedClientId,
         status: "queued",
         progress: 5,
-        metadata: { createdByUserId: req.user?.id ?? null, environment: "development" },
+        metadata: {
+        createdByUserId: req.user?.id ?? null,
+        environment: "development",
+        verificationMode,
+      },
       }).returning();
       execution = created;
     }
