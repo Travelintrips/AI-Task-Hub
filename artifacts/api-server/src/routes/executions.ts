@@ -458,8 +458,8 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
             companyId,
             taskId,
           });
-      const remoteCommandId = "command" in remote ? remoteCommandId : remote.commandId;
-      const remoteClientId = remoteClientId;
+      const remoteCommandId: string = "command" in remote ? remote.command.id : remote.commandId;
+      const remoteClientId: string = remote.clientId;
       const [updated] = await db.update(aiExecutionJobsTable).set({
         commandId: remoteCommandId,
         status: "dispatched",
