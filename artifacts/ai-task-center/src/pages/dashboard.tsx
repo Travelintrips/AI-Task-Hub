@@ -36,6 +36,23 @@ type AiTask = {
   updatedAt: string;
 };
 
+type ExecutionJobLite = {
+  id: string;
+  taskId: number | null;
+  status: string;
+  progress: number;
+  workerId: string | null;
+  assignedClientId: string | null;
+  callbackVerified: boolean;
+  attestationVerified: boolean;
+  finalAckVerified: boolean;
+};
+
+type ExecutionMapPayload = {
+  byTask: Record<string, ExecutionJobLite>;
+  bridgeConfigured: boolean;
+};
+
 type WaMessage = {
   id: number;
   senderName: string | null;
@@ -174,20 +191,30 @@ export default function Dashboard() {
     staleTime: 10_000,
   });
 
+  const { data: executionMapData } = useQuery<ExecutionMapPayload>({
+    queryKey: ["control-center-executions"],
+    queryFn: () => apiFetch("/api/executions/active-map"),
+    refetchInterval: 10_000,
+    staleTime: 3_000,
+  });
+
   useServerEvents({
     new_task: () => void queryClient.invalidateQueries({ queryKey: ["control-center-tasks"] }),
     task_updated: () => void queryClient.invalidateQueries({ queryKey: ["control-center-tasks"] }),
     new_message: () => void queryClient.invalidateQueries({ queryKey: ["control-center-messages"] }),
+    execution_updated: () => void queryClient.invalidateQueries({ queryKey: ["control-center-executions"] }),
   });
 
   const summary = useMemo(() => {
     const active = tasks.filter((t) => !["completed", "cancelled"].includes(normalizeStatus(t.status))).length;
-    const running = tasks.filter((t) => normalizeStatus(t.status) === "running").length;
+    const running = Object.values(executionMapData?.byTask ?? {}).filter((x) =>
+      ["queued", "dispatched", "assigned", "running", "verifying"].includes(x.status),
+    ).length;
     const assigned = tasks.filter((t) => !!t.assignedTo).length;
     const completed = tasks.filter((t) => normalizeStatus(t.status) === "completed").length;
     const unread = messages.filter((m) => !m.processed).length;
     return { active, running, assigned, completed, unread };
-  }, [tasks, messages]);
+  }, [tasks, messages, executionMapData]);
 
   const activeJobs = useMemo(
     () =>
@@ -209,6 +236,7 @@ export default function Dashboard() {
   const refresh = () => {
     void queryClient.invalidateQueries({ queryKey: ["control-center-tasks"] });
     void queryClient.invalidateQueries({ queryKey: ["control-center-messages"] });
+    void queryClient.invalidateQueries({ queryKey: ["control-center-executions"] });
   };
 
   return (
@@ -279,7 +307,8 @@ export default function Dashboard() {
                 <div className="p-10 text-center text-sm text-gray-400">Tidak ada job aktif.</div>
               ) : (
                 activeJobs.map((task) => {
-                  const pct = progressFor(task.status);
+                  const execution = executionMapData?.byTask[String(task.id)];
+                  const pct = execution?.progress ?? progressFor(task.status);
                   return (
                     <Link key={task.id} href={`/ai-tasks/${task.id}`}>
                       <div className="cursor-pointer px-5 py-4 transition-colors hover:bg-gray-50">
@@ -288,7 +317,7 @@ export default function Dashboard() {
                             <div className="flex flex-wrap items-center gap-2">
                               <span className="font-mono text-[11px] text-blue-600">{task.taskNumber ?? `#${task.id}`}</span>
                               <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-600">
-                                {stageLabel(task.status)}
+                                {execution?.status ?? stageLabel(task.status)}
                               </span>
                               {task.priority && (
                                 <span className="text-[10px] font-medium uppercase tracking-wide text-gray-400">{task.priority}</span>
@@ -296,7 +325,7 @@ export default function Dashboard() {
                             </div>
                             <h3 className="mt-1 truncate text-sm font-semibold text-gray-900">{task.title}</h3>
                             <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-gray-500">
-                              <span>Worker/Assignee: {task.assignedTo ?? "Belum dipilih"}</span>
+                              <span>Worker/Assignee: {execution?.workerId ?? execution?.assignedClientId ?? task.assignedTo ?? "Belum dipilih"}</span>
                               <span>Intent: {task.aiIntent ?? "—"}</span>
                               <span>{formatDistanceToNow(new Date(task.updatedAt), { addSuffix: true })}</span>
                             </div>

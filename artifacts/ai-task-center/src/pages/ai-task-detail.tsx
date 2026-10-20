@@ -158,6 +158,42 @@ interface Attachment {
   createdAt: string;
 }
 
+interface ExecutionJob {
+  id: string;
+  taskId: number | null;
+  externalId: string;
+  correlationId: string;
+  commandId: string | null;
+  assignedClientId: string | null;
+  workerId: string | null;
+  status: string;
+  progress: number;
+  resultSummary: string | null;
+  errorMessage: string | null;
+  callbackVerified: boolean;
+  attestationVerified: boolean;
+  finalAckVerified: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface ExecutionEvent {
+  id: string;
+  eventType: string;
+  phase: string | null;
+  status: string | null;
+  message: string | null;
+  workerId: string | null;
+  signatureVerified: boolean;
+  createdAt: string;
+}
+
+interface ExecutionPayload {
+  execution: ExecutionJob | null;
+  events: ExecutionEvent[];
+  bridgeConfigured: boolean;
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const AI_TASK_STATUSES: Record<string, string> = {
@@ -503,6 +539,30 @@ export default function AiTaskDetail() {
     refetchInterval: 30000,
   });
 
+  const { data: executionData, isFetching: executionFetching } = useQuery<ExecutionPayload>({
+    queryKey: ["ai-task-execution", id],
+    queryFn: () => apiFetch(`/ai-tasks/${id}/execution`),
+    refetchInterval: (query) => {
+      const status = query.state.data?.execution?.status;
+      return status && !["completed", "failed", "cancelled"].includes(status) ? 5_000 : 15_000;
+    },
+  });
+
+  const startExecutionMutation = useMutation({
+    mutationFn: () =>
+      apiFetch(`/ai-tasks/${id}/execution`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      }),
+    onSuccess: () => {
+      toast({ title: "Execution dikirim ke AI Core DEV" });
+      void queryClient.invalidateQueries({ queryKey: ["ai-task-execution", id] });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Execution gagal dimulai", description: err.message, variant: "destructive" });
+    },
+  });
+
   // ── Attachments query ──────────────────────────────────────────────────────
 
   const { data: attachments = [], isLoading: attachmentsLoading } = useQuery<Attachment[]>({
@@ -842,6 +902,122 @@ export default function AiTaskDetail() {
             </SelectContent>
           </Select>
         </div>
+      </div>
+
+      <div className="border border-gray-200 rounded-xl bg-white p-4 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-blue-600">Execution Control</p>
+            <h2 className="mt-1 text-sm font-semibold text-gray-900">AI Core / Worker Progress</h2>
+            <p className="mt-1 text-xs text-gray-500">
+              Progress ini berasal dari execution ledger dan event AI Core, bukan hanya status bisnis task.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={executionFetching}
+              onClick={() => void queryClient.invalidateQueries({ queryKey: ["ai-task-execution", id] })}
+            >
+              <RefreshCw className={`h-3.5 w-3.5 mr-1 ${executionFetching ? "animate-spin" : ""}`} />
+              Sync
+            </Button>
+            {!executionData?.execution && (
+              <Button
+                size="sm"
+                disabled={!executionData?.bridgeConfigured || startExecutionMutation.isPending}
+                onClick={() => startExecutionMutation.mutate()}
+              >
+                {startExecutionMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Send className="h-3.5 w-3.5 mr-1" />}
+                Start Execution
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {!executionData?.bridgeConfigured && (
+          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            AI Core DEV bridge belum dikonfigurasi pada runtime AI Task.
+          </div>
+        )}
+
+        {executionData?.execution ? (
+          <div className="mt-4 space-y-4">
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <div className="rounded-lg bg-gray-50 p-3">
+                <p className="text-[10px] uppercase text-gray-400">Status</p>
+                <p className="mt-1 text-sm font-semibold capitalize text-gray-800">{executionData.execution.status}</p>
+              </div>
+              <div className="rounded-lg bg-gray-50 p-3">
+                <p className="text-[10px] uppercase text-gray-400">Progress</p>
+                <p className="mt-1 text-sm font-semibold text-gray-800">{executionData.execution.progress}%</p>
+              </div>
+              <div className="rounded-lg bg-gray-50 p-3">
+                <p className="text-[10px] uppercase text-gray-400">Worker</p>
+                <p className="mt-1 truncate text-sm font-semibold text-gray-800">{executionData.execution.workerId ?? executionData.execution.assignedClientId ?? "Routing AI Core"}</p>
+              </div>
+              <div className="rounded-lg bg-gray-50 p-3">
+                <p className="text-[10px] uppercase text-gray-400">Command</p>
+                <p className="mt-1 truncate font-mono text-[11px] text-gray-700">{executionData.execution.commandId ?? "menunggu ACK"}</p>
+              </div>
+            </div>
+
+            <div>
+              <div className="mb-1 flex justify-between text-[11px] text-gray-500">
+                <span>{executionData.execution.externalId}</span>
+                <span>{executionData.execution.progress}%</span>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-gray-100">
+                <div className="h-full rounded-full bg-blue-500 transition-all" style={{ width: `${executionData.execution.progress}%` }} />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                ["Callback", executionData.execution.callbackVerified],
+                ["Attestation", executionData.execution.attestationVerified],
+                ["Final ACK", executionData.execution.finalAckVerified],
+              ].map(([label, verified]) => (
+                <div key={String(label)} className={`rounded-lg border px-3 py-2 text-center ${verified ? "border-green-200 bg-green-50" : "border-gray-200 bg-gray-50"}`}>
+                  <p className={`text-xs font-semibold ${verified ? "text-green-700" : "text-gray-500"}`}>
+                    {verified ? "✓ " : "○ "}{label}
+                  </p>
+                </div>
+              ))}
+            </div>
+
+            {executionData.execution.errorMessage && (
+              <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                {executionData.execution.errorMessage}
+              </div>
+            )}
+            {executionData.execution.resultSummary && (
+              <div className="rounded-lg border border-green-200 bg-green-50 px-3 py-2 text-xs text-green-800">
+                {executionData.execution.resultSummary}
+              </div>
+            )}
+
+            <div className="max-h-48 space-y-2 overflow-y-auto">
+              {executionData.events.slice().reverse().map((event) => (
+                <div key={event.id} className="flex items-start gap-2 rounded-lg border border-gray-100 px-3 py-2">
+                  <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-blue-400" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[11px] font-semibold text-gray-700">{event.eventType}</span>
+                      <span className="text-[10px] text-gray-400">{formatDistanceToNow(new Date(event.createdAt), { addSuffix: true })}</span>
+                    </div>
+                    {event.message && <p className="mt-0.5 text-xs text-gray-500">{event.message}</p>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="mt-4 rounded-lg border border-dashed border-gray-200 p-5 text-center text-xs text-gray-500">
+            Belum ada execution. Klik Start Execution untuk mengirim task ini ke AI Core DEV.
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
