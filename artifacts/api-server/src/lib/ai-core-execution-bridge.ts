@@ -108,3 +108,57 @@ export async function fetchAiTaskCommandTimeline(externalCommandId: string) {
     }>;
   }>;
 }
+
+
+export async function submitAiTaskChatGptCommand(input: {
+  accountAlias: string;
+  instruction: string;
+  jobAlias?: string | null;
+  correlationId: string;
+}) {
+  const response = await bridgeFetch("/ai/coding/bridge/ai-task-chatgpt-dispatch", {
+    method: "POST",
+    body: JSON.stringify({
+      accountAlias: input.accountAlias,
+      instruction: input.instruction,
+      ...(input.jobAlias ? { jobAlias: input.jobAlias } : {}),
+      correlationId: input.correlationId,
+    }),
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    logger.warn({ status: response.status, body: text.slice(0, 160) }, "AI Core ChatGPT wake bridge rejected");
+    throw new Error(`AI_CORE_CHATGPT_COMMAND_HTTP_${response.status}`);
+  }
+  return response.json() as Promise<{
+    created: boolean;
+    commandId: string;
+    clientId: string;
+    eventId: string;
+    correlationId: string;
+    accountAlias: string;
+    status: string;
+  }>;
+}
+
+export async function fetchAiTaskChatGptTimeline(commandId: string, correlationId: string) {
+  const response = await bridgeFetch(
+    `/ai/coding/bridge/ai-task-chatgpt-timeline?commandId=${encodeURIComponent(commandId)}&correlationId=${encodeURIComponent(correlationId)}`,
+    { method: "GET" },
+  );
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error(`AI_CORE_CHATGPT_TIMELINE_HTTP_${response.status}`);
+  return response.json() as Promise<{
+    commandId: string;
+    status: string;
+    commandMetadata?: Record<string, unknown> | null;
+    responses: Array<{
+      id: string;
+      kind: "ACK" | "PROGRESS" | "CHECKPOINT" | "BLOCKER" | "COMPLETED" | "FAILED";
+      message: string;
+      checkpoint?: Record<string, unknown> | null;
+      metadata?: Record<string, unknown> | null;
+      createdAt: string;
+    }>;
+  }>;
+}
