@@ -70,6 +70,12 @@ docker compose \
   -f deploy/hostinger/docker-compose.yml \
   up -d --remove-orphans
 
+# DEV-only private bridge: attach AI Task to the existing AI Core worker network.
+# Production is intentionally excluded.
+if [ "$TARGET" = "development" ] && docker network inspect ai-core-workers_control >/dev/null 2>&1; then
+  docker network connect ai-core-workers_control "$CONTAINER_NAME" >/dev/null 2>&1 || true
+fi
+
 for attempt in $(seq 1 45); do
   status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$CONTAINER_NAME" 2>/dev/null || true)"
   if [ "$status" = "healthy" ]; then
