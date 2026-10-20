@@ -11,6 +11,14 @@ const router: IRouter = Router();
 
 const isProduction = process.env.NODE_ENV === "production";
 
+const devPasswordlessLoginEnabled = (() => {
+  const baseUrl = process.env.PUBLIC_APP_BASE_URL?.trim().replace(/\/+$/, "");
+  return (
+    process.env.DEV_PASSWORDLESS_LOGIN === "true" &&
+    baseUrl === "https://dev-ai-task.cstlogistic.co.id"
+  );
+})();
+
 function getSupabaseAuthConfig() {
   const supabaseUrl = (
     isProduction
@@ -81,8 +89,8 @@ router.post("/auth/setup", async (req: Request, res: Response): Promise<void> =>
 router.post("/auth/login", async (req: Request, res: Response): Promise<void> => {
   const { email, password } = req.body as { email?: string; password?: string };
 
-  if (!email || !password) {
-    res.status(400).json({ error: "email and password are required" });
+  if (!email || (!devPasswordlessLoginEnabled && !password)) {
+    res.status(400).json({ error: devPasswordlessLoginEnabled ? "email is required" : "email and password are required" });
     return;
   }
 
@@ -93,15 +101,17 @@ router.post("/auth/login", async (req: Request, res: Response): Promise<void> =>
       .where(eq(usersTable.email, email.toLowerCase().trim()))
       .limit(1);
 
-    if (!user || !user.isActive || !user.passwordHash) {
+    if (!user || !user.isActive || (!devPasswordlessLoginEnabled && !user.passwordHash)) {
       res.status(401).json({ error: "Invalid credentials" });
       return;
     }
 
-    const valid = await bcrypt.compare(password, user.passwordHash);
-    if (!valid) {
-      res.status(401).json({ error: "Invalid credentials" });
-      return;
+    if (!devPasswordlessLoginEnabled) {
+      const valid = await bcrypt.compare(password!, user.passwordHash);
+      if (!valid) {
+        res.status(401).json({ error: "Invalid credentials" });
+        return;
+      }
     }
 
     await db
@@ -117,7 +127,7 @@ router.post("/auth/login", async (req: Request, res: Response): Promise<void> =>
       name: user.name,
     });
 
-    logger.info({ userId: user.id, role: user.role, companyId: user.companyId }, "User logged in");
+    logger.info({ userId: user.id, role: user.role, companyId: user.companyId, passwordless: devPasswordlessLoginEnabled }, "User logged in");
 
     res.json({ token, user: safeUser(user) });
   } catch (err) {
