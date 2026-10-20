@@ -221,6 +221,123 @@ const PRIORITY_COLORS: Record<string, string> = {
   urgent: "bg-red-100 text-red-700",
 };
 
+type ExecutionTimelineEvent = {
+  id: number;
+  eventType: string;
+  title: string;
+  description: string | null;
+  actor: string | null;
+  actorType: string;
+  createdAt: string;
+};
+
+function executionProgress(task: AiTask) {
+  const status = task.status;
+  if (["completed", "done"].includes(status)) return { percent: 100, current: "Completed" };
+  if (["in_progress", "processing", "waiting_customer", "waiting_vendor", "quotation_ready", "approved_by_customer"].includes(status)) {
+    return { percent: 80, current: "In Progress" };
+  }
+  if (status === "assigned") return { percent: 60, current: "Assigned" };
+  if (["documents_received", "audit_in_progress", "missing_data", "ready_for_review", "review"].includes(status)) {
+    return { percent: 45, current: "Review" };
+  }
+  if (["waiting_documents", "waiting_doc"].includes(status)) return { percent: 25, current: "Waiting Documents" };
+  if (["cancelled", "canceled"].includes(status)) return { percent: 0, current: "Cancelled" };
+  return { percent: 10, current: "Queued" };
+}
+
+function ExecutionProgressPanel({
+  task,
+  timeline,
+}: {
+  task: AiTask;
+  timeline: ExecutionTimelineEvent[];
+}) {
+  const progress = executionProgress(task);
+  const hasEvent = (types: string[]) => timeline.some((e) => types.includes(e.eventType));
+
+  const stages = [
+    {
+      label: "Queued",
+      done: true,
+      detail: task.createdAt ? format(new Date(task.createdAt), "dd MMM HH:mm") : "Task dibuat",
+    },
+    {
+      label: "Assigned",
+      done: !!task.assignedTo || hasEvent(["task_assigned"]),
+      detail: task.assignedTo ?? "Belum ada assignee",
+    },
+    {
+      label: "Running",
+      done:
+        ["in_progress", "processing", "waiting_customer", "waiting_vendor", "quotation_ready", "approved_by_customer", "completed", "done"].includes(task.status) ||
+        hasEvent(["progress_updated", "status_changed"]),
+      detail: progress.percent >= 80 ? "Pekerjaan sedang berjalan" : "Menunggu mulai",
+    },
+    {
+      label: "Review",
+      done:
+        ["ready_for_review", "review", "completed", "done"].includes(task.status) ||
+        hasEvent(["audit_completed", "admin_approved"]),
+      detail: task.auditStatus ?? "Belum ada bukti review",
+    },
+    {
+      label: "Completed",
+      done: ["completed", "done"].includes(task.status) || hasEvent(["task_completed"]),
+      detail: task.completedAt ? format(new Date(task.completedAt), "dd MMM HH:mm") : "Belum selesai",
+    },
+  ];
+
+  return (
+    <div className="border border-gray-200 rounded-xl p-4 bg-white">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <div>
+          <h3 className="text-sm font-semibold text-gray-800">Execution Progress</h3>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Progress dihitung dari status task, assignee, audit, dan timeline aktivitas.
+          </p>
+        </div>
+        <div className="text-right">
+          <div className="text-2xl font-bold tabular-nums text-gray-900">{progress.percent}%</div>
+          <div className="text-xs font-medium text-blue-600">{progress.current}</div>
+        </div>
+      </div>
+
+      <div className="h-2 rounded-full bg-gray-100 overflow-hidden mb-4">
+        <div
+          className="h-full bg-blue-500 rounded-full transition-all"
+          style={{ width: `${progress.percent}%` }}
+        />
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
+        {stages.map((stage) => (
+          <div
+            key={stage.label}
+            className={`rounded-lg border p-2.5 ${stage.done ? "border-green-200 bg-green-50" : "border-gray-200 bg-gray-50"}`}
+          >
+            <div className="flex items-center gap-1.5">
+              {stage.done ? (
+                <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
+              ) : (
+                <Clock className="h-3.5 w-3.5 text-gray-400" />
+              )}
+              <span className={`text-xs font-semibold ${stage.done ? "text-green-700" : "text-gray-500"}`}>
+                {stage.label}
+              </span>
+            </div>
+            <p className="text-[11px] text-gray-500 mt-1 line-clamp-2">{stage.detail}</p>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-3 rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-[11px] text-amber-800">
+        Worker/ChatGPT callback, correlation ID, attestation, dan final ACK akan muncul sebagai evidence terpisah setelah event integrasi tersebut ditautkan ke task ini.
+      </div>
+    </div>
+  );
+}
+
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -599,10 +716,9 @@ export default function AiTaskDetail() {
     enabled: showWaMessages,
   });
 
-  const { data: timeline = [] } = useQuery<{ id: number; eventType: string; title: string; description: string | null; actor: string | null; actorType: string; createdAt: string }[]>({
+  const { data: timeline = [] } = useQuery<ExecutionTimelineEvent[]>({
     queryKey: ["ai-task-timeline", id],
     queryFn: () => apiFetch(`/ai-tasks/${id}/timeline`),
-    enabled: showTimeline,
   });
 
   // ── Generate public link ───────────────────────────────────────────────────
@@ -843,6 +959,8 @@ export default function AiTaskDetail() {
           </Select>
         </div>
       </div>
+
+      <ExecutionProgressPanel task={task} timeline={timeline} />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
 
