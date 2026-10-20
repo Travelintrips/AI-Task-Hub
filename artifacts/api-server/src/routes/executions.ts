@@ -352,6 +352,9 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
     }
 
     const externalId = buildAiTaskExternalCommandId(companyId, taskId);
+    const verificationMode = assignedClientId?.includes("chatgpt-wake")
+      ? "chatgpt-attested"
+      : "bounded-worker";
     const [existing] = await db.select().from(aiExecutionJobsTable)
       .where(and(eq(aiExecutionJobsTable.source, "AI_TASK"), eq(aiExecutionJobsTable.externalId, externalId)))
       .limit(1);
@@ -378,6 +381,12 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
         errorMessage: null,
         resultSummary: null,
         completedAt: null,
+        metadata: {
+          ...asRecord(existing.metadata),
+          createdByUserId: req.user?.id ?? null,
+          environment: "development",
+          verificationMode,
+        },
       }).where(eq(aiExecutionJobsTable.id, existing.id)).returning();
       execution = reset ?? existing;
     } else {
