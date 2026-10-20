@@ -329,8 +329,10 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
 
     const body = req.body as Record<string, unknown>;
     const requestedClientId = typeof body.assignedClientId === "string" ? body.assignedClientId.trim() : "";
-    const defaultClientId = process.env.AI_TASK_DEFAULT_WORKER_ID?.trim() ?? "";
-    const assignedClientId = requestedClientId || defaultClientId || null;
+    // No implicit worker forcing here. AI Core owns generic worker selection and
+    // capability/availability policy. A client ID is forwarded only when the
+    // operator explicitly selects one.
+    const assignedClientId = requestedClientId || null;
     const instruction = typeof body.instruction === "string" && body.instruction.trim()
       ? body.instruction.trim()
       : [task.title, task.description].filter(Boolean).join("\n\n");
@@ -400,7 +402,8 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
         commandId: remote.command.id,
         status: "dispatched",
         progress: 15,
-        assignedClientId,
+        assignedClientId: remote.clientId,
+        workerId: remote.clientId,
         metadata: { ...(execution.metadata ?? {}), remoteCreated: remote.created },
       }).where(eq(aiExecutionJobsTable.id, execution.id)).returning();
       await db.insert(aiExecutionEventsTable).values({
@@ -412,8 +415,8 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
         phase: "dispatch",
         status: "dispatched",
         message: remote.created ? "Command accepted by AI Core bridge." : "Existing AI Core command re-dispatched to worker.",
-        workerId: assignedClientId,
-        payload: { commandId: remote.command.id, created: remote.created },
+        workerId: remote.clientId,
+        payload: { commandId: remote.command.id, created: remote.created, clientId: remote.clientId },
       });
       emitSseEvent("execution_updated", { executionId: execution.id, taskId, status: "dispatched", progress: 15 }, companyId);
       res.status(remote.created ? 201 : 200).json({ execution: updated ?? execution, reused: reused || !remote.created });
