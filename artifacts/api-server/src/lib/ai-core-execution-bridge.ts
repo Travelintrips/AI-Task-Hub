@@ -21,7 +21,7 @@ function safeBaseUrl(): string | null {
 }
 
 function bridgeToken(): string | null {
-  const token = process.env.AI_TASK_ENGINE_SERVICE_KEY?.trim();
+  const token = process.env.AI_TASK_BRIDGE_TOKEN?.trim();
   return token && token.length >= 32 ? token : null;
 }
 
@@ -62,6 +62,7 @@ export async function submitAiTaskCommand(input: {
     body: JSON.stringify({
       externalCommandId: input.externalCommandId,
       instruction: input.instruction,
+      source: "ai-task-hub",
       commandType: "EXTERNAL_AGENT_WORK",
       ...(input.assignedClientId ? { assignedClientId: input.assignedClientId } : {}),
       authority: {
@@ -102,6 +103,7 @@ export async function fetchAiTaskCommandTimeline(externalCommandId: string) {
   return response.json() as Promise<{
     commandId: string;
     status: string;
+    commandMetadata?: Record<string, unknown> | null;
     responses: Array<{
       id: string;
       kind: "ACK" | "PROGRESS" | "CHECKPOINT" | "BLOCKER" | "COMPLETED" | "FAILED";
