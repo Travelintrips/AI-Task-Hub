@@ -125,7 +125,10 @@ export default function Messages() {
   const queryClient = useQueryClient();
 
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<"all" | "unread" | "processed">("all");
+  const [filter, setFilter] = useState<"all" | "unread" | "processed">(() => {
+    const value = new URLSearchParams(window.location.search).get("filter");
+    return value === "unread" || value === "processed" ? value : "all";
+  });
   const [selected, setSelected] = useState<WaMessage | null>(null);
   const [replyOpen, setReplyOpen] = useState(false);
   const [replyMsg, setReplyMsg] = useState("");

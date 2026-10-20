@@ -96,21 +96,32 @@ function StatCard({
   value,
   note,
   icon: Icon,
+  href,
 }: {
   label: string;
   value: number | string;
   note: string;
   icon: typeof Activity;
+  href: string;
 }) {
   return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">{label}</span>
-        <Icon className="h-4 w-4 text-gray-400" />
+    <Link href={href}>
+      <div
+        className="group cursor-pointer rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md"
+        role="link"
+        aria-label={`${label}: ${value}`}
+      >
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500 group-hover:text-blue-700">{label}</span>
+          <Icon className="h-4 w-4 text-gray-400 transition-colors group-hover:text-blue-600" />
+        </div>
+        <div className="mt-3 text-3xl font-bold tabular-nums text-gray-950">{value}</div>
+        <div className="mt-1 flex items-center justify-between gap-2">
+          <p className="text-xs text-gray-500">{note}</p>
+          <ArrowUpRight className="h-3.5 w-3.5 text-gray-300 transition-colors group-hover:text-blue-600" />
+        </div>
       </div>
-      <div className="mt-3 text-3xl font-bold tabular-nums text-gray-950">{value}</div>
-      <p className="mt-1 text-xs text-gray-500">{note}</p>
-    </div>
+    </Link>
   );
 }
 
@@ -228,12 +239,12 @@ export default function Dashboard() {
         </div>
 
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-          <StatCard label="Active Jobs" value={summary.active} note="Belum terminal" icon={Activity} />
-          <StatCard label="Running" value={summary.running} note="Sedang dikerjakan" icon={Zap} />
-          <StatCard label="Assigned" value={summary.assigned} note="Punya assignee" icon={Cpu} />
-          <StatCard label="Completed" value={summary.completed} note="Task selesai" icon={CheckCircle2} />
-          <StatCard label="Inbox" value={summary.unread} note="Belum diproses" icon={Inbox} />
-          <StatCard label="Total Tasks" value={tasks.length} note="Data task aktif" icon={Network} />
+          <StatCard label="Active Jobs" value={summary.active} note="Belum terminal" icon={Activity} href="/ai-tasks?view=active" />
+          <StatCard label="Running" value={summary.running} note="Sedang dikerjakan" icon={Zap} href="/ai-tasks?status=In%20Progress" />
+          <StatCard label="Assigned" value={summary.assigned} note="Punya assignee" icon={Cpu} href="/ai-tasks?status=Assigned" />
+          <StatCard label="Completed" value={summary.completed} note="Task selesai" icon={CheckCircle2} href="/ai-tasks?status=Completed" />
+          <StatCard label="Inbox" value={summary.unread} note="Belum diproses" icon={Inbox} href="/messages?filter=unread" />
+          <StatCard label="Total Tasks" value={tasks.length} note="Data task aktif" icon={Network} href="/ai-tasks" />
         </div>
 
         <div className="grid gap-5 xl:grid-cols-[1.65fr_1fr]">

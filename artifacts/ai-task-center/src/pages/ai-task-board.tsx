@@ -470,12 +470,18 @@ function FilterBadge({ label, onRemove }: { label: string; onRemove: () => void 
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function AiTaskBoard() {
+  const initialParams = useMemo(() => new URLSearchParams(window.location.search), []);
+  const initialStatus = initialParams.get("status");
+  const initialView = initialParams.get("view");
+
   const [search, setSearch]           = useState("");
   const [debouncedSearch, setDebounced] = useState("");
   const [categoryFilter, setCategory] = useState("all");
   const [divisionFilter, setDivision] = useState("all");
   const [priorityFilter, setPriority] = useState("all");
-  const [statusFilter,   setStatus]   = useState("all");
+  const [statusFilter,   setStatus]   = useState(
+    initialStatus && (STATUSES as readonly string[]).includes(initialStatus) ? initialStatus : "all",
+  );
   const [dateFrom,       setDateFrom] = useState("");
   const [dateTo,         setDateTo]   = useState("");
   const [addOpen,        setAddOpen]  = useState(false);
@@ -511,6 +517,9 @@ export default function AiTaskBoard() {
   // Client-side filter: status + search (debounced)
   const filtered = useMemo(() => {
     let result = allTasks;
+    if (initialView === "active") {
+      result = result.filter((t) => !["Completed", "Cancelled"].includes(normalizeStatus(t.status)));
+    }
     if (statusFilter !== "all") {
       result = result.filter((t) => normalizeStatus(t.status) === statusFilter);
     }
@@ -526,7 +535,7 @@ export default function AiTaskBoard() {
       );
     }
     return result;
-  }, [allTasks, debouncedSearch, statusFilter]);
+  }, [allTasks, debouncedSearch, statusFilter, initialView]);
 
   // Hitung berapa filter aktif (selain search)
   const activeServerFilters = [
@@ -542,7 +551,7 @@ export default function AiTaskBoard() {
     setDateFrom(""); setDateTo(""); setStatus("all"); setSearch("");
   }
 
-  const hasFilters = activeServerFilters.length > 0 || statusFilter !== "all" || search;
+  const hasFilters = activeServerFilters.length > 0 || statusFilter !== "all" || initialView === "active" || search;
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -713,6 +722,17 @@ export default function AiTaskBoard() {
         {/* Active filter badges */}
         {(activeServerFilters.length > 0 || statusFilter !== "all") && (
           <div className="flex flex-wrap gap-1.5 -mt-1">
+            {initialView === "active" && (
+              <FilterBadge
+                label="View: Active Jobs"
+                onRemove={() => {
+                  const url = new URL(window.location.href);
+                  url.searchParams.delete("view");
+                  window.history.replaceState({}, "", url.pathname + url.search);
+                  window.location.reload();
+                }}
+              />
+            )}
             {statusFilter !== "all" && (
               <FilterBadge label={`Status: ${statusFilter}`} onRemove={() => setStatus("all")} />
             )}
