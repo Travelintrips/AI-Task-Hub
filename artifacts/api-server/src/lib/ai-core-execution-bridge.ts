@@ -6,8 +6,14 @@ function safeBaseUrl(): string | null {
   const raw = (process.env.AI_CORE_DEV_BASE_URL ?? DEFAULT_DEV_BASE_URL).trim().replace(/\/$/, "");
   try {
     const url = new URL(raw);
-    if (url.protocol !== "https:") return null;
-    if (url.hostname !== "dev.cstlogistic.co.id") return null;
+    const isProd = process.env.NODE_ENV === "production" || process.env.APP_ENV === "production";
+    const publicDev = url.protocol === "https:" &&
+      ["dev.cstlogistic.co.id", "dev-aicore.cstlogistic.co.id"].includes(url.hostname);
+    const internalDev = !isProd &&
+      url.protocol === "http:" &&
+      url.hostname === "core-ai-dev" &&
+      (url.port === "3000" || url.port === "");
+    if (!publicDev && !internalDev) return null;
     return url.origin + (url.pathname === "/" ? "/api" : url.pathname.replace(/\/$/, ""));
   } catch {
     return null;
