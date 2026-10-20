@@ -130,21 +130,30 @@ function PipelineStep({
   value,
   detail,
   active,
+  href,
 }: {
   label: string;
   value: string;
   detail: string;
   active?: boolean;
+  href: string;
 }) {
   return (
-    <div className={`rounded-xl border p-3 ${active ? "border-blue-200 bg-blue-50" : "border-gray-200 bg-gray-50"}`}>
-      <div className="flex items-center gap-2">
-        <span className={`h-2.5 w-2.5 rounded-full ${active ? "bg-blue-500" : "bg-gray-300"}`} />
-        <span className="text-xs font-semibold text-gray-700">{label}</span>
+    <Link href={href}>
+      <div
+        className={`group cursor-pointer rounded-xl border p-3 transition-all hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-sm ${active ? "border-blue-200 bg-blue-50" : "border-gray-200 bg-gray-50"}`}
+        role="link"
+        aria-label={`${label}: ${value}`}
+      >
+        <div className="flex items-center gap-2">
+          <span className={`h-2.5 w-2.5 rounded-full ${active ? "bg-blue-500" : "bg-gray-300"}`} />
+          <span className="text-xs font-semibold text-gray-700 group-hover:text-blue-700">{label}</span>
+          <ArrowUpRight className="ml-auto h-3.5 w-3.5 text-gray-300 transition-colors group-hover:text-blue-600" />
+        </div>
+        <div className="mt-2 text-sm font-semibold text-gray-900">{value}</div>
+        <p className="mt-1 text-[11px] leading-snug text-gray-500">{detail}</p>
       </div>
-      <div className="mt-2 text-sm font-semibold text-gray-900">{value}</div>
-      <p className="mt-1 text-[11px] leading-snug text-gray-500">{detail}</p>
-    </div>
+    </Link>
   );
 }
 
@@ -318,10 +327,10 @@ export default function Dashboard() {
                 Ringkasan lifecycle task. Evidence callback/ACK tetap harus berasal dari event integrasi yang terverifikasi.
               </p>
               <div className="mt-4 grid grid-cols-2 gap-2">
-                <PipelineStep label="1. Intake" value={`${tasks.length} tasks`} detail="Job masuk ke AI Task." active />
-                <PipelineStep label="2. Assign" value={`${summary.assigned} assigned`} detail="Worker/assignee dipilih." active={summary.assigned > 0} />
-                <PipelineStep label="3. Execute" value={`${summary.running} running`} detail="Pekerjaan sedang berlangsung." active={summary.running > 0} />
-                <PipelineStep label="4. Verify" value="Task evidence" detail="Review, audit, callback, atau ACK bila tersedia." />
+                <PipelineStep label="1. Intake" value={`${tasks.length} tasks`} detail="Job masuk ke AI Task." active href="/ai-tasks" />
+                <PipelineStep label="2. Assign" value={`${summary.assigned} assigned`} detail="Worker/assignee dipilih." active={summary.assigned > 0} href="/ai-tasks?status=Assigned" />
+                <PipelineStep label="3. Execute" value={`${summary.running} running`} detail="Pekerjaan sedang berlangsung." active={summary.running > 0} href="/ai-tasks?status=In%20Progress" />
+                <PipelineStep label="4. Verify" value="Task evidence" detail="Review, audit, callback, atau ACK bila tersedia." href="/ai-tasks?status=Ready%20for%20Review" />
               </div>
               <div className="mt-3 grid grid-cols-2 gap-2">
                 <Link href="/ai-operations">
