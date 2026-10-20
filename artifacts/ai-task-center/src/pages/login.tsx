@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Activity } from "lucide-react";
+import { Activity, Eye, EyeOff } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,7 @@ export default function Login() {
   const [email, setEmail]         = useState("");
   const [password, setPassword]   = useState("");
   const [loading, setLoading]     = useState(false);
+  const [showPassword, setShowPw] = useState(false);
   const isDevPasswordless = window.location.hostname === "dev-ai-task.cstlogistic.co.id";
 
 
