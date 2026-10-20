@@ -311,8 +311,9 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
     }
 
     const body = req.body as Record<string, unknown>;
-    const assignedClientId = typeof body.assignedClientId === "string" && body.assignedClientId.trim()
-      ? body.assignedClientId.trim() : null;
+    const requestedClientId = typeof body.assignedClientId === "string" ? body.assignedClientId.trim() : "";
+    const defaultClientId = process.env.AI_TASK_DEFAULT_WORKER_ID?.trim() ?? "";
+    const assignedClientId = requestedClientId || defaultClientId || null;
     const instruction = typeof body.instruction === "string" && body.instruction.trim()
       ? body.instruction.trim()
       : [task.title, task.description].filter(Boolean).join("\n\n");
@@ -324,6 +325,10 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
     const [existing] = await db.select().from(aiExecutionJobsTable)
       .where(and(eq(aiExecutionJobsTable.source, "AI_TASK"), eq(aiExecutionJobsTable.externalId, externalId)))
       .limit(1);
+
+    let execution: typeof aiExecutionJobsTable.$inferSelect;
+    let reused = false;
+
     if (existing && !["failed", "blocked", "cancelled"].includes(existing.status)) {
       const synced = await syncExecution(existing).catch(() => existing);
       const events = await db.select().from(aiExecutionEventsTable)
@@ -333,29 +338,44 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
       return;
     }
 
-    const correlationId = randomUUID();
-    const idempotencyKey = `${externalId}:${correlationId}`;
-    const [execution] = await db.insert(aiExecutionJobsTable).values({
-      companyId,
-      taskId,
-      source: "AI_TASK",
-      externalId,
-      idempotencyKey,
-      title: task.title,
-      instruction,
-      correlationId,
-      assignedClientId,
-      status: "queued",
-      progress: 5,
-      metadata: { createdByUserId: req.user?.id ?? null, environment: "development" },
-    }).returning();
+    if (existing) {
+      reused = true;
+      const [reset] = await db.update(aiExecutionJobsTable).set({
+        instruction,
+        assignedClientId,
+        status: "queued",
+        progress: 5,
+        errorMessage: null,
+        resultSummary: null,
+        completedAt: null,
+      }).where(eq(aiExecutionJobsTable.id, existing.id)).returning();
+      execution = reset ?? existing;
+    } else {
+      const correlationId = randomUUID();
+      const idempotencyKey = `${externalId}:${correlationId}`;
+      const [created] = await db.insert(aiExecutionJobsTable).values({
+        companyId,
+        taskId,
+        source: "AI_TASK",
+        externalId,
+        idempotencyKey,
+        title: task.title,
+        instruction,
+        correlationId,
+        assignedClientId,
+        status: "queued",
+        progress: 5,
+        metadata: { createdByUserId: req.user?.id ?? null, environment: "development" },
+      }).returning();
+      execution = created;
+    }
 
     try {
       const remote = await submitAiTaskCommand({
         externalCommandId: externalId,
         instruction,
         assignedClientId,
-        correlationId,
+        correlationId: execution.correlationId,
         companyId,
         taskId,
       });
@@ -363,21 +383,23 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
         commandId: remote.command.id,
         status: "dispatched",
         progress: 15,
+        assignedClientId,
         metadata: { ...(execution.metadata ?? {}), remoteCreated: remote.created },
       }).where(eq(aiExecutionJobsTable.id, execution.id)).returning();
       await db.insert(aiExecutionEventsTable).values({
         executionId: execution.id,
         taskId,
         companyId,
-        eventId: `dispatch:${remote.command.id}`,
-        eventType: "DISPATCHED",
+        eventId: `dispatch:${remote.command.id}:${randomUUID()}`,
+        eventType: remote.created ? "DISPATCHED" : "REDISPATCHED",
         phase: "dispatch",
         status: "dispatched",
-        message: "Command accepted by AI Core bridge.",
+        message: remote.created ? "Command accepted by AI Core bridge." : "Existing AI Core command re-dispatched to worker.",
+        workerId: assignedClientId,
         payload: { commandId: remote.command.id, created: remote.created },
       });
       emitSseEvent("execution_updated", { executionId: execution.id, taskId, status: "dispatched", progress: 15 }, companyId);
-      res.status(201).json({ execution: updated ?? execution, reused: false });
+      res.status(remote.created ? 201 : 200).json({ execution: updated ?? execution, reused: reused || !remote.created });
     } catch (err) {
       const message = err instanceof Error ? err.message : "AI_CORE_DISPATCH_FAILED";
       const [failed] = await db.update(aiExecutionJobsTable).set({
