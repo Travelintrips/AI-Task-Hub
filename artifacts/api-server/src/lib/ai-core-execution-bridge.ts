@@ -57,19 +57,12 @@ export async function submitAiTaskCommand(input: {
   companyId: string;
   taskId: number;
 }) {
-  const response = await bridgeFetch("/ai/coding/bridge/commands", {
+  const response = await bridgeFetch("/ai/coding/bridge/ai-task-dispatch", {
     method: "POST",
     body: JSON.stringify({
       externalCommandId: input.externalCommandId,
       instruction: input.instruction,
-      source: "ai-task-hub",
-      commandType: "EXTERNAL_AGENT_WORK",
-      ...(input.assignedClientId ? { assignedClientId: input.assignedClientId } : {}),
-      authority: {
-        environment: "development",
-        productionAllowed: false,
-        source: "ai-task-hub",
-      },
+      ...(input.assignedClientId ? { preferredClientId: input.assignedClientId } : {}),
       metadata: {
         correlationId: input.correlationId,
         companyId: input.companyId,
@@ -84,6 +77,7 @@ export async function submitAiTaskCommand(input: {
   }
   return response.json() as Promise<{
     created: boolean;
+    clientId: string;
     command: {
       id: string;
       status: string;
