@@ -24,6 +24,12 @@ WORKDIR /app
 
 COPY --from=build --chown=node:node /runtime/ /app/
 
+# esbuild-plugin-pino embeds the build-stage absolute dist path in its worker
+# bootstrap. Keep that path valid in the runtime image while the application
+# itself continues to run from /app.
+RUN mkdir -p /workspace/artifacts/api-server \
+    && ln -s /app/artifacts/api-server/dist /workspace/artifacts/api-server/dist
+
 USER node
 
 EXPOSE 8080
