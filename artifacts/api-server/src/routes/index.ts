@@ -72,6 +72,7 @@ import notificationReceiversRouter from "./notification-receivers";
 import sportCenterRouter from "./sport-center";
 import publicSportCenterRouter from "./public-sport-center";
 import freightRouter from "./freight";
+import executionsRouter from "./executions";
 import { extractUser } from "../middleware/auth";
 
 const router: IRouter = Router();
@@ -93,6 +94,7 @@ router.use(documentsRouter);
 router.use(dashboardRouter);
 router.use(whatsappRouter);
 router.use(aiTasksRouter);
+router.use(executionsRouter);
 router.use(storageRouter);
 router.use(attachmentsRouter);
 router.use(auditsRouter);
