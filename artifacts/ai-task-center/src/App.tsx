@@ -13,6 +13,7 @@ import TaskDetail from "@/pages/task-detail";
 import AiTaskBoard from "@/pages/ai-task-board";
 import AiTaskDetail from "@/pages/ai-task-detail";
 import Messages from "@/pages/messages";
+import AiCoreChatPage from "@/pages/ai-core-chat";
 import Documents from "@/pages/documents";
 import Team from "@/pages/team";
 import Users from "@/pages/users";
@@ -120,6 +121,7 @@ function AppRouter() {
         <Route path="/tasks/:id">{(params) => { window.location.replace(`/ai-tasks/${params.id}`); return null; }}</Route>
         <Route path="/ai-tasks" component={AiTaskBoard} />
         <Route path="/ai-tasks/:id" component={AiTaskDetail} />
+        <Route path="/ai-core-chat" component={AiCoreChatPage} />
         <Route path="/messages" component={Messages} />
         <Route path="/documents" component={Documents} />
         <Route path="/team" component={Team} />
