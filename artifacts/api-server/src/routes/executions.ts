@@ -92,7 +92,8 @@ async function syncExecution(execution: typeof aiExecutionJobsTable.$inferSelect
   const requiresAttestedFinalAck = verificationMode === "chatgpt-attested";
 
   const commandMetadata = asRecord(timeline.commandMetadata);
-  if (commandMetadata["e2eCode"] === "MCP_ACK_VERIFIED") {
+  if (commandMetadata["e2eCode"] === "MCP_ACK_VERIFIED" ||
+      commandMetadata["e2eCode"] === "E2E_VERIFIED") {
     finalAckVerified = true;
   }
   if (commandMetadata["deliveryCode"] === "DELIVERY_CONFIRMED") {
@@ -122,7 +123,9 @@ async function syncExecution(execution: typeof aiExecutionJobsTable.$inferSelect
        String(attestation["signature"]).length > 80);
     finalAckVerified ||= hasFlag(["finalAckVerified", "ackVerified", "final_ack_verified"]) ||
       checkpoint["e2eCode"] === "MCP_ACK_VERIFIED" ||
-      metadata["e2eCode"] === "MCP_ACK_VERIFIED";
+      metadata["e2eCode"] === "MCP_ACK_VERIFIED" ||
+      checkpoint["e2eCode"] === "E2E_VERIFIED" ||
+      metadata["e2eCode"] === "E2E_VERIFIED";
     workerId ||= getText(["workerId", "worker_id", "assignedClientId"]);
 
     const [existingEvent] = await db
