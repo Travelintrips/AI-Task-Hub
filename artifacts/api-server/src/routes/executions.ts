@@ -222,6 +222,61 @@ async function syncExecution(execution: typeof aiExecutionJobsTable.$inferSelect
   return updated ?? execution;
 }
 
+const TERMINAL_EXECUTION_STATUSES = new Set(["completed", "failed", "blocked", "cancelled"]);
+const executionSyncTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const executionSyncBackoff = new Map<string, number>();
+
+function stopExecutionTracking(executionId: string): void {
+  const timer = executionSyncTimers.get(executionId);
+  if (timer) clearTimeout(timer);
+  executionSyncTimers.delete(executionId);
+  executionSyncBackoff.delete(executionId);
+}
+
+function scheduleExecutionTracking(executionId: string, delayMs = 1_000): void {
+  if (executionSyncTimers.has(executionId)) return;
+
+  const timer = setTimeout(async () => {
+    executionSyncTimers.delete(executionId);
+
+    const [current] = await db.select().from(aiExecutionJobsTable)
+      .where(eq(aiExecutionJobsTable.id, executionId)).limit(1);
+
+    if (!current || TERMINAL_EXECUTION_STATUSES.has(current.status)) {
+      stopExecutionTracking(executionId);
+      return;
+    }
+
+    try {
+      const synced = await syncExecution(current);
+      executionSyncBackoff.set(executionId, 0);
+
+      if (TERMINAL_EXECUTION_STATUSES.has(synced.status)) {
+        stopExecutionTracking(executionId);
+        return;
+      }
+
+      scheduleExecutionTracking(executionId, 5_000);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes("HTTP_429")) {
+        const attempt = (executionSyncBackoff.get(executionId) ?? 0) + 1;
+        executionSyncBackoff.set(executionId, attempt);
+        const backoffMs = Math.min(10_000 * (2 ** (attempt - 1)), 60_000);
+        logger.warn({ executionId, backoffMs, attempt }, "Execution sync rate-limited; backing off");
+        scheduleExecutionTracking(executionId, backoffMs);
+        return;
+      }
+
+      logger.warn({ err, executionId }, "Execution background sync deferred");
+      scheduleExecutionTracking(executionId, 15_000);
+    }
+  }, delayMs);
+
+  timer.unref?.();
+  executionSyncTimers.set(executionId, timer);
+}
+
 // AI Core -> AI Task passive ledger registration.
 router.post("/bridge/jobs", requireBridgeToken, async (req: Request, res: Response): Promise<void> => {
   try {
@@ -326,8 +381,9 @@ router.get("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Res
       .where(and(...conditions)).orderBy(desc(aiExecutionJobsTable.createdAt)).limit(1);
     if (!execution) { res.json({ execution: null, events: [], bridgeConfigured: aiCoreBridgeConfigured() }); return; }
 
-    try { execution = await syncExecution(execution); }
-    catch (err) { logger.warn({ err, executionId: execution.id }, "Execution sync deferred"); }
+    if (!TERMINAL_EXECUTION_STATUSES.has(execution.status)) {
+      scheduleExecutionTracking(execution.id);
+    }
 
     const events = await db.select().from(aiExecutionEventsTable)
       .where(eq(aiExecutionEventsTable.executionId, execution.id))
@@ -381,11 +437,11 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
     let reused = false;
 
     if (existing && !["failed", "blocked", "cancelled"].includes(existing.status)) {
-      const synced = await syncExecution(existing).catch(() => existing);
+      scheduleExecutionTracking(existing.id);
       const events = await db.select().from(aiExecutionEventsTable)
         .where(eq(aiExecutionEventsTable.executionId, existing.id))
         .orderBy(aiExecutionEventsTable.createdAt);
-      res.status(200).json({ execution: synced, events, reused: true });
+      res.status(200).json({ execution: existing, events, reused: true });
       return;
     }
 
@@ -486,6 +542,7 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
         payload: { commandId: remoteCommandId, created: remote.created, clientId: remoteClientId },
       });
       emitSseEvent("execution_updated", { executionId: execution.id, taskId, status: "dispatched", progress: 15 }, companyId);
+      scheduleExecutionTracking(execution.id);
       res.status(remote.created ? 201 : 200).json({ execution: updated ?? execution, reused: reused || !remote.created });
     } catch (err) {
       const message = err instanceof Error ? err.message : "AI_CORE_DISPATCH_FAILED";
