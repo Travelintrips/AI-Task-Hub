@@ -37,7 +37,8 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
   const navigation = [
     { name: "Dashboard", href: "/", icon: LayoutDashboard },
-    { name: "Chat & AI", href: "/messages", icon: MessageSquare },
+    { name: "Chat & AI", href: "/ai-core-chat", icon: MessageSquare },
+    { name: "WhatsApp Inbox", href: "/messages", icon: Bell },
     { name: "Proyek", href: "/ai-tasks", icon: FolderKanban },
     { name: "Job", href: "/ai-tasks", icon: Network },
     { name: "Kalender", href: "/notifications", icon: CalendarDays },
