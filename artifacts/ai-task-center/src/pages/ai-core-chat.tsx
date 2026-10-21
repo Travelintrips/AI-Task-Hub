@@ -93,10 +93,21 @@ export default function AiCoreChatPage() {
   const [activeTaskId, setActiveTaskId] = useState<number | null>(null);
   const [accountAlias, setAccountAlias] = useState(() => localStorage.getItem("ai-task-chat-account") || "GPT02");
 
+  const sseState = useServerEvents({
+    new_task: () => void queryClient.invalidateQueries({ queryKey: ["ai-core-chat-tasks"] }),
+    execution_updated: (event) => {
+      const eventTaskId = typeof event.taskId === "number" ? event.taskId : Number(event.taskId);
+      if (activeTaskId && eventTaskId === activeTaskId) {
+        void queryClient.invalidateQueries({ queryKey: ["ai-core-chat-execution", activeTaskId] });
+      }
+      void queryClient.invalidateQueries({ queryKey: ["ai-core-chat-tasks"] });
+    },
+  });
+
   const { data: tasks = [], isLoading: tasksLoading } = useQuery<AiTask[]>({
     queryKey: ["ai-core-chat-tasks"],
     queryFn: () => apiFetch("/api/ai-tasks?category=ai_chat"),
-    refetchInterval: 20_000,
+    refetchInterval: sseState === "connected" ? false : 30_000,
     staleTime: 5_000,
   });
 
@@ -104,18 +115,13 @@ export default function AiCoreChatPage() {
     queryKey: ["ai-core-chat-execution", activeTaskId],
     queryFn: () => apiFetch(`/api/ai-tasks/${activeTaskId}/execution`),
     enabled: Boolean(activeTaskId),
-    refetchInterval: activeTaskId ? 3_000 : false,
-    staleTime: 1_000,
-  });
-
-  useServerEvents({
-    new_task: () => void queryClient.invalidateQueries({ queryKey: ["ai-core-chat-tasks"] }),
-    execution_updated: () => {
-      if (activeTaskId) {
-        void queryClient.invalidateQueries({ queryKey: ["ai-core-chat-execution", activeTaskId] });
-      }
-      void queryClient.invalidateQueries({ queryKey: ["ai-core-chat-tasks"] });
+    refetchInterval: (query) => {
+      const payload = query.state.data as ExecutionPayload | undefined;
+      const status = payload?.execution?.status;
+      if (status && ["completed", "failed", "blocked", "cancelled"].includes(status)) return false;
+      return sseState === "connected" ? false : 15_000;
     },
+    staleTime: 1_000,
   });
 
   const recentTasks = useMemo(
@@ -233,6 +239,15 @@ export default function AiCoreChatPage() {
                   : "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
               }`}>
                 {executionData?.bridgeConfigured === false ? "Bridge tidak siap" : "AI Core DEV siap"}
+              </div>
+              <div className={`rounded-lg border px-3 py-2 text-xs ${
+                sseState === "connected"
+                  ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
+                  : sseState === "connecting"
+                    ? "border-amber-500/20 bg-amber-500/10 text-amber-300"
+                    : "border-slate-700 bg-slate-900 text-slate-400"
+              }`}>
+                {sseState === "connected" ? "Live SSE" : sseState === "connecting" ? "SSE menghubungkan" : "Fallback polling"}
               </div>
             </div>
           </div>
