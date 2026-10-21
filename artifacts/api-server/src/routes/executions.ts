@@ -225,6 +225,162 @@ async function syncExecution(execution: typeof aiExecutionJobsTable.$inferSelect
 const TERMINAL_EXECUTION_STATUSES = new Set(["completed", "failed", "blocked", "cancelled"]);
 const executionSyncTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const executionSyncBackoff = new Map<string, number>();
+const chatGptDispatchRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const chatGptDispatchRetryBackoff = new Map<string, number>();
+
+function isRetryableChatGptDispatchError(message: string): boolean {
+  return message.includes("AI_CORE_CHATGPT_COMMAND_HTTP_429") ||
+    message.includes("AI_CORE_CHATGPT_COMMAND_HTTP_503");
+}
+
+function stopChatGptDispatchRetry(executionId: string): void {
+  const timer = chatGptDispatchRetryTimers.get(executionId);
+  if (timer) clearTimeout(timer);
+  chatGptDispatchRetryTimers.delete(executionId);
+  chatGptDispatchRetryBackoff.delete(executionId);
+}
+
+async function markWaitingForAccountSession(
+  execution: typeof aiExecutionJobsTable.$inferSelect,
+  reason: string,
+): Promise<typeof aiExecutionJobsTable.$inferSelect> {
+  const metadata = asRecord(execution.metadata);
+  const progress = Math.max(5, Math.min(execution.progress, 10));
+  const [updated] = await db.update(aiExecutionJobsTable).set({
+    status: "waiting_for_session",
+    progress,
+    errorMessage: null,
+    completedAt: null,
+    metadata: {
+      ...metadata,
+      dispatchState: "waiting_for_verified_account_session",
+      lastDispatchError: reason,
+      lastDispatchAttemptAt: new Date().toISOString(),
+    },
+  }).where(eq(aiExecutionJobsTable.id, execution.id)).returning();
+
+  emitSseEvent("execution_updated", {
+    executionId: execution.id,
+    taskId: execution.taskId,
+    status: "waiting_for_session",
+    progress,
+    accountAlias: typeof metadata["accountAlias"] === "string" ? metadata["accountAlias"] : null,
+  }, execution.companyId);
+
+  return updated ?? execution;
+}
+
+async function retryChatGptDispatch(executionId: string): Promise<void> {
+  const [execution] = await db.select().from(aiExecutionJobsTable)
+    .where(eq(aiExecutionJobsTable.id, executionId)).limit(1);
+  if (!execution || TERMINAL_EXECUTION_STATUSES.has(execution.status) || execution.commandId) {
+    stopChatGptDispatchRetry(executionId);
+    return;
+  }
+
+  const metadata = asRecord(execution.metadata);
+  if (metadata["verificationMode"] !== "chatgpt-attested" || execution.taskId == null) {
+    stopChatGptDispatchRetry(executionId);
+    return;
+  }
+
+  const accountAlias = typeof metadata["accountAlias"] === "string" ? metadata["accountAlias"] : "";
+  const remoteCorrelationId = typeof metadata["remoteCorrelationId"] === "string" ? metadata["remoteCorrelationId"] : "";
+  if (!/^GPT[0-9]{2,4}$/.test(accountAlias) || !remoteCorrelationId || !execution.instruction) {
+    stopChatGptDispatchRetry(executionId);
+    return;
+  }
+
+  const [task] = await db.select().from(aiTasksTable)
+    .where(and(eq(aiTasksTable.id, execution.taskId), eq(aiTasksTable.companyId, execution.companyId))).limit(1);
+  if (!task) {
+    stopChatGptDispatchRetry(executionId);
+    return;
+  }
+
+  try {
+    const remote = await submitAiTaskChatGptCommand({
+      accountAlias,
+      instruction: execution.instruction,
+      jobAlias: task.taskNumber ?? `TASK${execution.taskId}`,
+      correlationId: remoteCorrelationId,
+    });
+
+    const [updated] = await db.update(aiExecutionJobsTable).set({
+      commandId: remote.commandId,
+      status: "dispatched",
+      progress: 15,
+      assignedClientId: remote.clientId,
+      workerId: remote.clientId,
+      errorMessage: null,
+      metadata: {
+        ...metadata,
+        remoteCreated: remote.created,
+        remoteCorrelationId,
+        dispatchState: "dispatched",
+        dispatchedAt: new Date().toISOString(),
+      },
+    }).where(eq(aiExecutionJobsTable.id, execution.id)).returning();
+
+    await db.insert(aiExecutionEventsTable).values({
+      executionId: execution.id,
+      taskId: execution.taskId,
+      companyId: execution.companyId,
+      eventId: `dispatch-retry:${remote.commandId}:${randomUUID()}`,
+      eventType: remote.created ? "DISPATCHED" : "REDISPATCHED",
+      phase: "dispatch",
+      status: "dispatched",
+      message: "Verified account session became available; command accepted by AI Core.",
+      workerId: remote.clientId,
+      payload: { commandId: remote.commandId, created: remote.created, clientId: remote.clientId, accountAlias },
+    });
+
+    stopChatGptDispatchRetry(executionId);
+    emitSseEvent("execution_updated", {
+      executionId,
+      taskId: execution.taskId,
+      status: "dispatched",
+      progress: 15,
+      accountAlias,
+      workerId: remote.clientId,
+    }, execution.companyId);
+    if (updated) scheduleExecutionTracking(updated.id);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "AI_CORE_CHATGPT_DISPATCH_FAILED";
+    if (!isRetryableChatGptDispatchError(message)) {
+      const [failed] = await db.update(aiExecutionJobsTable).set({
+        status: "failed",
+        progress: 100,
+        errorMessage: message,
+        completedAt: new Date(),
+      }).where(eq(aiExecutionJobsTable.id, execution.id)).returning();
+      stopChatGptDispatchRetry(executionId);
+      emitSseEvent("execution_updated", {
+        executionId,
+        taskId: execution.taskId,
+        status: "failed",
+        progress: 100,
+      }, execution.companyId);
+      if (failed) stopExecutionTracking(failed.id);
+      return;
+    }
+
+    await markWaitingForAccountSession(execution, message);
+    const attempt = (chatGptDispatchRetryBackoff.get(executionId) ?? 0) + 1;
+    chatGptDispatchRetryBackoff.set(executionId, attempt);
+    scheduleChatGptDispatchRetry(executionId, Math.min(10_000 * (2 ** (attempt - 1)), 60_000));
+  }
+}
+
+function scheduleChatGptDispatchRetry(executionId: string, delayMs = 10_000): void {
+  if (chatGptDispatchRetryTimers.has(executionId)) return;
+  const timer = setTimeout(async () => {
+    chatGptDispatchRetryTimers.delete(executionId);
+    await retryChatGptDispatch(executionId);
+  }, delayMs);
+  timer.unref?.();
+  chatGptDispatchRetryTimers.set(executionId, timer);
+}
 
 function stopExecutionTracking(executionId: string): void {
   const timer = executionSyncTimers.get(executionId);
@@ -382,7 +538,11 @@ router.get("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Res
     if (!execution) { res.json({ execution: null, events: [], bridgeConfigured: aiCoreBridgeConfigured() }); return; }
 
     if (!TERMINAL_EXECUTION_STATUSES.has(execution.status)) {
-      scheduleExecutionTracking(execution.id);
+      if (execution.status === "waiting_for_session" && !execution.commandId) {
+        scheduleChatGptDispatchRetry(execution.id);
+      } else {
+        scheduleExecutionTracking(execution.id);
+      }
     }
 
     const events = await db.select().from(aiExecutionEventsTable)
@@ -546,6 +706,24 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
       res.status(remote.created ? 201 : 200).json({ execution: updated ?? execution, reused: reused || !remote.created });
     } catch (err) {
       const message = err instanceof Error ? err.message : "AI_CORE_DISPATCH_FAILED";
+      if (mode === "chatgpt" && isRetryableChatGptDispatchError(message)) {
+        const waiting = await markWaitingForAccountSession(execution, message);
+        await db.insert(aiExecutionEventsTable).values({
+          executionId: execution.id,
+          taskId,
+          companyId,
+          eventId: `waiting-session:${execution.correlationId}:${randomUUID()}`,
+          eventType: "WAITING_FOR_SESSION",
+          phase: "dispatch",
+          status: "waiting_for_session",
+          message: `Waiting for a verified ${accountAlias} session. AI Task will retry automatically.`,
+          payload: { accountAlias, retryable: true },
+        });
+        scheduleChatGptDispatchRetry(execution.id);
+        res.status(202).json({ execution: waiting, queued: true, waitingForSession: true });
+        return;
+      }
+
       const [failed] = await db.update(aiExecutionJobsTable).set({
         status: "failed",
         progress: 100,
