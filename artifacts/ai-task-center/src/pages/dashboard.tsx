@@ -272,7 +272,7 @@ export default function Dashboard() {
             <RefreshCw className={`mr-2 h-4 w-4 ${tasksFetching ? "animate-spin" : ""}`} />
             Refresh
           </Button>
-          <Link href="/ai-tasks">
+          <Link href="/ai-core-chat">
             <Button size="sm" className="bg-gradient-to-r from-blue-600 to-violet-600 text-white hover:opacity-90">
               <Plus className="mr-2 h-4 w-4" />
               Buat Job
@@ -329,7 +329,7 @@ export default function Dashboard() {
                     <span>▱ Pilih Proyek</span>
                     <span>••• Opsi Lainnya</span>
                   </div>
-                  <Link href="/ai-tasks">
+                  <Link href="/ai-core-chat">
                     <Button size="sm" className="min-w-36 bg-gradient-to-r from-blue-600 to-violet-600 text-white">
                       <Send className="mr-2 h-4 w-4" />
                       Kirim Job
