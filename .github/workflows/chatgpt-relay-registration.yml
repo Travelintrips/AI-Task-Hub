@@ -8,7 +8,7 @@ on:
       - "integrations/chatgpt-hash-registration/**"
       - ".github/workflows/chatgpt-relay-registration.yml"
 jobs:
-  typecheck:
+  typecheck-and-verifier-tests:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -24,3 +24,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run typecheck:libs
       - run: pnpm --filter @workspace/api-server typecheck
+      - name: Bundle and run actual relay verifier tests
+        run: |
+          pnpm --filter @workspace/api-server exec esbuild src/routes/chatgpt-relay-verifier.test.ts --bundle --platform=node --format=esm --outfile=/tmp/chatgpt-relay-verifier.test.mjs
+          node --test /tmp/chatgpt-relay-verifier.test.mjs
