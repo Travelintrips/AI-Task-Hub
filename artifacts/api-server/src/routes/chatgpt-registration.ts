@@ -27,7 +27,12 @@ router.post("/chatgpt/conversations/register", requireAuth, async (req: Request,
     return;
   }
 
-  const client = await pool.connect();
+  const client = await pool.connect().catch((error: unknown) => {
+    console.error("chatgpt registration connection failed", error instanceof Error ? error.name : "unknown");
+    res.status(503).json({ ok: false, code: "REGISTRY_UNAVAILABLE" });
+    return null;
+  });
+  if (!client) return;
   try {
     await client.query("BEGIN");
     // Unique nonce insert is the atomic replay gate. A duplicate nonce is rejected,
