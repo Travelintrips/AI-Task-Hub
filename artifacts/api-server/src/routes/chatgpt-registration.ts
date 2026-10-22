@@ -1,5 +1,5 @@
 import { Router, type Request, type Response } from "express";
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { verifyRelayBinding, readRelayBinding } from "./chatgpt-relay-verifier";
 import { pool } from "@workspace/db";
 import { requireAuth } from "../middleware/auth";
 
@@ -33,7 +33,7 @@ router.post("/chatgpt/conversations/register", requireAuth, async (req: Request,
     res.status(503).json({ ok: false, code: "REGISTRATION_DISABLED" });
     return;
   }
-  if (!verifyRelay(req, sourceId, String(user.id), user.companyId)) {
+  const verifiedRelay = verifyRelayBinding(readRelayBinding(req, sourceId, String(user.id), user.companyId), process.env.CHATGPT_RELAY_BINDING_SECRET);\n  if (!verifiedRelay.ok) {
     res.status(403).json({ ok: false, code: "RELAY_BINDING_INVALID" });
     return;
   }
