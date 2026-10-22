@@ -22,12 +22,12 @@ export function verifyRelayBinding(
   if (!secret || Buffer.byteLength(secret) < 32) return { ok: false, code: "RELAY_NOT_CONFIGURED" };
   if (!SOURCE_ID.test(input.sourceConversationId)) return { ok: false, code: "INVALID_SOURCE_ID" };
   if (!NONCE.test(input.nonce)) return { ok: false, code: "INVALID_NONCE" };
-  if (!/^\\d{13}$/.test(input.timestamp) || !/^[a-f0-9]{64}$/i.test(input.signature)) {
+  if (!/^\d{13}$/.test(input.timestamp) || !/^[a-f0-9]{64}$/i.test(input.signature)) {
     return { ok: false, code: "INVALID_SIGNATURE_FORMAT" };
   }
   const age = Math.abs(nowMs - Number(input.timestamp));
   if (!Number.isFinite(age) || age > MAX_AGE_MS) return { ok: false, code: "RELAY_TIMESTAMP_EXPIRED" };
-  const payload = [input.timestamp, "chatgpt", input.sourceConversationId, input.userId, input.companyId, input.nonce].join("\\n");
+  const payload = [input.timestamp, "chatgpt", input.sourceConversationId, input.userId, input.companyId, input.nonce].join("\n");
   const expected = createHmac("sha256", secret).update(payload).digest();
   const supplied = Buffer.from(input.signature, "hex");
   if (supplied.length !== expected.length || !timingSafeEqual(expected, supplied)) {
