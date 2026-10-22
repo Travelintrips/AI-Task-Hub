@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import healthRouter from "./health";
 import jobBridgeRouter from "./job-bridge";
+import chatgptRegistrationRouter from "./chatgpt-registration";
 import tasksRouter from "./tasks";
 import teamRouter from "./team";
 import messagesRouter from "./messages";
@@ -86,6 +87,7 @@ router.use(authRouter);
 // Application routes
 router.use(healthRouter);
 router.use(jobBridgeRouter);
+router.use(chatgptRegistrationRouter);
 router.use(tasksRouter);
 router.use(teamRouter);
 router.use(messagesRouter);
