@@ -75,6 +75,7 @@ import freightRouter from "./freight";
 import executionsRouter from "./executions";
 import eventsRouter from "./events";
 import { extractUser } from "../middleware/auth";
+import chatgptRegistrationRouter from "./chatgpt-registration";
 
 const router: IRouter = Router();
 
@@ -180,5 +181,6 @@ router.use(sportCenterRouter);
 router.use(publicSportCenterRouter);
 // ── Freight / PPJK Document Upload ────────────────────────────────────────────
 router.use(freightRouter);
+router.use(chatgptRegistrationRouter);
 
 export default router;
