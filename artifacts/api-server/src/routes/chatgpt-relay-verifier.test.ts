@@ -7,7 +7,7 @@ const secret = "0123456789abcdef0123456789abcdef";
 const now = 1_800_000_000_000;
 function signed(overrides: Partial<{ sourceConversationId: string; userId: string; companyId: string; timestamp: string; nonce: string }> = {}) {
   const input = { sourceConversationId: "conv_123456", userId: "u1", companyId: "c1", timestamp: String(now), nonce: "nonce_1234567890123456", ...overrides };
-  const payload = [input.timestamp, "chatgpt", input.sourceConversationId, input.userId, input.companyId, input.nonce].join("\\n");
+  const payload = [input.timestamp, "chatgpt", input.sourceConversationId, input.userId, input.companyId, input.nonce].join("\n");
   return { ...input, signature: createHmac("sha256", secret).update(payload).digest("hex") };
 }
 test("accepts a valid signed nonce", () => {
