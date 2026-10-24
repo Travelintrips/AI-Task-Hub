@@ -127,7 +127,9 @@ router.post("/bridge/jobs/:id/source-event", requireBridge, async (req: Request,
       const canonical = await client.query(
         key.kind === "coding-task"
           ? "SELECT status,result_summary FROM ai_platform.ai_coding_tasks WHERE id=$1"
-          : "SELECT status,worker_id,error_message FROM ai_platform.ai_coding_workstreams WHERE id=$1",
+          : key.kind === "coding-workstream"
+            ? "SELECT status,worker_id,error_message FROM ai_platform.ai_coding_workstreams WHERE id=$1"
+            : "SELECT status FROM ai_platform.ai_coding_bridge_commands WHERE id=$1",
         [key.id],
       );
       const record = canonical.rows[0];
