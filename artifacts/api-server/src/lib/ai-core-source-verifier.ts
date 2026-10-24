@@ -11,10 +11,10 @@ type SourceRow = {
   result_summary?: string | null;
   error_message?: string | null;
 };
-export type SourceLookup = { kind: "coding-task" | "coding-workstream"; id: string };
+export type SourceLookup = { kind: "coding-task" | "coding-workstream" | "bridge-command"; id: string };
 
 export function parseAiCoreExternalId(value: string): SourceLookup | null {
-  const match = /^(coding-task|coding-workstream):([a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12})$/i.exec(value);
+  const match = /^(coding-task|coding-workstream|bridge-command):([a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12})$/i.exec(value);
   if (!match) return null;
   return { kind: match[1] as SourceLookup["kind"], id: match[2]! };
 }
@@ -22,7 +22,7 @@ export function parseAiCoreExternalId(value: string): SourceLookup | null {
 export async function canonicalAiCoreSource(input: SourceLookup): Promise<SourceRow | null> {
   const sql = input.kind === "coding-task"
     ? "SELECT status,result_summary FROM ai_platform.ai_coding_tasks WHERE id=$1"
-    : "SELECT status,worker_id,error_message FROM ai_platform.ai_coding_workstreams WHERE id=$1";
+    : input.kind === "coding-workstream" ? "SELECT status,worker_id,error_message FROM ai_platform.ai_coding_workstreams WHERE id=$1" : "SELECT status FROM ai_platform.ai_coding_bridge_commands WHERE id=$1";
   const query = await pool.query<SourceRow>(sql, [input.id]);
   return query.rows[0] ?? null;
 }
@@ -64,7 +64,7 @@ export async function verifyAndAckAiCoreSource(
     const canonical = await client.query<{ status: string }>(
       source.kind === "coding-task"
         ? "SELECT status FROM ai_platform.ai_coding_tasks WHERE id=$1"
-        : "SELECT status FROM ai_platform.ai_coding_workstreams WHERE id=$1",
+        : source.kind === "coding-workstream" ? "SELECT status FROM ai_platform.ai_coding_workstreams WHERE id=$1" : "SELECT status FROM ai_platform.ai_coding_bridge_commands WHERE id=$1",
       [source.id],
     );
     if (!canonical.rows[0] || !isCanonicalAiCoreDone(canonical.rows[0].status)) {
