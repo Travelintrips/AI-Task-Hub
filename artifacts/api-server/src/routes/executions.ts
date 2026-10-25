@@ -499,7 +499,7 @@ router.post("/bridge/jobs/:id/source-event", requireBridgeToken, async (req: Req
       res.status(403).json({ error: "Source authority mismatch" }); return;
     }
 
-    const [existing] = await db.select({ id: aiExecutionEventsTable.id, executionId: aiExecutionEventsTable.executionId, status: aiExecutionEventsTable.status }).from(aiExecutionEventsTable)
+    const [existing] = await db.select({ id: aiExecutionEventsTable.id, executionId: aiExecutionEventsTable.executionId, status: aiExecutionEventsTable.status, payload: aiExecutionEventsTable.payload }).from(aiExecutionEventsTable)
       .where(eq(aiExecutionEventsTable.eventId, eventId)).limit(1);
     if (existing && (existing.executionId !== job.id || existing.status !== status)) {
       res.status(409).json({ error: "Source event identity conflict" }); return;
