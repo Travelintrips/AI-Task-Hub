@@ -76,7 +76,7 @@ export function projectUnifiedTimeline(jobs: ExecutionProjection[], events: Exec
       createdAt: job.createdAt.toISOString(), updatedAt: job.updatedAt.toISOString(),
       sopVersion: sopHistory.at(-1)?.version ?? null, sopHistory,
       ack: {
-        received: sourceEvents.some((x) => x.eventType === "ACK"),
+        received: sourceEvents.some((x) => x.eventType === "ACK" || object(x.payload)["ackReceived"] === true),
         callbackObserved: job.callbackVerified || sourceEvents.some((x) => ["COMPLETED", "FAILED"].includes(x.eventType)),
         attestationVerified: job.attestationVerified,
         finalVerified: job.finalAckVerified,
