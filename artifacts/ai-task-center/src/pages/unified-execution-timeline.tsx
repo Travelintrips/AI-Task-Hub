@@ -17,12 +17,15 @@ type Event = {
 type Job = {
   id: string; source: string; taskId: number | null; externalId: string;
   jobId: string | null; commandId: string | null; correlationId: string | null;
-  workerId: string | null; workerStatus: string; createdAt: string;
+  workerId: string | null; workerStatus: string;
+  executionStatus: string; ledgerStatus: string; finalAckStatus: "VERIFIED" | "PENDING";
+  createdAt: string;
   updatedAt: string; sopVersion: string | null; sopHistory: SopRevision[];
   ack: { received: boolean; callbackObserved: boolean; mcpReceiptPersisted: boolean; mcpAcknowledgedAt: string | null; attestationVerified: boolean; finalVerified: boolean };
   events: Event[];
 };
-type Timeline = { authority: string; dispatchEnabled: boolean; syncedAt: string; jobs: Job[] };
+type Timeline = { authority: string; dispatchEnabled: boolean; syncedAt: string; jobs: Job[];
+  paging: { limit: number; offset: number; total: number } };
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const stamp = (v: string) => Number.isNaN(Date.parse(v)) ? v : new Date(v).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" }) + " WIB";
 const empty = (v: string | null) => v || "Belum tercatat";
@@ -36,11 +39,12 @@ const stateClass = (status: string) => {
 export default function UnifiedExecutionTimelinePage() {
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
+  const [page, setPage] = useState(0);
   const timeline = useQuery<Timeline>({
-    queryKey: ["unified-execution-timeline"],
+    queryKey: ["unified-execution-timeline", page],
     queryFn: async () => {
       const token = getStoredToken();
-      const response = await fetch(BASE + "/api/executions/unified-timeline?limit=50", {
+      const response = await fetch(BASE + "/api/executions/unified-timeline?limit=50&offset=" + (page * 50), {
         headers: token ? { Authorization: "Bearer " + token } : {},
       });
       if (!response.ok) throw new Error("HTTP " + response.status);
@@ -49,8 +53,10 @@ export default function UnifiedExecutionTimelinePage() {
     refetchInterval: 15000,
   });
   const jobs = timeline.data?.jobs ?? [];
+  const totalPages = Math.max(1, Math.ceil((timeline.data?.paging.total ?? 0) / 50));
   const filtered = jobs.filter((job) => [
-    job.externalId, job.jobId, job.commandId, job.correlationId, job.workerId, job.workerStatus,
+    job.externalId, job.jobId, job.commandId, job.correlationId, job.workerId,
+    job.executionStatus, job.ledgerStatus, job.finalAckStatus,
   ].some((v) => v?.toLowerCase().includes(search.trim().toLowerCase())));
   const current = filtered.find((job) => job.id === selected) ?? filtered[0] ?? null;
   return (
