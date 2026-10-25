@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Activity, CheckCircle2, Clock, RefreshCw, Search, ShieldCheck } from "lucide-react";
@@ -38,13 +38,22 @@ const stateClass = (status: string) => {
 
 export default function UnifiedExecutionTimelinePage() {
   const [search, setSearch] = useState("");
+  const [appliedSearch, setAppliedSearch] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const [page, setPage] = useState(0);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setPage(0);
+      setSelected(null);
+      setAppliedSearch(search.trim());
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search]);
   const timeline = useQuery<Timeline>({
-    queryKey: ["unified-execution-timeline", page],
+    queryKey: ["unified-execution-timeline", page, appliedSearch],
     queryFn: async () => {
       const token = getStoredToken();
-      const response = await fetch(BASE + "/api/executions/unified-timeline?limit=50&offset=" + (page * 50), {
+      const response = await fetch(BASE + "/api/executions/unified-timeline?limit=50&offset=" + (page * 50) + "&q=" + encodeURIComponent(appliedSearch), {
         headers: token ? { Authorization: "Bearer " + token } : {},
       });
       if (!response.ok) throw new Error("HTTP " + response.status);
@@ -54,10 +63,9 @@ export default function UnifiedExecutionTimelinePage() {
   });
   const jobs = timeline.data?.jobs ?? [];
   const totalPages = Math.max(1, Math.ceil((timeline.data?.paging.total ?? 0) / 50));
-  const filtered = jobs.filter((job) => [
-    job.externalId, job.jobId, job.commandId, job.correlationId, job.workerId,
-    job.executionStatus, job.ledgerStatus, job.finalAckStatus,
-  ].some((v) => v?.toLowerCase().includes(search.trim().toLowerCase())));
+  // Results and total count are scoped and filtered by the authenticated API.
+  // Filtering this page a second time would hide valid matches from older pages.
+  const filtered = jobs;
   const current = filtered.find((job) => job.id === selected) ?? filtered[0] ?? null;
   return (
     <div className="p-4 md:p-7 space-y-5 max-w-7xl mx-auto text-slate-900">
@@ -79,7 +87,7 @@ export default function UnifiedExecutionTimelinePage() {
       {timeline.isError && <div role="alert" className="p-4 border border-red-200 bg-red-50 rounded-xl text-red-800">Gagal mengambil timeline dari AI Task DEV. Tidak ada status yang diasumsikan berhasil.</div>}
       <div className="relative">
         <Search className="absolute left-3 top-3 text-slate-400" size={17} />
-        <Input aria-label="Cari job, command, correlation atau worker" placeholder="Cari jobId, commandId, correlationId, worker..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-10" />
+        <Input aria-label="Cari job, command, correlation atau worker" placeholder="Cari semua halaman: jobId, commandId, worker, status..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-10" />
       </div>
       <div className="grid gap-4 lg:grid-cols-[minmax(250px,1fr)_minmax(0,2fr)]">
         <div className="space-y-2 min-w-0">
