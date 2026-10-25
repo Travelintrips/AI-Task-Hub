@@ -85,3 +85,40 @@ test("legacy source transport ACK does not imply MCP receipt", () => {
   assert.equal(item.ack.mcpAcknowledgedAt, null);
   assert.equal(item.ack.finalVerified, false);
 });
+
+test("source COMPLETED remains completed even if AI Task ledger is verifying", () => {
+  const [result] = projectUnifiedTimeline([{ ...job, status: "verifying" }], [{
+    ...event, eventId: "source-completed", eventType: "SOURCE_EVENT",
+    status: "COMPLETED", payload: { callbackObserved: true },
+  }]);
+  assert.equal(result.executionStatus, "COMPLETED");
+  assert.equal(result.ledgerStatus, "verifying");
+  assert.equal(result.finalAckStatus, "PENDING");
+  assert.equal(result.ack.finalVerified, false);
+});
+test("signed final acknowledgement changes final ACK only, not source completion", () => {
+  const [result] = projectUnifiedTimeline([{ ...job, status: "completed", finalAckVerified: true }], [{
+    ...event, eventId: "source-completed", eventType: "SOURCE_EVENT", status: "COMPLETED",
+    payload: {},
+  }]);
+  assert.equal(result.executionStatus, "COMPLETED");
+  assert.equal(result.ledgerStatus, "completed");
+  assert.equal(result.finalAckStatus, "VERIFIED");
+});
+test("missing source event cannot manufacture a completed execution", () => {
+  const [result] = projectUnifiedTimeline([{ ...job, status: "verifying" }], []);
+  assert.equal(result.executionStatus, "UNKNOWN");
+  assert.equal(result.finalAckStatus, "PENDING");
+});
+test("a FAILED source remains FAILED even without final ACK", () => {
+  const [result] = projectUnifiedTimeline([{ ...job, status: "failed" }], [{
+    ...event, eventId: "source-failed", eventType: "SOURCE_EVENT", status: "FAILED", payload: {},
+  }]);
+  assert.equal(result.executionStatus, "FAILED");
+  assert.equal(result.finalAckStatus, "PENDING");
+});
+test("ordinary AI Task executions still display their own persisted status", () => {
+  const [result] = projectUnifiedTimeline([{ ...job, source: "AI_TASK", status: "completed" }], []);
+  assert.equal(result.executionStatus, "COMPLETED");
+  assert.equal(result.ledgerStatus, "completed");
+});
