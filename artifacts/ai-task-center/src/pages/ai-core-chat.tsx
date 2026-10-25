@@ -318,9 +318,11 @@ export default function AiCoreChatPage() {
                   <div className="w-full max-w-[82%] rounded-2xl rounded-bl-md border border-blue-500/20 bg-[#101c2d] p-4" aria-live="polite">
                     <div className="flex items-center justify-between gap-3 text-sm font-semibold text-slate-100">
                       <span className="flex items-center gap-2">
-                        {["completed", "failed", "blocked", "cancelled"].includes(execution.status)
-                          ? <CheckCircle2 className="h-4 w-4 text-slate-400" />
-                          : <Loader2 className="h-4 w-4 animate-spin text-blue-400" />}
+                        {execution.status === "completed"
+                          ? <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                          : ["failed", "blocked", "cancelled"].includes(execution.status)
+                            ? <span className="text-red-400" aria-label="Job terhenti">●</span>
+                            : <Loader2 className="h-4 w-4 animate-spin text-blue-400" />}
                         Job: {execution.status}
                       </span>
                       <span className="tabular-nums text-blue-300">{Math.max(0, Math.min(100, execution.progress))}%</span>
@@ -335,7 +337,7 @@ export default function AiCoreChatPage() {
                     {executionData?.events?.length ? (
                       <p className="mt-2 text-xs text-slate-300">Terakhir: {executionData.events[executionData.events.length - 1]?.message ?? executionData.events[executionData.events.length - 1]?.eventType}</p>
                     ) : null}
-                    {verified && <p className="mt-2 flex items-center gap-1 text-xs text-emerald-400"><ShieldCheck className="h-3.5 w-3.5" /> Callback, attestation, dan final ACK terverifikasi</p>}
+                    {verified && execution.status === "completed" && <p className="mt-2 flex items-center gap-1 text-xs text-emerald-400"><ShieldCheck className="h-3.5 w-3.5" /> Callback, attestation, dan final ACK terverifikasi</p>}
                     {executionRefreshing && <span className="mt-2 block text-xs text-slate-500">Memperbarui status…</span>}
                   </div>
                 </div>
