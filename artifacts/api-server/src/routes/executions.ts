@@ -528,7 +528,7 @@ router.post("/bridge/jobs/:id/source-event", requireBridgeToken, async (req: Req
       ...(terminal ? { completedAt: new Date() } : {}),
     }).where(eq(aiExecutionJobsTable.id, job.id));
 
-    res.status(existing ? 200 : 202).json({ accepted: true, duplicate: Boolean(existing) });
+    res.status(202).json({ accepted: true, duplicate: false, status: normalized });
   } catch (err) {
     logger.error({ err }, "POST /bridge/jobs/:id/source-event failed");
     res.status(500).json({ error: "Source event unavailable" });
