@@ -65,7 +65,7 @@ export default function UnifiedExecutionTimelinePage() {
         <div>
           <div className="flex items-center gap-2 text-sm font-semibold text-blue-600"><Activity size={17} /> AI Task / SOP</div>
           <h1 className="text-2xl font-bold mt-1">Timeline Terpadu</h1>
-          <p className="text-sm text-slate-600 mt-1">Job, command, korelasi, worker, riwayat SOP, dan ACK dari ledger yang tersimpan.</p>
+          <p className="text-sm text-slate-600 mt-1">Status eksekusi dari AI Core ditampilkan terpisah dari status Final ACK. Job yang selesai tidak dianggap sedang berjalan hanya karena menunggu verifikasi akhir.</p>
           <p className="flex items-center gap-2 text-xs text-slate-500 mt-2"><ShieldCheck size={14}/> Otoritas eksekusi: AI Core. Halaman ini hanya membaca; tidak mengirim atau mengambil job.</p>
         </div>
         <Button variant="outline" onClick={() => void timeline.refetch()} disabled={timeline.isFetching}>
@@ -74,7 +74,7 @@ export default function UnifiedExecutionTimelinePage() {
       </header>
       <div className="rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-600">
         Sumber waktu: WIB • Sinkron terakhir: {timeline.data ? stamp(timeline.data.syncedAt) : "Belum tersedia"} •
-        Status worker dan ACK hanya ditandai terverifikasi bila ledger menyimpan buktinya.
+        Eksekusi = event otoritatif AI Core • Final ACK = bukti akhir yang diverifikasi • Ledger = status pemantauan internal AI Task.
       </div>
       {timeline.isError && <div role="alert" className="p-4 border border-red-200 bg-red-50 rounded-xl text-red-800">Gagal mengambil timeline dari AI Task DEV. Tidak ada status yang diasumsikan berhasil.</div>}
       <div className="relative">
@@ -89,8 +89,9 @@ export default function UnifiedExecutionTimelinePage() {
               className={"block w-full text-left px-4 py-3 border-b last:border-b-0 hover:bg-slate-50 " + (current?.id === job.id ? "bg-blue-50" : "")}>
               <span className="flex items-center justify-between gap-2">
                 <span className="font-semibold text-xs">{job.source}</span>
-                <span className={"text-[11px] border rounded-full px-2 py-0.5 " + stateClass(job.workerStatus)}>{job.workerStatus}</span>
+                <span className={"text-[11px] border rounded-full px-2 py-0.5 " + stateClass(job.executionStatus)}>{job.executionStatus}</span>
               </span>
+              <span className="block mt-1 text-[11px] text-slate-600">Final ACK: <strong>{job.finalAckStatus === "VERIFIED" ? "Verified" : "Pending"}</strong> · Ledger: {job.ledgerStatus}</span>
               <span className="block mt-1 font-mono text-[11px] break-all text-slate-700">{job.jobId || job.externalId}</span>
               <span className="block mt-1 text-[11px] text-slate-500">{stamp(job.updatedAt)}</span>
             </button>
