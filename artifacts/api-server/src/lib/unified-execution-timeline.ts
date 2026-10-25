@@ -44,6 +44,10 @@ export function projectUnifiedTimeline(jobs: ExecutionProjection[], events: Exec
         seen.add(x.eventId);
         return true;
       }).slice(-80);
+    const mcpReceipt = sourceEvents
+      .map(event => object(event.payload))
+      .find(p => p["mcpReceiptPersisted"] === true &&
+        typeof p["mcpAckAt"] === "string" && Number.isFinite(Date.parse(p["mcpAckAt"] as string)));
     const eventEvidence: Record<string, unknown> = {};
     for (const event of sourceEvents) {
       const payload = object(event.payload);
@@ -86,6 +90,8 @@ export function projectUnifiedTimeline(jobs: ExecutionProjection[], events: Exec
       ack: {
         received: sourceEvents.some((x) => x.eventType === "ACK" || object(x.payload)["ackReceived"] === true),
         callbackObserved: job.callbackVerified || sourceEvents.some((x) => ["COMPLETED", "FAILED"].includes(x.eventType) || object(x.payload)["callbackObserved"] === true),
+        mcpReceiptPersisted: Boolean(mcpReceipt),
+        mcpAcknowledgedAt: mcpReceipt ? String(mcpReceipt["mcpAckAt"]) : null,
         attestationVerified: job.attestationVerified,
         finalVerified: job.finalAckVerified,
       },
