@@ -1,9 +1,10 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { count, desc, eq, inArray } from "drizzle-orm";
+import { and, count, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import { aiExecutionJobsTable, aiExecutionEventsTable, db } from "@workspace/db";
 import { getCompanyId, requireAuth } from "../middleware/auth";
 import { logger } from "../lib/logger";
 import { projectUnifiedTimeline } from "../lib/unified-execution-timeline";
+import { timelineSearchPattern } from "../lib/unified-timeline-search";
 
 const router: IRouter = Router();
 
@@ -15,6 +16,12 @@ router.get("/executions/unified-timeline", requireAuth, async (req: Request, res
     const requestedOffset = Number(req.query.offset ?? 0);
     const offset = Number.isSafeInteger(requestedOffset) && requestedOffset >= 0 && requestedOffset <= 5000
       ? requestedOffset : 0;
+    const rawQuery = req.query.q;
+    if (rawQuery !== undefined && (typeof rawQuery !== "string" || rawQuery.length > 120)) {
+      res.status(400).json({ error: "Invalid timeline search" });
+      return;
+    }
+    const pattern = timelineSearchPattern(typeof rawQuery === "string" ? rawQuery : "");
     const company = getCompanyId(req);
     const companyFilter = company ? eq(aiExecutionJobsTable.companyId, company) : undefined;
     const [[totals], jobs] = await Promise.all([
