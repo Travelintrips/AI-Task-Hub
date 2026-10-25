@@ -39,6 +39,8 @@ const stateClass = (status: string) => {
 export default function UnifiedExecutionTimelinePage() {
   const [search, setSearch] = useState("");
   const [appliedSearch, setAppliedSearch] = useState("");
+  const [selected, setSelected] = useState<string | null>(null);
+  const [page, setPage] = useState(0);
   useEffect(() => {
     const timer = setTimeout(() => {
       setPage(0);
@@ -47,8 +49,6 @@ export default function UnifiedExecutionTimelinePage() {
     }, 300);
     return () => clearTimeout(timer);
   }, [search]);
-  const [selected, setSelected] = useState<string | null>(null);
-  const [page, setPage] = useState(0);
   const timeline = useQuery<Timeline>({
     queryKey: ["unified-execution-timeline", page, appliedSearch],
     queryFn: async () => {
@@ -87,7 +87,7 @@ export default function UnifiedExecutionTimelinePage() {
       {timeline.isError && <div role="alert" className="p-4 border border-red-200 bg-red-50 rounded-xl text-red-800">Gagal mengambil timeline dari AI Task DEV. Tidak ada status yang diasumsikan berhasil.</div>}
       <div className="relative">
         <Search className="absolute left-3 top-3 text-slate-400" size={17} />
-        <Input aria-label="Cari job, command, correlation atau worker" placeholder="Cari jobId, commandId, correlationId, worker..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-10" />
+        <Input aria-label="Cari job, command, correlation atau worker" placeholder="Cari semua halaman: jobId, commandId, worker, status..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-10" />
       </div>
       <div className="grid gap-4 lg:grid-cols-[minmax(250px,1fr)_minmax(0,2fr)]">
         <div className="space-y-2 min-w-0">
