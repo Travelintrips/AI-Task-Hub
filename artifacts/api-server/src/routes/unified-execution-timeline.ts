@@ -1,5 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { desc, eq, inArray } from "drizzle-orm";
+import { count, desc, eq, inArray } from "drizzle-orm";
 import { aiExecutionJobsTable, aiExecutionEventsTable, db } from "@workspace/db";
 import { getCompanyId, requireAuth } from "../middleware/auth";
 import { logger } from "../lib/logger";
@@ -12,11 +12,18 @@ router.get("/executions/unified-timeline", requireAuth, async (req: Request, res
   try {
     const requested = Number(req.query.limit ?? 25);
     const limit = Number.isFinite(requested) ? Math.min(50, Math.max(1, Math.trunc(requested))) : 25;
+    const requestedOffset = Number(req.query.offset ?? 0);
+    const offset = Number.isSafeInteger(requestedOffset) && requestedOffset >= 0 && requestedOffset <= 5000
+      ? requestedOffset : 0;
     const company = getCompanyId(req);
-    const jobs = await db.select().from(aiExecutionJobsTable)
-      .where(company ? eq(aiExecutionJobsTable.companyId, company) : undefined)
-      .orderBy(desc(aiExecutionJobsTable.createdAt))
-      .limit(limit);
+    const companyFilter = company ? eq(aiExecutionJobsTable.companyId, company) : undefined;
+    const [[totals], jobs] = await Promise.all([
+      db.select({ total: count() }).from(aiExecutionJobsTable).where(companyFilter),
+      db.select().from(aiExecutionJobsTable)
+        .where(companyFilter)
+        .orderBy(desc(aiExecutionJobsTable.createdAt), desc(aiExecutionJobsTable.id))
+        .limit(limit).offset(offset),
+    ]);
     const events = jobs.length ? await db.select().from(aiExecutionEventsTable)
       .where(inArray(aiExecutionEventsTable.executionId, jobs.map((job) => job.id)))
       .orderBy(desc(aiExecutionEventsTable.createdAt)).limit(limit * 80) : [];
@@ -25,6 +32,7 @@ router.get("/executions/unified-timeline", requireAuth, async (req: Request, res
       authority: "AI_CORE",
       dispatchEnabled: false,
       syncedAt: new Date().toISOString(),
+      paging: { limit, offset, total: totals?.total ?? 0 },
       jobs: projectUnifiedTimeline(jobs, events),
     });
   } catch (err) {
