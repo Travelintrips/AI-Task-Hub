@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/auth-context";
 import { getStoredToken } from "@/lib/auth-api";
 import { Button } from "@/components/ui/button";
@@ -32,8 +33,35 @@ const stateColor = (status: string): "default" | "secondary" | "destructive" | "
   return "secondary";
 };
 
+const inWib = (value: string | null) => {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("id-ID", {
+    timeZone: "Asia/Jakarta", day: "2-digit", month: "short",
+    year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit",
+    hour12: false,
+  }).format(date) + " WIB";
+};
+const elapsed = (start: string, end: string | null, now: number) => {
+  const from = Date.parse(start);
+  const to = end ? Date.parse(end) : now;
+  if (!Number.isFinite(from) || !Number.isFinite(to) || to < from) return "—";
+  const seconds = Math.floor((to - from) / 1000);
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const remainder = seconds % 60;
+  return [hours, minutes, remainder].map(n => String(n).padStart(2, "0")).join(":");
+};
+const terminal = (status: string) => ["COMPLETED", "FAILED", "CANCELLED", "CANCELED", "BLOCKED"].includes(status.toUpperCase());
+
 export default function BridgeJobsPage() {
   const { user } = useAuth();
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
   const authorized = user?.role === "super_admin";
   const jobs = useQuery({
     queryKey: ["bridge-admin-jobs"],
@@ -94,7 +122,7 @@ export default function BridgeJobsPage() {
             <thead className="border-b text-muted-foreground"><tr>
               <th className="py-2 pr-4">Sumber</th><th className="py-2 pr-4">Pekerjaan</th>
               <th className="py-2 pr-4">Owner</th><th className="py-2 pr-4">Status</th>
-              <th className="py-2">Callback</th>
+              <th className="py-2 pr-4">Dibuat (WIB)</th><th className="py-2 pr-4">Durasi</th><th className="py-2">Callback</th>
             </tr></thead>
             <tbody>
               {rows.map((j) => <tr key={j.id} className="border-b">
@@ -102,9 +130,11 @@ export default function BridgeJobsPage() {
                 <td className="py-2 pr-4"><p className="font-medium">{j.title}</p><p className="text-xs text-muted-foreground">{j.external_id}</p></td>
                 <td className="py-2 pr-4">{j.owner ?? "—"}</td>
                 <td className="py-2 pr-4"><Badge variant={stateColor(j.status)}>{j.status}</Badge></td>
-                <td className="py-2">{j.callback_received_at && j.result_verified_at ? "ACK tersimpan" : "Belum diverifikasi"}</td>
+                <td className="py-2 pr-4 whitespace-nowrap tabular-nums">{inWib(j.created_at)}</td>
+                <td className="py-2 pr-4 whitespace-nowrap tabular-nums" title={terminal(j.status) ? `Pembaruan terakhir: ${inWib(j.updated_at)}` : "Durasi berjalan, dihitung setiap detik"}>{elapsed(j.created_at, terminal(j.status) ? j.updated_at : null, now)}</td>
+                <td className="py-2">{j.callback_received_at && j.result_verified_at ? `ACK ${inWib(j.result_verified_at)}` : "Belum diverifikasi"}</td>
               </tr>)}
-              {rows.length === 0 && <tr><td colSpan={5} className="py-5 text-muted-foreground text-center">
+              {rows.length === 0 && <tr><td colSpan={7} className="py-5 text-muted-foreground text-center">
                 {jobs.isLoading ? "Memuat…" : "Belum ada pekerjaan terdaftar"}
               </td></tr>}
             </tbody>
