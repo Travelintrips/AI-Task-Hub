@@ -516,12 +516,19 @@ router.post("/bridge/jobs/:id/source-event", requireBridgeToken, async (req: Req
       res.status(409).json({ error: "Source event identity conflict" }); return;
     }
     if (existing) {
-      const incoming = safeSourceTimelineMetadata(body["metadata"]);
+      const incoming = sourceEvidence;
       const previous = existing.payload ?? {};
       const additions = Object.fromEntries(Object.entries(incoming).filter(([key]) => !(key in previous)));
       if (Object.keys(additions).length) {
         await db.update(aiExecutionEventsTable).set({ payload: { ...previous, ...additions } })
           .where(eq(aiExecutionEventsTable.id, existing.id));
+      }
+      if (verifiedFinal && !job.finalAckVerified) {
+        await db.update(aiExecutionJobsTable).set({
+          status: "completed", progress: 100,
+          callbackVerified: true, attestationVerified: true, finalAckVerified: true,
+          completedAt: job.completedAt ?? new Date(),
+        }).where(eq(aiExecutionJobsTable.id, job.id));
       }
       res.status(200).json({ accepted: true, duplicate: true, status: existing.status });
       return;
