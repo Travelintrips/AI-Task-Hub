@@ -10,6 +10,7 @@ import {
 import { getCompanyId, getCompanyIdForWrite, requireAuth } from "../middleware/auth";
 import { emitSseEvent } from "../lib/sse";
 import { safeSourceTimelineMetadata } from "../lib/safe-source-timeline-metadata";
+import { hasVerifiedSourceFinalAck } from "../lib/verified-source-final-ack";
 import { logger } from "../lib/logger";
 import {
   aiCoreBridgeConfigured,
