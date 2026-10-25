@@ -501,6 +501,10 @@ router.post("/bridge/jobs/:id/source-event", requireBridgeToken, async (req: Req
     if (existing && (existing.executionId !== job.id || existing.status !== status)) {
       res.status(409).json({ error: "Source event identity conflict" }); return;
     }
+    if (existing) {
+      res.status(200).json({ accepted: true, duplicate: true, status: existing.status });
+      return;
+    }
     if (!existing) {
       await db.insert(aiExecutionEventsTable).values({
         executionId: job.id,
