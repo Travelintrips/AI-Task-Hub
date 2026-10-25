@@ -443,6 +443,7 @@ router.post("/bridge/jobs", requireBridgeToken, async (req: Request, res: Respon
     const idempotencyKey = typeof body.idempotencyKey === "string" ? body.idempotencyKey.trim() : "";
     const title = typeof body.title === "string" ? body.title.trim() : "";
     const sessionId = typeof body.sessionId === "string" ? body.sessionId.trim() : null;
+    const sourceMetadata = safeSourceTimelineMetadata(body["metadata"]);
     if (!source || !externalId || !idempotencyKey || !title || externalId.length > 128 || title.length > 300) {
       res.status(400).json({ error: "Invalid bridge job" });
       return;
@@ -460,7 +461,7 @@ router.post("/bridge/jobs", requireBridgeToken, async (req: Request, res: Respon
       sessionId,
       status: "queued",
       progress: 0,
-      metadata: { passiveLedger: true },
+      metadata: { passiveLedger: true, ...sourceMetadata },
     }).returning())[0];
 
     res.status(existing ? 200 : 201).json({
