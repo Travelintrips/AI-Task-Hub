@@ -19,7 +19,7 @@ type Job = {
   jobId: string | null; commandId: string | null; correlationId: string | null;
   workerId: string | null; workerStatus: string; createdAt: string;
   updatedAt: string; sopVersion: string | null; sopHistory: SopRevision[];
-  ack: { received: boolean; callbackObserved: boolean; attestationVerified: boolean; finalVerified: boolean };
+  ack: { received: boolean; callbackObserved: boolean; mcpReceiptPersisted: boolean; mcpAcknowledgedAt: string | null; attestationVerified: boolean; finalVerified: boolean };
   events: Event[];
 };
 type Timeline = { authority: string; dispatchEnabled: boolean; syncedAt: string; jobs: Job[] };
@@ -112,10 +112,11 @@ export default function UnifiedExecutionTimelinePage() {
                   </div>
                 ))}
               </dl>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
                 {([
                   ["ACK diterima", current.ack.received],
                   ["Callback tercatat", current.ack.callbackObserved],
+                  ["MCP ACK tertaut", current.ack.mcpReceiptPersisted],
                   ["Attestation", current.ack.attestationVerified],
                   ["Final ACK", current.ack.finalVerified],
                 ] as Array<[string, boolean]>).map(([title, status]) => (
@@ -126,6 +127,12 @@ export default function UnifiedExecutionTimelinePage() {
                   </div>
                 ))}
               </div>
+              {current.ack.mcpReceiptPersisted && current.ack.mcpAcknowledgedAt && (
+                <p className="text-xs text-slate-600">
+                  Bukti MCP diterima: {stamp(current.ack.mcpAcknowledgedAt)}. Ini membuktikan receipt
+                  tersimpan di sumber, bukan keseluruhan browser E2E.
+                </p>
+              )}
               <div>
                 <h3 className="font-semibold">Riwayat SOP per job</h3>
                 {current.sopHistory.length === 0 && <p className="text-xs text-slate-500 mt-2">Snapshot SOP belum diterima dari AI Core untuk job ini; tidak menggunakan versi SOP terbaru sebagai riwayat.</p>}
