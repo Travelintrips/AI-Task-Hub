@@ -12,6 +12,8 @@ import { emitSseEvent } from "../lib/sse";
 import { safeSourceTimelineMetadata } from "../lib/safe-source-timeline-metadata";
 import { hasVerifiedSourceFinalAck } from "../lib/verified-source-final-ack";
 import { logger } from "../lib/logger";
+import { formatAiJobWhatsApp, jobWaConfig, notifyAiJobTransition } from "../lib/ai-job-whatsapp";
+import { probeJobWaDevGateway } from "../lib/ai-job-wa-gateway";
 import {
   aiCoreBridgeConfigured,
   buildAiTaskExternalCommandId,
@@ -221,6 +223,9 @@ async function syncExecution(execution: typeof aiExecutionJobsTable.$inferSelect
     finalAckVerified,
   }, execution.companyId);
 
+  if (updated && updated.status !== execution.status) {
+    void notifyAiJobTransition(updated).catch((err) => logger.warn({ err, executionId: updated.id }, "AI job WhatsApp notification deferred"));
+  }
   return updated ?? execution;
 }
 
@@ -435,6 +440,20 @@ function scheduleExecutionTracking(executionId: string, delayMs = 1_000): void {
   executionSyncTimers.set(executionId, timer);
 }
 
+// Read-only signed bridge preview for AI Core DEV monitoring tests.
+router.get("/bridge/jobs/whatsapp-preview", requireBridgeToken, async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const jobs = await db.select().from(aiExecutionJobsTable)
+      .where(eq(aiExecutionJobsTable.companyId, "default"))
+      .orderBy(desc(aiExecutionJobsTable.createdAt)).limit(30);
+    const gateway = await probeJobWaDevGateway();
+    res.json({ message: formatAiJobWhatsApp(jobs), shown: Math.min(jobs.length, 12), ...jobWaConfig(), gateway });
+  } catch (err) {
+    logger.error({ err }, "GET bridge WhatsApp job digest preview failed");
+    res.status(500).json({ error: "Unable to preview bridge job digest" });
+  }
+});
+
 // AI Core -> AI Task passive ledger registration.
 router.post("/bridge/jobs", requireBridgeToken, async (req: Request, res: Response): Promise<void> => {
   try {
@@ -462,9 +481,13 @@ router.post("/bridge/jobs", requireBridgeToken, async (req: Request, res: Respon
       sessionId,
       status: "queued",
       progress: 0,
+      workerId: typeof sourceMetadata["workerId"] === "string" ? sourceMetadata["workerId"] : null,
       metadata: { passiveLedger: true, ...sourceMetadata },
     }).returning())[0];
 
+    if (!existing) {
+      void notifyAiJobTransition(row).catch((err) => logger.warn({ err, executionId: row.id }, "Bridge job WhatsApp notification deferred"));
+    }
     res.status(existing ? 200 : 201).json({
       accepted: true,
       created: !existing,
@@ -556,18 +579,26 @@ router.post("/bridge/jobs/:id/source-event", requireBridgeToken, async (req: Req
     }
 
     const normalized = status.toUpperCase();
+    const observation = safeSourceTimelineMetadata(body["metadata"]);
     const terminal = ["COMPLETED", "FAILED", "BLOCKED", "DEPLOYED", "MERGED"].includes(normalized);
-    await db.update(aiExecutionJobsTable).set({
+    const [updated] = await db.update(aiExecutionJobsTable).set({
+      // Latest DEV Final ACK verification is authoritative; a source-only
+      // COMPLETED event must remain "verifying" until Final ACK is verified.
       status: verifiedFinal ? "completed" : normalized === "FAILED" ? "failed" : normalized === "BLOCKED" ? "blocked" :
         normalized === "COMPLETED" ? "verifying" : normalized.toLowerCase(),
       progress: verifiedFinal ? 100 : normalized === "COMPLETED" ? 90 : terminal ? 100 : Math.max(job.progress, 25),
+      workerId: typeof observation["workerId"] === "string" ? observation["workerId"] : job.workerId,
+      startedAt: ["RUNNING", "IN_PROGRESS"].includes(normalized) ? job.startedAt ?? new Date() : job.startedAt,
       ...(verifiedFinal ? {
         callbackVerified: true,
         attestationVerified: true,
         finalAckVerified: true,
       } : {}),
       ...(terminal ? { completedAt: new Date() } : {}),
-    }).where(eq(aiExecutionJobsTable.id, job.id));
+    }).where(eq(aiExecutionJobsTable.id, job.id)).returning();
+    if (updated && updated.status !== job.status) {
+      void notifyAiJobTransition(updated).catch((err) => logger.warn({ err, executionId: updated.id }, "Source event WhatsApp notification deferred"));
+    }
 
     res.status(202).json({ accepted: true, duplicate: false, status: normalized });
   } catch (err) {
@@ -704,6 +735,8 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
       execution = created;
     }
 
+    void notifyAiJobTransition(execution).catch((err) => logger.warn({ err, executionId: execution.id }, "Execution WhatsApp notification deferred"));
+
     try {
       const executionMeta = asRecord(execution.metadata);
       const remoteCorrelationId = typeof executionMeta["remoteCorrelationId"] === "string"
@@ -780,11 +813,27 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
         errorMessage: message,
         completedAt: new Date(),
       }).where(eq(aiExecutionJobsTable.id, execution.id)).returning();
+      if (failed) void notifyAiJobTransition(failed).catch((err) => logger.warn({ err, executionId: failed.id }, "Failed job WhatsApp notification deferred"));
       res.status(502).json({ error: "AI Core dispatch failed", execution: failed ?? execution });
     }
   } catch (err) {
     logger.error({ err }, "POST task execution failed");
     res.status(500).json({ error: "Failed to start execution" });
+  }
+});
+
+// Read-only preview and readiness check. No WhatsApp message is sent from this route.
+router.get("/executions/whatsapp-digest/preview", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const companyId = getCompanyId(req);
+    const jobs = await db.select().from(aiExecutionJobsTable)
+      .where(companyId ? eq(aiExecutionJobsTable.companyId, companyId) : undefined)
+      .orderBy(desc(aiExecutionJobsTable.createdAt)).limit(30);
+    const gateway = await probeJobWaDevGateway();
+    res.json({ message: formatAiJobWhatsApp(jobs), shown: Math.min(jobs.length, 12), ...jobWaConfig(), gateway });
+  } catch (err) {
+    logger.error({ err }, "GET WhatsApp job digest preview failed");
+    res.status(500).json({ error: "Failed to create job digest preview" });
   }
 });
 

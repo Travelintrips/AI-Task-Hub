@@ -76,6 +76,19 @@ if [ "$TARGET" = "development" ] && docker network inspect ai-core-workers_contr
   docker network connect ai-core-workers_control "$CONTAINER_NAME" >/dev/null 2>&1 || true
 fi
 
+# DEV-only: restore the private AI Task -> CST WA Gateway link whenever
+# Docker Compose recreates the DEV app. This does not enable the gateway,
+# create a WhatsApp session, send messages, or touch production containers.
+# Link only if explicitly configured and the dedicated DEV helper exists.
+if [ "$TARGET" = "development" ] &&
+   grep -qx 'AI_CORE_JOB_WA_ENABLED=true' "$APP_ENV_FILE" &&
+   [ -f /opt/cst-wa-gateway-dev/deploy/connect-ai-core-dev-private.sh ]; then
+  echo "Restoring private AI Task DEV -> WhatsApp Gateway DEV connectivity..."
+  if ! bash /opt/cst-wa-gateway-dev/deploy/connect-ai-core-dev-private.sh; then
+    echo "WARNING: WhatsApp DEV private link failed; notification delivery is unavailable." >&2
+  fi
+fi
+
 for attempt in $(seq 1 45); do
   status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$CONTAINER_NAME" 2>/dev/null || true)"
   if [ "$status" = "healthy" ]; then
