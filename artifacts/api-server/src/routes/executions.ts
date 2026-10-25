@@ -508,7 +508,7 @@ router.post("/bridge/jobs/:id/source-event", requireBridgeToken, async (req: Req
         phase: "source",
         status,
         message: `AI Core source state: ${status}`,
-        payload: { status },
+        payload: { status, ...safeSourceTimelineMetadata(body["metadata"]) },
       });
     }
 
