@@ -7,6 +7,9 @@ export function safeSourceTimelineMetadata(value: unknown) {
     const text = source[key];
     if (typeof text === "string" && text.length > 0 && text.length <= 200) result[key] = text;
   }
+  for (const key of ["ackReceived", "callbackObserved"]) {
+    if (source[key] === true) result[key] = true;
+  }
   const raw = source["sopSnapshot"];
   const sop = raw && typeof raw === "object" && !Array.isArray(raw)
     ? raw as Record<string, unknown> : {};
