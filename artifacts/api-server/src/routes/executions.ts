@@ -10,6 +10,7 @@ import {
 import { getCompanyId, getCompanyIdForWrite, requireAuth } from "../middleware/auth";
 import { emitSseEvent } from "../lib/sse";
 import { safeSourceTimelineMetadata } from "../lib/safe-source-timeline-metadata";
+import { hasVerifiedSourceFinalAck } from "../lib/verified-source-final-ack";
 import { logger } from "../lib/logger";
 import {
   aiCoreBridgeConfigured,
@@ -499,18 +500,43 @@ router.post("/bridge/jobs/:id/source-event", requireBridgeToken, async (req: Req
       res.status(403).json({ error: "Source authority mismatch" }); return;
     }
 
+    const sourceEvidence = safeSourceTimelineMetadata(body["metadata"]);
+    const verifiedFinal = hasVerifiedSourceFinalAck({
+      source: job.source, externalId: job.externalId, status,
+      metadata: sourceEvidence,
+    }) && eventId === "ai-core:" + job.externalId + ":COMPLETED:terminal";
+    if (asRecord(body["metadata"])["finalE2eVerified"] === true && !verifiedFinal) {
+      res.status(409).json({ error: "Final ACK evidence mismatch" });
+      return;
+    }
+
+    if (job.finalAckVerified && !verifiedFinal) {
+      if (status === "COMPLETED") {
+        res.status(200).json({ accepted: true, duplicate: true, status: "COMPLETED" });
+      } else {
+        res.status(409).json({ error: "Cannot downgrade source-verified final ACK" });
+      }
+      return;
+    }
     const [existing] = await db.select({ id: aiExecutionEventsTable.id, executionId: aiExecutionEventsTable.executionId, status: aiExecutionEventsTable.status, payload: aiExecutionEventsTable.payload }).from(aiExecutionEventsTable)
       .where(eq(aiExecutionEventsTable.eventId, eventId)).limit(1);
     if (existing && (existing.executionId !== job.id || existing.status !== status)) {
       res.status(409).json({ error: "Source event identity conflict" }); return;
     }
     if (existing) {
-      const incoming = safeSourceTimelineMetadata(body["metadata"]);
+      const incoming = sourceEvidence;
       const previous = existing.payload ?? {};
       const additions = Object.fromEntries(Object.entries(incoming).filter(([key]) => !(key in previous)));
       if (Object.keys(additions).length) {
         await db.update(aiExecutionEventsTable).set({ payload: { ...previous, ...additions } })
           .where(eq(aiExecutionEventsTable.id, existing.id));
+      }
+      if (verifiedFinal && !job.finalAckVerified) {
+        await db.update(aiExecutionJobsTable).set({
+          status: "completed", progress: 100,
+          callbackVerified: true, attestationVerified: true, finalAckVerified: true,
+          completedAt: job.completedAt ?? new Date(),
+        }).where(eq(aiExecutionJobsTable.id, job.id));
       }
       res.status(200).json({ accepted: true, duplicate: true, status: existing.status });
       return;
@@ -525,16 +551,21 @@ router.post("/bridge/jobs/:id/source-event", requireBridgeToken, async (req: Req
         phase: "source",
         status,
         message: `AI Core source state: ${status}`,
-        payload: { status, ...safeSourceTimelineMetadata(body["metadata"]) },
+        payload: { status, ...sourceEvidence },
       });
     }
 
     const normalized = status.toUpperCase();
     const terminal = ["COMPLETED", "FAILED", "BLOCKED", "DEPLOYED", "MERGED"].includes(normalized);
     await db.update(aiExecutionJobsTable).set({
-      status: normalized === "FAILED" ? "failed" : normalized === "BLOCKED" ? "blocked" :
+      status: verifiedFinal ? "completed" : normalized === "FAILED" ? "failed" : normalized === "BLOCKED" ? "blocked" :
         normalized === "COMPLETED" ? "verifying" : normalized.toLowerCase(),
-      progress: normalized === "COMPLETED" ? 90 : terminal ? 100 : Math.max(job.progress, 25),
+      progress: verifiedFinal ? 100 : normalized === "COMPLETED" ? 90 : terminal ? 100 : Math.max(job.progress, 25),
+      ...(verifiedFinal ? {
+        callbackVerified: true,
+        attestationVerified: true,
+        finalAckVerified: true,
+      } : {}),
       ...(terminal ? { completedAt: new Date() } : {}),
     }).where(eq(aiExecutionJobsTable.id, job.id));
 
