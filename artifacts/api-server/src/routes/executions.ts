@@ -496,8 +496,11 @@ router.post("/bridge/jobs/:id/source-event", requireBridgeToken, async (req: Req
       .where(eq(aiExecutionJobsTable.id, executionId)).limit(1);
     if (!job) { res.status(404).json({ error: "Bridge job not found" }); return; }
 
-    const [existing] = await db.select({ id: aiExecutionEventsTable.id }).from(aiExecutionEventsTable)
+    const [existing] = await db.select({ id: aiExecutionEventsTable.id, executionId: aiExecutionEventsTable.executionId, status: aiExecutionEventsTable.status }).from(aiExecutionEventsTable)
       .where(eq(aiExecutionEventsTable.eventId, eventId)).limit(1);
+    if (existing && (existing.executionId !== job.id || existing.status !== status)) {
+      res.status(409).json({ error: "Source event identity conflict" }); return;
+    }
     if (!existing) {
       await db.insert(aiExecutionEventsTable).values({
         executionId: job.id,
