@@ -443,6 +443,7 @@ router.post("/bridge/jobs", requireBridgeToken, async (req: Request, res: Respon
     const idempotencyKey = typeof body.idempotencyKey === "string" ? body.idempotencyKey.trim() : "";
     const title = typeof body.title === "string" ? body.title.trim() : "";
     const sessionId = typeof body.sessionId === "string" ? body.sessionId.trim() : null;
+    const sourceMetadata = safeSourceTimelineMetadata(body["metadata"]);
     if (!source || !externalId || !idempotencyKey || !title || externalId.length > 128 || title.length > 300) {
       res.status(400).json({ error: "Invalid bridge job" });
       return;
@@ -460,7 +461,7 @@ router.post("/bridge/jobs", requireBridgeToken, async (req: Request, res: Respon
       sessionId,
       status: "queued",
       progress: 0,
-      metadata: { passiveLedger: true },
+      metadata: { passiveLedger: true, ...sourceMetadata },
     }).returning())[0];
 
     res.status(existing ? 200 : 201).json({
@@ -494,9 +495,26 @@ router.post("/bridge/jobs/:id/source-event", requireBridgeToken, async (req: Req
     const [job] = await db.select().from(aiExecutionJobsTable)
       .where(eq(aiExecutionJobsTable.id, executionId)).limit(1);
     if (!job) { res.status(404).json({ error: "Bridge job not found" }); return; }
+    if (job.source !== "AI_CORE" || !eventId.startsWith("ai-core:" + job.externalId + ":")) {
+      res.status(403).json({ error: "Source authority mismatch" }); return;
+    }
 
-    const [existing] = await db.select({ id: aiExecutionEventsTable.id }).from(aiExecutionEventsTable)
+    const [existing] = await db.select({ id: aiExecutionEventsTable.id, executionId: aiExecutionEventsTable.executionId, status: aiExecutionEventsTable.status, payload: aiExecutionEventsTable.payload }).from(aiExecutionEventsTable)
       .where(eq(aiExecutionEventsTable.eventId, eventId)).limit(1);
+    if (existing && (existing.executionId !== job.id || existing.status !== status)) {
+      res.status(409).json({ error: "Source event identity conflict" }); return;
+    }
+    if (existing) {
+      const incoming = safeSourceTimelineMetadata(body["metadata"]);
+      const previous = existing.payload ?? {};
+      const additions = Object.fromEntries(Object.entries(incoming).filter(([key]) => !(key in previous)));
+      if (Object.keys(additions).length) {
+        await db.update(aiExecutionEventsTable).set({ payload: { ...previous, ...additions } })
+          .where(eq(aiExecutionEventsTable.id, existing.id));
+      }
+      res.status(200).json({ accepted: true, duplicate: true, status: existing.status });
+      return;
+    }
     if (!existing) {
       await db.insert(aiExecutionEventsTable).values({
         executionId: job.id,
@@ -507,7 +525,7 @@ router.post("/bridge/jobs/:id/source-event", requireBridgeToken, async (req: Req
         phase: "source",
         status,
         message: `AI Core source state: ${status}`,
-        payload: { status },
+        payload: { status, ...safeSourceTimelineMetadata(body["metadata"]) },
       });
     }
 
@@ -520,7 +538,7 @@ router.post("/bridge/jobs/:id/source-event", requireBridgeToken, async (req: Req
       ...(terminal ? { completedAt: new Date() } : {}),
     }).where(eq(aiExecutionJobsTable.id, job.id));
 
-    res.status(existing ? 200 : 202).json({ accepted: true, duplicate: Boolean(existing) });
+    res.status(202).json({ accepted: true, duplicate: false, status: normalized });
   } catch (err) {
     logger.error({ err }, "POST /bridge/jobs/:id/source-event failed");
     res.status(500).json({ error: "Source event unavailable" });
