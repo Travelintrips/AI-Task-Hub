@@ -23,7 +23,35 @@ router.get("/executions/unified-timeline", requireAuth, async (req: Request, res
     }
     const pattern = timelineSearchPattern(typeof rawQuery === "string" ? rawQuery : "");
     const company = getCompanyId(req);
-    const companyFilter = company ? eq(aiExecutionJobsTable.companyId, company) : undefined;
+    const searchFilter = pattern ? or(
+      ilike(aiExecutionJobsTable.source, pattern),
+      ilike(aiExecutionJobsTable.externalId, pattern),
+      ilike(aiExecutionJobsTable.status, pattern),
+      ilike(aiExecutionJobsTable.workerId, pattern),
+      ilike(aiExecutionJobsTable.assignedClientId, pattern),
+      sql`CAST(${aiExecutionJobsTable.commandId} AS TEXT) ILIKE ${pattern}`,
+      sql`CAST(${aiExecutionJobsTable.correlationId} AS TEXT) ILIKE ${pattern}`,
+      sql`${aiExecutionJobsTable.metadata} ->> 'jobId' ILIKE ${pattern}`,
+      sql`${aiExecutionJobsTable.metadata} ->> 'commandId' ILIKE ${pattern}`,
+      sql`${aiExecutionJobsTable.metadata} ->> 'correlationId' ILIKE ${pattern}`,
+      sql`COALESCE((
+        SELECT e.status FROM ai_execution_events e
+        WHERE e.execution_id = ${aiExecutionJobsTable.id} AND e.event_type = 'SOURCE_EVENT'
+        ORDER BY e.created_at DESC, e.id DESC LIMIT 1
+      ), '') ILIKE ${pattern}`,
+      sql`EXISTS (
+        SELECT 1 FROM ai_execution_events e
+        WHERE e.execution_id = ${aiExecutionJobsTable.id}
+          AND (e.payload ->> 'jobId' ILIKE ${pattern}
+            OR e.payload ->> 'commandId' ILIKE ${pattern}
+            OR e.payload ->> 'correlationId' ILIKE ${pattern}
+            OR e.payload ->> 'workerId' ILIKE ${pattern})
+      )`,
+    ) : undefined;
+    const companyFilter = and(
+      company ? eq(aiExecutionJobsTable.companyId, company) : undefined,
+      searchFilter,
+    );
     const [[totals], jobs] = await Promise.all([
       db.select({ total: count() }).from(aiExecutionJobsTable).where(companyFilter),
       db.select().from(aiExecutionJobsTable)
