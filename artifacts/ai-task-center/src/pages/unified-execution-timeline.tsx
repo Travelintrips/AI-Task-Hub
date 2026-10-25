@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Activity, CheckCircle2, Clock, RefreshCw, Search, ShieldCheck } from "lucide-react";
@@ -38,13 +38,22 @@ const stateClass = (status: string) => {
 
 export default function UnifiedExecutionTimelinePage() {
   const [search, setSearch] = useState("");
+  const [appliedSearch, setAppliedSearch] = useState("");
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setPage(0);
+      setSelected(null);
+      setAppliedSearch(search.trim());
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [search]);
   const [selected, setSelected] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   const timeline = useQuery<Timeline>({
-    queryKey: ["unified-execution-timeline", page],
+    queryKey: ["unified-execution-timeline", page, appliedSearch],
     queryFn: async () => {
       const token = getStoredToken();
-      const response = await fetch(BASE + "/api/executions/unified-timeline?limit=50&offset=" + (page * 50), {
+      const response = await fetch(BASE + "/api/executions/unified-timeline?limit=50&offset=" + (page * 50) + "&q=" + encodeURIComponent(appliedSearch), {
         headers: token ? { Authorization: "Bearer " + token } : {},
       });
       if (!response.ok) throw new Error("HTTP " + response.status);
@@ -54,10 +63,9 @@ export default function UnifiedExecutionTimelinePage() {
   });
   const jobs = timeline.data?.jobs ?? [];
   const totalPages = Math.max(1, Math.ceil((timeline.data?.paging.total ?? 0) / 50));
-  const filtered = jobs.filter((job) => [
-    job.externalId, job.jobId, job.commandId, job.correlationId, job.workerId,
-    job.executionStatus, job.ledgerStatus, job.finalAckStatus,
-  ].some((v) => v?.toLowerCase().includes(search.trim().toLowerCase())));
+  // Results and total count are scoped and filtered by the authenticated API.
+  // Filtering this page a second time would hide valid matches from older pages.
+  const filtered = jobs;
   const current = filtered.find((job) => job.id === selected) ?? filtered[0] ?? null;
   return (
     <div className="p-4 md:p-7 space-y-5 max-w-7xl mx-auto text-slate-900">
