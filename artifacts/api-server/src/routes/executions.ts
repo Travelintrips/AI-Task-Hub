@@ -553,6 +553,11 @@ router.post("/bridge/jobs/:id/source-event", requireBridgeToken, async (req: Req
       status: verifiedFinal ? "completed" : normalized === "FAILED" ? "failed" : normalized === "BLOCKED" ? "blocked" :
         normalized === "COMPLETED" ? "verifying" : normalized.toLowerCase(),
       progress: verifiedFinal ? 100 : normalized === "COMPLETED" ? 90 : terminal ? 100 : Math.max(job.progress, 25),
+      ...(verifiedFinal ? {
+        callbackVerified: true,
+        attestationVerified: true,
+        finalAckVerified: true,
+      } : {}),
       ...(terminal ? { completedAt: new Date() } : {}),
     }).where(eq(aiExecutionJobsTable.id, job.id));
 
