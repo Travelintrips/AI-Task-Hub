@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { projectUnifiedTimeline } from "./unified-execution-timeline.ts";
+import { projectUnifiedTimeline } from "./unified-execution-timeline.js";
 
 const when = new Date("2026-10-25T20:00:00Z");
 const job = {
