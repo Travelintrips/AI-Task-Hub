@@ -510,6 +510,14 @@ router.post("/bridge/jobs/:id/source-event", requireBridgeToken, async (req: Req
       return;
     }
 
+    if (job.finalAckVerified && !verifiedFinal) {
+      if (status === "COMPLETED") {
+        res.status(200).json({ accepted: true, duplicate: true, status: "COMPLETED" });
+      } else {
+        res.status(409).json({ error: "Cannot downgrade source-verified final ACK" });
+      }
+      return;
+    }
     const [existing] = await db.select({ id: aiExecutionEventsTable.id, executionId: aiExecutionEventsTable.executionId, status: aiExecutionEventsTable.status, payload: aiExecutionEventsTable.payload }).from(aiExecutionEventsTable)
       .where(eq(aiExecutionEventsTable.eventId, eventId)).limit(1);
     if (existing && (existing.executionId !== job.id || existing.status !== status)) {
