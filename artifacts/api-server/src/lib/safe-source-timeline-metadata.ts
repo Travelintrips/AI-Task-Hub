@@ -20,6 +20,15 @@ export function safeSourceTimelineMetadata(value: unknown) {
       result["mcpAckAt"] = timestamp;
     }
   }
+  if (result["mcpReceiptPersisted"] === true &&
+      source["finalE2eVerified"] === true &&
+      source["finalE2eMethod"] === "AI_CORE_VERIFIED_MCP_HANDSHAKE_V1" &&
+      typeof source["finalE2eVerifiedAt"] === "string" &&
+      source["finalE2eVerifiedAt"] === result["mcpAckAt"]) {
+    result["finalE2eVerified"] = true;
+    result["finalE2eVerifiedAt"] = source["finalE2eVerifiedAt"];
+    result["finalE2eMethod"] = "AI_CORE_VERIFIED_MCP_HANDSHAKE_V1";
+  }
   const raw = source["sopSnapshot"];
   const sop = raw && typeof raw === "object" && !Array.isArray(raw)
     ? raw as Record<string, unknown> : {};
