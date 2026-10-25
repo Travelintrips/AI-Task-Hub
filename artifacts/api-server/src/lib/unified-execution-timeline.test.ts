@@ -63,3 +63,25 @@ test("previously mirrored jobs recover identity and SOP from source events", () 
   assert.equal(item.ack.callbackObserved, true);
   assert.equal(item.ack.finalVerified, false);
 });
+
+test("persisted MCP receipt is visible but cannot certify E2E Final ACK", () => {
+  const [item] = projectUnifiedTimeline([{ ...job, metadata: {} }], [{
+    ...event, eventType: "SOURCE_EVENT",
+    payload: { status: "COMPLETED", ackReceived: true, callbackObserved: true,
+      mcpReceiptPersisted: true, mcpAckAt: "2026-10-25T19:00:00.000Z" },
+  }]);
+  assert.equal(item.ack.mcpReceiptPersisted, true);
+  assert.equal(item.ack.mcpAcknowledgedAt, "2026-10-25T19:00:00.000Z");
+  assert.equal(item.ack.finalVerified, false);
+  assert.equal(item.ack.attestationVerified, false);
+});
+test("legacy source transport ACK does not imply MCP receipt", () => {
+  const [item] = projectUnifiedTimeline([{ ...job, metadata: {} }], [{
+    ...event, eventType: "SOURCE_EVENT",
+    payload: { ackReceived: true, callbackObserved: true },
+  }]);
+  assert.equal(item.ack.received, true);
+  assert.equal(item.ack.mcpReceiptPersisted, false);
+  assert.equal(item.ack.mcpAcknowledgedAt, null);
+  assert.equal(item.ack.finalVerified, false);
+});
