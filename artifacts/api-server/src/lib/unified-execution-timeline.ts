@@ -44,6 +44,14 @@ export function projectUnifiedTimeline(jobs: ExecutionProjection[], events: Exec
         seen.add(x.eventId);
         return true;
       }).slice(-80);
+    const eventEvidence: Record<string, unknown> = {};
+    for (const event of sourceEvents) {
+      const payload = object(event.payload);
+      for (const key of ["jobId", "commandId", "correlationId", "workerId"]) {
+        if (safe(payload[key])) eventEvidence[key] = payload[key];
+      }
+    }
+    const identity = { ...eventEvidence, ...meta };
     const sopHistory: Array<{
       eventId: string; capturedAt: string; version: string | null;
       title: string | null; steps: string[];
@@ -68,10 +76,10 @@ export function projectUnifiedTimeline(jobs: ExecutionProjection[], events: Exec
     });
     return {
       id: job.id, source: job.source, taskId: job.taskId, externalId: job.externalId,
-      jobId: safe(meta["jobId"]) ?? null,
-      commandId: safe(meta["commandId"]) ?? job.commandId,
-      correlationId: safe(meta["correlationId"]) ?? job.correlationId,
-      workerId: safe(meta["workerId"]) ?? job.workerId ?? job.assignedClientId,
+      jobId: safe(identity["jobId"]) ?? null,
+      commandId: safe(identity["commandId"]) ?? job.commandId,
+      correlationId: safe(identity["correlationId"]) ?? job.correlationId,
+      workerId: safe(identity["workerId"]) ?? job.workerId ?? job.assignedClientId,
       workerStatus: job.status,
       createdAt: job.createdAt.toISOString(), updatedAt: job.updatedAt.toISOString(),
       sopVersion: sopHistory.at(-1)?.version ?? null, sopHistory,
