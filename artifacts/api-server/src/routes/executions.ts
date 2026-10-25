@@ -500,6 +500,16 @@ router.post("/bridge/jobs/:id/source-event", requireBridgeToken, async (req: Req
       res.status(403).json({ error: "Source authority mismatch" }); return;
     }
 
+    const sourceEvidence = safeSourceTimelineMetadata(body["metadata"]);
+    const verifiedFinal = hasVerifiedSourceFinalAck({
+      source: job.source, externalId: job.externalId, status,
+      metadata: sourceEvidence,
+    }) && eventId === "ai-core:" + job.externalId + ":COMPLETED:terminal";
+    if (asRecord(body["metadata"])["finalE2eVerified"] === true && !verifiedFinal) {
+      res.status(409).json({ error: "Final ACK evidence mismatch" });
+      return;
+    }
+
     const [existing] = await db.select({ id: aiExecutionEventsTable.id, executionId: aiExecutionEventsTable.executionId, status: aiExecutionEventsTable.status, payload: aiExecutionEventsTable.payload }).from(aiExecutionEventsTable)
       .where(eq(aiExecutionEventsTable.eventId, eventId)).limit(1);
     if (existing && (existing.executionId !== job.id || existing.status !== status)) {
