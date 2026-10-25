@@ -17,12 +17,15 @@ type Event = {
 type Job = {
   id: string; source: string; taskId: number | null; externalId: string;
   jobId: string | null; commandId: string | null; correlationId: string | null;
-  workerId: string | null; workerStatus: string; createdAt: string;
+  workerId: string | null; workerStatus: string;
+  executionStatus: string; ledgerStatus: string; finalAckStatus: "VERIFIED" | "PENDING";
+  createdAt: string;
   updatedAt: string; sopVersion: string | null; sopHistory: SopRevision[];
   ack: { received: boolean; callbackObserved: boolean; mcpReceiptPersisted: boolean; mcpAcknowledgedAt: string | null; attestationVerified: boolean; finalVerified: boolean };
   events: Event[];
 };
-type Timeline = { authority: string; dispatchEnabled: boolean; syncedAt: string; jobs: Job[] };
+type Timeline = { authority: string; dispatchEnabled: boolean; syncedAt: string; jobs: Job[];
+  paging: { limit: number; offset: number; total: number } };
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const stamp = (v: string) => Number.isNaN(Date.parse(v)) ? v : new Date(v).toLocaleString("id-ID", { timeZone: "Asia/Jakarta" }) + " WIB";
 const empty = (v: string | null) => v || "Belum tercatat";
@@ -36,11 +39,12 @@ const stateClass = (status: string) => {
 export default function UnifiedExecutionTimelinePage() {
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
+  const [page, setPage] = useState(0);
   const timeline = useQuery<Timeline>({
-    queryKey: ["unified-execution-timeline"],
+    queryKey: ["unified-execution-timeline", page],
     queryFn: async () => {
       const token = getStoredToken();
-      const response = await fetch(BASE + "/api/executions/unified-timeline?limit=50", {
+      const response = await fetch(BASE + "/api/executions/unified-timeline?limit=50&offset=" + (page * 50), {
         headers: token ? { Authorization: "Bearer " + token } : {},
       });
       if (!response.ok) throw new Error("HTTP " + response.status);
@@ -49,8 +53,10 @@ export default function UnifiedExecutionTimelinePage() {
     refetchInterval: 15000,
   });
   const jobs = timeline.data?.jobs ?? [];
+  const totalPages = Math.max(1, Math.ceil((timeline.data?.paging.total ?? 0) / 50));
   const filtered = jobs.filter((job) => [
-    job.externalId, job.jobId, job.commandId, job.correlationId, job.workerId, job.workerStatus,
+    job.externalId, job.jobId, job.commandId, job.correlationId, job.workerId,
+    job.executionStatus, job.ledgerStatus, job.finalAckStatus,
   ].some((v) => v?.toLowerCase().includes(search.trim().toLowerCase())));
   const current = filtered.find((job) => job.id === selected) ?? filtered[0] ?? null;
   return (
@@ -59,7 +65,7 @@ export default function UnifiedExecutionTimelinePage() {
         <div>
           <div className="flex items-center gap-2 text-sm font-semibold text-blue-600"><Activity size={17} /> AI Task / SOP</div>
           <h1 className="text-2xl font-bold mt-1">Timeline Terpadu</h1>
-          <p className="text-sm text-slate-600 mt-1">Job, command, korelasi, worker, riwayat SOP, dan ACK dari ledger yang tersimpan.</p>
+          <p className="text-sm text-slate-600 mt-1">Status eksekusi dari AI Core ditampilkan terpisah dari status Final ACK. Job yang selesai tidak dianggap sedang berjalan hanya karena menunggu verifikasi akhir.</p>
           <p className="flex items-center gap-2 text-xs text-slate-500 mt-2"><ShieldCheck size={14}/> Otoritas eksekusi: AI Core. Halaman ini hanya membaca; tidak mengirim atau mengambil job.</p>
         </div>
         <Button variant="outline" onClick={() => void timeline.refetch()} disabled={timeline.isFetching}>
@@ -68,7 +74,7 @@ export default function UnifiedExecutionTimelinePage() {
       </header>
       <div className="rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-600">
         Sumber waktu: WIB • Sinkron terakhir: {timeline.data ? stamp(timeline.data.syncedAt) : "Belum tersedia"} •
-        Status worker dan ACK hanya ditandai terverifikasi bila ledger menyimpan buktinya.
+        Eksekusi = event otoritatif AI Core • Final ACK = bukti akhir yang diverifikasi • Ledger = status pemantauan internal AI Task.
       </div>
       {timeline.isError && <div role="alert" className="p-4 border border-red-200 bg-red-50 rounded-xl text-red-800">Gagal mengambil timeline dari AI Task DEV. Tidak ada status yang diasumsikan berhasil.</div>}
       <div className="relative">
@@ -76,25 +82,37 @@ export default function UnifiedExecutionTimelinePage() {
         <Input aria-label="Cari job, command, correlation atau worker" placeholder="Cari jobId, commandId, correlationId, worker..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-10" />
       </div>
       <div className="grid gap-4 lg:grid-cols-[minmax(250px,1fr)_minmax(0,2fr)]">
-        <div className="rounded-xl border bg-white max-h-[700px] overflow-y-auto">
+        <div className="space-y-2 min-w-0">
+          <div className="rounded-xl border bg-white max-h-[700px] overflow-y-auto">
           {filtered.length === 0 && <p className="p-5 text-sm text-slate-500">{timeline.isLoading ? "Memuat ledger..." : "Tidak ditemukan job pada data yang tersedia."}</p>}
           {filtered.map((job) => (
             <button key={job.id} type="button" onClick={() => setSelected(job.id)}
               className={"block w-full text-left px-4 py-3 border-b last:border-b-0 hover:bg-slate-50 " + (current?.id === job.id ? "bg-blue-50" : "")}>
               <span className="flex items-center justify-between gap-2">
                 <span className="font-semibold text-xs">{job.source}</span>
-                <span className={"text-[11px] border rounded-full px-2 py-0.5 " + stateClass(job.workerStatus)}>{job.workerStatus}</span>
+                <span className={"text-[11px] border rounded-full px-2 py-0.5 " + stateClass(job.executionStatus)}>{job.executionStatus}</span>
               </span>
+              <span className="block mt-1 text-[11px] text-slate-600">Final ACK: <strong>{job.finalAckStatus === "VERIFIED" ? "Verified" : "Pending"}</strong> · Ledger: {job.ledgerStatus}</span>
               <span className="block mt-1 font-mono text-[11px] break-all text-slate-700">{job.jobId || job.externalId}</span>
               <span className="block mt-1 text-[11px] text-slate-500">{stamp(job.updatedAt)}</span>
             </button>
           ))}
+          </div>
+          <div className="flex items-center justify-between gap-2 text-xs text-slate-600">
+            <span>Halaman {page + 1} dari {totalPages} · {timeline.data?.paging.total ?? 0} job</span>
+            <div className="flex items-center gap-2">
+              <Button size="sm" variant="outline" disabled={page === 0 || timeline.isFetching}
+                onClick={() => { setSelected(null); setPage((n) => Math.max(0, n - 1)); }}>Sebelumnya</Button>
+              <Button size="sm" variant="outline" disabled={page + 1 >= totalPages || timeline.isFetching}
+                onClick={() => { setSelected(null); setPage((n) => n + 1); }}>Berikutnya</Button>
+            </div>
+          </div>
         </div>
         <section className="rounded-xl border bg-white p-4 md:p-5 min-w-0">
           {current ? (
             <div className="space-y-5">
               <div className="flex items-center justify-between gap-2">
-                <h2 className="font-semibold text-lg">Detail korelasi</h2>
+                <h2 className="font-semibold text-lg">Detail eksekusi dan korelasi</h2>
                 {current.taskId && <Link href={"/ai-tasks/" + current.taskId} className="text-blue-600 text-sm underline">Buka task</Link>}
               </div>
               <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
@@ -104,7 +122,9 @@ export default function UnifiedExecutionTimelinePage() {
                   ["Command ID", current.commandId],
                   ["Correlation ID", current.correlationId],
                   ["Worker", current.workerId],
-                  ["Status Worker", current.workerStatus],
+                  ["Status eksekusi sumber", current.executionStatus],
+                  ["Final ACK", current.finalAckStatus === "VERIFIED" ? "Verified" : "Pending"],
+                  ["Status ledger AI Task", current.ledgerStatus],
                 ] as Array<[string, string | null]>).map(([title, value]) => (
                   <div key={title} className="rounded-lg bg-slate-50 p-3 min-w-0">
                     <dt className="text-xs text-slate-500">{title}</dt>
@@ -112,6 +132,11 @@ export default function UnifiedExecutionTimelinePage() {
                   </div>
                 ))}
               </dl>
+              {current.executionStatus === "COMPLETED" && !current.ack.finalVerified && (
+                <p className="text-xs text-slate-600 rounded-lg border border-slate-200 p-3">
+                  Eksekusi AI Core sudah COMPLETED. Final ACK masih Pending; ini tidak berarti worker masih berjalan.
+                </p>
+              )}
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs">
                 {([
                   ["ACK diterima", current.ack.received],
