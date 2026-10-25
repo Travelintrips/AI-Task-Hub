@@ -10,6 +10,16 @@ export function safeSourceTimelineMetadata(value: unknown) {
   for (const key of ["ackReceived", "callbackObserved"]) {
     if (source[key] === true) result[key] = true;
   }
+  // Separate verified persisted MCP delivery receipt from final ChatGPT E2E.
+  // This evidence may come only through the authenticated AI Core ledger bridge.
+  if (source["mcpReceiptPersisted"] === true) {
+    const timestamp = source["mcpAckAt"];
+    if (typeof timestamp === "string" && timestamp.length <= 35 &&
+        Number.isFinite(Date.parse(timestamp)) && !Number.isNaN(Date.parse(timestamp))) {
+      result["mcpReceiptPersisted"] = true;
+      result["mcpAckAt"] = timestamp;
+    }
+  }
   const raw = source["sopSnapshot"];
   const sop = raw && typeof raw === "object" && !Array.isArray(raw)
     ? raw as Record<string, unknown> : {};
