@@ -38,6 +38,7 @@ import KnowledgeBasePage from "@/pages/knowledge-base";
 import GovernancePage from "@/pages/governance";
 import TrainingPage from "@/pages/training";
 import AiObservabilityPage from "@/pages/ai-observability";
+import UnifiedExecutionTimelinePage from "@/pages/unified-execution-timeline";
 import CreativeAiPage from "@/pages/creative-ai";
 import CustomerMemoryPage from "@/pages/customer-memory";
 import VendorsPage from "@/pages/vendors";
@@ -143,6 +144,7 @@ function AppRouter() {
         <Route path="/governance" component={GovernancePage} />
         <Route path="/training" component={TrainingPage} />
         <Route path="/ai-observability" component={AiObservabilityPage} />
+        <Route path="/execution-timeline" component={UnifiedExecutionTimelinePage} />
         <Route path="/creative-ai" component={CreativeAiPage} />
         <Route path="/creative-ai/:taskId" component={CreativeAiPage} />
         <Route path="/crm/customers/:id/memory" component={CustomerMemoryPage} />

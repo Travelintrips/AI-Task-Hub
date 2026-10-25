@@ -9,6 +9,7 @@ import {
 } from "@workspace/db";
 import { getCompanyId, getCompanyIdForWrite, requireAuth } from "../middleware/auth";
 import { emitSseEvent } from "../lib/sse";
+import { safeSourceTimelineMetadata } from "../lib/safe-source-timeline-metadata";
 import { logger } from "../lib/logger";
 import {
   aiCoreBridgeConfigured,

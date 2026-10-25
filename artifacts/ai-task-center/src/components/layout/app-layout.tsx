@@ -41,6 +41,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
     { name: "WhatsApp Inbox", href: "/messages", icon: Bell },
     { name: "Proyek", href: "/ai-tasks", icon: FolderKanban },
     { name: "Job", href: "/ai-tasks", icon: Network },
+    { name: "Timeline Job & SOP", href: "/execution-timeline", icon: Activity },
     { name: "Kalender", href: "/notifications", icon: CalendarDays },
     { name: "File & Dokumen", href: "/documents", icon: FileText },
     { name: "Database", href: "/knowledge-base", icon: Database },
