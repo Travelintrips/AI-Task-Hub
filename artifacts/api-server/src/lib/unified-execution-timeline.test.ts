@@ -44,3 +44,22 @@ test("unknown SOP and command ID remain unknown", () => {
   assert.deepEqual(item.sopHistory, []);
   assert.equal(item.ack.received, false);
 });
+
+
+test("previously mirrored jobs recover identity and SOP from source events", () => {
+  const [item] = projectUnifiedTimeline([{ ...job, metadata: {} }], [{
+    ...event, eventType: "SOURCE_EVENT",
+    payload: { status: "COMPLETED", jobId: "JOB-LEGACY", commandId: "COMMAND-LEGACY",
+      correlationId: "CORRELATION-LEGACY", workerId: "openclaw-dell",
+      ackReceived: true, callbackObserved: true,
+      sopSnapshot: { version: "resource-first-human-last/1", title: "SOP at dispatch", steps: ["Recover", "Verify"] } },
+  }]);
+  assert.equal(item.jobId, "JOB-LEGACY");
+  assert.equal(item.commandId, "COMMAND-LEGACY");
+  assert.equal(item.correlationId, "CORRELATION-LEGACY");
+  assert.equal(item.workerId, "openclaw-dell");
+  assert.equal(item.sopHistory.length, 1);
+  assert.equal(item.ack.received, true);
+  assert.equal(item.ack.callbackObserved, true);
+  assert.equal(item.ack.finalVerified, false);
+});
