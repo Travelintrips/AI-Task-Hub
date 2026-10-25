@@ -38,6 +38,7 @@ import KnowledgeBasePage from "@/pages/knowledge-base";
 import GovernancePage from "@/pages/governance";
 import TrainingPage from "@/pages/training";
 import AiObservabilityPage from "@/pages/ai-observability";
+import UnifiedExecutionTimelinePage from "@/pages/unified-execution-timeline";
 import CreativeAiPage from "@/pages/creative-ai";
 import CustomerMemoryPage from "@/pages/customer-memory";
 import VendorsPage from "@/pages/vendors";
