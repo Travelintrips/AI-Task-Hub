@@ -550,7 +550,7 @@ router.post("/bridge/jobs/:id/source-event", requireBridgeToken, async (req: Req
     const normalized = status.toUpperCase();
     const terminal = ["COMPLETED", "FAILED", "BLOCKED", "DEPLOYED", "MERGED"].includes(normalized);
     await db.update(aiExecutionJobsTable).set({
-      status: normalized === "FAILED" ? "failed" : normalized === "BLOCKED" ? "blocked" :
+      status: verifiedFinal ? "completed" : normalized === "FAILED" ? "failed" : normalized === "BLOCKED" ? "blocked" :
         normalized === "COMPLETED" ? "verifying" : normalized.toLowerCase(),
       progress: normalized === "COMPLETED" ? 90 : terminal ? 100 : Math.max(job.progress, 25),
       ...(terminal ? { completedAt: new Date() } : {}),
