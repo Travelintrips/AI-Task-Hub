@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import {
@@ -87,7 +87,30 @@ function eventTone(event: ExecutionEvent) {
   return "border-slate-700 bg-slate-900/60";
 }
 
+const wib = (value: string) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Waktu tidak tersedia";
+  return new Intl.DateTimeFormat("id-ID", {
+    timeZone: "Asia/Jakarta", day: "2-digit", month: "short", year: "numeric",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+  }).format(date) + " WIB";
+};
+const duration = (start: string, end: string) => {
+  const ms = Date.parse(end) - Date.parse(start);
+  if (!Number.isFinite(ms) || ms < 0) return "—";
+  const seconds = Math.floor(ms / 1000);
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const rest = seconds % 60;
+  return (hours ? hours + "j " : "") + (minutes ? minutes + "m " : "") + rest + "d";
+};
+
 export default function AiCoreChatPage() {
+  const [clockNow, setClockNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setClockNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
   const queryClient = useQueryClient();
   const [prompt, setPrompt] = useState("");
   const [activeTaskId, setActiveTaskId] = useState<number | null>(null);
@@ -290,12 +313,17 @@ export default function AiCoreChatPage() {
                 </div>
               </div>
 
-              {executionData?.events?.map((event) => (
+              {executionData?.events?.map((event, index, events) => (
                 <div key={event.id} className="flex justify-start">
                   <div className={`max-w-[82%] rounded-2xl rounded-bl-md border px-4 py-3 ${eventTone(event)}`}>
                     <div className="flex items-center gap-2 text-[10px] font-medium text-slate-400">
                       <Bot className="h-3 w-3 text-violet-400" />
                       AI Core · {event.eventType}
+                    </div>
+                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[10px] tabular-nums text-slate-400">
+                      <span title={event.createdAt}>{wib(event.createdAt)}</span>
+                      {index > 0 && <span>Sejak tahap sebelumnya: {duration(events[index - 1].createdAt, event.createdAt)}</span>}
+                      {index > 0 && <span>Total: {duration(events[0].createdAt, event.createdAt)}</span>}
                     </div>
                     <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-slate-200">
                       {event.message || event.status || "Update diterima"}
@@ -331,6 +359,7 @@ export default function AiCoreChatPage() {
               <div className="mb-3 flex flex-wrap items-center gap-3 text-[11px] text-slate-500">
                 <span className="flex items-center gap-1"><Clock3 className="h-3 w-3" /> {execution.status}</span>
                 <span>{execution.progress}%</span>
+                {executionData?.events?.length ? <span className="tabular-nums">Durasi {duration(executionData.events[0].createdAt, ["completed", "failed", "blocked", "cancelled"].includes(execution.status.toLowerCase()) ? executionData.events[executionData.events.length - 1].createdAt : new Date(clockNow).toISOString())}</span> : null}
                 <span>{execution.workerId ?? execution.assignedClientId ?? "worker belum dipilih"}</span>
                 {verified && (
                   <span className="flex items-center gap-1 text-emerald-400">
