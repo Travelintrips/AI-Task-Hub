@@ -44,6 +44,18 @@ export function projectUnifiedTimeline(jobs: ExecutionProjection[], events: Exec
         seen.add(x.eventId);
         return true;
       }).slice(-80);
+    // Source execution is independent from the AI Task ledger's "verifying"
+    // status: it reports the latest authenticated AI Core source event.
+    // Never infer COMPLETED from an ACK flag, callback or missing event.
+    const sourceStates = new Set(["RECEIVED", "QUEUED", "PROCESSING", "COMPLETED", "FAILED", "BLOCKED", "REVIEW_REQUIRED"]);
+    const lastSourceState = sourceEvents.filter(event =>
+      event.eventType === "SOURCE_EVENT" &&
+      typeof event.status === "string" &&
+      sourceStates.has(event.status.toUpperCase())).at(-1);
+    const executionStatus = job.source === "AI_CORE"
+      ? lastSourceState?.status?.toUpperCase() ?? "UNKNOWN"
+      : job.status.toUpperCase();
+    const finalAckStatus = job.finalAckVerified ? "VERIFIED" : "PENDING";
     const mcpReceipt = sourceEvents
       .map(event => object(event.payload))
       .find(p => p["mcpReceiptPersisted"] === true &&
@@ -85,6 +97,9 @@ export function projectUnifiedTimeline(jobs: ExecutionProjection[], events: Exec
       correlationId: safe(identity["correlationId"]) ?? job.correlationId,
       workerId: safe(identity["workerId"]) ?? job.workerId ?? job.assignedClientId,
       workerStatus: job.status,
+      executionStatus,
+      ledgerStatus: job.status,
+      finalAckStatus,
       createdAt: job.createdAt.toISOString(), updatedAt: job.updatedAt.toISOString(),
       sopVersion: sopHistory.at(-1)?.version ?? null, sopHistory,
       ack: {
