@@ -144,6 +144,7 @@ function AppRouter() {
         <Route path="/governance" component={GovernancePage} />
         <Route path="/training" component={TrainingPage} />
         <Route path="/ai-observability" component={AiObservabilityPage} />
+        <Route path="/execution-timeline" component={UnifiedExecutionTimelinePage} />
         <Route path="/creative-ai" component={CreativeAiPage} />
         <Route path="/creative-ai/:taskId" component={CreativeAiPage} />
         <Route path="/crm/customers/:id/memory" component={CustomerMemoryPage} />
