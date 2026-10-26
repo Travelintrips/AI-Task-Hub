@@ -35,8 +35,24 @@ router.post("/ai-tasks/storage", ...guard, async (req: Request, res: Response) =
       [taskIds, company],
     );
     if (rows.length !== taskIds.length) { res.status(404).json({error:"Sebagian job tidak ditemukan dalam perusahaan ini."}); return; }
-    if (location !== "active" && rows.some(r => !["completed"].includes(r.status.toLowerCase().replaceAll(" ","_")))) {
-      res.status(409).json({error:"Hanya job COMPLETED yang boleh diarsipkan atau dibuang."}); return;
+    if (location !== "active") {
+      const executions = await supabaseQueryStrict<{
+        task_id:number; status:string; callback_verified:boolean;
+        attestation_verified:boolean; final_ack_verified:boolean;
+      }>(
+        "SELECT DISTINCT ON (task_id) task_id,status,callback_verified,attestation_verified,final_ack_verified FROM public.ai_execution_jobs WHERE task_id = ANY($1::int[]) ORDER BY task_id,updated_at DESC",
+        [taskIds],
+      );
+      const latest = new Map(executions.map(item => [item.task_id, item]));
+      const unsafe = rows.some(row => {
+        const run = latest.get(row.id);
+        if (run) return run.status.toLowerCase() !== "completed" || !run.callback_verified || !run.attestation_verified || !run.final_ack_verified;
+        return row.status.toLowerCase().replaceAll(" ","_") !== "completed";
+      });
+      if (unsafe) {
+        res.status(409).json({error:"Hanya task COMPLETED atau eksekusi COMPLETED dengan callback, attestation, dan final ACK terverifikasi yang boleh dipindahkan."});
+        return;
+      }
     }
     if (location === "active") {
       const changed = await supabaseQueryStrict<{task_id:number}>(
