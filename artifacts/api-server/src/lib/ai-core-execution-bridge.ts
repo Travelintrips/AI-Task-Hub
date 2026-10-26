@@ -128,6 +128,10 @@ export async function submitAiTaskChatGptCommand(input: {
   if (!response.ok) {
     const text = await response.text().catch(() => "");
     logger.warn({ status: response.status, body: text.slice(0, 160) }, "AI Core ChatGPT wake bridge rejected");
+    // A permanent instruction-validation error must not masquerade as a transient session outage.
+    if (text.includes("DEV_CHATGPT_WAKE_INSTRUCTION_INVALID")) {
+      throw new Error("DEV_CHATGPT_WAKE_INSTRUCTION_INVALID");
+    }
     throw new Error(`AI_CORE_CHATGPT_COMMAND_HTTP_${response.status}`);
   }
   return response.json() as Promise<{
