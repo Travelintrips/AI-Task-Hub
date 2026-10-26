@@ -224,7 +224,7 @@ function TaskRow({ task, highlight, execution, selected, onSelect, allowRestore 
 
   return (
     <tr className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-      <td className="px-3 py-2.5"><input type="checkbox" aria-label={`Pilih job ${task.id}`} checked={Boolean(selected)} disabled={!allowRestore && !canArchiveTask(task, execution) && !selected} onChange={e=>onSelect?.(e.target.checked)} /></td>
+      <td className="px-3 py-2.5"><input type="checkbox" aria-label={`Pilih job ${task.id}`} checked={Boolean(selected)} disabled={false} onChange={e=>onSelect?.(e.target.checked)} /></td>
       <td className="px-3 py-2.5 whitespace-nowrap">
         <Link href={`/ai-tasks/${task.id}`}>
           <span className="text-sm font-mono text-blue-600 hover:underline cursor-pointer">
@@ -596,6 +596,8 @@ export default function AiTaskBoard() {
     return result;
   }, [allTasks, debouncedSearch, statusFilter, initialView, storageView, storageMap, storageUnavailable, storageLoading]);
 
+  const selectedNotCompleted = storageView === "active" ? selectedIds.filter(id => { const task = allTasks.find(t=>t.id===id); return !task || !canArchiveTask(task, executionMapData?.byTask[String(id)]); }).length : 0;
+
   // Hitung berapa filter aktif (selain search)
   const activeServerFilters = [
     categoryFilter !== "all" && `Kat: ${categoryFilter}`,
@@ -641,17 +643,18 @@ export default function AiTaskBoard() {
 
         <div className="flex flex-wrap items-center gap-2">
           {(["active","archive","trash"] as const).map(v=>(
-            <Button key={v} size="sm" variant={storageView===v?"default":"outline"} onClick={()=>{setStorageView(v);setSelectedIds([]);setStorageError(null);}}>
+            <Button key={v} size="sm" className={`bg-blue-600 text-white hover:bg-blue-700 font-semibold ${storageView===v?"ring-2 ring-blue-300":"opacity-85"}`} onClick={()=>{setStorageView(v);setSelectedIds([]);setStorageError(null);}}>
               {v==="active"?"Job Aktif":v==="archive"?"Arsip":"Sampah"}
             </Button>
           ))}
-          <label className="flex items-center gap-1 text-xs text-gray-600"><input type="checkbox" checked={filtered.some(t=>storageView!=="active" || canArchiveTask(t, executionMapData?.byTask[String(t.id)])) && filtered.filter(t=>storageView!=="active" || canArchiveTask(t, executionMapData?.byTask[String(t.id)])).every(t=>selectedIds.includes(t.id))} onChange={e=>setSelectedIds(e.target.checked?filtered.filter(t=>storageView!=="active" || canArchiveTask(t, executionMapData?.byTask[String(t.id)])).map(t=>t.id):[])} /> Pilih semua completed</label>
+          <label className="flex items-center gap-1 text-xs text-gray-600"><input type="checkbox" checked={filtered.length>0 && filtered.every(t=>selectedIds.includes(t.id))} onChange={e=>setSelectedIds(e.target.checked?filtered.map(t=>t.id):[])} /> Pilih Semua</label>
           {storageUnavailable && <span role="alert" className="text-xs text-red-600">Arsip tidak tersedia. Job disembunyikan sementara untuk mencegah salah operasi.</span>}
           {storageLoading && <span className="text-xs text-gray-500">Memuat status arsip…</span>}
           <span className="text-xs text-gray-500">{selectedIds.length} dipilih</span>
+          {selectedNotCompleted>0 && <span role="status" className="text-xs text-amber-700">{selectedNotCompleted} job belum E2E COMPLETED; tidak bisa diarsipkan atau dibuang</span>}
           {storageView==="active" ? <>
-            <Button size="sm" disabled={!selectedIds.length || storageMutation.isPending} onClick={()=>storageMutation.mutate("archive")}>Arsipkan + kompres</Button>
-            <Button size="sm" variant="outline" disabled={!selectedIds.length || storageMutation.isPending} onClick={()=>storageMutation.mutate("trash")}>Pindah ke Sampah</Button>
+            <Button size="sm" disabled={!selectedIds.length || selectedNotCompleted>0 || storageMutation.isPending} onClick={()=>storageMutation.mutate("archive")}>Arsipkan + kompres</Button>
+            <Button size="sm" variant="outline" disabled={!selectedIds.length || selectedNotCompleted>0 || storageMutation.isPending} onClick={()=>storageMutation.mutate("trash")}>Pindah ke Sampah</Button>
           </> : <Button size="sm" disabled={!selectedIds.length || storageMutation.isPending} onClick={()=>storageMutation.mutate("active")}>Pulihkan</Button>}
           {storageError && <span role="alert" className="text-xs text-red-600">{storageError}</span>}
         </div>
