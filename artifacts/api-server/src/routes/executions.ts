@@ -390,6 +390,34 @@ function scheduleChatGptDispatchRetry(executionId: string, delayMs = 10_000): vo
   chatGptDispatchRetryTimers.set(executionId, timer);
 }
 
+// Recover eligible DEV dispatch retries after an API restart even when no browser polls the job.
+// This scheduler never creates commands itself: AI Core remains the sole dispatcher.
+async function recoverWaitingChatGptDispatches(): Promise<void> {
+  if (!aiCoreBridgeConfigured()) return;
+  try {
+    const pending = await db.select().from(aiExecutionJobsTable)
+      .where(eq(aiExecutionJobsTable.status, "waiting_for_session"))
+      .orderBy(desc(aiExecutionJobsTable.updatedAt)).limit(30);
+    for (const job of pending) {
+      const metadata = asRecord(job.metadata);
+      if (metadata["environment"] !== "development" ||
+          metadata["verificationMode"] !== "chatgpt-attested" ||
+          job.commandId || !job.taskId) continue;
+      scheduleChatGptDispatchRetry(job.id);
+    }
+  } catch (err) {
+    logger.warn({ err }, "DEV pending ChatGPT dispatch recovery deferred");
+  }
+}
+const waitingRecoveryTimer = setInterval(() => {
+  void recoverWaitingChatGptDispatches();
+}, 60_000);
+waitingRecoveryTimer.unref?.();
+const initialRecoveryTimer = setTimeout(() => {
+  void recoverWaitingChatGptDispatches();
+}, 15_000);
+initialRecoveryTimer.unref?.();
+
 function stopExecutionTracking(executionId: string): void {
   const timer = executionSyncTimers.get(executionId);
   if (timer) clearTimeout(timer);
