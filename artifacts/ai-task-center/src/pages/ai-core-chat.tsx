@@ -161,6 +161,11 @@ export default function AiCoreChatPage() {
     mutationFn: async () => {
       const instruction = prompt.trim();
       if (!instruction) throw new Error("Tulis pesan terlebih dahulu.");
+      // Never create a detached task for an unbound continuation template.
+      // The backend must resolve the original job and verified checkpoint first.
+      if (/\bCONTINUE_JOB\b/i.test(instruction)) {
+        throw new Error("CONTINUE_JOB memerlukan job asal dan checkpoint SOP terverifikasi. Pilih job asal pada daftar, lalu gunakan instruksi konkret dari AI Core. Template ini tidak akan dibuat sebagai job baru.");
+      }
 
       const created = await apiFetch<AiTask>("/api/ai-tasks", {
         method: "POST",
