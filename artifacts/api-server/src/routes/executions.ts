@@ -663,6 +663,14 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
     const instruction = typeof body.instruction === "string" && body.instruction.trim()
       ? body.instruction.trim()
       : [task.title, task.description].filter(Boolean).join("\n\n");
+    // A generic SOP template is not a resumable command. Require concrete checkpoint identity.
+    if (mode === "chatgpt" && instruction.includes("AI CORE — CONTINUE_JOB") &&
+      (/`(?:jobId|commandId|checkpointId|stepId|idempotencyKey)`:\s*(?:ID |Checkpoint |Langkah |Kunci )/i.test(instruction) ||
+       !/checkpointId\s*:\s*[^\s]+/.test(instruction) ||
+       !/stepId\s*:\s*[^\s]+/.test(instruction))) {
+      res.status(422).json({ error: "CONTINUE_JOB_REQUIRES_VERIFIED_CHECKPOINT", message: "Ambil identitas job dan checkpoint yang benar dari SOP AI Core sebelum dispatch." });
+      return;
+    }
     const maxInstructionLength = mode === "chatgpt" ? 2_000 : 50_000;
     if (!instruction || instruction.length > maxInstructionLength) {
       res.status(400).json({ error: "Instruction required or too long" }); return;
