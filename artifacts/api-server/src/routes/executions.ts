@@ -10,7 +10,7 @@ import {
 import { getCompanyId, getCompanyIdForWrite, requireAuth } from "../middleware/auth";
 import { emitSseEvent } from "../lib/sse";
 import { safeSourceTimelineMetadata } from "../lib/safe-source-timeline-metadata";
-import { verifiedContinuation } from "../lib/verified-continuation";
+import { isAttestedCheckpointResponse, verifiedContinuation } from "../lib/verified-continuation";
 import { hasVerifiedSourceFinalAck } from "../lib/verified-source-final-ack";
 import { logger } from "../lib/logger";
 import { formatAiJobWhatsApp, jobWaConfig, notifyAiJobTransition } from "../lib/ai-job-whatsapp";
@@ -147,12 +147,8 @@ async function syncExecution(execution: typeof aiExecutionJobsTable.$inferSelect
         status: timeline.status,
         message: response.message,
         workerId,
-        // A prior callback/attestation must never sign a different checkpoint event.
-        signatureVerified: response.kind === "CHECKPOINT" &&
-          metadata["verified"] === true && metadata["checkpointVerified"] === true &&
-          (metadata["attestationVerified"] === true || metadata["verifiedAttestation"] === true) &&
-          attestation["algorithm"] === "Ed25519" &&
-          typeof attestation["signature"] === "string" && String(attestation["signature"]).length >= 80,
+        // Verify this response itself, never inherit proof from a previous callback.
+        signatureVerified: isAttestedCheckpointResponse(response.kind, metadata),
         payload: { checkpoint, metadata, createdAt: response.createdAt },
       });
     }
