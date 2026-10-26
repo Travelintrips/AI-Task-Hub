@@ -418,6 +418,112 @@ const initialRecoveryTimer = setTimeout(() => {
 }, 15_000);
 initialRecoveryTimer.unref?.();
 
+
+/** DEV-only continuation runner: never invents SOP checkpoints or executes a step itself. */
+let automaticContinuationScanRunning = false;
+async function recoverVerifiedSopContinuations(): Promise<void> {
+  if (automaticContinuationScanRunning || !aiCoreBridgeConfigured()) return;
+  automaticContinuationScanRunning = true;
+  try {
+    const candidates = await db.select().from(aiExecutionJobsTable)
+      .where(and(eq(aiExecutionJobsTable.source, "AI_TASK"), eq(aiExecutionJobsTable.status, "failed")))
+      .orderBy(desc(aiExecutionJobsTable.updatedAt)).limit(100);
+    for (const source of candidates) {
+      const meta = asRecord(source.metadata);
+      if (meta["environment"] !== "development" || meta["autoContinue"] !== true ||
+          meta["verificationMode"] !== "chatgpt-attested" || !source.taskId ||
+          !source.commandId || source.finalAckVerified) continue;
+      const depth = typeof meta["continuationDepth"] === "number" ? meta["continuationDepth"] : 0;
+      if (depth >= 100) {
+        logger.warn({ sourceExecutionId: source.id }, "Automatic SOP continuation depth limit reached");
+        continue;
+      }
+      const alias = meta["accountAlias"];
+      if (typeof alias !== "string" || !/^GPT[0-9]{2,4}$/.test(alias)) continue;
+      const events = await db.select().from(aiExecutionEventsTable)
+        .where(eq(aiExecutionEventsTable.executionId, source.id))
+        .orderBy(desc(aiExecutionEventsTable.createdAt)).limit(100);
+      const proof = verifiedContinuation(events);
+      if (!proof) continue;
+      const [task] = await db.select().from(aiTasksTable)
+        .where(and(eq(aiTasksTable.id, source.taskId), eq(aiTasksTable.companyId, source.companyId))).limit(1);
+      if (!task) continue;
+      const fingerprint = createHash("sha256")
+        .update([source.commandId, proof.jobId, proof.checkpointId, proof.stepId, proof.sopVersion].join("|"))
+        .digest("hex").slice(0, 24);
+      const parentId = buildAiTaskExternalCommandId(source.companyId, source.taskId);
+      const externalId = `${parentId}:next:${fingerprint}`;
+      const remoteCorrelationId = `${parentId}:${fingerprint}`;
+      const instruction = [
+        "AI CORE — CONTINUE_JOB", `jobId: ${proof.jobId}`,
+        `parentCommandId: ${source.commandId}`, `correlationId: ${source.correlationId}`,
+        `sopVersion: ${proof.sopVersion}`, `checkpointId: ${proof.checkpointId}`,
+        `stepId: ${proof.stepId}`, `idempotencyKey: ${externalId}`,
+        "AI Core is the only dispatcher. Reverify signed checkpoint, active lease and next step before executing.",
+        "Do not repeat passed steps. Return audited checkpoint and final ACK through the official bridge.",
+      ].join("\n");
+      const [created] = await db.insert(aiExecutionJobsTable).values({
+        companyId: source.companyId, taskId: source.taskId, source: "AI_TASK",
+        externalId, idempotencyKey: externalId, title: task.title, instruction,
+        correlationId: source.correlationId, status: "queued", progress: 5,
+        metadata: {
+          createdByUserId: meta["createdByUserId"] ?? null, environment: "development",
+          verificationMode: "chatgpt-attested", accountAlias: alias,
+          remoteCorrelationId, autoContinue: true, continuationDepth: depth + 1,
+          resumeOfExecutionId: source.id, parentCommandId: source.commandId,
+          verifiedCheckpointId: proof.checkpointId, sopVersion: proof.sopVersion,
+          nextStepId: proof.stepId, jobId: proof.jobId,
+        },
+      }).onConflictDoNothing().returning();
+      if (!created) continue;
+      await db.insert(aiExecutionEventsTable).values({
+        executionId: created.id, taskId: source.taskId, companyId: source.companyId,
+        eventId: `auto-continuation:${fingerprint}:${created.id}`,
+        eventType: "CONTINUATION_REQUESTED", phase: "dispatch", status: "queued",
+        message: "Automatically resumed from verified AI Core checkpoint.",
+        payload: { sourceExecutionId: source.id, parentCommandId: source.commandId,
+          checkpointId: proof.checkpointId, stepId: proof.stepId, sopVersion: proof.sopVersion },
+      });
+      try {
+        const remote = await submitAiTaskChatGptCommand({
+          accountAlias: alias, instruction, jobAlias: task.taskNumber ?? `TASK${source.taskId}`,
+          correlationId: remoteCorrelationId,
+        });
+        await db.update(aiExecutionJobsTable).set({
+          commandId: remote.commandId, status: "dispatched", progress: 15,
+          assignedClientId: remote.clientId, workerId: remote.clientId,
+          metadata: { ...asRecord(created.metadata), remoteCreated: remote.created },
+        }).where(eq(aiExecutionJobsTable.id, created.id));
+        emitSseEvent("execution_updated", { executionId: created.id,
+          taskId: source.taskId, status: "dispatched" }, source.companyId);
+        scheduleExecutionTracking(created.id);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "AI_CORE_CONTINUATION_FAILED";
+        if (isRetryableChatGptDispatchError(message)) {
+          await markWaitingForAccountSession(created, message);
+          scheduleChatGptDispatchRetry(created.id);
+        } else {
+          await db.update(aiExecutionJobsTable).set({
+            status: "failed", progress: 100, errorMessage: message, completedAt: new Date(),
+          }).where(eq(aiExecutionJobsTable.id, created.id));
+        }
+      }
+    }
+  } catch (err) {
+    logger.warn({ err }, "Automatic verified SOP continuation scan deferred");
+  } finally {
+    automaticContinuationScanRunning = false;
+  }
+}
+const automaticContinuationTimer = setInterval(() => {
+  void recoverVerifiedSopContinuations();
+}, 60_000);
+automaticContinuationTimer.unref?.();
+const automaticContinuationStartup = setTimeout(() => {
+  void recoverVerifiedSopContinuations();
+}, 20_000);
+automaticContinuationStartup.unref?.();
+
 function stopExecutionTracking(executionId: string): void {
   const timer = executionSyncTimers.get(executionId);
   if (timer) clearTimeout(timer);
@@ -726,6 +832,7 @@ router.post("/ai-tasks/:id/continue", requireAuth, async (req: Request, res: Res
       metadata: {
         createdByUserId: req.user?.id ?? null, environment: "development",
         verificationMode: "chatgpt-attested", accountAlias, remoteCorrelationId,
+        autoContinue: true, continuationDepth: (typeof asRecord(source.metadata)["continuationDepth"] === "number" ? Number(asRecord(source.metadata)["continuationDepth"]) : 0) + 1,
         resumeOfExecutionId: source.id, parentCommandId: source.commandId,
         verifiedCheckpointId: proof.checkpointId, sopVersion: proof.sopVersion,
         nextStepId: proof.stepId, jobId: proof.jobId,
@@ -857,6 +964,7 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
           environment: "development",
           verificationMode,
           remoteCorrelationId,
+          autoContinue: mode === "chatgpt" && task.category === "ai_chat",
           ...(mode === "chatgpt" ? { accountAlias } : {}),
         },
       }).where(eq(aiExecutionJobsTable.id, existing.id)).returning();
@@ -881,6 +989,8 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
           environment: "development",
           verificationMode,
           remoteCorrelationId: `${externalId}:${correlationId}`,
+          autoContinue: mode === "chatgpt" && task.category === "ai_chat",
+          continuationDepth: 0,
           ...(mode === "chatgpt" ? { accountAlias } : {}),
         },
       }).returning();
