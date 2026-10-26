@@ -1,4 +1,4 @@
-import { randomUUID, timingSafeEqual } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { Router, type IRouter, type NextFunction, type Request, type Response } from "express";
 import { and, desc, eq } from "drizzle-orm";
 import {
@@ -10,6 +10,7 @@ import {
 import { getCompanyId, getCompanyIdForWrite, requireAuth } from "../middleware/auth";
 import { emitSseEvent } from "../lib/sse";
 import { safeSourceTimelineMetadata } from "../lib/safe-source-timeline-metadata";
+import { verifiedContinuation } from "../lib/verified-continuation";
 import { hasVerifiedSourceFinalAck } from "../lib/verified-source-final-ack";
 import { logger } from "../lib/logger";
 import { formatAiJobWhatsApp, jobWaConfig, notifyAiJobTransition } from "../lib/ai-job-whatsapp";
@@ -634,6 +635,119 @@ router.get("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Res
   } catch (err) {
     logger.error({ err }, "GET task execution failed");
     res.status(500).json({ error: "Failed to load execution" });
+  }
+});
+
+// Resume only from a signed, AI Core-verified checkpoint on the selected source job.
+// AI Task requests continuation; AI Core remains the sole command dispatcher.
+router.post("/ai-tasks/:id/continue", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const taskId = Number(req.params.id);
+    if (!Number.isSafeInteger(taskId) || taskId < 1) { res.status(400).json({ error: "INVALID_TASK_ID" }); return; }
+    const companyId = getCompanyIdForWrite(req);
+    const [task] = await db.select().from(aiTasksTable)
+      .where(and(eq(aiTasksTable.id, taskId), eq(aiTasksTable.companyId, companyId))).limit(1);
+    if (!task) { res.status(404).json({ error: "TASK_NOT_FOUND" }); return; }
+    if (!aiCoreBridgeConfigured()) { res.status(503).json({ error: "AI_CORE_BRIDGE_NOT_READY" }); return; }
+
+    const sourceExecutionId = typeof req.body?.sourceExecutionId === "string" ? req.body.sourceExecutionId.trim() : "";
+    if (!/^[0-9a-f-]{36}$/i.test(sourceExecutionId)) {
+      res.status(422).json({ error: "SOURCE_EXECUTION_REQUIRED", message: "Pilih job asal untuk melanjutkan SOP." }); return;
+    }
+    const [source] = await db.select().from(aiExecutionJobsTable)
+      .where(and(eq(aiExecutionJobsTable.id, sourceExecutionId),
+        eq(aiExecutionJobsTable.taskId, taskId),
+        eq(aiExecutionJobsTable.companyId, companyId),
+        eq(aiExecutionJobsTable.source, "AI_TASK"))).limit(1);
+    if (!source) { res.status(404).json({ error: "SOURCE_EXECUTION_NOT_FOUND" }); return; }
+    if (source.status !== "failed" || source.finalAckVerified || !source.commandId) {
+      res.status(409).json({ error: "SOURCE_NOT_RESUMABLE", message: "Job asal harus terhenti, belum final PASS, dan memiliki command AI Core." }); return;
+    }
+    const sourceEvents = await db.select().from(aiExecutionEventsTable)
+      .where(eq(aiExecutionEventsTable.executionId, source.id))
+      .orderBy(desc(aiExecutionEventsTable.createdAt)).limit(100);
+    const proof = verifiedContinuation(sourceEvents);
+    if (!proof) {
+      res.status(409).json({ error: "NO_VERIFIED_CONTINUATION_CHECKPOINT",
+        message: "AI Core belum mengirim checkpoint dan nextStepId yang ditandatangani dan terverifikasi untuk job ini." }); return;
+    }
+    const sourceMeta = asRecord(source.metadata);
+    const accountAlias = sourceMeta["accountAlias"];
+    if (typeof accountAlias !== "string" || !/^GPT[0-9]{2,4}$/.test(accountAlias)) {
+      res.status(409).json({ error: "SOURCE_ACCOUNT_NOT_VERIFIED" }); return;
+    }
+    const fingerprint = createHash("sha256")
+      .update([source.commandId, proof.jobId, proof.checkpointId, proof.stepId, proof.sopVersion].join("|"))
+      .digest("hex").slice(0, 24);
+    const externalId = `${buildAiTaskExternalCommandId(companyId, taskId)}:next:${fingerprint}`;
+    const remoteCorrelationId = `${source.correlationId}:next:${fingerprint}`;
+    const instruction = [
+      "AI CORE — CONTINUE_JOB", `jobId: ${proof.jobId}`,
+      `parentCommandId: ${source.commandId}`, `correlationId: ${source.correlationId}`,
+      `sopVersion: ${proof.sopVersion}`, `checkpointId: ${proof.checkpointId}`,
+      `stepId: ${proof.stepId}`, `idempotencyKey: ${externalId}`,
+      "AI Core is the only dispatcher. Reverify checkpoint, authorization, active lease and next step before executing.",
+      "Do not repeat a passed step. Return verified checkpoint, worker receipt and final ACK through the official bridge."
+    ].join("\n");
+    const [created] = await db.insert(aiExecutionJobsTable).values({
+      companyId, taskId, source: "AI_TASK", externalId, idempotencyKey: externalId,
+      title: task.title, instruction, correlationId: source.correlationId,
+      status: "queued", progress: 5,
+      metadata: {
+        createdByUserId: req.user?.id ?? null, environment: "development",
+        verificationMode: "chatgpt-attested", accountAlias, remoteCorrelationId,
+        resumeOfExecutionId: source.id, parentCommandId: source.commandId,
+        verifiedCheckpointId: proof.checkpointId, sopVersion: proof.sopVersion,
+        nextStepId: proof.stepId, jobId: proof.jobId,
+      },
+    }).onConflictDoNothing().returning();
+    if (!created) {
+      const [existing] = await db.select().from(aiExecutionJobsTable)
+        .where(and(eq(aiExecutionJobsTable.source, "AI_TASK"), eq(aiExecutionJobsTable.externalId, externalId))).limit(1);
+      res.status(200).json({ execution: existing ?? null, reused: true, message: "Continuation already registered" });
+      return;
+    }
+    await db.insert(aiExecutionEventsTable).values({
+      executionId: created.id, companyId, taskId,
+      eventId: `continuation:${fingerprint}:${created.id}`, eventType: "CONTINUATION_REQUESTED",
+      phase: "dispatch", status: "queued", message: "Resume requested from verified AI Core checkpoint.",
+      payload: { sourceExecutionId: source.id, parentCommandId: source.commandId,
+        checkpointId: proof.checkpointId, stepId: proof.stepId, sopVersion: proof.sopVersion },
+    });
+    try {
+      const remote = await submitAiTaskChatGptCommand({
+        accountAlias, instruction, jobAlias: task.taskNumber ?? `TASK${taskId}`,
+        correlationId: remoteCorrelationId,
+      });
+      const [updated] = await db.update(aiExecutionJobsTable).set({
+        commandId: remote.commandId, status: "dispatched", progress: 15,
+        assignedClientId: remote.clientId, workerId: remote.clientId,
+        metadata: { ...asRecord(created.metadata), remoteCreated: remote.created },
+      }).where(eq(aiExecutionJobsTable.id, created.id)).returning();
+      await db.insert(aiExecutionEventsTable).values({
+        executionId: created.id, taskId, companyId,
+        eventId: `dispatch:${remote.commandId}:${created.id}`, eventType: "DISPATCHED",
+        phase: "dispatch", status: "dispatched", message: "Continuation accepted by AI Core.",
+        workerId: remote.clientId, payload: { commandId: remote.commandId, created: remote.created },
+      });
+      emitSseEvent("execution_updated", { executionId: created.id, taskId, status: "dispatched" }, companyId);
+      scheduleExecutionTracking(created.id);
+      res.status(202).json({ execution: updated ?? created, reused: !remote.created });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "AI_CORE_CONTINUATION_FAILED";
+      if (isRetryableChatGptDispatchError(message)) {
+        const waiting = await markWaitingForAccountSession(created, message);
+        scheduleChatGptDispatchRetry(created.id);
+        res.status(202).json({ execution: waiting, waitingForSession: true }); return;
+      }
+      const [failed] = await db.update(aiExecutionJobsTable).set({
+        status: "failed", progress: 100, errorMessage: message, completedAt: new Date(),
+      }).where(eq(aiExecutionJobsTable.id, created.id)).returning();
+      res.status(502).json({ error: "CONTINUATION_DISPATCH_REJECTED", execution: failed ?? created });
+    }
+  } catch (err) {
+    logger.error({ err }, "POST task continuation failed");
+    res.status(500).json({ error: "CONTINUATION_UNAVAILABLE" });
   }
 });
 

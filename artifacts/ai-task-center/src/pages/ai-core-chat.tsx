@@ -67,7 +67,8 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   });
   const body = await res.json().catch(() => null);
   if (!res.ok) {
-    const message = body && typeof body.error === "string" ? body.error : `HTTP ${res.status}`;
+    const message = body && typeof body.message === "string" ? body.message :
+      body && typeof body.error === "string" ? body.error : `HTTP ${res.status}`;
     throw new Error(message);
   }
   return body as T;
@@ -161,10 +162,19 @@ export default function AiCoreChatPage() {
     mutationFn: async () => {
       const instruction = prompt.trim();
       if (!instruction) throw new Error("Tulis pesan terlebih dahulu.");
-      // Never create a detached task for an unbound continuation template.
-      // The backend must resolve the original job and verified checkpoint first.
-      if (/\bCONTINUE_JOB\b/i.test(instruction)) {
-        throw new Error("CONTINUE_JOB memerlukan job asal dan checkpoint SOP terverifikasi. Pilih job asal pada daftar, lalu gunakan instruksi konkret dari AI Core. Template ini tidak akan dibuat sebagai job baru.");
+      // Resume the selected job, never create an orphan chat task for continuation.
+      // The server derives the next step only from AI Core signed checkpoint evidence.
+      const isContinuation = /\bCONTINUE_JOB\b/i.test(instruction) ||
+        /^(?:lanjut(?:kan)?(?: terus)?|continue(?: job)?|resume)[!.\s]*$/i.test(instruction);
+      if (isContinuation) {
+        if (!activeTaskId || !activeTask || !executionData?.execution?.id) {
+          throw new Error("Pilih percakapan dengan job asal sebelum melanjutkan.");
+        }
+        await apiFetch(`/api/ai-tasks/${activeTaskId}/continue`, {
+          method: "POST",
+          body: JSON.stringify({ sourceExecutionId: executionData.execution.id }),
+        });
+        return activeTask;
       }
 
       const created = await apiFetch<AiTask>("/api/ai-tasks", {
