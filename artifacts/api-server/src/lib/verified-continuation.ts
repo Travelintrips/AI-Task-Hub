@@ -16,6 +16,18 @@ const identifier = (value: unknown): string | null =>
   typeof value === "string" && /^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,119}$/.test(value.trim())
     ? value.trim() : null;
 const verified = (value: unknown) => value === true;
+/** Per-response proof only: no inherited ACK or unrelated response may sign a checkpoint. */
+export function isAttestedCheckpointResponse(kind: string, metadata: unknown): boolean {
+  const fields = record(metadata);
+  const attestation = record(fields.attestation);
+  return kind === "CHECKPOINT" &&
+    fields.verified === true && fields.checkpointVerified === true &&
+    (fields.verifiedAssistantReply === true || fields.attestationVerified === true ||
+     fields.verifiedAttestation === true) &&
+    attestation.algorithm === "Ed25519" &&
+    typeof attestation.signature === "string" && attestation.signature.length > 80;
+}
+
 export function verifiedContinuation(events: ContinuationEvent[]): VerifiedContinuation | null {
   // Caller passes newest-first events; choose the latest signed checkpoint.
   for (const event of events) {
