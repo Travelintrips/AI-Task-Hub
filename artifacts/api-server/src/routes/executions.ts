@@ -1,6 +1,6 @@
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { Router, type IRouter, type NextFunction, type Request, type Response } from "express";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import {
   aiExecutionEventsTable,
   aiExecutionJobsTable,
@@ -528,6 +528,31 @@ const automaticContinuationStartup = setTimeout(() => {
   void recoverVerifiedSopContinuations();
 }, 20_000);
 automaticContinuationStartup.unref?.();
+
+// Rehydrate read-only timeline polling for in-flight DEV commands after a restart.
+async function recoverInFlightExecutionTracking(): Promise<void> {
+  if (!aiCoreBridgeConfigured()) return;
+  try {
+    const inFlight = await db.select().from(aiExecutionJobsTable)
+      .where(inArray(aiExecutionJobsTable.status, ["queued", "dispatched", "running", "verifying"]))
+      .orderBy(desc(aiExecutionJobsTable.updatedAt)).limit(100);
+    for (const execution of inFlight) {
+      const metadata = asRecord(execution.metadata);
+      if (metadata["environment"] !== "development" || !execution.commandId) continue;
+      scheduleExecutionTracking(execution.id);
+    }
+  } catch (err) {
+    logger.warn({ err }, "DEV execution tracking recovery deferred");
+  }
+}
+const activeRecoveryTimer = setInterval(() => {
+  void recoverInFlightExecutionTracking();
+}, 60_000);
+activeRecoveryTimer.unref?.();
+const activeRecoveryStartup = setTimeout(() => {
+  void recoverInFlightExecutionTracking();
+}, 25_000);
+activeRecoveryStartup.unref?.();
 
 function stopExecutionTracking(executionId: string): void {
   const timer = executionSyncTimers.get(executionId);
