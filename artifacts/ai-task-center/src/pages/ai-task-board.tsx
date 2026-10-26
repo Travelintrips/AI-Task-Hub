@@ -199,7 +199,11 @@ function StatusCards({
 
 // ─── Task Row ─────────────────────────────────────────────────────────────────
 
-function TaskRow({ task, highlight, execution, selected, onSelect }: { task: AiTask; highlight?: string; execution?: ExecutionJobLite; selected?: boolean; onSelect?: (checked:boolean)=>void }) {
+function canArchiveTask(task: AiTask, execution?: ExecutionJobLite): boolean {
+  if (execution) return execution.status.toLowerCase() === "completed" && execution.callbackVerified && execution.attestationVerified && execution.finalAckVerified;
+  return normalizeStatus(task.status) === "Completed";
+}
+function TaskRow({ task, highlight, execution, selected, onSelect, allowRestore }: { task: AiTask; highlight?: string; execution?: ExecutionJobLite; selected?: boolean; onSelect?: (checked:boolean)=>void; allowRestore?: boolean }) {
   const normalized = normalizeStatus(task.status);
   const cfg = STATUS_CONFIG[normalized];
   const age = formatDistanceToNow(new Date(task.createdAt), { addSuffix: true });
@@ -220,7 +224,7 @@ function TaskRow({ task, highlight, execution, selected, onSelect }: { task: AiT
 
   return (
     <tr className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
-      <td className="px-3 py-2.5"><input type="checkbox" aria-label={`Pilih job ${task.id}`} checked={Boolean(selected)} disabled={normalizeStatus(task.status) !== "Completed" && !selected} onChange={e=>onSelect?.(e.target.checked)} /></td>
+      <td className="px-3 py-2.5"><input type="checkbox" aria-label={`Pilih job ${task.id}`} checked={Boolean(selected)} disabled={!allowRestore && !canArchiveTask(task, execution) && !selected} onChange={e=>onSelect?.(e.target.checked)} /></td>
       <td className="px-3 py-2.5 whitespace-nowrap">
         <Link href={`/ai-tasks/${task.id}`}>
           <span className="text-sm font-mono text-blue-600 hover:underline cursor-pointer">
@@ -641,7 +645,7 @@ export default function AiTaskBoard() {
               {v==="active"?"Job Aktif":v==="archive"?"Arsip":"Sampah"}
             </Button>
           ))}
-          <label className="flex items-center gap-1 text-xs text-gray-600"><input type="checkbox" checked={filtered.some(t=>normalizeStatus(t.status)==="Completed") && filtered.filter(t=>normalizeStatus(t.status)==="Completed").every(t=>selectedIds.includes(t.id))} onChange={e=>setSelectedIds(e.target.checked?filtered.filter(t=>normalizeStatus(t.status)==="Completed").map(t=>t.id):[])} /> Pilih semua completed</label>
+          <label className="flex items-center gap-1 text-xs text-gray-600"><input type="checkbox" checked={filtered.some(t=>storageView!=="active" || canArchiveTask(t, executionMapData?.byTask[String(t.id)])) && filtered.filter(t=>storageView!=="active" || canArchiveTask(t, executionMapData?.byTask[String(t.id)])).every(t=>selectedIds.includes(t.id))} onChange={e=>setSelectedIds(e.target.checked?filtered.filter(t=>storageView!=="active" || canArchiveTask(t, executionMapData?.byTask[String(t.id)])).map(t=>t.id):[])} /> Pilih semua completed</label>
           {storageUnavailable && <span role="alert" className="text-xs text-red-600">Arsip tidak tersedia. Job disembunyikan sementara untuk mencegah salah operasi.</span>}
           {storageLoading && <span className="text-xs text-gray-500">Memuat status arsip…</span>}
           <span className="text-xs text-gray-500">{selectedIds.length} dipilih</span>
@@ -869,7 +873,7 @@ export default function AiTaskBoard() {
             <tbody>
               {filtered.map((task) => (
                 <TaskRow key={task.id} task={task} highlight={debouncedSearch} execution={executionMapData?.byTask[String(task.id)]}
-                  selected={selectedIds.includes(task.id)}
+                  selected={selectedIds.includes(task.id)} allowRestore={storageView!=="active"}
                   onSelect={checked=>setSelectedIds(old=>checked?[...old,task.id]:old.filter(id=>id!==task.id))} />
               ))}
             </tbody>
