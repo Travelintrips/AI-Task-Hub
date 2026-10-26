@@ -147,7 +147,12 @@ async function syncExecution(execution: typeof aiExecutionJobsTable.$inferSelect
         status: timeline.status,
         message: response.message,
         workerId,
-        signatureVerified: callbackVerified || attestationVerified,
+        // A prior callback/attestation must never sign a different checkpoint event.
+        signatureVerified: response.kind === "CHECKPOINT" &&
+          metadata["verified"] === true && metadata["checkpointVerified"] === true &&
+          (metadata["attestationVerified"] === true || metadata["verifiedAttestation"] === true) &&
+          attestation["algorithm"] === "Ed25519" &&
+          typeof attestation["signature"] === "string" && String(attestation["signature"]).length >= 80,
         payload: { checkpoint, metadata, createdAt: response.createdAt },
       });
     }
