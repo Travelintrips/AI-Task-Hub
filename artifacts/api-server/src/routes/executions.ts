@@ -680,7 +680,9 @@ router.post("/ai-tasks/:id/continue", requireAuth, async (req: Request, res: Res
       .update([source.commandId, proof.jobId, proof.checkpointId, proof.stepId, proof.sopVersion].join("|"))
       .digest("hex").slice(0, 24);
     const externalId = `${buildAiTaskExternalCommandId(companyId, taskId)}:next:${fingerprint}`;
-    const remoteCorrelationId = `${source.correlationId}:next:${fingerprint}`;
+    // AI Core requires the canonical ai-task:<company>:<task>:<stable-id> correlation shape.
+    // Preserve the parent correlation in the signed instruction and ledger instead.
+    const remoteCorrelationId = `${buildAiTaskExternalCommandId(companyId, taskId)}:${fingerprint}`;
     const instruction = [
       "AI CORE — CONTINUE_JOB", `jobId: ${proof.jobId}`,
       `parentCommandId: ${source.commandId}`, `correlationId: ${source.correlationId}`,
