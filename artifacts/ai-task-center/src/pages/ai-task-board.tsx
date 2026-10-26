@@ -540,7 +540,7 @@ export default function AiTaskBoard() {
     staleTime: 15_000,
   });
 
-  const { data: stored = [] } = useQuery<Array<{task_id:number;location:string;updated_at:string;snapshot_original_bytes:number|null;snapshot_compressed_bytes:number|null}>>({
+  const { data: stored = [], isError: storageUnavailable, isLoading: storageLoading } = useQuery<Array<{task_id:number;location:string;updated_at:string;snapshot_original_bytes:number|null;snapshot_compressed_bytes:number|null}>>({
     queryKey: ["ai-task-storage"],
     queryFn: () => apiFetch(`${BASE}/api/ai-tasks/storage`),
     refetchInterval: 30_000,
@@ -571,7 +571,7 @@ export default function AiTaskBoard() {
 
   // Client-side filter: status + search (debounced)
   const filtered = useMemo(() => {
-    let result = allTasks.filter(t => (storageMap.get(t.id) ?? "active") === storageView);
+    let result = storageUnavailable || storageLoading ? [] : allTasks.filter(t => (storageMap.get(t.id) ?? "active") === storageView);
     if (initialView === "active" && storageView === "active") {
       result = result.filter((t) => !["Completed", "Cancelled"].includes(normalizeStatus(t.status)));
     }
@@ -590,7 +590,7 @@ export default function AiTaskBoard() {
       );
     }
     return result;
-  }, [allTasks, debouncedSearch, statusFilter, initialView, storageView, storageMap]);
+  }, [allTasks, debouncedSearch, statusFilter, initialView, storageView, storageMap, storageUnavailable, storageLoading]);
 
   // Hitung berapa filter aktif (selain search)
   const activeServerFilters = [
@@ -642,6 +642,8 @@ export default function AiTaskBoard() {
             </Button>
           ))}
           <label className="flex items-center gap-1 text-xs text-gray-600"><input type="checkbox" checked={filtered.some(t=>normalizeStatus(t.status)==="Completed") && filtered.filter(t=>normalizeStatus(t.status)==="Completed").every(t=>selectedIds.includes(t.id))} onChange={e=>setSelectedIds(e.target.checked?filtered.filter(t=>normalizeStatus(t.status)==="Completed").map(t=>t.id):[])} /> Pilih semua completed</label>
+          {storageUnavailable && <span role="alert" className="text-xs text-red-600">Arsip tidak tersedia. Job disembunyikan sementara untuk mencegah salah operasi.</span>}
+          {storageLoading && <span className="text-xs text-gray-500">Memuat status arsip…</span>}
           <span className="text-xs text-gray-500">{selectedIds.length} dipilih</span>
           {storageView==="active" ? <>
             <Button size="sm" disabled={!selectedIds.length || storageMutation.isPending} onClick={()=>storageMutation.mutate("archive")}>Arsipkan + kompres</Button>
