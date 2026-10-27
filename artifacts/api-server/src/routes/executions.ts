@@ -12,6 +12,7 @@ import { emitSseEvent } from "../lib/sse";
 import { safeSourceTimelineMetadata } from "../lib/safe-source-timeline-metadata";
 import { isAttestedCheckpointResponse, verifiedContinuation } from "../lib/verified-continuation";
 import { hasVerifiedSourceFinalAck } from "../lib/verified-source-final-ack";
+import { hasExplicitSopFailure } from "../lib/verified-sop-outcome";
 import { logger } from "../lib/logger";
 import { formatAiJobWhatsApp, jobWaConfig, notifyAiJobTransition } from "../lib/ai-job-whatsapp";
 import { probeJobWaDevGateway } from "../lib/ai-job-wa-gateway";
@@ -176,6 +177,12 @@ async function syncExecution(execution: typeof aiExecutionJobsTable.$inferSelect
       completedAt = new Date(response.createdAt);
     } else if (response.kind === "COMPLETED") {
       resultSummary = response.message;
+      if (verificationMode === "chatgpt-attested" && hasExplicitSopFailure(response.message)) {
+        status = "blocked";
+        errorMessage = "AI_CORE_SOP_BLOCKER_IN_COMPLETED_REPLY";
+        completedAt = new Date(response.createdAt);
+        break;
+      }
       callbackVerified = true;
       completedAt = new Date(response.createdAt);
       if (!requiresAttestedFinalAck) {
@@ -191,7 +198,7 @@ async function syncExecution(execution: typeof aiExecutionJobsTable.$inferSelect
     }
   }
 
-  if (requiresAttestedFinalAck && callbackVerified && attestationVerified && finalAckVerified) {
+  if (status !== "blocked" && status !== "failed" && requiresAttestedFinalAck && callbackVerified && attestationVerified && finalAckVerified) {
     status = "completed";
     progress = 100;
     completedAt ??= new Date();
