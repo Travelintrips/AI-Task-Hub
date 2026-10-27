@@ -144,7 +144,7 @@ export default function AiCoreChatPage() {
       const status = payload?.execution?.status;
       if (status && ["completed", "failed", "blocked", "cancelled"].includes(status)) return false;
       // SSE can miss events across reconnects; reconcile active executions periodically.
-      return sseState === "connected" ? 15_000 : 15_000;
+      return 15_000;
     },
     staleTime: 1_000,
   });
