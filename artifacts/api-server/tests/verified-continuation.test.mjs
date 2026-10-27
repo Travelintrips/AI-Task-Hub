@@ -2,12 +2,12 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { isAttestedCheckpointResponse, verifiedContinuation } from "../src/lib/verified-continuation.ts";
 
-test("accepts AI Core verified reply attestation without a redundant attestationVerified flag", () => {
+test("rejects untrusted self-asserted Ed25519 checkpoint metadata", () => {
   const metadata = {
     verified: true, checkpointVerified: true, verifiedAssistantReply: true,
     attestation: { algorithm: "Ed25519", signature: "A".repeat(88) },
   };
-  assert.equal(isAttestedCheckpointResponse("CHECKPOINT", metadata), true);
+  assert.equal(isAttestedCheckpointResponse("CHECKPOINT", metadata), false);
   assert.equal(isAttestedCheckpointResponse("COMPLETED", metadata), false);
   assert.equal(isAttestedCheckpointResponse("CHECKPOINT", { ...metadata, checkpointVerified: false }), false);
   assert.equal(isAttestedCheckpointResponse("CHECKPOINT", { ...metadata, verifiedAssistantReply: false }), false);
