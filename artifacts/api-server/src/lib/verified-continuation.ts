@@ -1,3 +1,4 @@
+import { verifyDevCheckpointReceipt, type DevCheckpointReceipt } from "./dev-checkpoint-crypto.ts";
 /** Fail-closed extraction of a continuation checkpoint from AI Core's attested timeline. */
 export type ContinuationEvent = {
   eventType: string;
@@ -17,11 +18,22 @@ const identifier = (value: unknown): string | null =>
     ? value.trim() : null;
 const verified = (value: unknown) => value === true;
 /** Per-response proof only: no inherited ACK or unrelated response may sign a checkpoint. */
-/** Untrusted timeline metadata cannot prove an Ed25519 signature. */
-export function isAttestedCheckpointResponse(_kind: string, _metadata: unknown): boolean {
-  // Fail closed until AI Core exposes a cryptographically verified checkpoint receipt.
-  // This MUST NOT be replaced by string-length/boolean checks.
-  return false;
+/** Cryptographic proof checked against the selected AI Core command and correlation. */
+export function isAttestedCheckpointResponse(
+  kind: string, metadata: unknown,
+  expected?: { commandId: string; correlationId: string; publicKeyDerBase64?: string },
+  checkpoint?: unknown,
+): boolean {
+  if (kind !== "CHECKPOINT" || !expected?.publicKeyDerBase64) return false;
+  const fields = record(metadata);
+  const cp = record(checkpoint);
+  const receipt = record(fields.checkpointReceipt) as Partial<DevCheckpointReceipt>;
+  if (receipt.commandId !== expected.commandId || receipt.correlationId !== expected.correlationId ||
+      receipt.jobId !== (fields.jobId ?? cp.jobId) ||
+      receipt.checkpointId !== (cp.checkpointId ?? fields.checkpointId) ||
+      receipt.nextStepId !== (cp.nextStepId ?? fields.nextStepId) ||
+      receipt.sopVersion !== (fields.sopVersion ?? cp.sopVersion)) return false;
+  return verifyDevCheckpointReceipt(receipt as DevCheckpointReceipt, expected.publicKeyDerBase64);
 }
 
 export function verifiedContinuation(events: ContinuationEvent[]): VerifiedContinuation | null {
