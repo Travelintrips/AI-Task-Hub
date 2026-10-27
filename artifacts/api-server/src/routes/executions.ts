@@ -149,7 +149,10 @@ async function syncExecution(execution: typeof aiExecutionJobsTable.$inferSelect
         message: response.message,
         workerId,
         // Verify this response itself, never inherit proof from a previous callback.
-        signatureVerified: isAttestedCheckpointResponse(response.kind, metadata),
+        signatureVerified: isAttestedCheckpointResponse(response.kind, metadata, {
+          commandId: timeline.commandId, correlationId: remoteCorrelationId ?? "",
+          publicKeyDerBase64: process.env.AI_CORE_DEV_CHECKPOINT_PUBLIC_KEY_DER_B64,
+        }, checkpoint),
         payload: { checkpoint, metadata, createdAt: response.createdAt },
       });
     }
