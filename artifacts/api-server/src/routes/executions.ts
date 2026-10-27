@@ -427,7 +427,7 @@ async function recoverVerifiedSopContinuations(): Promise<void> {
   automaticContinuationScanRunning = true;
   try {
     const candidates = await db.select().from(aiExecutionJobsTable)
-      .where(and(eq(aiExecutionJobsTable.source, "AI_TASK"), eq(aiExecutionJobsTable.status, "failed")))
+      .where(and(eq(aiExecutionJobsTable.source, "AI_TASK"), inArray(aiExecutionJobsTable.status, ["failed", "running", "blocked"])))
       .orderBy(desc(aiExecutionJobsTable.updatedAt)).limit(100);
     for (const source of candidates) {
       const meta = asRecord(source.metadata);
@@ -446,6 +446,15 @@ async function recoverVerifiedSopContinuations(): Promise<void> {
         .orderBy(desc(aiExecutionEventsTable.createdAt)).limit(100);
       const proof = verifiedContinuation(events);
       if (!proof) continue;
+      // Never run two commands at once: AI Core must confirm the parent stopped.
+      if (source.status !== "failed") {
+        const remoteCorrelationId = typeof meta["remoteCorrelationId"] === "string"
+          ? meta["remoteCorrelationId"] : null;
+        if (!remoteCorrelationId) continue;
+        const original = await fetchAiTaskChatGptTimeline(source.commandId, remoteCorrelationId);
+        if (!original || !["failed", "blocked"].includes(original.status.toLowerCase()) ||
+            !original.responses.some((response) => response.kind === "FAILED" || response.kind === "BLOCKER")) continue;
+      }
       const [task] = await db.select().from(aiTasksTable)
         .where(and(eq(aiTasksTable.id, source.taskId), eq(aiTasksTable.companyId, source.companyId))).limit(1);
       if (!task) continue;
