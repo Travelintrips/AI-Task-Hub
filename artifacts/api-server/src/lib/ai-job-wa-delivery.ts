@@ -2,7 +2,7 @@
  * Bounded, opt-in DEV WhatsApp delivery reconciliation.
  * AI_TASK_DEV only: no PROD host fallback, no QR/session access.
  */
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { aiExecutionEventsTable, db, whatsappNotificationsTable } from "@workspace/db";
 import {
   fetchJobWaDevDeliveryReceipt,
@@ -79,7 +79,10 @@ export async function reconcileAiJobWhatsAppDeliveryOnce(): Promise<{
     const outbox = await db.select().from(whatsappNotificationsTable)
       .where(and(eq(whatsappNotificationsTable.templateName, "ai_core_job_digest"),
         inArray(whatsappNotificationsTable.status, ["queued", "sent", "delivered"])))
-      .orderBy(asc(whatsappNotificationsTable.createdAt)).limit(30);
+      .orderBy(
+        sql`CASE WHEN ${whatsappNotificationsTable.status} = 'queued' THEN 0 ELSE 1 END`,
+        desc(whatsappNotificationsTable.createdAt),
+      ).limit(30);
     for (const notification of outbox) {
       if (!notification.externalMessageId || notification.recipientPhone !== expectedRecipient) continue;
       const receipt = await fetchJobWaDevDeliveryReceipt(notification.externalMessageId);
