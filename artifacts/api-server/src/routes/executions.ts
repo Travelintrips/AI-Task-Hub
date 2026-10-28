@@ -774,7 +774,10 @@ router.post("/bridge/jobs/:id/source-event", requireBridgeToken, async (req: Req
         attestationVerified: true,
         finalAckVerified: true,
       } : {}),
-      ...(terminal ? { completedAt: new Date() } : {}),
+      // Source COMPLETED is provisional until a verified Final ACK arrives.
+      // Do not expose a terminal completion timestamp for a verifying job.
+      ...((verifiedFinal || normalized === "FAILED" || normalized === "BLOCKED")
+        ? { completedAt: job.completedAt ?? new Date() } : { completedAt: null }),
     }).where(eq(aiExecutionJobsTable.id, job.id)).returning();
     if (updated && updated.status !== job.status) {
       void notifyAiJobTransition(updated).catch((err) => logger.warn({ err, executionId: updated.id }, "Source event WhatsApp notification deferred"));
