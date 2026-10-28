@@ -2,7 +2,7 @@
  * Bounded, opt-in DEV WhatsApp delivery reconciliation.
  * AI_TASK_DEV only: no PROD host fallback, no QR/session access.
  */
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { aiExecutionEventsTable, db, whatsappNotificationsTable } from "@workspace/db";
 import {
   fetchJobWaDevDeliveryReceipt,
