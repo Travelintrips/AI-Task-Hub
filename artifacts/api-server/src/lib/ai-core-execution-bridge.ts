@@ -73,6 +73,18 @@ export async function submitAiTaskCommand(input: {
   if (!response.ok) {
     const text = await response.text().catch(() => "");
     logger.warn({ status: response.status, body: text.slice(0, 160) }, "AI Core bridge command rejected");
+    // Preserve the exact, fail-closed routing signal. Other 422 errors must
+    // never be interpreted as permission to dispatch to a different executor.
+    if (response.status === 422) {
+      try {
+        const parsed = JSON.parse(text) as { error?: string; dispatched?: boolean };
+        if (parsed.error === "AI_CORE_REASONING_ROUTE_REQUIRED" && parsed.dispatched === false) {
+          throw new Error("AI_CORE_REASONING_ROUTE_REQUIRED");
+        }
+      } catch (error) {
+        if (error instanceof Error && error.message === "AI_CORE_REASONING_ROUTE_REQUIRED") throw error;
+      }
+    }
     throw new Error(`AI_CORE_COMMAND_HTTP_${response.status}`);
   }
   return response.json() as Promise<{

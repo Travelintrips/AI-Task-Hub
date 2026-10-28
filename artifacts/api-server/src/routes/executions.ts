@@ -947,8 +947,8 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
     }
 
     const body = req.body as Record<string, unknown>;
-    const mode = body.mode === "chatgpt" ? "chatgpt" : "worker";
-    const accountAlias = typeof body.accountAlias === "string" && /^GPT[0-9]{2,4}$/.test(body.accountAlias.trim().toUpperCase())
+    let mode: "chatgpt" | "worker" = body.mode === "chatgpt" ? "chatgpt" : "worker";
+    let accountAlias = typeof body.accountAlias === "string" && /^GPT[0-9]{2,4}$/.test(body.accountAlias.trim().toUpperCase())
       ? body.accountAlias.trim().toUpperCase()
       : process.env.AI_TASK_DEFAULT_GPT_ALIAS?.trim().toUpperCase() || "GPT01";
     const requestedClientId = typeof body.assignedClientId === "string" ? body.assignedClientId.trim() : "";
@@ -992,7 +992,10 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
 
     if (existing) {
       reused = true;
-      const nextCorrelationId = randomUUID();
+      // A retry after an uncertain ChatGPT handoff is the SAME logical command.
+      // Reuse its correlation: a new random value could wake a second worker.
+      const nextCorrelationId = (mode === "chatgpt" || asRecord(existing.metadata)["reasoningHandoff"] === true)
+        ? existing.correlationId : randomUUID();
       const remoteCorrelationId = `${externalId}:${nextCorrelationId}`;
       const [reset] = await db.update(aiExecutionJobsTable).set({
         instruction,
@@ -1038,7 +1041,14 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
           continuationDepth: 0,
           ...(mode === "chatgpt" ? { accountAlias } : {}),
         },
-      }).returning();
+      }).onConflictDoNothing().returning();
+      if (!created) {
+        const [collision] = await db.select().from(aiExecutionJobsTable)
+          .where(and(eq(aiExecutionJobsTable.source, "AI_TASK"), eq(aiExecutionJobsTable.externalId, externalId))).limit(1);
+        if (!collision) throw new Error("EXECUTION_IDEMPOTENCY_CONFLICT");
+        res.status(200).json({ execution: collision, reused: true });
+        return;
+      }
       execution = created;
     }
 
@@ -1046,24 +1056,64 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
 
     try {
       const executionMeta = asRecord(execution.metadata);
+      // An existing reasoning handoff retains its original verified account
+      // identity even if a later retry supplies a different/default alias.
+      const pinnedAlias = executionMeta["accountAlias"];
+      if (executionMeta["reasoningHandoff"] === true &&
+          typeof pinnedAlias === "string" && /^GPT[0-9]{2,4}$/.test(pinnedAlias)) {
+        accountAlias = pinnedAlias;
+      }
       const remoteCorrelationId = typeof executionMeta["remoteCorrelationId"] === "string"
         ? executionMeta["remoteCorrelationId"]
         : `${externalId}:${execution.correlationId}`;
-      const remote = mode === "chatgpt"
-        ? await submitAiTaskChatGptCommand({
+      // Only the exact AI Core 422 classification permits a reasoning handoff.
+      // A named PC/worker is never silently replaced. The same AI Task execution,
+      // external command identity and stable correlation are retained.
+      let remote: Awaited<ReturnType<typeof submitAiTaskCommand>> | Awaited<ReturnType<typeof submitAiTaskChatGptCommand>>;
+      if (mode === "chatgpt") {
+        remote = await submitAiTaskChatGptCommand({
+          accountAlias, instruction,
+          jobAlias: task.taskNumber ?? `TASK${taskId}`,
+          correlationId: remoteCorrelationId,
+        });
+      } else {
+        try {
+          remote = await submitAiTaskCommand({
+            externalCommandId: externalId, instruction, assignedClientId,
+            correlationId: execution.correlationId, companyId, taskId,
+          });
+        } catch (dispatchError) {
+          if (!(dispatchError instanceof Error && dispatchError.message === "AI_CORE_REASONING_ROUTE_REQUIRED") || assignedClientId) {
+            throw dispatchError;
+          }
+          // 422 classification is emitted before a new bounded dispatch, but
+          // an older command with this stable identity might already exist.
+          // Fail closed rather than create a second dispatcher for it.
+          if (await fetchAiTaskCommandTimeline(externalId)) {
+            throw new Error("AI_CORE_EXISTING_WORKER_COMMAND_PREVENTS_HANDOFF");
+          }
+          mode = "chatgpt";
+          const handoffMetadata = {
+            ...executionMeta,
+            verificationMode: "chatgpt-attested",
+            reasoningHandoff: true,
             accountAlias,
-            instruction,
+            autoContinue: task.category === "ai_chat",
+            remoteCorrelationId,
+          };
+          // Persist the route before external dispatch. A retry or recovery must
+          // use the ChatGPT-attested timeline, never the bounded-worker timeline.
+          await db.update(aiExecutionJobsTable).set({
+            metadata: handoffMetadata, assignedClientId: null,
+          }).where(eq(aiExecutionJobsTable.id, execution.id));
+          Object.assign(executionMeta, handoffMetadata);
+          remote = await submitAiTaskChatGptCommand({
+            accountAlias, instruction,
             jobAlias: task.taskNumber ?? `TASK${taskId}`,
             correlationId: remoteCorrelationId,
-          })
-        : await submitAiTaskCommand({
-            externalCommandId: externalId,
-            instruction,
-            assignedClientId,
-            correlationId: execution.correlationId,
-            companyId,
-            taskId,
           });
+        }
+      }
       const remoteCommandId: string = "command" in remote ? remote.command.id : remote.commandId;
       const remoteClientId: string = remote.clientId;
       const [updated] = await db.update(aiExecutionJobsTable).set({
