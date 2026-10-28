@@ -79,7 +79,7 @@ export function formatAiJobWhatsApp(jobs: Job[], now = new Date()): string {
 export async function notifyAiJobTransition(job: Job): Promise<void> {
   if (!jobWaConfig().ready) return;
   const state = job.status.toLowerCase();
-  if (!(state === "queued" || TERMINAL.has(state))) return;
+  if (!(state === "completed" || state === "failed")) return;
 
   const eventId = `wa-job-digest:${job.id}:${job.correlationId}:${state}`;
   const [claim] = await db.insert(aiExecutionEventsTable).values({
