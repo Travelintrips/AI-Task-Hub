@@ -83,6 +83,11 @@ async function syncExecution(execution: typeof aiExecutionJobsTable.$inferSelect
       : null
     : await fetchAiTaskCommandTimeline(execution.externalId);
   if (!timeline) return execution;
+  // A source-event Final ACK already validated by the authenticated ledger
+  // is authoritative. Polling a less-trusted timeline must not downgrade it.
+  if (verificationMode === "chatgpt-attested" && execution.finalAckVerified && execution.status === "completed") {
+    return execution;
+  }
 
   let status = execution.status;
   let progress = execution.progress;
@@ -96,13 +101,25 @@ async function syncExecution(execution: typeof aiExecutionJobsTable.$inferSelect
   let completedAt = execution.completedAt;
 
   const requiresAttestedFinalAck = verificationMode === "chatgpt-attested";
+  // Untrusted response metadata cannot promote an attested execution to completed.
+  // Until the three receipts are cryptographically bound to this command and
+  // correlation, the conservative terminal outcome is verifying.
+  if (requiresAttestedFinalAck) {
+    callbackVerified = false;
+    attestationVerified = false;
+    finalAckVerified = false;
+  }
 
   const commandMetadata = asRecord(timeline.commandMetadata);
-  if (["MCP_ACK_VERIFIED", "E2E_VERIFIED"].includes(String(commandMetadata["e2eCode"] ?? ""))) {
-    finalAckVerified = true;
-  }
-  if (commandMetadata["deliveryCode"] === "DELIVERY_CONFIRMED") {
-    callbackVerified = true;
+  // For attested mode, do not accept unverified booleans or delivery labels
+  // from the timeline as proof of a signed terminal acknowledgement.
+  if (!requiresAttestedFinalAck) {
+    if (["MCP_ACK_VERIFIED", "E2E_VERIFIED"].includes(String(commandMetadata["e2eCode"] ?? ""))) {
+      finalAckVerified = true;
+    }
+    if (commandMetadata["deliveryCode"] === "DELIVERY_CONFIRMED") {
+      callbackVerified = true;
+    }
   }
   workerId ||= typeof commandMetadata["completedBy"] === "string"
     ? commandMetadata["completedBy"]
@@ -116,19 +133,21 @@ async function syncExecution(execution: typeof aiExecutionJobsTable.$inferSelect
     const hasFlag = flag(checkpoint, metadata);
     const getText = textValue(checkpoint, metadata);
 
-    callbackVerified ||= hasFlag(["callbackVerified", "verifiedCallback", "callback_verified"]) ||
-      checkpoint["deliveryCode"] === "DELIVERY_CONFIRMED" ||
-      metadata["deliveryCode"] === "DELIVERY_CONFIRMED";
-    const attestation = asRecord(metadata["attestation"]);
-    attestationVerified ||= hasFlag(["attestationVerified", "verifiedAttestation", "attestation_verified"]) ||
-      (metadata["verified"] === true &&
-       metadata["verifiedAssistantReply"] === true &&
-       attestation["algorithm"] === "Ed25519" &&
-       typeof attestation["signature"] === "string" &&
-       String(attestation["signature"]).length > 80);
-    finalAckVerified ||= hasFlag(["finalAckVerified", "ackVerified", "final_ack_verified"]) ||
-      ["MCP_ACK_VERIFIED", "E2E_VERIFIED"].includes(String(checkpoint["e2eCode"] ?? "")) ||
-      ["MCP_ACK_VERIFIED", "E2E_VERIFIED"].includes(String(metadata["e2eCode"] ?? ""));
+    if (!requiresAttestedFinalAck) {
+      callbackVerified ||= hasFlag(["callbackVerified", "verifiedCallback", "callback_verified"]) ||
+        checkpoint["deliveryCode"] === "DELIVERY_CONFIRMED" ||
+        metadata["deliveryCode"] === "DELIVERY_CONFIRMED";
+      const attestation = asRecord(metadata["attestation"]);
+      attestationVerified ||= hasFlag(["attestationVerified", "verifiedAttestation", "attestation_verified"]) ||
+        (metadata["verified"] === true &&
+         metadata["verifiedAssistantReply"] === true &&
+         attestation["algorithm"] === "Ed25519" &&
+         typeof attestation["signature"] === "string" &&
+         String(attestation["signature"]).length > 80);
+      finalAckVerified ||= hasFlag(["finalAckVerified", "ackVerified", "final_ack_verified"]) ||
+        ["MCP_ACK_VERIFIED", "E2E_VERIFIED"].includes(String(checkpoint["e2eCode"] ?? "")) ||
+        ["MCP_ACK_VERIFIED", "E2E_VERIFIED"].includes(String(metadata["e2eCode"] ?? ""));
+    }
     workerId ||= getText(["workerId", "worker_id", "assignedClientId"]);
 
     const [existingEvent] = await db
@@ -187,7 +206,7 @@ async function syncExecution(execution: typeof aiExecutionJobsTable.$inferSelect
         break;
       }
       callbackVerified = true;
-      completedAt = new Date(response.createdAt);
+      if (!requiresAttestedFinalAck) completedAt = new Date(response.createdAt);
       if (!requiresAttestedFinalAck) {
         status = "completed";
         progress = 100;
