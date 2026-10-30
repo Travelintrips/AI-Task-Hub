@@ -699,6 +699,11 @@ router.post("/bridge/jobs/:id/source-event", requireBridgeToken, async (req: Req
     const [job] = await db.select().from(aiExecutionJobsTable)
       .where(eq(aiExecutionJobsTable.id, executionId)).limit(1);
     if (!job) { res.status(404).json({ error: "Bridge job not found" }); return; }
+    // Cancelled executions are immutable: reject delayed/replayed source events.
+    if (job.status === "cancelled") {
+      res.status(409).json({ error: "Execution cancelled; source event rejected" });
+      return;
+    }
     if (job.source !== "AI_CORE" || !eventId.startsWith("ai-core:" + job.externalId + ":")) {
       res.status(403).json({ error: "Source authority mismatch" }); return;
     }
