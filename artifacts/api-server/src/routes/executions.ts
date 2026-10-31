@@ -402,10 +402,23 @@ async function retryChatGptDispatch(executionId: string): Promise<void> {
       return;
     }
 
-    await markWaitingForAccountSession(execution, message);
-    const attempt = (chatGptDispatchRetryBackoff.get(executionId) ?? 0) + 1;
-    chatGptDispatchRetryBackoff.set(executionId, attempt);
-    scheduleChatGptDispatchRetry(executionId, Math.min(10_000 * (2 ** (attempt - 1)), 60_000));
+    // The command may have reached AI Core before an HTTP 429/503 was observed.
+    // Never release the durable claim or schedule a new dispatch automatically.
+    await db.update(aiExecutionJobsTable).set({
+      status: "dispatching",
+      errorMessage: "AI_CORE_DISPATCH_OUTCOME_UNCONFIRMED",
+      metadata: {
+        ...metadata,
+        dispatchState: "dispatching_unconfirmed",
+        lastDispatchError: message,
+        lastDispatchAttemptAt: new Date().toISOString(),
+      },
+    }).where(and(
+      eq(aiExecutionJobsTable.id, execution.id),
+      eq(aiExecutionJobsTable.status, "dispatching"),
+    ));
+    stopChatGptDispatchRetry(executionId);
+    logger.warn({ executionId, message }, "DEV GPT02 retry outcome uncertain; reconciliation required");
   }
   } finally {
     chatGptDispatchInFlight.leave(executionId);
