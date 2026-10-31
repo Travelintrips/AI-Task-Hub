@@ -128,33 +128,39 @@ export async function submitAiTaskChatGptCommand(input: {
   jobAlias?: string | null;
   correlationId: string;
 }) {
-  const response = await bridgeFetch("/ai/coding/bridge/ai-task-chatgpt-dispatch", {
-    method: "POST",
-    body: JSON.stringify({
-      accountAlias: input.accountAlias,
-      instruction: input.instruction,
-      ...(input.jobAlias ? { jobAlias: input.jobAlias } : {}),
-      correlationId: input.correlationId,
-    }),
-  });
-  if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    logger.warn({ status: response.status, body: text.slice(0, 160) }, "AI Core ChatGPT wake bridge rejected");
-    // A permanent instruction-validation error must not masquerade as a transient session outage.
-    if (text.includes("DEV_CHATGPT_WAKE_INSTRUCTION_INVALID")) {
-      throw new Error("DEV_CHATGPT_WAKE_INSTRUCTION_INVALID");
+  const audit = { correlationId: input.correlationId, accountAlias: input.accountAlias, jobAlias: input.jobAlias ?? null };
+  const startedAt = Date.now();
+  logger.info(audit, "DEV GPT02 dispatch request starting");
+  try {
+    const response = await bridgeFetch("/ai/coding/bridge/ai-task-chatgpt-dispatch", {
+      method: "POST",
+      body: JSON.stringify({
+        accountAlias: input.accountAlias,
+        instruction: input.instruction,
+        ...(input.jobAlias ? { jobAlias: input.jobAlias } : {}),
+        correlationId: input.correlationId,
+      }),
+    });
+    if (!response.ok) {
+      const body = await response.text().catch(() => "");
+      logger.warn({ ...audit, httpStatus: response.status, elapsedMs: Date.now() - startedAt }, "DEV GPT02 dispatch HTTP rejected or uncertain");
+      if (body.includes("DEV_CHATGPT_WAKE_INSTRUCTION_INVALID")) {
+        throw new Error("DEV_CHATGPT_WAKE_INSTRUCTION_INVALID");
+      }
+      throw new Error(`AI_CORE_CHATGPT_COMMAND_HTTP_${response.status}`);
     }
-    throw new Error(`AI_CORE_CHATGPT_COMMAND_HTTP_${response.status}`);
+    const result = await response.json() as {
+      created: boolean; commandId: string; clientId: string; eventId: string;
+      correlationId: string; accountAlias: string; status: string;
+    };
+    logger.info({ ...audit, commandId: result.commandId, created: result.created,
+      httpStatus: response.status, elapsedMs: Date.now() - startedAt }, "DEV GPT02 dispatch command accepted");
+    return result;
+  } catch (error) {
+    logger.warn({ ...audit, elapsedMs: Date.now() - startedAt,
+      errorClass: error instanceof Error ? error.name : "Unknown" }, "DEV GPT02 dispatch attempt ended without confirmed acceptance");
+    throw error;
   }
-  return response.json() as Promise<{
-    created: boolean;
-    commandId: string;
-    clientId: string;
-    eventId: string;
-    correlationId: string;
-    accountAlias: string;
-    status: string;
-  }>;
 }
 
 export async function fetchAiTaskChatGptTimeline(commandId: string, correlationId: string) {
