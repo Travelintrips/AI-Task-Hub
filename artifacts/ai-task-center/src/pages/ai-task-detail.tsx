@@ -555,8 +555,8 @@ export default function AiTaskDetail() {
     archiveAvailable: boolean; automaticDispatch: boolean; statusChanged: boolean;
   }>({
     queryKey: ["gpt02-reconciliation", id],
-    queryFn: () => apiFetch(`/ai-tasks/${id}/gpt02-reconciliation`),
-    enabled: reconciliationRequested,
+    queryFn: () => apiFetch(`/ai-tasks/${id}/gpt02-reconciliation?companyId=${encodeURIComponent(task?.companyId ?? "")}`),
+    enabled: reconciliationRequested && Boolean(task?.companyId),
     retry: false,
     staleTime: 0,
   });
