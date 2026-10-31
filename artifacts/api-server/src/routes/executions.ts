@@ -250,8 +250,9 @@ const chatGptDispatchRetryBackoff = new Map<string, number>();
 const chatGptDispatchInFlight = createSingleFlightGuard();
 
 function isRetryableChatGptDispatchError(message: string): boolean {
-  return message.includes("AI_CORE_CHATGPT_COMMAND_HTTP_429") ||
-    message.includes("AI_CORE_CHATGPT_COMMAND_HTTP_503");
+  // These errors cannot prove whether a network request was accepted remotely.
+  return /AI_CORE_CHATGPT_COMMAND_HTTP_(?:429|5\d\d)\b/.test(message) ||
+    /(?:TimeoutError|AbortError|timeout|fetch failed|ECONNRESET|ETIMEDOUT|EPIPE|socket hang up)/i.test(message);
 }
 
 function stopChatGptDispatchRetry(executionId: string): void {
