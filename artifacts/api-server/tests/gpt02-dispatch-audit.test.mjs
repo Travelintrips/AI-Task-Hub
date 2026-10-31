@@ -1,0 +1,4 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';
+const s=readFileSync(new URL('../src/lib/ai-core-execution-bridge.ts',import.meta.url),'utf8');const f=s.split('export async function submitAiTaskChatGptCommand')[1].split('export async function fetchAiTaskChatGptTimeline')[0];
+test('correlation keyed dispatch lifecycle logs include status, command and uncertain outcome',()=>{assert.match(f,/correlationId: input.correlationId/);assert.match(f,/dispatch request starting/);assert.match(f,/httpStatus: response.status/);assert.match(f,/commandId: result.commandId/);assert.match(f,/without confirmed acceptance/);assert.match(f,/throw error/)});
+test('audit never logs instruction, credentials or response body',()=>{assert.doesNotMatch(f,/logger\.(?:info|warn)\(\{[^\n]*instruction/);assert.doesNotMatch(f,/body: body/);assert.doesNotMatch(f,/x-ai-task-engine-key/)});
