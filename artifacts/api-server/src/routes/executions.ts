@@ -1067,8 +1067,18 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
           autoContinue: mode === "chatgpt" && task.category === "ai_chat",
           ...(mode === "chatgpt" ? { accountAlias } : {}),
         },
-      }).where(eq(aiExecutionJobsTable.id, existing.id)).returning();
-      execution = reset ?? existing;
+      }).where(and(
+        eq(aiExecutionJobsTable.id, existing.id),
+        inArray(aiExecutionJobsTable.status, ["failed", "blocked", "cancelled"]),
+        ...(mode === "chatgpt" ? [isNull(aiExecutionJobsTable.commandId)] : []),
+      )).returning();
+      if (!reset) {
+        const [current] = await db.select().from(aiExecutionJobsTable)
+          .where(eq(aiExecutionJobsTable.id, existing.id)).limit(1);
+        res.status(200).json({ execution: current ?? existing, reused: true, dispatchNotStarted: true });
+        return;
+      }
+      execution = reset;
     } else {
       const correlationId = randomUUID();
       const idempotencyKey = `${externalId}:${correlationId}`;
