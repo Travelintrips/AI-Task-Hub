@@ -1188,21 +1188,21 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
       res.status(remote.created ? 201 : 200).json({ execution: updated ?? execution, reused: reused || !remote.created });
     } catch (err) {
       const message = err instanceof Error ? err.message : "AI_CORE_DISPATCH_FAILED";
+      // Once a dispatch was attempted, 429/503 does not prove that AI Core
+      // rejected it before enqueueing. Preserve the existing identity and
+      // require reconciliation instead of an automatic second dispatch.
       if (mode === "chatgpt" && isRetryableChatGptDispatchError(message)) {
-        const waiting = await markWaitingForAccountSession(execution, message);
-        await db.insert(aiExecutionEventsTable).values({
-          executionId: execution.id,
-          taskId,
-          companyId,
-          eventId: `waiting-session:${execution.correlationId}:${randomUUID()}`,
-          eventType: "WAITING_FOR_SESSION",
-          phase: "dispatch",
-          status: "waiting_for_session",
-          message: `Waiting for a verified ${accountAlias} session. AI Task will retry automatically.`,
-          payload: { accountAlias, retryable: true },
-        });
-        scheduleChatGptDispatchRetry(execution.id);
-        res.status(202).json({ execution: waiting, queued: true, waitingForSession: true });
+        const [uncertain] = await db.update(aiExecutionJobsTable).set({
+          status: "dispatching",
+          errorMessage: "AI_CORE_DISPATCH_OUTCOME_UNCONFIRMED",
+          metadata: {
+            ...asRecord(execution.metadata),
+            dispatchState: "dispatching_unconfirmed",
+            lastDispatchError: message,
+            lastDispatchAttemptAt: new Date().toISOString(),
+          },
+        }).where(eq(aiExecutionJobsTable.id, execution.id)).returning();
+        res.status(202).json({ execution: uncertain ?? execution, outcomeUnconfirmed: true });
         return;
       }
 
