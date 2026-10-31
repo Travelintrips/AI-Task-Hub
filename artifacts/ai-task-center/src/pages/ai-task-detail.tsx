@@ -970,7 +970,8 @@ export default function AiTaskDetail() {
 
         {executionData?.execution && (
           <div className="mt-3 rounded-lg border border-slate-200 p-3 text-xs">
-            <Button variant="outline" size="sm" disabled={reconciliationFetching}
+            <Button variant="default" size="sm" disabled={reconciliationFetching}
+              className="bg-blue-700 text-white hover:bg-blue-800 disabled:bg-blue-300 disabled:text-white font-semibold shadow-sm"
               onClick={() => { setReconciliationRequested(true); if (reconciliationRequested) void checkReconciliation(); }}>
               {reconciliationFetching ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <Shield className="mr-2 h-3.5 w-3.5" />}
               Periksa Rekonsiliasi GPT02 (baca-saja)
