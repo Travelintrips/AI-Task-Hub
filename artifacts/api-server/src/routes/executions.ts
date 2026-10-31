@@ -1070,7 +1070,7 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
       }).where(and(
         eq(aiExecutionJobsTable.id, existing.id),
         inArray(aiExecutionJobsTable.status, ["failed", "blocked", "cancelled"]),
-        isNull(aiExecutionJobsTable.commandId),
+        ...(mode === "chatgpt" ? [isNull(aiExecutionJobsTable.commandId)] : []),
       )).returning();
       if (!reset) {
         const [current] = await db.select().from(aiExecutionJobsTable)
