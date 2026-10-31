@@ -539,6 +539,12 @@ async function recoverVerifiedSopContinuations(): Promise<void> {
         payload: { sourceExecutionId: source.id, parentCommandId: source.commandId,
           checkpointId: proof.checkpointId, stepId: proof.stepId, sopVersion: proof.sopVersion },
       });
+      // Continuation is an initial dispatch too: commit a durable claim first.
+      const [claimedContinuation] = await db.update(aiExecutionJobsTable)
+        .set({ status: "dispatching", metadata: { ...asRecord(created.metadata), dispatchState: "dispatching_unconfirmed" } })
+        .where(and(eq(aiExecutionJobsTable.id, created.id), eq(aiExecutionJobsTable.status, "queued"), isNull(aiExecutionJobsTable.commandId)))
+        .returning();
+      if (!claimedContinuation) continue;
       try {
         const remote = await submitAiTaskChatGptCommand({
           accountAlias: alias, instruction, jobAlias: task.taskNumber ?? `TASK${source.taskId}`,
@@ -555,8 +561,7 @@ async function recoverVerifiedSopContinuations(): Promise<void> {
       } catch (err) {
         const message = err instanceof Error ? err.message : "AI_CORE_CONTINUATION_FAILED";
         if (isRetryableChatGptDispatchError(message)) {
-          await markWaitingForAccountSession(created, message);
-          scheduleChatGptDispatchRetry(created.id);
+          await db.update(aiExecutionJobsTable).set({ status: "dispatching", errorMessage: "AI_CORE_DISPATCH_OUTCOME_UNCONFIRMED", metadata: { ...asRecord(created.metadata), dispatchState: "dispatching_unconfirmed", lastDispatchError: message } }).where(eq(aiExecutionJobsTable.id, created.id));
         } else {
           await db.update(aiExecutionJobsTable).set({
             status: "failed", progress: 100, errorMessage: message, completedAt: new Date(),
@@ -939,6 +944,11 @@ router.post("/ai-tasks/:id/continue", requireAuth, async (req: Request, res: Res
       payload: { sourceExecutionId: source.id, parentCommandId: source.commandId,
         checkpointId: proof.checkpointId, stepId: proof.stepId, sopVersion: proof.sopVersion },
     });
+    const [claimedContinuation] = await db.update(aiExecutionJobsTable)
+      .set({ status: "dispatching", metadata: { ...asRecord(created.metadata), dispatchState: "dispatching_unconfirmed" } })
+      .where(and(eq(aiExecutionJobsTable.id, created.id), eq(aiExecutionJobsTable.status, "queued"), isNull(aiExecutionJobsTable.commandId)))
+      .returning();
+    if (!claimedContinuation) { res.status(200).json({ reused: true }); return; }
     try {
       const remote = await submitAiTaskChatGptCommand({
         accountAlias, instruction, jobAlias: task.taskNumber ?? `TASK${taskId}`,
@@ -961,9 +971,8 @@ router.post("/ai-tasks/:id/continue", requireAuth, async (req: Request, res: Res
     } catch (err) {
       const message = err instanceof Error ? err.message : "AI_CORE_CONTINUATION_FAILED";
       if (isRetryableChatGptDispatchError(message)) {
-        const waiting = await markWaitingForAccountSession(created, message);
-        scheduleChatGptDispatchRetry(created.id);
-        res.status(202).json({ execution: waiting, waitingForSession: true }); return;
+        const [uncertain] = await db.update(aiExecutionJobsTable).set({ status: "dispatching", errorMessage: "AI_CORE_DISPATCH_OUTCOME_UNCONFIRMED", metadata: { ...asRecord(created.metadata), dispatchState: "dispatching_unconfirmed", lastDispatchError: message } }).where(eq(aiExecutionJobsTable.id, created.id)).returning();
+        res.status(202).json({ execution: uncertain ?? created, outcomeUnconfirmed: true }); return;
       }
       const [failed] = await db.update(aiExecutionJobsTable).set({
         status: "failed", progress: 100, errorMessage: message, completedAt: new Date(),
