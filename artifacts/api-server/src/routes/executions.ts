@@ -1,7 +1,7 @@
 import { createSingleFlightGuard } from "../lib/single-flight";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { Router, type IRouter, type NextFunction, type Request, type Response } from "express";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import {
   aiExecutionEventsTable,
   aiExecutionJobsTable,
@@ -320,6 +320,20 @@ async function retryChatGptDispatch(executionId: string): Promise<void> {
     stopChatGptDispatchRetry(executionId);
     return;
   }
+
+  // Atomic cross-instance claim. On an uncertain crash the dispatching state
+  // deliberately remains for manual reconciliation; never blindly resend.
+  const [claimed] = await db.update(aiExecutionJobsTable)
+    .set({ status: "dispatching", metadata: {
+      ...metadata, dispatchState: "dispatching_unconfirmed",
+    } })
+    .where(and(
+      eq(aiExecutionJobsTable.id, executionId),
+      eq(aiExecutionJobsTable.status, "waiting_for_session"),
+      isNull(aiExecutionJobsTable.commandId),
+    ))
+    .returning();
+  if (!claimed) return;
 
   try {
     const remote = await submitAiTaskChatGptCommand({
