@@ -1,7 +1,7 @@
 import { createSingleFlightGuard } from "../lib/single-flight";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { Router, type IRouter, type NextFunction, type Request, type Response } from "express";
-import { and, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
   aiExecutionEventsTable,
   aiExecutionJobsTable,
@@ -832,6 +832,54 @@ router.post("/bridge/jobs/:id/source-event", requireBridgeToken, async (req: Req
   } catch (err) {
     logger.error({ err }, "POST /bridge/jobs/:id/source-event failed");
     res.status(500).json({ error: "Source event unavailable" });
+  }
+});
+
+// Diagnostic-only reconciliation: never dispatch, retry or mutate a job.
+// A unique correlation match is evidence of acceptance, NOT verified completion.
+router.get("/ai-tasks/:id/gpt02-reconciliation", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  if (process.env.APP_ENV === "production" || process.env.NODE_ENV === "production") {
+    res.status(404).json({ error: "Not available" }); return;
+  }
+  const taskId = Number(req.params.id);
+  const companyId = getCompanyId(req);
+  if (!Number.isSafeInteger(taskId) || taskId < 1 || !companyId) {
+    res.status(400).json({ error: "Task and company scope required" }); return;
+  }
+  try {
+    const [job] = await db.select().from(aiExecutionJobsTable)
+      .where(and(eq(aiExecutionJobsTable.taskId, taskId), eq(aiExecutionJobsTable.companyId, companyId)))
+      .orderBy(desc(aiExecutionJobsTable.createdAt)).limit(1);
+    if (!job) { res.status(404).json({ error: "Execution not found" }); return; }
+    const metadata = asRecord(job.metadata);
+    const correlation = metadata["remoteCorrelationId"];
+    if (metadata["environment"] !== "development" || metadata["verificationMode"] !== "chatgpt-attested" ||
+        typeof correlation !== "string" || correlation.length < 8 || correlation.length > 250) {
+      res.status(422).json({ error: "Not a correlated DEV GPT02 execution" }); return;
+    }
+    const matches = await db.execute(sql`
+      SELECT id::text AS command_id, 'active' AS source FROM ai_platform.ai_coding_bridge_commands
+      WHERE metadata_json->>'correlationId' = ${correlation}
+      UNION ALL
+      SELECT command_id::text, 'archive' AS source FROM ai_platform.gpt02_dev_command_archive_20261030
+      WHERE command_record->'metadata_json'->>'correlationId' = ${correlation}
+      LIMIT 3
+    `);
+    const found = matches.rows as Array<{ command_id: string; source: string }>;
+    const uniqueIds = [...new Set(found.map(row => row.command_id))];
+    const unique = uniqueIds.length === 1;
+    res.json({ taskId, executionId: job.id, status: job.status, correlationId: correlation,
+      matchCount: found.length, uniqueCommandMatch: unique,
+      commandId: unique ? uniqueIds[0] : null,
+      sources: [...new Set(found.map(row => row.source))],
+      callbackVerified: job.callbackVerified === true,
+      attestationVerified: job.attestationVerified === true,
+      finalAckVerified: job.finalAckVerified === true,
+      automaticDispatch: false, statusChanged: false,
+    });
+  } catch (err) {
+    logger.warn({ err, taskId }, "DEV GPT02 read-only reconciliation failed");
+    res.status(503).json({ error: "Reconciliation unavailable" });
   }
 });
 
