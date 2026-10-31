@@ -1,4 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
+import { INTERNAL_E2E_PREFIX, isSilentInternalE2eJob } from "../lib/dev-internal-e2e";
 import { eq, ne, desc, and, ilike, or, isNull, gte, lte, inArray, SQL } from "drizzle-orm";
 import {
   db,
@@ -149,6 +150,13 @@ router.post("/ai-tasks", requireAuth, async (req: Request, res: Response): Promi
       return;
     }
 
+    // Reserved test marker: only super admins in an explicitly enabled DEV runtime.
+    if (title.trim().startsWith(INTERNAL_E2E_PREFIX) &&
+        (!isSilentInternalE2eJob(title.trim()) || req.user?.role !== "super_admin")) {
+      res.status(403).json({ error: "INTERNAL_E2E_DEV_SUPER_ADMIN_ONLY" });
+      return;
+    }
+
     const normalizedStatus = status ? normalizeAiTaskStatus(status) : "new_inquiry";
     if (!normalizedStatus) {
       res.status(400).json({ error: `Status tidak valid: ${status}` });
@@ -201,7 +209,7 @@ router.post("/ai-tasks", requireAuth, async (req: Request, res: Response): Promi
 
     emitSseEvent("new_task", { taskId: created.id, taskNumber, companyId }, companyId);
 
-    notifyTaskCreated({
+    if (!isSilentInternalE2eJob(created.title)) notifyTaskCreated({
       taskId:       created.id,
       taskNumber,
       title:        created.title,
