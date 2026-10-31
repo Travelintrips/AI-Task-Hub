@@ -1,0 +1,3 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';
+const s=readFileSync(new URL('../src/routes/executions.ts',import.meta.url),'utf8');const f=s.split('router.post("/ai-tasks/:id/execution"')[1];const reset=f.split('if (existing) {')[1].split('} else {')[0];
+test('failed-job reset is atomic and cannot overwrite a command with uncertain status',()=>{assert.match(reset,/inArray\(aiExecutionJobsTable.status, \["failed", "blocked", "cancelled"\]\)/);assert.match(reset,/isNull\(aiExecutionJobsTable.commandId\)/);assert.match(reset,/if \(!reset\)/);assert.match(reset,/dispatchNotStarted: true/);assert.doesNotMatch(reset,/reset \?\? existing/)});
