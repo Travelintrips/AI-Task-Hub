@@ -7,6 +7,7 @@ import { aiExecutionEventsTable, aiExecutionJobsTable, db, whatsappNotifications
 import { jobWaConfig, jobWaRecipient, sendJobViaDevWaGateway } from "./ai-job-wa-gateway";
 export { jobWaConfig } from "./ai-job-wa-gateway";
 import { logger } from "./logger";
+import { isSilentInternalE2eJob } from "./dev-internal-e2e";
 
 type Job = typeof aiExecutionJobsTable.$inferSelect;
 
@@ -77,6 +78,7 @@ export function formatAiJobWhatsApp(jobs: Job[], now = new Date()): string {
  *  Gateway acceptance is recorded as "queued", NOT as a delivered/read receipt.
  */
 export async function notifyAiJobTransition(job: Job): Promise<void> {
+  if (isSilentInternalE2eJob(job.title)) return;
   if (!jobWaConfig().ready) return;
   const state = job.status.toLowerCase();
   if (!(state === "queued" || TERMINAL.has(state))) return;
