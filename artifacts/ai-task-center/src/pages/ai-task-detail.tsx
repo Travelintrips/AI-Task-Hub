@@ -977,9 +977,9 @@ export default function AiTaskDetail() {
               Periksa Rekonsiliasi GPT02 (baca-saja)
             </Button>
             {reconciliationError && <p role="alert" className="mt-2 text-red-700">Tidak dapat membaca rekonsiliasi: {String(reconciliationError)}</p>}
-            {reconciliation && <div className="mt-3 space-y-1" aria-live="polite">
+            {reconciliation && <div className="mt-3 space-y-2 rounded-lg border border-slate-300 bg-white p-3 text-sm font-medium text-slate-900" aria-live="polite">
               <p>Status job: {reconciliation.status}; kecocokan unik: {reconciliation.uniqueCommandMatch ? "Ya" : "Tidak"}; jumlah padanan: {reconciliation.matchCount}</p>
-              <p>Command ID: {reconciliation.commandId ?? "Belum terkonfirmasi"}</p>
+              <p className="break-all font-mono text-slate-900">Command ID: {reconciliation.commandId ?? "Belum terkonfirmasi"}</p>
               <p>Callback: {reconciliation.callbackVerified ? "Verified" : "Belum"} · Attestation: {reconciliation.attestationVerified ? "Verified" : "Belum"} · Final ACK: {reconciliation.finalAckVerified ? "Verified" : "Belum"}</p>
               <p>Arsip tersedia: {reconciliation.archiveAvailable ? "Ya" : "Tidak"} · Dispatch otomatis: Tidak · Perubahan status: Tidak</p>
             </div>}
