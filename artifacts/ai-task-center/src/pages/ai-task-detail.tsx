@@ -548,6 +548,19 @@ export default function AiTaskDetail() {
     },
   });
 
+  const [reconciliationRequested, setReconciliationRequested] = useState(false);
+  const { data: reconciliation, isFetching: reconciliationFetching, error: reconciliationError, refetch: checkReconciliation } = useQuery<{
+    status: string; matchCount: number; uniqueCommandMatch: boolean; commandId: string | null;
+    callbackVerified: boolean; attestationVerified: boolean; finalAckVerified: boolean;
+    archiveAvailable: boolean; automaticDispatch: boolean; statusChanged: boolean;
+  }>({
+    queryKey: ["gpt02-reconciliation", id],
+    queryFn: () => apiFetch(`/ai-tasks/${id}/gpt02-reconciliation`),
+    enabled: reconciliationRequested,
+    retry: false,
+    staleTime: 0,
+  });
+
   const startExecutionMutation = useMutation({
     mutationFn: (mode: "worker" | "chatgpt") =>
       apiFetch(`/ai-tasks/${id}/execution`, {
@@ -952,6 +965,23 @@ export default function AiTaskDetail() {
         {!executionData?.bridgeConfigured && (
           <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
             AI Core DEV bridge belum dikonfigurasi pada runtime AI Task.
+          </div>
+        )}
+
+        {executionData?.execution && (
+          <div className="mt-3 rounded-lg border border-slate-200 p-3 text-xs">
+            <Button variant="outline" size="sm" disabled={reconciliationFetching}
+              onClick={() => { setReconciliationRequested(true); if (reconciliationRequested) void checkReconciliation(); }}>
+              {reconciliationFetching ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <Shield className="mr-2 h-3.5 w-3.5" />}
+              Periksa Rekonsiliasi GPT02 (baca-saja)
+            </Button>
+            {reconciliationError && <p role="alert" className="mt-2 text-red-700">Tidak dapat membaca rekonsiliasi: {String(reconciliationError)}</p>}
+            {reconciliation && <div className="mt-3 space-y-1" aria-live="polite">
+              <p>Status job: {reconciliation.status}; kecocokan unik: {reconciliation.uniqueCommandMatch ? "Ya" : "Tidak"}; jumlah padanan: {reconciliation.matchCount}</p>
+              <p>Command ID: {reconciliation.commandId ?? "Belum terkonfirmasi"}</p>
+              <p>Callback: {reconciliation.callbackVerified ? "Verified" : "Belum"} · Attestation: {reconciliation.attestationVerified ? "Verified" : "Belum"} · Final ACK: {reconciliation.finalAckVerified ? "Verified" : "Belum"}</p>
+              <p>Arsip tersedia: {reconciliation.archiveAvailable ? "Ya" : "Tidak"} · Dispatch otomatis: Tidak · Perubahan status: Tidak</p>
+            </div>}
           </div>
         )}
 
