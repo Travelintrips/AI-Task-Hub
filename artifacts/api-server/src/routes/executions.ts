@@ -1,3 +1,4 @@
+import { createSingleFlightGuard } from "../lib/single-flight";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { Router, type IRouter, type NextFunction, type Request, type Response } from "express";
 import { and, desc, eq, inArray } from "drizzle-orm";
@@ -246,6 +247,7 @@ const executionSyncTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const executionSyncBackoff = new Map<string, number>();
 const chatGptDispatchRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const chatGptDispatchRetryBackoff = new Map<string, number>();
+const chatGptDispatchInFlight = createSingleFlightGuard();
 
 function isRetryableChatGptDispatchError(message: string): boolean {
   return message.includes("AI_CORE_CHATGPT_COMMAND_HTTP_429") ||
@@ -290,6 +292,8 @@ async function markWaitingForAccountSession(
 }
 
 async function retryChatGptDispatch(executionId: string): Promise<void> {
+  if (!chatGptDispatchInFlight.enter(executionId)) return;
+  try {
   const [execution] = await db.select().from(aiExecutionJobsTable)
     .where(eq(aiExecutionJobsTable.id, executionId)).limit(1);
   if (!execution || TERMINAL_EXECUTION_STATUSES.has(execution.status) || execution.commandId) {
@@ -388,6 +392,9 @@ async function retryChatGptDispatch(executionId: string): Promise<void> {
     const attempt = (chatGptDispatchRetryBackoff.get(executionId) ?? 0) + 1;
     chatGptDispatchRetryBackoff.set(executionId, attempt);
     scheduleChatGptDispatchRetry(executionId, Math.min(10_000 * (2 ** (attempt - 1)), 60_000));
+  }
+  } finally {
+    chatGptDispatchInFlight.leave(executionId);
   }
 }
 
