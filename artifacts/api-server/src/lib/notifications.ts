@@ -1,6 +1,7 @@
 import { db, whatsappNotificationsTable } from "@workspace/db";
 import { sendFonnte } from "./fonnte";
 import { logger } from "./logger";
+import { isSilentInternalE2eJob } from "./dev-internal-e2e";
 
 export interface TaskNotifContext {
   taskId: number;
@@ -267,6 +268,7 @@ async function sendAndLog(opts: {
 // ─── Notifikasi task dibuat (ke customer + staff) ──────────────────────────────
 
 export async function notifyTaskCreated(ctx: TaskNotifContext): Promise<void> {
+  if (isSilentInternalE2eJob(ctx.title)) return;
   const customerMsg = templateTaskCreated(ctx);
   const staffMsg    = templateStaffNewTask(ctx);
 
@@ -364,6 +366,7 @@ export async function notifyTaskCompleted(
     plateNumber?: string | null;
   },
 ): Promise<void> {
+  if (isSilentInternalE2eJob(ctx.title)) return;
   const customerMsg = templateTaskCompleted(ctx);
   const staffMsg    = templateStaffTaskCompleted(ctx);
 
@@ -415,6 +418,7 @@ export async function notifyTaskCompleted(
 // ─── Notifikasi status berubah (ke customer + staff) ──────────────────────────
 
 export async function notifyStatusChanged(ctx: TaskNotifContext, oldStatus: string): Promise<void> {
+  if (isSilentInternalE2eJob(ctx.title)) return;
   if (oldStatus === ctx.status) return;
 
   const customerMsg = templateStatusChanged(ctx, oldStatus);
@@ -471,6 +475,7 @@ export async function notifyTaskAssigned(
   ctx: TaskNotifContext,
   staffPhone: string | null,
 ): Promise<void> {
+  if (isSilentInternalE2eJob(ctx.title)) return;
   if (!ctx.assignedTo) return;
 
   const message = templateAssigned(ctx);

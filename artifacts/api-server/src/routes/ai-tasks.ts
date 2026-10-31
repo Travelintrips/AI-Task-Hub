@@ -303,7 +303,7 @@ router.patch("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): 
     }
 
     // ── Sinkron balik ke Supabase logistic_orders (fire-and-forget) ──────────
-    if (normalizedStatus && normalizedStatus !== normalizeAiTaskStatus(current.status) && current.taskNumber) {
+    if (!isSilentInternalE2eJob(current.title) && normalizedStatus && normalizedStatus !== normalizeAiTaskStatus(current.status) && current.taskNumber) {
       pushStatusToSupabase(current.taskNumber, current.status, normalizedStatus)
         .catch((err) => logger.error({ err }, "pushStatusToSupabase gagal"));
     }
