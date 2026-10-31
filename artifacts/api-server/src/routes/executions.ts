@@ -1094,6 +1094,26 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
       execution = created;
     }
 
+    // Cross-instance first-dispatch claim. A committed claim survives a crash,
+    // keeping uncertain work out of the automatic retry queue.
+    if (mode === "chatgpt") {
+      const [claimed] = await db.update(aiExecutionJobsTable).set({
+        status: "dispatching",
+        metadata: { ...asRecord(execution.metadata), dispatchState: "dispatching_unconfirmed" },
+      }).where(and(
+        eq(aiExecutionJobsTable.id, execution.id),
+        eq(aiExecutionJobsTable.status, "queued"),
+        isNull(aiExecutionJobsTable.commandId),
+      )).returning();
+      if (!claimed) {
+        const [current] = await db.select().from(aiExecutionJobsTable)
+          .where(eq(aiExecutionJobsTable.id, execution.id)).limit(1);
+        res.status(200).json({ execution: current ?? execution, reused: true });
+        return;
+      }
+      execution = claimed;
+    }
+
     void notifyAiJobTransition(execution).catch((err) => logger.warn({ err, executionId: execution.id }, "Execution WhatsApp notification deferred"));
 
     try {
