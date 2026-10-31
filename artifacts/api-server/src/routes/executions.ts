@@ -857,19 +857,28 @@ router.get("/ai-tasks/:id/gpt02-reconciliation", requireAuth, async (req: Reques
         typeof correlation !== "string" || correlation.length < 8 || correlation.length > 250) {
       res.status(422).json({ error: "Not a correlated DEV GPT02 execution" }); return;
     }
-    const matches = await db.execute(sql`
-      SELECT id::text AS command_id, 'active' AS source FROM ai_platform.ai_coding_bridge_commands
-      WHERE metadata_json->>'correlationId' = ${correlation}
-      UNION ALL
-      SELECT command_id::text, 'archive' AS source FROM ai_platform.gpt02_dev_command_archive_20261030
-      WHERE command_record->'metadata_json'->>'correlationId' = ${correlation}
-      LIMIT 3
-    `);
+    // Archive is optional; its absence must not break active-command reconciliation.
+    const archivePresent = await db.execute(sql`SELECT to_regclass('ai_platform.gpt02_dev_command_archive_20261030') IS NOT NULL AS available`);
+    const hasArchive = archivePresent.rows[0]?.available === true;
+    const matches = hasArchive
+      ? await db.execute(sql`
+          SELECT DISTINCT command_id, source FROM (
+            SELECT id::text AS command_id, 'active' AS source FROM ai_platform.ai_coding_bridge_commands
+            WHERE metadata_json->>'correlationId' = ${correlation}
+            UNION ALL
+            SELECT command_id::text, 'archive' AS source FROM ai_platform.gpt02_dev_command_archive_20261030
+            WHERE command_record->'metadata_json'->>'correlationId' = ${correlation}
+          ) matched LIMIT 100
+        `)
+      : await db.execute(sql`
+          SELECT DISTINCT id::text AS command_id, 'active' AS source FROM ai_platform.ai_coding_bridge_commands
+          WHERE metadata_json->>'correlationId' = ${correlation} LIMIT 100
+        `);
     const found = matches.rows as Array<{ command_id: string; source: string }>;
     const uniqueIds = [...new Set(found.map(row => row.command_id))];
-    const unique = uniqueIds.length === 1;
+    const unique = uniqueIds.length === 1 && found.length < 100;
     res.json({ taskId, executionId: job.id, status: job.status, correlationId: correlation,
-      matchCount: found.length, uniqueCommandMatch: unique,
+      matchCount: found.length, uniqueCommandMatch: unique, archiveAvailable: hasArchive,
       commandId: unique ? uniqueIds[0] : null,
       sources: [...new Set(found.map(row => row.source))],
       callbackVerified: job.callbackVerified === true,
