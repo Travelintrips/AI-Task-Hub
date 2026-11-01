@@ -892,6 +892,69 @@ router.get("/ai-tasks/:id/gpt02-reconciliation", requireAuth, async (req: Reques
   }
 });
 
+// DEV-only, fail-closed recovery: adopt a uniquely correlated existing command, never resend.
+router.post("/ai-tasks/:id/gpt02-adopt-existing", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  if (process.env.APP_ENV === "production" || process.env.NODE_ENV === "production") {
+    res.status(404).json({ error: "Not available" }); return;
+  }
+  if (req.user?.role !== "super_admin") {
+    res.status(403).json({ error: "SUPER_ADMIN_REQUIRED" }); return;
+  }
+  const taskId = Number(req.params.id);
+  const companyId = getCompanyIdForWrite(req);
+  if (!Number.isSafeInteger(taskId) || taskId < 1) {
+    res.status(400).json({ error: "INVALID_TASK_ID" }); return;
+  }
+  try {
+    const [job] = await db.select().from(aiExecutionJobsTable)
+      .where(and(eq(aiExecutionJobsTable.taskId, taskId), eq(aiExecutionJobsTable.companyId, companyId)))
+      .orderBy(desc(aiExecutionJobsTable.createdAt)).limit(1);
+    if (!job) { res.status(404).json({ error: "EXECUTION_NOT_FOUND" }); return; }
+    const metadata = asRecord(job.metadata);
+    const correlation = metadata["remoteCorrelationId"];
+    if (job.status !== "dispatching" || job.commandId ||
+        metadata["dispatchState"] !== "dispatching_unconfirmed" ||
+        metadata["environment"] !== "development" || metadata["verificationMode"] !== "chatgpt-attested" ||
+        typeof correlation !== "string" || correlation.length < 8 || correlation.length > 250) {
+      res.status(409).json({ error: "EXECUTION_NOT_ELIGIBLE" }); return;
+    }
+    const archivePresent = await db.execute(sql`SELECT to_regclass('ai_platform.gpt02_dev_command_archive_20261030') IS NOT NULL AS available`);
+    const hasArchive = archivePresent.rows[0]?.available === true;
+    const matches = hasArchive
+      ? await db.execute(sql`
+          SELECT DISTINCT command_id FROM (
+            SELECT id::text AS command_id FROM ai_platform.ai_coding_bridge_commands
+            WHERE metadata_json->>'correlationId' = ${correlation}
+            UNION ALL
+            SELECT command_id::text FROM ai_platform.gpt02_dev_command_archive_20261030
+            WHERE command_record->'metadata_json'->>'correlationId' = ${correlation}
+          ) matched LIMIT 2`)
+      : await db.execute(sql`
+          SELECT DISTINCT id::text AS command_id FROM ai_platform.ai_coding_bridge_commands
+          WHERE metadata_json->>'correlationId' = ${correlation} LIMIT 2`);
+    const ids = matches.rows.map(row => String(row.command_id));
+    if (ids.length !== 1 || !/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(ids[0])) {
+      res.status(409).json({ error: "UNIQUE_REMOTE_COMMAND_NOT_PROVEN", matchCount: ids.length }); return;
+    }
+    const [claimed] = await db.update(aiExecutionJobsTable)
+      .set({ commandId: ids[0], status: "dispatched", errorMessage: null,
+        metadata: { ...metadata, dispatchState: "adopted_existing", adoptedAt: new Date().toISOString() } })
+      .where(and(eq(aiExecutionJobsTable.id, job.id), eq(aiExecutionJobsTable.companyId, companyId),
+        eq(aiExecutionJobsTable.status, "dispatching"), isNull(aiExecutionJobsTable.commandId),
+        sql`metadata->>'dispatchState' = 'dispatching_unconfirmed'`,
+        sql`metadata->>'remoteCorrelationId' = ${correlation}`))
+      .returning();
+    if (!claimed) { res.status(409).json({ error: "RECOVERY_CLAIM_LOST" }); return; }
+    scheduleExecutionTracking(claimed.id);
+    res.json({ adopted: true, dispatchedNewCommand: false, executionId: claimed.id,
+      commandId: ids[0], callbackVerified: claimed.callbackVerified,
+      attestationVerified: claimed.attestationVerified, finalAckVerified: claimed.finalAckVerified });
+  } catch (err) {
+    logger.warn({ err, taskId }, "DEV GPT02 adopt-existing reconciliation failed");
+    res.status(503).json({ error: "RECOVERY_UNAVAILABLE" });
+  }
+});
+
 router.get("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const taskId = Number(req.params.id);

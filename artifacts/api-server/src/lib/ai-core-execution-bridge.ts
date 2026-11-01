@@ -143,7 +143,8 @@ export async function submitAiTaskChatGptCommand(input: {
     });
     if (!response.ok) {
       const body = await response.text().catch(() => "");
-      logger.warn({ ...audit, httpStatus: response.status, elapsedMs: Date.now() - startedAt }, "DEV GPT02 dispatch HTTP rejected or uncertain");
+      const safeErrorCode = body.match(/\bDEV_[A-Z0-9_]{4,100}\b/)?.[0] ?? null;
+      logger.warn({ ...audit, httpStatus: response.status, safeErrorCode, elapsedMs: Date.now() - startedAt }, "DEV GPT02 dispatch HTTP rejected or uncertain");
       if (body.includes("DEV_CHATGPT_WAKE_INSTRUCTION_INVALID")) {
         throw new Error("DEV_CHATGPT_WAKE_INSTRUCTION_INVALID");
       }

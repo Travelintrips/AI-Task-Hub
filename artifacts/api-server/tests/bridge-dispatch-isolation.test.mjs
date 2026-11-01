@@ -7,7 +7,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 const folder=await mkdtemp(path.join(tmpdir(),'bridge-no-network-'));
 try {
- await build({entryPoints:['src/lib/ai-core-execution-bridge.ts'],bundle:true,platform:'node',format:'esm',outfile:path.join(folder,'bridge.mjs'),plugins:[{name:'logger-no-io',setup(b){b.onResolve({filter:/^\.\/logger$/},a=>({path:a.path,namespace:'mock'}));b.onLoad({filter:/.*/,namespace:'mock'},()=>({contents:'export const logger={warn(){}}',loader:'js'}));}}],logLevel:'silent'});
+ await build({entryPoints:['src/lib/ai-core-execution-bridge.ts'],bundle:true,platform:'node',format:'esm',outfile:path.join(folder,'bridge.mjs'),plugins:[{name:'logger-no-io',setup(b){b.onResolve({filter:/^\.\/logger$/},a=>({path:a.path,namespace:'mock'}));b.onLoad({filter:/.*/,namespace:'mock'},()=>({contents:'export const logger={warn(){},info(){}}',loader:'js'}));}}],logLevel:'silent'});
  const bridge=await import(pathToFileURL(path.join(folder,'bridge.mjs')).href);
  test('same task identifier and correlation remain deterministic',()=>{
   assert.equal(bridge.buildAiTaskExternalCommandId('default',123),'ai-task:default:123');
