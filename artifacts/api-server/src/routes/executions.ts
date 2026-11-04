@@ -1,6 +1,7 @@
+import { createSingleFlightGuard } from "../lib/single-flight";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { Router, type IRouter, type NextFunction, type Request, type Response } from "express";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import {
   aiExecutionEventsTable,
   aiExecutionJobsTable,
@@ -12,6 +13,7 @@ import { emitSseEvent } from "../lib/sse";
 import { safeSourceTimelineMetadata } from "../lib/safe-source-timeline-metadata";
 import { isAttestedCheckpointResponse, verifiedContinuation } from "../lib/verified-continuation";
 import { hasVerifiedSourceFinalAck } from "../lib/verified-source-final-ack";
+import { hasExplicitSopFailure } from "../lib/verified-sop-outcome";
 import { logger } from "../lib/logger";
 import { formatAiJobWhatsApp, jobWaConfig, notifyAiJobTransition } from "../lib/ai-job-whatsapp";
 import { probeJobWaDevGateway } from "../lib/ai-job-wa-gateway";
@@ -148,7 +150,10 @@ async function syncExecution(execution: typeof aiExecutionJobsTable.$inferSelect
         message: response.message,
         workerId,
         // Verify this response itself, never inherit proof from a previous callback.
-        signatureVerified: isAttestedCheckpointResponse(response.kind, metadata),
+        signatureVerified: isAttestedCheckpointResponse(response.kind, metadata, {
+          commandId: timeline.commandId, correlationId: remoteCorrelationId ?? "",
+          publicKeyDerBase64: process.env.AI_CORE_DEV_CHECKPOINT_PUBLIC_KEY_DER_B64,
+        }, checkpoint),
         payload: { checkpoint, metadata, createdAt: response.createdAt },
       });
     }
@@ -176,6 +181,12 @@ async function syncExecution(execution: typeof aiExecutionJobsTable.$inferSelect
       completedAt = new Date(response.createdAt);
     } else if (response.kind === "COMPLETED") {
       resultSummary = response.message;
+      if (verificationMode === "chatgpt-attested" && hasExplicitSopFailure(response.message)) {
+        status = "blocked";
+        errorMessage = "AI_CORE_SOP_BLOCKER_IN_COMPLETED_REPLY";
+        completedAt = new Date(response.createdAt);
+        break;
+      }
       callbackVerified = true;
       completedAt = new Date(response.createdAt);
       if (!requiresAttestedFinalAck) {
@@ -191,7 +202,7 @@ async function syncExecution(execution: typeof aiExecutionJobsTable.$inferSelect
     }
   }
 
-  if (requiresAttestedFinalAck && callbackVerified && attestationVerified && finalAckVerified) {
+  if (status !== "blocked" && status !== "failed" && requiresAttestedFinalAck && callbackVerified && attestationVerified && finalAckVerified) {
     status = "completed";
     progress = 100;
     completedAt ??= new Date();
@@ -236,10 +247,12 @@ const executionSyncTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const executionSyncBackoff = new Map<string, number>();
 const chatGptDispatchRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 const chatGptDispatchRetryBackoff = new Map<string, number>();
+const chatGptDispatchInFlight = createSingleFlightGuard();
 
 function isRetryableChatGptDispatchError(message: string): boolean {
-  return message.includes("AI_CORE_CHATGPT_COMMAND_HTTP_429") ||
-    message.includes("AI_CORE_CHATGPT_COMMAND_HTTP_503");
+  // These errors cannot prove whether a network request was accepted remotely.
+  return /AI_CORE_CHATGPT_COMMAND_HTTP_(?:429|5\d\d)\b/.test(message) ||
+    /(?:TimeoutError|AbortError|timeout|fetch failed|ECONNRESET|ETIMEDOUT|EPIPE|socket hang up)/i.test(message);
 }
 
 function stopChatGptDispatchRetry(executionId: string): void {
@@ -280,6 +293,8 @@ async function markWaitingForAccountSession(
 }
 
 async function retryChatGptDispatch(executionId: string): Promise<void> {
+  if (!chatGptDispatchInFlight.enter(executionId)) return;
+  try {
   const [execution] = await db.select().from(aiExecutionJobsTable)
     .where(eq(aiExecutionJobsTable.id, executionId)).limit(1);
   if (!execution || TERMINAL_EXECUTION_STATUSES.has(execution.status) || execution.commandId) {
@@ -306,6 +321,20 @@ async function retryChatGptDispatch(executionId: string): Promise<void> {
     stopChatGptDispatchRetry(executionId);
     return;
   }
+
+  // Atomic cross-instance claim. On an uncertain crash the dispatching state
+  // deliberately remains for manual reconciliation; never blindly resend.
+  const [claimed] = await db.update(aiExecutionJobsTable)
+    .set({ status: "dispatching", metadata: {
+      ...metadata, dispatchState: "dispatching_unconfirmed",
+    } })
+    .where(and(
+      eq(aiExecutionJobsTable.id, executionId),
+      eq(aiExecutionJobsTable.status, "waiting_for_session"),
+      isNull(aiExecutionJobsTable.commandId),
+    ))
+    .returning();
+  if (!claimed) return;
 
   try {
     const remote = await submitAiTaskChatGptCommand({
@@ -374,10 +403,26 @@ async function retryChatGptDispatch(executionId: string): Promise<void> {
       return;
     }
 
-    await markWaitingForAccountSession(execution, message);
-    const attempt = (chatGptDispatchRetryBackoff.get(executionId) ?? 0) + 1;
-    chatGptDispatchRetryBackoff.set(executionId, attempt);
-    scheduleChatGptDispatchRetry(executionId, Math.min(10_000 * (2 ** (attempt - 1)), 60_000));
+    // The command may have reached AI Core before an HTTP 429/503 was observed.
+    // Never release the durable claim or schedule a new dispatch automatically.
+    await db.update(aiExecutionJobsTable).set({
+      status: "dispatching",
+      errorMessage: "AI_CORE_DISPATCH_OUTCOME_UNCONFIRMED",
+      metadata: {
+        ...metadata,
+        dispatchState: "dispatching_unconfirmed",
+        lastDispatchError: message,
+        lastDispatchAttemptAt: new Date().toISOString(),
+      },
+    }).where(and(
+      eq(aiExecutionJobsTable.id, execution.id),
+      eq(aiExecutionJobsTable.status, "dispatching"),
+    ));
+    stopChatGptDispatchRetry(executionId);
+    logger.warn({ executionId, message }, "DEV GPT02 retry outcome uncertain; reconciliation required");
+  }
+  } finally {
+    chatGptDispatchInFlight.leave(executionId);
   }
 }
 
@@ -427,7 +472,7 @@ async function recoverVerifiedSopContinuations(): Promise<void> {
   automaticContinuationScanRunning = true;
   try {
     const candidates = await db.select().from(aiExecutionJobsTable)
-      .where(and(eq(aiExecutionJobsTable.source, "AI_TASK"), eq(aiExecutionJobsTable.status, "failed")))
+      .where(and(eq(aiExecutionJobsTable.source, "AI_TASK"), inArray(aiExecutionJobsTable.status, ["failed", "running", "blocked"])))
       .orderBy(desc(aiExecutionJobsTable.updatedAt)).limit(100);
     for (const source of candidates) {
       const meta = asRecord(source.metadata);
@@ -446,6 +491,15 @@ async function recoverVerifiedSopContinuations(): Promise<void> {
         .orderBy(desc(aiExecutionEventsTable.createdAt)).limit(100);
       const proof = verifiedContinuation(events);
       if (!proof) continue;
+      // Never run two commands at once: AI Core must confirm the parent stopped.
+      if (source.status !== "failed") {
+        const remoteCorrelationId = typeof meta["remoteCorrelationId"] === "string"
+          ? meta["remoteCorrelationId"] : null;
+        if (!remoteCorrelationId) continue;
+        const original = await fetchAiTaskChatGptTimeline(source.commandId, remoteCorrelationId);
+        if (!original || !["failed", "blocked"].includes(original.status.toLowerCase()) ||
+            !original.responses.some((response) => response.kind === "FAILED" || response.kind === "BLOCKER")) continue;
+      }
       const [task] = await db.select().from(aiTasksTable)
         .where(and(eq(aiTasksTable.id, source.taskId), eq(aiTasksTable.companyId, source.companyId))).limit(1);
       if (!task) continue;
@@ -485,6 +539,12 @@ async function recoverVerifiedSopContinuations(): Promise<void> {
         payload: { sourceExecutionId: source.id, parentCommandId: source.commandId,
           checkpointId: proof.checkpointId, stepId: proof.stepId, sopVersion: proof.sopVersion },
       });
+      // Continuation is an initial dispatch too: commit a durable claim first.
+      const [claimedContinuation] = await db.update(aiExecutionJobsTable)
+        .set({ status: "dispatching", metadata: { ...asRecord(created.metadata), dispatchState: "dispatching_unconfirmed" } })
+        .where(and(eq(aiExecutionJobsTable.id, created.id), eq(aiExecutionJobsTable.status, "queued"), isNull(aiExecutionJobsTable.commandId)))
+        .returning();
+      if (!claimedContinuation) continue;
       try {
         const remote = await submitAiTaskChatGptCommand({
           accountAlias: alias, instruction, jobAlias: task.taskNumber ?? `TASK${source.taskId}`,
@@ -501,8 +561,7 @@ async function recoverVerifiedSopContinuations(): Promise<void> {
       } catch (err) {
         const message = err instanceof Error ? err.message : "AI_CORE_CONTINUATION_FAILED";
         if (isRetryableChatGptDispatchError(message)) {
-          await markWaitingForAccountSession(created, message);
-          scheduleChatGptDispatchRetry(created.id);
+          await db.update(aiExecutionJobsTable).set({ status: "dispatching", errorMessage: "AI_CORE_DISPATCH_OUTCOME_UNCONFIRMED", metadata: { ...asRecord(created.metadata), dispatchState: "dispatching_unconfirmed", lastDispatchError: message } }).where(eq(aiExecutionJobsTable.id, created.id));
         } else {
           await db.update(aiExecutionJobsTable).set({
             status: "failed", progress: 100, errorMessage: message, completedAt: new Date(),
@@ -680,6 +739,11 @@ router.post("/bridge/jobs/:id/source-event", requireBridgeToken, async (req: Req
     const [job] = await db.select().from(aiExecutionJobsTable)
       .where(eq(aiExecutionJobsTable.id, executionId)).limit(1);
     if (!job) { res.status(404).json({ error: "Bridge job not found" }); return; }
+    // Cancelled executions are immutable: reject delayed/replayed source events.
+    if (job.status === "cancelled") {
+      res.status(409).json({ error: "Execution cancelled; source event rejected" });
+      return;
+    }
     if (job.source !== "AI_CORE" || !eventId.startsWith("ai-core:" + job.externalId + ":")) {
       res.status(403).json({ error: "Source authority mismatch" }); return;
     }
@@ -755,7 +819,10 @@ router.post("/bridge/jobs/:id/source-event", requireBridgeToken, async (req: Req
         attestationVerified: true,
         finalAckVerified: true,
       } : {}),
-      ...(terminal ? { completedAt: new Date() } : {}),
+      // Source COMPLETED is provisional until a verified Final ACK arrives.
+      // Do not expose a terminal completion timestamp for a verifying job.
+      ...((verifiedFinal || normalized === "FAILED" || normalized === "BLOCKED")
+        ? { completedAt: job.completedAt ?? new Date() } : { completedAt: null }),
     }).where(eq(aiExecutionJobsTable.id, job.id)).returning();
     if (updated && updated.status !== job.status) {
       void notifyAiJobTransition(updated).catch((err) => logger.warn({ err, executionId: updated.id }, "Source event WhatsApp notification deferred"));
@@ -765,6 +832,126 @@ router.post("/bridge/jobs/:id/source-event", requireBridgeToken, async (req: Req
   } catch (err) {
     logger.error({ err }, "POST /bridge/jobs/:id/source-event failed");
     res.status(500).json({ error: "Source event unavailable" });
+  }
+});
+
+// Diagnostic-only reconciliation: never dispatch, retry or mutate a job.
+// A unique correlation match is evidence of acceptance, NOT verified completion.
+router.get("/ai-tasks/:id/gpt02-reconciliation", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  if (process.env.APP_ENV === "production" || process.env.NODE_ENV === "production") {
+    res.status(404).json({ error: "Not available" }); return;
+  }
+  const taskId = Number(req.params.id);
+  const companyId = getCompanyId(req);
+  if (!Number.isSafeInteger(taskId) || taskId < 1 || !companyId) {
+    res.status(400).json({ error: "Task and company scope required" }); return;
+  }
+  try {
+    const [job] = await db.select().from(aiExecutionJobsTable)
+      .where(and(eq(aiExecutionJobsTable.taskId, taskId), eq(aiExecutionJobsTable.companyId, companyId)))
+      .orderBy(desc(aiExecutionJobsTable.createdAt)).limit(1);
+    if (!job) { res.status(404).json({ error: "Execution not found" }); return; }
+    const metadata = asRecord(job.metadata);
+    const correlation = metadata["remoteCorrelationId"];
+    if (metadata["environment"] !== "development" || metadata["verificationMode"] !== "chatgpt-attested" ||
+        typeof correlation !== "string" || correlation.length < 8 || correlation.length > 250) {
+      res.status(422).json({ error: "Not a correlated DEV GPT02 execution" }); return;
+    }
+    // Archive is optional; its absence must not break active-command reconciliation.
+    const archivePresent = await db.execute(sql`SELECT to_regclass('ai_platform.gpt02_dev_command_archive_20261030') IS NOT NULL AS available`);
+    const hasArchive = archivePresent.rows[0]?.available === true;
+    const matches = hasArchive
+      ? await db.execute(sql`
+          SELECT DISTINCT command_id, source FROM (
+            SELECT id::text AS command_id, 'active' AS source FROM ai_platform.ai_coding_bridge_commands
+            WHERE metadata_json->>'correlationId' = ${correlation}
+            UNION ALL
+            SELECT command_id::text, 'archive' AS source FROM ai_platform.gpt02_dev_command_archive_20261030
+            WHERE command_record->'metadata_json'->>'correlationId' = ${correlation}
+          ) matched LIMIT 100
+        `)
+      : await db.execute(sql`
+          SELECT DISTINCT id::text AS command_id, 'active' AS source FROM ai_platform.ai_coding_bridge_commands
+          WHERE metadata_json->>'correlationId' = ${correlation} LIMIT 100
+        `);
+    const found = matches.rows as Array<{ command_id: string; source: string }>;
+    const uniqueIds = [...new Set(found.map(row => row.command_id))];
+    const unique = uniqueIds.length === 1 && found.length < 100;
+    res.json({ taskId, executionId: job.id, status: job.status, correlationId: correlation,
+      matchCount: found.length, uniqueCommandMatch: unique, archiveAvailable: hasArchive,
+      commandId: unique ? uniqueIds[0] : null,
+      sources: [...new Set(found.map(row => row.source))],
+      callbackVerified: job.callbackVerified === true,
+      attestationVerified: job.attestationVerified === true,
+      finalAckVerified: job.finalAckVerified === true,
+      automaticDispatch: false, statusChanged: false,
+    });
+  } catch (err) {
+    logger.warn({ err, taskId }, "DEV GPT02 read-only reconciliation failed");
+    res.status(503).json({ error: "Reconciliation unavailable" });
+  }
+});
+
+// DEV-only, fail-closed recovery: adopt a uniquely correlated existing command, never resend.
+router.post("/ai-tasks/:id/gpt02-adopt-existing", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  if (process.env.APP_ENV === "production" || process.env.NODE_ENV === "production") {
+    res.status(404).json({ error: "Not available" }); return;
+  }
+  if (req.user?.role !== "super_admin") {
+    res.status(403).json({ error: "SUPER_ADMIN_REQUIRED" }); return;
+  }
+  const taskId = Number(req.params.id);
+  const companyId = getCompanyIdForWrite(req);
+  if (!Number.isSafeInteger(taskId) || taskId < 1) {
+    res.status(400).json({ error: "INVALID_TASK_ID" }); return;
+  }
+  try {
+    const [job] = await db.select().from(aiExecutionJobsTable)
+      .where(and(eq(aiExecutionJobsTable.taskId, taskId), eq(aiExecutionJobsTable.companyId, companyId)))
+      .orderBy(desc(aiExecutionJobsTable.createdAt)).limit(1);
+    if (!job) { res.status(404).json({ error: "EXECUTION_NOT_FOUND" }); return; }
+    const metadata = asRecord(job.metadata);
+    const correlation = metadata["remoteCorrelationId"];
+    if (job.status !== "dispatching" || job.commandId ||
+        metadata["dispatchState"] !== "dispatching_unconfirmed" ||
+        metadata["environment"] !== "development" || metadata["verificationMode"] !== "chatgpt-attested" ||
+        typeof correlation !== "string" || correlation.length < 8 || correlation.length > 250) {
+      res.status(409).json({ error: "EXECUTION_NOT_ELIGIBLE" }); return;
+    }
+    const archivePresent = await db.execute(sql`SELECT to_regclass('ai_platform.gpt02_dev_command_archive_20261030') IS NOT NULL AS available`);
+    const hasArchive = archivePresent.rows[0]?.available === true;
+    const matches = hasArchive
+      ? await db.execute(sql`
+          SELECT DISTINCT command_id FROM (
+            SELECT id::text AS command_id FROM ai_platform.ai_coding_bridge_commands
+            WHERE metadata_json->>'correlationId' = ${correlation}
+            UNION ALL
+            SELECT command_id::text FROM ai_platform.gpt02_dev_command_archive_20261030
+            WHERE command_record->'metadata_json'->>'correlationId' = ${correlation}
+          ) matched LIMIT 2`)
+      : await db.execute(sql`
+          SELECT DISTINCT id::text AS command_id FROM ai_platform.ai_coding_bridge_commands
+          WHERE metadata_json->>'correlationId' = ${correlation} LIMIT 2`);
+    const ids = matches.rows.map(row => String(row.command_id));
+    if (ids.length !== 1 || !/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(ids[0])) {
+      res.status(409).json({ error: "UNIQUE_REMOTE_COMMAND_NOT_PROVEN", matchCount: ids.length }); return;
+    }
+    const [claimed] = await db.update(aiExecutionJobsTable)
+      .set({ commandId: ids[0], status: "dispatched", errorMessage: null,
+        metadata: { ...metadata, dispatchState: "adopted_existing", adoptedAt: new Date().toISOString() } })
+      .where(and(eq(aiExecutionJobsTable.id, job.id), eq(aiExecutionJobsTable.companyId, companyId),
+        eq(aiExecutionJobsTable.status, "dispatching"), isNull(aiExecutionJobsTable.commandId),
+        sql`metadata->>'dispatchState' = 'dispatching_unconfirmed'`,
+        sql`metadata->>'remoteCorrelationId' = ${correlation}`))
+      .returning();
+    if (!claimed) { res.status(409).json({ error: "RECOVERY_CLAIM_LOST" }); return; }
+    scheduleExecutionTracking(claimed.id);
+    res.json({ adopted: true, dispatchedNewCommand: false, executionId: claimed.id,
+      commandId: ids[0], callbackVerified: claimed.callbackVerified,
+      attestationVerified: claimed.attestationVerified, finalAckVerified: claimed.finalAckVerified });
+  } catch (err) {
+    logger.warn({ err, taskId }, "DEV GPT02 adopt-existing reconciliation failed");
+    res.status(503).json({ error: "RECOVERY_UNAVAILABLE" });
   }
 });
 
@@ -877,6 +1064,11 @@ router.post("/ai-tasks/:id/continue", requireAuth, async (req: Request, res: Res
       payload: { sourceExecutionId: source.id, parentCommandId: source.commandId,
         checkpointId: proof.checkpointId, stepId: proof.stepId, sopVersion: proof.sopVersion },
     });
+    const [claimedContinuation] = await db.update(aiExecutionJobsTable)
+      .set({ status: "dispatching", metadata: { ...asRecord(created.metadata), dispatchState: "dispatching_unconfirmed" } })
+      .where(and(eq(aiExecutionJobsTable.id, created.id), eq(aiExecutionJobsTable.status, "queued"), isNull(aiExecutionJobsTable.commandId)))
+      .returning();
+    if (!claimedContinuation) { res.status(200).json({ reused: true }); return; }
     try {
       const remote = await submitAiTaskChatGptCommand({
         accountAlias, instruction, jobAlias: task.taskNumber ?? `TASK${taskId}`,
@@ -899,9 +1091,8 @@ router.post("/ai-tasks/:id/continue", requireAuth, async (req: Request, res: Res
     } catch (err) {
       const message = err instanceof Error ? err.message : "AI_CORE_CONTINUATION_FAILED";
       if (isRetryableChatGptDispatchError(message)) {
-        const waiting = await markWaitingForAccountSession(created, message);
-        scheduleChatGptDispatchRetry(created.id);
-        res.status(202).json({ execution: waiting, waitingForSession: true }); return;
+        const [uncertain] = await db.update(aiExecutionJobsTable).set({ status: "dispatching", errorMessage: "AI_CORE_DISPATCH_OUTCOME_UNCONFIRMED", metadata: { ...asRecord(created.metadata), dispatchState: "dispatching_unconfirmed", lastDispatchError: message } }).where(eq(aiExecutionJobsTable.id, created.id)).returning();
+        res.status(202).json({ execution: uncertain ?? created, outcomeUnconfirmed: true }); return;
       }
       const [failed] = await db.update(aiExecutionJobsTable).set({
         status: "failed", progress: 100, errorMessage: message, completedAt: new Date(),
@@ -928,8 +1119,8 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
     }
 
     const body = req.body as Record<string, unknown>;
-    const mode = body.mode === "chatgpt" ? "chatgpt" : "worker";
-    const accountAlias = typeof body.accountAlias === "string" && /^GPT[0-9]{2,4}$/.test(body.accountAlias.trim().toUpperCase())
+    let mode: "chatgpt" | "worker" = body.mode === "chatgpt" ? "chatgpt" : "worker";
+    let accountAlias = typeof body.accountAlias === "string" && /^GPT[0-9]{2,4}$/.test(body.accountAlias.trim().toUpperCase())
       ? body.accountAlias.trim().toUpperCase()
       : process.env.AI_TASK_DEFAULT_GPT_ALIAS?.trim().toUpperCase() || "GPT01";
     const requestedClientId = typeof body.assignedClientId === "string" ? body.assignedClientId.trim() : "";
@@ -973,7 +1164,10 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
 
     if (existing) {
       reused = true;
-      const nextCorrelationId = randomUUID();
+      // A retry after an uncertain ChatGPT handoff is the SAME logical command.
+      // Reuse its correlation: a new random value could wake a second worker.
+      const nextCorrelationId = (mode === "chatgpt" || asRecord(existing.metadata)["reasoningHandoff"] === true)
+        ? existing.correlationId : randomUUID();
       const remoteCorrelationId = `${externalId}:${nextCorrelationId}`;
       const [reset] = await db.update(aiExecutionJobsTable).set({
         instruction,
@@ -993,8 +1187,18 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
           autoContinue: mode === "chatgpt" && task.category === "ai_chat",
           ...(mode === "chatgpt" ? { accountAlias } : {}),
         },
-      }).where(eq(aiExecutionJobsTable.id, existing.id)).returning();
-      execution = reset ?? existing;
+      }).where(and(
+        eq(aiExecutionJobsTable.id, existing.id),
+        inArray(aiExecutionJobsTable.status, ["failed", "blocked", "cancelled"]),
+        ...(mode === "chatgpt" ? [isNull(aiExecutionJobsTable.commandId)] : []),
+      )).returning();
+      if (!reset) {
+        const [current] = await db.select().from(aiExecutionJobsTable)
+          .where(eq(aiExecutionJobsTable.id, existing.id)).limit(1);
+        res.status(200).json({ execution: current ?? existing, reused: true, dispatchNotStarted: true });
+        return;
+      }
+      execution = reset;
     } else {
       const correlationId = randomUUID();
       const idempotencyKey = `${externalId}:${correlationId}`;
@@ -1019,32 +1223,99 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
           continuationDepth: 0,
           ...(mode === "chatgpt" ? { accountAlias } : {}),
         },
-      }).returning();
+      }).onConflictDoNothing().returning();
+      if (!created) {
+        const [collision] = await db.select().from(aiExecutionJobsTable)
+          .where(and(eq(aiExecutionJobsTable.source, "AI_TASK"), eq(aiExecutionJobsTable.externalId, externalId))).limit(1);
+        if (!collision) throw new Error("EXECUTION_IDEMPOTENCY_CONFLICT");
+        res.status(200).json({ execution: collision, reused: true });
+        return;
+      }
       execution = created;
+    }
+
+    // Cross-instance first-dispatch claim. A committed claim survives a crash,
+    // keeping uncertain work out of the automatic retry queue.
+    if (mode === "chatgpt") {
+      const [claimed] = await db.update(aiExecutionJobsTable).set({
+        status: "dispatching",
+        metadata: { ...asRecord(execution.metadata), dispatchState: "dispatching_unconfirmed" },
+      }).where(and(
+        eq(aiExecutionJobsTable.id, execution.id),
+        eq(aiExecutionJobsTable.status, "queued"),
+        isNull(aiExecutionJobsTable.commandId),
+      )).returning();
+      if (!claimed) {
+        const [current] = await db.select().from(aiExecutionJobsTable)
+          .where(eq(aiExecutionJobsTable.id, execution.id)).limit(1);
+        res.status(200).json({ execution: current ?? execution, reused: true });
+        return;
+      }
+      execution = claimed;
     }
 
     void notifyAiJobTransition(execution).catch((err) => logger.warn({ err, executionId: execution.id }, "Execution WhatsApp notification deferred"));
 
     try {
       const executionMeta = asRecord(execution.metadata);
+      // An existing reasoning handoff retains its original verified account
+      // identity even if a later retry supplies a different/default alias.
+      const pinnedAlias = executionMeta["accountAlias"];
+      if (executionMeta["reasoningHandoff"] === true &&
+          typeof pinnedAlias === "string" && /^GPT[0-9]{2,4}$/.test(pinnedAlias)) {
+        accountAlias = pinnedAlias;
+      }
       const remoteCorrelationId = typeof executionMeta["remoteCorrelationId"] === "string"
         ? executionMeta["remoteCorrelationId"]
         : `${externalId}:${execution.correlationId}`;
-      const remote = mode === "chatgpt"
-        ? await submitAiTaskChatGptCommand({
+      // Only the exact AI Core 422 classification permits a reasoning handoff.
+      // A named PC/worker is never silently replaced. The same AI Task execution,
+      // external command identity and stable correlation are retained.
+      let remote: Awaited<ReturnType<typeof submitAiTaskCommand>> | Awaited<ReturnType<typeof submitAiTaskChatGptCommand>>;
+      if (mode === "chatgpt") {
+        remote = await submitAiTaskChatGptCommand({
+          accountAlias, instruction,
+          jobAlias: task.taskNumber ?? `TASK${taskId}`,
+          correlationId: remoteCorrelationId,
+        });
+      } else {
+        try {
+          remote = await submitAiTaskCommand({
+            externalCommandId: externalId, instruction, assignedClientId,
+            correlationId: execution.correlationId, companyId, taskId,
+          });
+        } catch (dispatchError) {
+          if (!(dispatchError instanceof Error && dispatchError.message === "AI_CORE_REASONING_ROUTE_REQUIRED") || assignedClientId) {
+            throw dispatchError;
+          }
+          // 422 classification is emitted before a new bounded dispatch, but
+          // an older command with this stable identity might already exist.
+          // Fail closed rather than create a second dispatcher for it.
+          if (await fetchAiTaskCommandTimeline(externalId)) {
+            throw new Error("AI_CORE_EXISTING_WORKER_COMMAND_PREVENTS_HANDOFF");
+          }
+          mode = "chatgpt";
+          const handoffMetadata = {
+            ...executionMeta,
+            verificationMode: "chatgpt-attested",
+            reasoningHandoff: true,
             accountAlias,
-            instruction,
+            autoContinue: task.category === "ai_chat",
+            remoteCorrelationId,
+          };
+          // Persist the route before external dispatch. A retry or recovery must
+          // use the ChatGPT-attested timeline, never the bounded-worker timeline.
+          await db.update(aiExecutionJobsTable).set({
+            metadata: handoffMetadata, assignedClientId: null,
+          }).where(eq(aiExecutionJobsTable.id, execution.id));
+          Object.assign(executionMeta, handoffMetadata);
+          remote = await submitAiTaskChatGptCommand({
+            accountAlias, instruction,
             jobAlias: task.taskNumber ?? `TASK${taskId}`,
             correlationId: remoteCorrelationId,
-          })
-        : await submitAiTaskCommand({
-            externalCommandId: externalId,
-            instruction,
-            assignedClientId,
-            correlationId: execution.correlationId,
-            companyId,
-            taskId,
           });
+        }
+      }
       const remoteCommandId: string = "command" in remote ? remote.command.id : remote.commandId;
       const remoteClientId: string = remote.clientId;
       const [updated] = await db.update(aiExecutionJobsTable).set({
@@ -1077,21 +1348,21 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
       res.status(remote.created ? 201 : 200).json({ execution: updated ?? execution, reused: reused || !remote.created });
     } catch (err) {
       const message = err instanceof Error ? err.message : "AI_CORE_DISPATCH_FAILED";
+      // Once a dispatch was attempted, 429/503 does not prove that AI Core
+      // rejected it before enqueueing. Preserve the existing identity and
+      // require reconciliation instead of an automatic second dispatch.
       if (mode === "chatgpt" && isRetryableChatGptDispatchError(message)) {
-        const waiting = await markWaitingForAccountSession(execution, message);
-        await db.insert(aiExecutionEventsTable).values({
-          executionId: execution.id,
-          taskId,
-          companyId,
-          eventId: `waiting-session:${execution.correlationId}:${randomUUID()}`,
-          eventType: "WAITING_FOR_SESSION",
-          phase: "dispatch",
-          status: "waiting_for_session",
-          message: `Waiting for a verified ${accountAlias} session. AI Task will retry automatically.`,
-          payload: { accountAlias, retryable: true },
-        });
-        scheduleChatGptDispatchRetry(execution.id);
-        res.status(202).json({ execution: waiting, queued: true, waitingForSession: true });
+        const [uncertain] = await db.update(aiExecutionJobsTable).set({
+          status: "dispatching",
+          errorMessage: "AI_CORE_DISPATCH_OUTCOME_UNCONFIRMED",
+          metadata: {
+            ...asRecord(execution.metadata),
+            dispatchState: "dispatching_unconfirmed",
+            lastDispatchError: message,
+            lastDispatchAttemptAt: new Date().toISOString(),
+          },
+        }).where(eq(aiExecutionJobsTable.id, execution.id)).returning();
+        res.status(202).json({ execution: uncertain ?? execution, outcomeUnconfirmed: true });
         return;
       }
 
