@@ -264,6 +264,7 @@ router.patch("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): 
     if (priority       !== undefined) updates.priority       = priority       as string;
     if (assignedTo     !== undefined) updates.assignedTo     = assignedTo     as string | null;
     if (assignedRole   !== undefined) updates.assignedRole   = assignedRole   as string | null;
+    if (assignedDivision !== undefined) updates.assignedDivision = assignedDivision as string | null;
     if (adminNotes     !== undefined) updates.adminNotes     = adminNotes     as string | null;
     if (requiredAction !== undefined) updates.requiredAction = requiredAction as string | null;
     if (driverName     !== undefined) updates.driverName     = driverName     as string | null;
