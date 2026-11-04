@@ -6,6 +6,7 @@ export const INTAKE_STATUSES = [
   "collecting",
   "form_sent",
   "ready_for_task",
+  "creation_failed",
   "submitted",
   "cancelled",
   "expired",

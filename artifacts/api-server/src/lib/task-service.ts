@@ -324,6 +324,29 @@ export async function createTaskFromWhatsAppMessage(
   const customerPhone = result.customer_phone ?? from;
 
   try {
+    // Recover a task already linked to this message after a partial downstream failure.
+    // This prevents sequential webhook retries from creating another task.
+    const [linkedMessage] = await db.select({ taskId: whatsappMessagesTable.taskId })
+      .from(whatsappMessagesTable)
+      .where(and(eq(whatsappMessagesTable.id, savedMsgId), eq(whatsappMessagesTable.companyId, companyId)))
+      .limit(1);
+    if (linkedMessage?.taskId) {
+      const [linkedTask] = await db.select().from(aiTasksTable)
+        .where(and(eq(aiTasksTable.id, linkedMessage.taskId), eq(aiTasksTable.companyId, companyId)))
+        .limit(1);
+      if (linkedTask) {
+        return {
+          action: "appended",
+          taskId: linkedTask.id,
+          taskNumber: linkedTask.taskNumber ?? String(linkedTask.id),
+          status: normalizeAiTaskStatus(linkedTask.status) ?? "new_inquiry",
+          title: linkedTask.title,
+          resolvedFields: [],
+          remainingFields: decodeMissingData(linkedTask.missingData),
+        };
+      }
+    }
+
     // ── 1. Find any active task for this customer ──────────────────────────────
     const existingTask = await findAnyActiveTaskForCustomer({ companyId, customerPhone });
 
