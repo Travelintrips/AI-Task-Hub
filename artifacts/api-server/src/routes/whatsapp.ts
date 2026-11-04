@@ -29,6 +29,7 @@ import {
   processIntakeMessage,
   startIntakeSession,
   markIntakeSubmitted,
+  markIntakeCreationFailed,
   isGreeting,
   isClosingPhrase,
   isCancellation,
@@ -1879,14 +1880,22 @@ async function runAiDetection({
               });
               logger.info({ taskId: taskOutput.taskId, sessionId: activeSession.id }, "Task created from completed intake");
             } else {
-              // Task creation returned null — mark session submitted anyway to prevent re-processing
-              await markIntakeSubmitted(activeSession.id, 0).catch(() => {});
-              logger.warn({ sessionId: activeSession.id }, "Intake: createTask returned null — session marked submitted to prevent loop");
+              // Task creation returned null: retain intake for supervised recovery.
+              await markIntakeCreationFailed(activeSession.id).catch((error) => logger.error({ error, sessionId: activeSession.id }, "Failed to retain intake for recovery"));
+              logger.warn({ sessionId: activeSession.id }, "Intake: createTask returned null — session retained for admin recovery");
+              await createAdminNotification({
+                type: "waiting_review",
+                title: "Task Intake Belum Terbuat",
+                body: `Intake ${activeSession.id} dari ${effectiveName ?? from} lengkap tetapi task belum dibuat. Perlu review manual.`,
+                customerPhone: from,
+                customerName: effectiveName,
+                companyId,
+              }).catch((error) => logger.error({ error, sessionId: activeSession.id }, "Failed to notify admin of incomplete intake"));
             }
           } catch (taskErr) {
-            // Task creation failed (e.g. ai_tasks table missing) — mark session submitted to prevent loop
-            logger.error({ taskErr, sessionId: activeSession.id }, "Intake: task creation failed — marking session submitted to prevent re-processing loop");
-            await markIntakeSubmitted(activeSession.id, 0).catch(() => {});
+            // Task creation failed: preserve session for manual recovery.
+            logger.error({ taskErr, sessionId: activeSession.id }, "Intake: task creation failed — retaining session for supervised recovery");
+            await markIntakeCreationFailed(activeSession.id).catch((error) => logger.error({ error, sessionId: activeSession.id }, "Failed to retain intake for recovery"));
             await createAdminNotification({
               type: "waiting_review",
               title: "Error Membuat Task dari Intake",
@@ -1979,6 +1988,17 @@ async function runAiDetection({
 
           if (intakeResult.action === "ready_for_task") {
             const taskOutput = await createTaskFromWhatsAppMessage({ savedMsgId, from, senderName, bodyText: transcript, companyId, result, resolution: result._resolution });
+            if (!taskOutput) {
+              await markIntakeCreationFailed(intakeResult.session.id);
+              await createAdminNotification({
+                type: "waiting_review",
+                title: "Task Intake Belum Terbuat",
+                body: `Intake ${intakeResult.session.id} dari ${effectiveName ?? from} belum menghasilkan task. Perlu review manual.`,
+                customerPhone: from,
+                customerName: effectiveName,
+                companyId,
+              }).catch((error) => logger.error({ error, sessionId: intakeResult.session.id }, "Failed to notify admin"));
+            }
             if (taskOutput) {
               await markIntakeSubmitted(intakeResult.session.id, taskOutput.taskId);
               await updateCustomerContextAfterTask({ phone: from, companyId, taskId: taskOutput.taskId, intent: result.intent, name: effectiveName });

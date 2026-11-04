@@ -8,11 +8,12 @@ import {
   auditLogsTable,
   teamMembersTable,
   whatsappMessagesTable,
+  intakeSessionsTable,
   getAiTaskStatusVariants,
   normalizeAiTaskStatus,
   type AiTaskStatus,
 } from "@workspace/db";
-import { requireAuth, getCompanyId, getCompanyIdForWrite } from "../middleware/auth";
+import { requireAuth, requireRole, getCompanyId, getCompanyIdForWrite } from "../middleware/auth";
 import { logger } from "../lib/logger";
 import { notifyStatusChanged, notifyTaskAssigned, notifyTaskCompleted, notifyTaskCreated } from "../lib/notifications";
 import { emitSseEvent } from "../lib/sse";
@@ -96,6 +97,29 @@ router.get("/ai-tasks", requireAuth, async (req: Request, res: Response): Promis
 });
 
 // ─── GET /ai-tasks/:id ─────────────────────────────────────────────────────────
+
+/** Admin-only queue of completed WhatsApp intakes whose task creation failed. */
+router.get("/ai-tasks/intake-failures", requireAuth, requireRole("supervisor"), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const companyId = getCompanyId(req);
+    const conditions = [eq(intakeSessionsTable.status, "creation_failed")];
+    if (companyId) conditions.push(eq(intakeSessionsTable.companyId, companyId));
+    const rows = await db.select({
+      id: intakeSessionsTable.id,
+      companyId: intakeSessionsTable.companyId,
+      phone: intakeSessionsTable.phone,
+      intentCode: intakeSessionsTable.intentCode,
+      collectedFields: intakeSessionsTable.collectedFields,
+      needsAdminReview: intakeSessionsTable.needsAdminReview,
+      updatedAt: intakeSessionsTable.updatedAt,
+    }).from(intakeSessionsTable).where(and(...conditions))
+      .orderBy(desc(intakeSessionsTable.updatedAt)).limit(200);
+    res.json(rows);
+  } catch (err) {
+    logger.error({ err }, "GET /ai-tasks/intake-failures failed");
+    res.status(500).json({ error: "Failed to load intake failures" });
+  }
+});
 
 router.get("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
@@ -272,6 +296,7 @@ router.patch("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): 
     if (priority       !== undefined) updates.priority       = priority       as string;
     if (assignedTo     !== undefined) updates.assignedTo     = assignedTo     as string | null;
     if (assignedRole   !== undefined) updates.assignedRole   = assignedRole   as string | null;
+    if (assignedDivision !== undefined) updates.assignedDivision = assignedDivision as string | null;
     if (adminNotes     !== undefined) updates.adminNotes     = adminNotes     as string | null;
     if (requiredAction !== undefined) updates.requiredAction = requiredAction as string | null;
     if (driverName     !== undefined) updates.driverName     = driverName     as string | null;

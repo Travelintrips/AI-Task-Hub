@@ -13,7 +13,7 @@
  * Timeout: sessions expire after 24 hours of inactivity
  */
 
-import { eq, and, inArray, lte, isNotNull, desc } from "drizzle-orm";
+import { eq, and, inArray, lte, isNotNull, isNull, desc } from "drizzle-orm";
 import {
   db,
   intakeSessionsTable,
@@ -2139,18 +2139,36 @@ export async function startIntakeSession({
 
 // ─── Mark session as submitted (after task created) ───────────────────────────
 
+/** Retain completed intake data for manual recovery when task creation fails. */
+export async function markIntakeCreationFailed(sessionId: number): Promise<void> {
+  await db.update(intakeSessionsTable)
+    .set({ status: "creation_failed", taskId: null, needsAdminReview: true, updatedAt: new Date() })
+    .where(and(eq(intakeSessionsTable.id, sessionId), inArray(intakeSessionsTable.status, ["ready_for_task", "creation_failed"])));
+}
+
 export async function markIntakeSubmitted(
   sessionId: number,
   taskId: string | number,
 ): Promise<void> {
-  await db
+  if (!String(taskId).trim() || String(taskId) === "0") {
+    throw new Error("Cannot submit intake without a valid task ID");
+  }
+  const updated = await db
     .update(intakeSessionsTable)
     .set({
       status: "submitted",
       taskId: String(taskId),
       updatedAt: new Date(),
     })
-    .where(eq(intakeSessionsTable.id, sessionId));
+    .where(and(
+      eq(intakeSessionsTable.id, sessionId),
+      inArray(intakeSessionsTable.status, ["ready_for_task", "creation_failed"]),
+      isNull(intakeSessionsTable.taskId),
+    ))
+    .returning({ id: intakeSessionsTable.id });
+  if (updated.length !== 1) {
+    throw new Error(`Intake ${sessionId} is no longer eligible for task submission`);
+  }
 }
 
 // ─── Expire old sessions (called by scheduler) ────────────────────────────────
