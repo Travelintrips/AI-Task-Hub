@@ -115,33 +115,36 @@ if (fs.existsSync(frontendDist)) {
   logger.warn({ frontendDist }, "Frontend dist not found — static serving skipped");
 }
 
-// Start background services
-startFollowUpScheduler();
+// E2E-only opt-out; default behavior is unchanged for DEV and PROD.
+if (process.env.DISABLE_BACKGROUND_SCHEDULERS !== "true") {
+  // Start background services
+  startFollowUpScheduler();
 
-// Auto-import transaksi/pesanan dari Supabase logistic_orders → ai_tasks (real-time)
-startOrderSyncScheduler();
+  // Auto-import transaksi/pesanan dari Supabase logistic_orders → ai_tasks (real-time)
+  startOrderSyncScheduler();
 
-// Governance: escalation rules + approval timeout scanner
-startEscalationScheduler();
+  // Governance: escalation rules + approval timeout scanner
+  startEscalationScheduler();
 
-// Sprint 5E: Intelligence Readiness Layer — nightly refresh at 00:30
-startIntelScheduler();
+  // Sprint 5E: Intelligence Readiness Layer — nightly refresh at 00:30
+  startIntelScheduler();
 
-// Sprint 7D: Fleet Scheduler — risk, cost, maintenance, fuel anomaly
-startFleetScheduler();
+  // Sprint 7D: Fleet Scheduler — risk, cost, maintenance, fuel anomaly
+  startFleetScheduler();
 
-// Sprint 10A-5: Executive Daily Briefing — 07:00 WIB
-startExecutiveBriefingScheduler();
+  // Sprint 10A-5: Executive Daily Briefing — 07:00 WIB
+  startExecutiveBriefingScheduler();
 
-// Refresh SLA statuses every 15 minutes
-setInterval(() => { refreshSlaStatuses().catch(() => {}); }, 15 * 60 * 1000);
+  // Refresh SLA statuses every 15 minutes
+  setInterval(() => { refreshSlaStatuses().catch(() => {}); }, 15 * 60 * 1000);
 
-// Expire stale intake sessions every hour
-setInterval(() => {
-  expireOldIntakeSessions()
-    .then((n) => { if (n > 0) logger.info({ expired: n }, "intake-sessions: expired stale sessions"); })
-    .catch(() => {});
-}, 60 * 60 * 1000);
+  // Expire stale intake sessions every hour
+  setInterval(() => {
+    expireOldIntakeSessions()
+      .then((n) => { if (n > 0) logger.info({ expired: n }, "intake-sessions: expired stale sessions"); })
+      .catch(() => {});
+  }, 60 * 60 * 1000);
+}
 
 const shouldRunStartupMigrations =
   process.env.RUN_STARTUP_MIGRATIONS === "true" ||
