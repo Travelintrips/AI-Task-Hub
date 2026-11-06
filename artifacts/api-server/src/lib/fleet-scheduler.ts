@@ -13,7 +13,7 @@
  */
 
 import { logger } from "./logger";
-import { supabaseQuery } from "./supabase-db";
+import { supabaseQuery, supabaseQueryStrict } from "./supabase-db";
 import { sendFonnte } from "./fonnte";
 
 const DEFAULT_COMPANY_ID = process.env["COMPANY_ID"] ?? "default";
@@ -113,39 +113,71 @@ async function runDocExpiryCheck(): Promise<void> {
 
 async function runMaintenanceDueCheck(): Promise<void> {
   const t0 = Date.now();
+  const jobName = "fleet-maintenance-due-check";
   logger.info("fleet-maintenance-due-check: starting");
+  // Use a durable claim, not an in-memory mutex: several API instances can start this scheduler.
+  // The first claim wins, including when a process crashes mid-send. Uncertain sends need
+  // manual reconciliation; never resend automatically after a crash or connection timeout.
   try {
-    const overdue = await supabaseQuery<{ count: string }>(`
-      SELECT COUNT(*) AS count FROM fleet_maintenance_records
-      WHERE status = 'pending' AND scheduled_date < NOW()
-    `, []);
-    const count = parseInt(overdue[0]?.count ?? "0");
-
-    const upcomingIn3Days = await supabaseQuery<{ count: string }>(`
-      SELECT COUNT(*) AS count FROM fleet_maintenance_records
-      WHERE status = 'pending' AND scheduled_date BETWEEN NOW() AND NOW() + INTERVAL '3 days'
-    `, []);
-    const upcoming = parseInt(upcomingIn3Days[0]?.count ?? "0");
-
-    if (count > 0 || upcoming > 0) {
-      const teamManagers = await supabaseQuery<{ phone: string; name: string }>(`
-        SELECT phone, name FROM team_members
-        WHERE company_id = $1 AND phone IS NOT NULL
-          AND role IN ('manager', 'supervisor', 'fleet_manager', 'company_admin')
-        LIMIT 5
-      `, [DEFAULT_COMPANY_ID]).catch(() => []);
-
-      const msg = `🔧 *Fleet Maintenance Alert*\n• Servis tertunggak: ${count}\n• Servis 3 hari ke depan: ${upcoming}\n\nCek di Fleet Management System.`;
-      for (const m of teamManagers) {
-        await sendFonnte(m.phone, msg).catch(() => {});
-      }
+    const claims = await supabaseQueryStrict<{ run_date: string }>(`
+      INSERT INTO public.fleet_maintenance_alert_claims (company_id, job_name, run_date)
+      VALUES ($1, $2, (now() AT TIME ZONE 'Asia/Jakarta')::date)
+      ON CONFLICT DO NOTHING RETURNING run_date
+    `, [DEFAULT_COMPANY_ID, jobName]);
+    if (claims.length !== 1) {
+      logger.info("fleet-maintenance-due-check: already claimed today; no replay");
+      return;
     }
 
-    await logRun("fleet-maintenance-due-check", "success", count + upcoming, count > 0 ? 1 : 0, Date.now() - t0);
-    logger.info({ overdue: count, upcoming, durationMs: Date.now() - t0 }, "fleet-maintenance-due-check: done");
+    const counts = await supabaseQueryStrict<{ overdue: string; upcoming: string }>(`
+      SELECT
+        COUNT(*) FILTER (WHERE next_service_date < (now() AT TIME ZONE 'Asia/Jakarta')::date) AS overdue,
+        COUNT(*) FILTER (WHERE next_service_date >= (now() AT TIME ZONE 'Asia/Jakarta')::date
+             AND next_service_date <= (now() AT TIME ZONE 'Asia/Jakarta')::date + 3) AS upcoming
+      FROM fleet_maintenance_records
+      WHERE company_id = $1 AND status = 'pending' AND next_service_date IS NOT NULL
+    `, [DEFAULT_COMPANY_ID]);
+    const overdue = Number(counts[0]?.overdue ?? 0);
+    const upcoming = Number(counts[0]?.upcoming ?? 0);
+    if (!Number.isSafeInteger(overdue) || !Number.isSafeInteger(upcoming)) throw Error("invalid maintenance counts");
+
+    if (overdue === 0 && upcoming === 0) {
+      await supabaseQueryStrict(`UPDATE public.fleet_maintenance_alert_claims
+        SET status='no_alert', overdue_count=0, upcoming_count=0, completed_at=now()
+        WHERE company_id=$1 AND job_name=$2 AND run_date=(now() AT TIME ZONE 'Asia/Jakarta')::date`,
+        [DEFAULT_COMPANY_ID, jobName]);
+      await logRun(jobName, "success", 0, 0, Date.now() - t0);
+      return;
+    }
+
+    const managers = await supabaseQueryStrict<{ phone: string }>(`
+      SELECT DISTINCT phone FROM team_members
+      WHERE company_id=$1 AND phone IS NOT NULL
+        AND role IN ('manager', 'supervisor', 'fleet_manager', 'company_admin') LIMIT 5
+    `, [DEFAULT_COMPANY_ID]);
+    if (managers.length === 0) throw Error("No fleet alert recipients configured; manual review required");
+    const msg = `🔧 *Fleet Maintenance Alert*\n• Servis tertunggak: ${overdue}\n• Servis 3 hari ke depan: ${upcoming}\n\nCek di Fleet Management System.`;
+    // Once a claim exists, retries are prohibited. Failures are deliberately non-replayable.
+    for (const m of managers) {
+      const receipt = await sendFonnte(m.phone, msg);
+      if (!receipt.success) throw new Error("Fleet maintenance WhatsApp send not confirmed");
+    }
+    await supabaseQueryStrict(`UPDATE public.fleet_maintenance_alert_claims
+      SET status='sent', overdue_count=$3, upcoming_count=$4, completed_at=now()
+      WHERE company_id=$1 AND job_name=$2 AND run_date=(now() AT TIME ZONE 'Asia/Jakarta')::date`,
+      [DEFAULT_COMPANY_ID, jobName, overdue, upcoming]);
+    await logRun(jobName, "success", overdue + upcoming, managers.length, Date.now() - t0);
   } catch (err) {
-    logger.error({ err }, "fleet-maintenance-due-check: failed");
-    await logRun("fleet-maintenance-due-check", "failed", 0, 0, Date.now() - t0, String(err));
+    logger.error({ err }, "fleet-maintenance-due-check: requires review; no automatic replay");
+    // Do not assume the claim succeeded: if DB failed, this UPDATE may fail too.
+    try {
+      await supabaseQueryStrict(`UPDATE public.fleet_maintenance_alert_claims
+        SET status='review_required', completed_at=now()
+        WHERE company_id=$1 AND job_name=$2
+          AND run_date=(now() AT TIME ZONE 'Asia/Jakarta')::date AND status='claimed'`,
+        [DEFAULT_COMPANY_ID, jobName]);
+    } catch (logErr) { logger.error({ err: logErr }, "maintenance claim review update failed"); }
+    await logRun(jobName, "failed", 0, 0, Date.now() - t0, String(err));
   }
 }
 
