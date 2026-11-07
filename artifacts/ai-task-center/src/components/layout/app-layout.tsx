@@ -60,8 +60,8 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
   const navigation = [
     { name: "Dashboard",    href: "/",          icon: LayoutDashboard },
-    { name: "AI Tasks",     href: "/ai-tasks",  icon: Kanban },
-    ...(user?.role === "super_admin" ? [{ name: "Job Registry", href: "/bridge-jobs", icon: Activity }] : []),
+    // AI Tasks and Job Registry remain available by direct route, but Dashboard
+    // is the single monitoring entry in the sidebar. No underlying feature is removed.
     { name: "Messages",     href: "/messages",  icon: MessageSquare },
     { name: "Documents",    href: "/documents", icon: FileText },
     { name: "Team",         href: "/team",      icon: Users },

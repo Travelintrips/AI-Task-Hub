@@ -7,7 +7,8 @@ import NotFound from "@/pages/not-found";
 import { AppLayout } from "@/components/layout/app-layout";
 import { AuthProvider, useAuth } from "@/contexts/auth-context";
 
-import Dashboard from "@/pages/dashboard";
+import LegacyDashboard from "@/pages/dashboard";
+import UnifiedDashboard from "@/pages/unified-dashboard";
 import Tasks from "@/pages/tasks";
 import TaskDetail from "@/pages/task-detail";
 import AiTaskBoard from "@/pages/ai-task-board";
@@ -116,7 +117,8 @@ function AppRouter() {
   return (
     <AppLayout>
       <Switch>
-        <Route path="/" component={Dashboard} />
+        <Route path="/" component={UnifiedDashboard} />
+        <Route path="/dashboard/legacy" component={LegacyDashboard} />
         <Route path="/tasks">{() => { window.location.replace("/ai-tasks"); return null; }}</Route>
         <Route path="/tasks/:id">{(params) => { window.location.replace(`/ai-tasks/${params.id}`); return null; }}</Route>
         <Route path="/ai-tasks" component={AiTaskBoard} />
