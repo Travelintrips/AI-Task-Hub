@@ -1,5 +1,6 @@
 import app from "./app";
 import { logger } from "./lib/logger";
+import { startAiCoreSourceReconciliationRuntime } from "./lib/ai-core-source-reconciliation";
 import { startAiJobWhatsAppDeliveryReconciliation } from "./lib/ai-job-wa-delivery";
 
 const rawPort = process.env["PORT"] ?? "8080";
@@ -18,5 +19,6 @@ app.listen(port, host, (err) => {
   }
 
   logger.info({ host, port }, "Server listening");
+  startAiCoreSourceReconciliationRuntime();
   startAiJobWhatsAppDeliveryReconciliation();
 });

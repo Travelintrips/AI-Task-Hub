@@ -31,6 +31,17 @@ export const pool = new Pool({
   max: intEnv("DB_POOL_MAX", 10),
 });
 
+// pg emits errors from idle clients on the pool. Without a listener, Node.js
+// treats these as uncaught EventEmitter errors and terminates the API process.
+// pg removes the failed client; subsequent requests can acquire a fresh one.
+pool.on("error", (error) => {
+  // Avoid logging connection strings, SQL parameters, or client objects.
+  console.error("PostgreSQL idle pool client error", {
+    code: (error as NodeJS.ErrnoException).code ?? "UNKNOWN",
+    message: error.message,
+  });
+});
+
 export const db = drizzle(pool, { schema });
 
 export * from "./schema";

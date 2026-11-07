@@ -1,546 +1,794 @@
-import { useMemo } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link } from "wouter";
-import { formatDistanceToNow } from "date-fns";
-import {
-  Activity,
-  ArrowRight,
-  Bell,
-  Bot,
-  BriefcaseBusiness,
-  CalendarDays,
-  CheckCircle2,
-  Clock3,
-  Cpu,
-  Database,
-  FolderKanban,
-  Inbox,
-  MessageSquare,
-  Plus,
-  RefreshCw,
-  Search,
-  Send,
-  Sparkles,
-  Users,
-  WalletCards,
-  Zap,
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
-import { getStoredToken } from "@/lib/auth-api";
+import { useState, useMemo } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useServerEvents } from "@/hooks/use-server-events";
+import { formatDistanceToNow } from "date-fns";
+import { Link } from "wouter";
+import { getStoredToken } from "@/lib/auth-api";
+import {
+  Search, RefreshCw, MessageSquare, AlertCircle, Clock,
+  ChevronDown, Filter, X, Brain, ShieldCheck, Phone,
+  Building2, Users, Layers, Tag,
+} from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/hooks/use-toast";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
+} from "@/components/ui/table";
+import { Card, CardContent } from "@/components/ui/card";
+import { OnboardingBanner } from "@/components/onboarding-banner";
+import { BridgeJobVisibility } from "@/components/bridge-job-visibility";
 
-type AiTask = {
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface AiTask {
   id: number;
   taskNumber: string | null;
+  companyId: string;
+  source: string;
+  customerName: string | null;
+  customerPhone: string | null;
   title: string;
-  status: string;
+  description: string | null;
+  category: string | null;
+  division: string | null;
   priority: string;
+  status: string;
   assignedTo: string | null;
+  assignedRole: string | null;
+  aiSummary: string | null;
   aiIntent: string | null;
+  auditStatus: string | null;
   latestMessage: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const SUMMARY_STATUSES = [
+  "New Inquiry",
+  "Waiting Documents",
+  "Ready for Review",
+  "Assigned",
+  "In Progress",
+  "Completed",
+] as const;
+
+const ALL_STATUSES = [
+  "New Inquiry",
+  "Waiting Documents",
+  "Ready for Review",
+  "Assigned",
+  "In Progress",
+  "Waiting Customer",
+  "Completed",
+  "Cancelled",
+] as const;
+
+type DashboardStatus = typeof ALL_STATUSES[number];
+
+const STATUS_CONFIG: Record<string, { dot: string; badge: string; card: string; cardText: string }> = {
+  "New Inquiry":       { dot: "bg-blue-500",   badge: "bg-blue-100 text-blue-700 border-blue-200",    card: "bg-blue-50 border-blue-200",    cardText: "text-blue-700" },
+  "Waiting Documents": { dot: "bg-amber-500",  badge: "bg-amber-100 text-amber-700 border-amber-200", card: "bg-amber-50 border-amber-200",  cardText: "text-amber-700" },
+  "Ready for Review":  { dot: "bg-violet-500", badge: "bg-violet-100 text-violet-700 border-violet-200", card: "bg-violet-50 border-violet-200", cardText: "text-violet-700" },
+  "Assigned":          { dot: "bg-indigo-500", badge: "bg-indigo-100 text-indigo-700 border-indigo-200", card: "bg-indigo-50 border-indigo-200", cardText: "text-indigo-700" },
+  "In Progress":       { dot: "bg-orange-500", badge: "bg-orange-100 text-orange-700 border-orange-200", card: "bg-orange-50 border-orange-200", cardText: "text-orange-700" },
+  "Waiting Customer":  { dot: "bg-teal-500",   badge: "bg-teal-100 text-teal-700 border-teal-200",    card: "bg-teal-50 border-teal-200",    cardText: "text-teal-700" },
+  "Completed":         { dot: "bg-green-500",  badge: "bg-green-100 text-green-700 border-green-200", card: "bg-green-50 border-green-200",  cardText: "text-green-700" },
+  "Cancelled":         { dot: "bg-gray-500",   badge: "bg-gray-100 text-gray-700 border-gray-200",   card: "bg-gray-50 border-gray-200",    cardText: "text-gray-700" },
 };
 
-type ExecutionJobLite = {
-  id: string;
-  taskId: number | null;
-  status: string;
-  progress: number;
-  workerId: string | null;
-  assignedClientId: string | null;
-  callbackVerified: boolean;
-  attestationVerified: boolean;
-  finalAckVerified: boolean;
+function normalizeStatus(status: string): DashboardStatus {
+  if ((ALL_STATUSES as readonly string[]).includes(status)) return status as DashboardStatus;
+  const normalized = status.trim().toLowerCase().replace(/[\s-]+/g, "_");
+  if (["pending", "draft", "new", "new_inquiry"].includes(normalized)) return "New Inquiry";
+  if (["waiting_documents", "waiting_doc"].includes(normalized)) return "Waiting Documents";
+  if (["documents_received", "audit_in_progress", "missing_data", "ready_for_review", "review"].includes(normalized)) return "Ready for Review";
+  if (normalized === "assigned") return "Assigned";
+  if (["in_progress", "processing", "waiting_vendor", "quotation_ready", "approved_by_customer"].includes(normalized)) return "In Progress";
+  if (normalized === "waiting_customer") return "Waiting Customer";
+  if (["completed", "done", "paid"].includes(normalized)) return "Completed";
+  if (["cancelled", "canceled"].includes(normalized)) return "Cancelled";
+  return "New Inquiry";
+}
+
+const PRIORITY_CONFIG: Record<string, { label: string; dot: string; badge: string }> = {
+  high:   { label: "High",   dot: "bg-red-500",   badge: "bg-red-100 text-red-700 border-red-200" },
+  medium: { label: "Medium", dot: "bg-amber-400", badge: "bg-amber-100 text-amber-700 border-amber-200" },
+  low:    { label: "Low",    dot: "bg-green-500", badge: "bg-green-100 text-green-700 border-green-200" },
 };
 
-type ExecutionMapPayload = {
-  byTask: Record<string, ExecutionJobLite>;
-  bridgeConfigured: boolean;
+const AUDIT_CONFIG: Record<string, { label: string; badge: string }> = {
+  passed:     { label: "Passed",     badge: "bg-green-100 text-green-700 border-green-200" },
+  incomplete: { label: "Incomplete", badge: "bg-amber-100 text-amber-700 border-amber-200" },
+  failed:     { label: "Failed",     badge: "bg-red-100 text-red-700 border-red-200" },
+  pending:    { label: "Pending",    badge: "bg-gray-100 text-gray-600 border-gray-200" },
 };
 
-type WaMessage = {
-  id: number;
-  senderName: string | null;
-  from: string | null;
-  body: string | null;
-  processed: boolean | null;
-  aiProcessed: boolean | null;
-  taskId: number | null;
-  createdAt: string | null;
-};
-
-async function apiFetch<T>(path: string): Promise<T> {
-  const token = getStoredToken();
-  const res = await fetch(path, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json() as Promise<T>;
-}
-
-function normalizeStatus(status: string) {
-  const s = status.trim().toLowerCase().replace(/[\s-]+/g, "_");
-  if (["completed", "done", "paid"].includes(s)) return "completed";
-  if (["in_progress", "processing", "waiting_customer", "waiting_vendor", "quotation_ready", "approved_by_customer"].includes(s)) return "running";
-  if (s === "assigned") return "assigned";
-  if (["documents_received", "audit_in_progress", "missing_data", "ready_for_review", "review"].includes(s)) return "review";
-  if (["cancelled", "canceled"].includes(s)) return "cancelled";
-  if (["waiting_documents", "waiting_doc"].includes(s)) return "waiting";
-  return "queued";
-}
-
-function progressFor(status: string) {
-  switch (normalizeStatus(status)) {
-    case "completed": return 100;
-    case "running": return 78;
-    case "assigned": return 58;
-    case "review": return 88;
-    case "waiting": return 28;
-    case "cancelled": return 0;
-    default: return 12;
-  }
-}
-
-function statusLabel(status: string) {
-  switch (normalizeStatus(status)) {
-    case "completed": return "Selesai";
-    case "running": return "Berjalan";
-    case "assigned": return "Assigned";
-    case "review": return "Review";
-    case "waiting": return "Menunggu";
-    case "cancelled": return "Dibatalkan";
-    default: return "Antri";
-  }
-}
-
-function statusClasses(status: string) {
-  const normalized = normalizeStatus(status);
-  if (normalized === "completed") return "bg-emerald-500/15 text-emerald-300 border-emerald-500/20";
-  if (normalized === "review") return "bg-amber-500/15 text-amber-300 border-amber-500/20";
-  if (normalized === "running") return "bg-sky-500/15 text-sky-300 border-sky-500/20";
-  if (normalized === "waiting") return "bg-violet-500/15 text-violet-300 border-violet-500/20";
-  return "bg-slate-500/15 text-slate-300 border-slate-500/20";
-}
-
-const cardGradients = [
-  "from-blue-600 to-blue-500",
-  "from-violet-600 to-purple-500",
-  "from-emerald-600 to-green-500",
-  "from-orange-500 to-amber-500",
-  "from-rose-500 to-pink-600",
-  "from-slate-700 to-slate-600",
+const CATEGORIES = [
+  "Import", "Export", "Trucking", "Customs", "Warehouse",
+  "Freight", "Product Sales", "Complaint", "Finance", "General Inquiry",
 ];
 
-function MetricCard({
-  index,
-  label,
-  value,
-  note,
-  icon: Icon,
-  href,
-}: {
-  index: number;
-  label: string;
-  value: string | number;
-  note: string;
-  icon: typeof Activity;
-  href: string;
-}) {
+const DIVISIONS = [
+  "Import", "Export", "Trucking", "Customs Clearance",
+  "Warehouse", "Finance", "Customer Service", "Operations",
+];
+
+// ─── API ──────────────────────────────────────────────────────────────────────
+
+async function fetchAiTasks(params: Record<string, string>): Promise<AiTask[]> {
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v && v !== "all") qs.set(k, v);
+  }
+  const token = getStoredToken();
+  const res = await fetch(`/api/ai-tasks${qs.toString() ? `?${qs}` : ""}`, {
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+  });
+  if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+
+async function patchAiTask(id: number, updates: Partial<Pick<AiTask, "status" | "priority" | "assignedTo">>): Promise<AiTask> {
+  const token = getStoredToken();
+  const res = await fetch(`/api/ai-tasks/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(updates),
+    headers: {
+      "content-type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+  if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+
+// ─── Summary Card ─────────────────────────────────────────────────────────────
+
+function SummaryCard({
+  status, count, active, onClick,
+}: { status: string; count: number; active: boolean; onClick: () => void }) {
+  const cfg = STATUS_CONFIG[status] ?? { card: "bg-gray-50 border-gray-200", cardText: "text-gray-700", dot: "bg-gray-400" };
+
   return (
-    <Link href={href}>
-      <div className={`group relative min-h-[126px] overflow-hidden rounded-2xl bg-gradient-to-br ${cardGradients[index % cardGradients.length]} p-4 shadow-lg shadow-black/10 transition hover:-translate-y-0.5 hover:shadow-xl`}>
-        <div className="absolute -right-8 -top-8 h-28 w-28 rounded-full bg-white/10 blur-sm" />
-        <div className="relative flex h-full flex-col">
-          <div className="flex items-center justify-between">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-white/15 backdrop-blur">
-              <Icon className="h-4 w-4 text-white" />
-            </div>
-            <ArrowRight className="h-4 w-4 text-white/50 opacity-0 transition group-hover:opacity-100" />
-          </div>
-          <div className="mt-3 text-xs font-medium text-white/80">{label}</div>
-          <div className="mt-0.5 text-3xl font-bold tracking-tight text-white">{value}</div>
-          <div className="mt-1 text-[11px] text-white/70">{note}</div>
-        </div>
+    <button
+      onClick={onClick}
+      className={`rounded-xl border-2 p-4 text-left transition-all hover:shadow-md w-full
+        ${active ? `${cfg.card} border-opacity-100 shadow-md ring-2 ring-offset-1` : "bg-white border-gray-200 hover:border-gray-300"}
+      `}
+    >
+      <div className="flex items-center gap-2 mb-2">
+        <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${cfg.dot}`} />
+        <span className={`text-xs font-semibold truncate ${active ? cfg.cardText : "text-gray-600"}`}>
+          {status}
+        </span>
       </div>
-    </Link>
+      <div className={`text-3xl font-bold ${active ? cfg.cardText : "text-gray-900"}`}>
+        {count}
+      </div>
+    </button>
   );
 }
 
-function MiniBars({ values }: { values: number[] }) {
+// ─── Status Badge ─────────────────────────────────────────────────────────────
+
+function StatusBadge({ status }: { status: string }) {
+  const displayStatus = normalizeStatus(status);
+  const cfg = STATUS_CONFIG[displayStatus] ?? { dot: "bg-gray-400", badge: "bg-gray-100 text-gray-600 border-gray-200" };
   return (
-    <div className="flex h-28 items-end gap-3 border-b border-slate-700/70 px-1 pb-1">
-      {values.map((value, index) => (
-        <div key={index} className="flex flex-1 items-end gap-0.5">
-          <div className="w-1/3 rounded-t bg-blue-500/90" style={{ height: `${Math.max(12, value * 0.55)}%` }} />
-          <div className="w-1/3 rounded-t bg-violet-500/90" style={{ height: `${Math.max(9, value * 0.35)}%` }} />
-          <div className="w-1/3 rounded-t bg-emerald-500/90" style={{ height: `${Math.max(7, value * 0.2)}%` }} />
-        </div>
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] font-medium whitespace-nowrap ${cfg.badge}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
+      {displayStatus}
+    </span>
+  );
+}
+
+function PriorityBadge({ priority }: { priority: string }) {
+  const cfg = PRIORITY_CONFIG[priority];
+  if (!cfg) return <span className="text-xs text-gray-400">—</span>;
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] font-medium ${cfg.badge}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${cfg.dot}`} />
+      {cfg.label}
+    </span>
+  );
+}
+
+function AuditBadge({ status }: { status: string | null }) {
+  if (!status) return <span className="text-xs text-gray-300">—</span>;
+  const cfg = AUDIT_CONFIG[status.toLowerCase()] ?? AUDIT_CONFIG.pending;
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] font-medium ${cfg.badge}`}>
+      <ShieldCheck className="w-3 h-3" />
+      {cfg.label}
+    </span>
+  );
+}
+
+// ─── Active Filter Pills ──────────────────────────────────────────────────────
+
+function FilterPill({ label, onRemove }: { label: string; onRemove: () => void }) {
+  return (
+    <span className="inline-flex items-center gap-1 pl-2.5 pr-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 text-xs font-medium border border-blue-200">
+      {label}
+      <button onClick={onRemove} className="hover:bg-blue-200 rounded-full p-0.5">
+        <X className="w-3 h-3" />
+      </button>
+    </span>
+  );
+}
+
+// ─── Table Skeleton ───────────────────────────────────────────────────────────
+
+function TableSkeleton() {
+  return (
+    <div className="space-y-2">
+      {Array.from({ length: 6 }).map((_, i) => (
+        <Skeleton key={i} className="h-12 w-full rounded" />
       ))}
     </div>
   );
 }
 
+// ─── Main Page ────────────────────────────────────────────────────────────────
+
 export default function Dashboard() {
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [divisionFilter, setDivisionFilter] = useState("all");
+  const [priorityFilter, setPriorityFilter] = useState("all");
+  const [companyFilter, setCompanyFilter] = useState("all");
+  const [assignedFilter, setAssignedFilter] = useState("all");
+  const [showFilters, setShowFilters] = useState(false);
+
+  const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: tasks = [], isLoading: tasksLoading, isFetching: tasksFetching } = useQuery<AiTask[]>({
-    queryKey: ["control-center-tasks"],
-    queryFn: () => apiFetch("/api/ai-tasks"),
-    refetchInterval: 30_000,
-    staleTime: 10_000,
+  const queryParams = {
+    status: statusFilter,
+    category: categoryFilter,
+    division: divisionFilter,
+    priority: priorityFilter,
+    companyId: companyFilter,
+    assignedTo: assignedFilter,
+  };
+
+  const queryKey = ["ai-tasks-dashboard", queryParams];
+
+  const { data: tasks = [], isLoading, isFetching, refetch } = useQuery<AiTask[]>({
+    queryKey,
+    queryFn: () => fetchAiTasks(queryParams),
+    refetchInterval: 60_000,
+    staleTime: 15_000,
   });
 
-  const { data: messages = [], isLoading: messagesLoading } = useQuery<WaMessage[]>({
-    queryKey: ["control-center-messages"],
-    queryFn: () => apiFetch("/api/messages"),
-    refetchInterval: 30_000,
-    staleTime: 10_000,
-  });
-
-  const { data: executionMapData } = useQuery<ExecutionMapPayload>({
-    queryKey: ["control-center-executions"],
-    queryFn: () => apiFetch("/api/executions/active-map"),
-    refetchInterval: 10_000,
-    staleTime: 3_000,
-  });
-
+  // ── Realtime SSE — refresh dashboard saat ada perubahan ─────────────────────
   useServerEvents({
-    new_task: () => void queryClient.invalidateQueries({ queryKey: ["control-center-tasks"] }),
-    task_updated: () => void queryClient.invalidateQueries({ queryKey: ["control-center-tasks"] }),
-    new_message: () => void queryClient.invalidateQueries({ queryKey: ["control-center-messages"] }),
-    execution_updated: () => void queryClient.invalidateQueries({ queryKey: ["control-center-executions"] }),
+    new_task: () => {
+      void queryClient.invalidateQueries({ queryKey: ["ai-tasks-dashboard"] });
+    },
+    task_updated: () => {
+      void queryClient.invalidateQueries({ queryKey: ["ai-tasks-dashboard"] });
+    },
+    new_message: () => {
+      void queryClient.invalidateQueries({ queryKey: ["ai-tasks-dashboard"] });
+    },
   });
 
-  const summary = useMemo(() => {
-    const active = tasks.filter((t) => !["completed", "cancelled"].includes(normalizeStatus(t.status))).length;
-    const running = Object.values(executionMapData?.byTask ?? {}).filter((x) =>
-      ["queued", "dispatched", "assigned", "running", "verifying"].includes(x.status),
-    ).length;
-    const completed = tasks.filter((t) => normalizeStatus(t.status) === "completed").length;
-    const unread = messages.filter((m) => !m.processed).length;
-    const workers = new Set(
-      Object.values(executionMapData?.byTask ?? {})
-        .map((job) => job.workerId ?? job.assignedClientId)
-        .filter(Boolean),
-    ).size;
-    return { active, running, completed, unread, workers };
-  }, [tasks, messages, executionMapData]);
+  const updateMutation = useMutation({
+    mutationFn: ({ id, status }: { id: number; status: string }) => patchAiTask(id, { status }),
+    onSuccess: (updated) => {
+      queryClient.setQueryData<AiTask[]>(queryKey, (prev = []) =>
+        prev.map((t) => (t.id === updated.id ? { ...t, status: updated.status } : t)),
+      );
+      toast({ title: `Status diubah ke "${normalizeStatus(updated.status)}"` });
+    },
+    onError: () => toast({ title: "Gagal memperbarui status", variant: "destructive" }),
+  });
 
-  const activeJobs = useMemo(
-    () =>
-      [...tasks]
-        .filter((t) => normalizeStatus(t.status) !== "cancelled")
-        .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
-        .slice(0, 5),
-    [tasks],
-  );
+  // Client-side search (name or phone)
+  const filtered = useMemo(() => {
+    if (!search.trim()) return tasks;
+    const q = search.toLowerCase().trim();
+    return tasks.filter(
+      (t) =>
+        (t.customerName ?? "").toLowerCase().includes(q) ||
+        (t.customerPhone ?? "").toLowerCase().includes(q) ||
+        t.title.toLowerCase().includes(q),
+    );
+  }, [tasks, search]);
 
-  const recentMessages = useMemo(
-    () =>
-      [...messages]
-        .sort((a, b) => new Date(b.createdAt ?? 0).getTime() - new Date(a.createdAt ?? 0).getTime())
-        .slice(0, 5),
-    [messages],
-  );
+  // Summary counts (from all server-filtered tasks, not client search)
+  const summaryCounts = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const s of SUMMARY_STATUSES) map[s] = 0;
+    for (const t of tasks) {
+      const displayStatus = normalizeStatus(t.status);
+      if (displayStatus in map) map[displayStatus]++;
+    }
+    return map;
+  }, [tasks]);
 
-  const completionRate = tasks.length ? Math.round((summary.completed / tasks.length) * 100) : 0;
-  const reviewCount = tasks.filter((t) => normalizeStatus(t.status) === "review").length;
-  const chartValues = [36, 58, 82, 64, 46, 72, 88];
+  // Unique values for dynamic filter options
+  const companies = useMemo(() => [...new Set(tasks.map((t) => t.companyId).filter(Boolean))], [tasks]);
+  const assignees = useMemo(() => [...new Set(tasks.map((t) => t.assignedTo).filter(Boolean))], [tasks]);
 
-  const refresh = () => {
-    void queryClient.invalidateQueries({ queryKey: ["control-center-tasks"] });
-    void queryClient.invalidateQueries({ queryKey: ["control-center-messages"] });
-    void queryClient.invalidateQueries({ queryKey: ["control-center-executions"] });
+  // Active filter pills
+  const activeFilters: { label: string; clear: () => void }[] = [];
+  if (statusFilter !== "all")   activeFilters.push({ label: `Status: ${statusFilter}`,     clear: () => setStatusFilter("all") });
+  if (categoryFilter !== "all") activeFilters.push({ label: `Kategori: ${categoryFilter}`, clear: () => setCategoryFilter("all") });
+  if (divisionFilter !== "all") activeFilters.push({ label: `Divisi: ${divisionFilter}`,   clear: () => setDivisionFilter("all") });
+  if (priorityFilter !== "all") activeFilters.push({ label: `Prioritas: ${priorityFilter}`, clear: () => setPriorityFilter("all") });
+  if (companyFilter !== "all")  activeFilters.push({ label: `Perusahaan: ${companyFilter}`, clear: () => setCompanyFilter("all") });
+  if (assignedFilter !== "all") activeFilters.push({ label: `Assignee: ${assignedFilter}`,  clear: () => setAssignedFilter("all") });
+
+  const clearAll = () => {
+    setStatusFilter("all"); setCategoryFilter("all"); setDivisionFilter("all");
+    setPriorityFilter("all"); setCompanyFilter("all"); setAssignedFilter("all");
+    setSearch("");
   };
 
   return (
-    <div className="min-h-full bg-[#07101d] text-slate-100">
-      <div className="sticky top-0 z-20 border-b border-slate-800/80 bg-[#08111f]/95 px-4 py-3 backdrop-blur lg:px-5">
-        <div className="mx-auto flex max-w-[1640px] items-center gap-3">
-          <div className="relative min-w-0 flex-1">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
-            <input
-              aria-label="Cari proyek, job, atau percakapan"
-              className="h-10 w-full rounded-xl border border-slate-700/80 bg-[#101c2d] pl-10 pr-16 text-sm text-slate-200 outline-none transition placeholder:text-slate-500 focus:border-blue-500/60"
-              placeholder="Cari proyek, job, percakapan, atau apa saja..."
-            />
-            <span className="absolute right-3 top-1/2 -translate-y-1/2 rounded border border-slate-600 px-1.5 py-0.5 text-[10px] text-slate-500">Ctrl + K</span>
+    <div className="flex flex-col min-h-0 h-full">
+      {/* ── Onboarding Banner ── */}
+      <div className="flex-shrink-0 px-4 sm:px-6 pt-4">
+        <OnboardingBanner />
+      </div>
+      {/* ── Header ── */}
+      <div className="flex-shrink-0 px-4 sm:px-6 pt-3 pb-3 border-b bg-white">
+        <div className="flex items-center justify-between mb-4 gap-2">
+          <div>
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-gray-900">
+              AI Task Center
+            </h1>
+            <p className="text-sm text-gray-500 mt-0.5">
+              {filtered.length} task
+              {isFetching && !isLoading && (
+                <span className="ml-2 text-blue-500 text-xs">● memperbarui…</span>
+              )}
+            </p>
           </div>
-          <Button onClick={refresh} disabled={tasksFetching} variant="outline" size="sm" className="border-slate-700 bg-slate-900/60 text-slate-300 hover:bg-slate-800 hover:text-white">
-            <RefreshCw className={`mr-2 h-4 w-4 ${tasksFetching ? "animate-spin" : ""}`} />
-            Refresh
+          <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching} className="gap-1.5 flex-shrink-0">
+            <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? "animate-spin" : ""}`} />
+            <span className="hidden sm:inline">Refresh</span>
           </Button>
-          <Link href="/ai-core-chat">
-            <Button size="sm" className="bg-gradient-to-r from-blue-600 to-violet-600 text-white hover:opacity-90">
-              <Plus className="mr-2 h-4 w-4" />
-              Buat Job
-            </Button>
-          </Link>
-          <button className="relative flex h-9 w-9 items-center justify-center rounded-xl border border-slate-800 bg-slate-900/70 text-slate-400" aria-label="Notifikasi">
-            <Bell className="h-4 w-4" />
-            {summary.unread > 0 && <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold text-white">{Math.min(summary.unread, 99)}</span>}
-          </button>
         </div>
+
+        <BridgeJobVisibility location="dashboard" />
+
+        {/* ── Summary Cards ── */}
+        {isLoading ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 mb-4">
+            {SUMMARY_STATUSES.map((s) => <Skeleton key={s} className="h-20 rounded-xl" />)}
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 mb-4">
+            {SUMMARY_STATUSES.map((s) => (
+              <SummaryCard
+                key={s}
+                status={s}
+                count={summaryCounts[s] ?? 0}
+                active={statusFilter === s}
+                onClick={() => setStatusFilter(statusFilter === s ? "all" : s)}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* ── Search + Filter Toggle ── */}
+        <div className="flex gap-2 flex-wrap">
+          <div className="relative flex-1 min-w-44">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+            <Input
+              placeholder="Cari nama atau nomor HP…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-8 h-8 text-sm"
+            />
+            {search && (
+              <button onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600">
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+          <Button
+            variant={showFilters ? "default" : "outline"}
+            size="sm"
+            onClick={() => setShowFilters(!showFilters)}
+            className="gap-1.5 h-8"
+          >
+            <Filter className="w-3.5 h-3.5" />
+            Filter
+            {activeFilters.length > 0 && (
+              <span className="ml-0.5 bg-white text-blue-700 rounded-full text-[10px] font-bold w-4 h-4 flex items-center justify-center">
+                {activeFilters.length}
+              </span>
+            )}
+          </Button>
+        </div>
+
+        {/* ── Expanded Filters ── */}
+        {showFilters && (
+          <div className="mt-3 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+            {/* Status */}
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="h-8 text-xs gap-1">
+                <Layers className="w-3 h-3 text-gray-400 flex-shrink-0" />
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Semua Status</SelectItem>
+                {ALL_STATUSES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+              </SelectContent>
+            </Select>
+
+            {/* Category */}
+            <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+              <SelectTrigger className="h-8 text-xs gap-1">
+                <Tag className="w-3 h-3 text-gray-400 flex-shrink-0" />
+                <SelectValue placeholder="Kategori" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Semua Kategori</SelectItem>
+                {CATEGORIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+              </SelectContent>
+            </Select>
+
+            {/* Division */}
+            <Select value={divisionFilter} onValueChange={setDivisionFilter}>
+              <SelectTrigger className="h-8 text-xs gap-1">
+                <Layers className="w-3 h-3 text-gray-400 flex-shrink-0" />
+                <SelectValue placeholder="Divisi" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Semua Divisi</SelectItem>
+                {DIVISIONS.map((d) => <SelectItem key={d} value={d}>{d}</SelectItem>)}
+              </SelectContent>
+            </Select>
+
+            {/* Priority */}
+            <Select value={priorityFilter} onValueChange={setPriorityFilter}>
+              <SelectTrigger className="h-8 text-xs gap-1">
+                <AlertCircle className="w-3 h-3 text-gray-400 flex-shrink-0" />
+                <SelectValue placeholder="Prioritas" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Semua Prioritas</SelectItem>
+                <SelectItem value="high">🔴 High</SelectItem>
+                <SelectItem value="medium">🟡 Medium</SelectItem>
+                <SelectItem value="low">🟢 Low</SelectItem>
+              </SelectContent>
+            </Select>
+
+            {/* Company */}
+            <Select value={companyFilter} onValueChange={setCompanyFilter}>
+              <SelectTrigger className="h-8 text-xs gap-1">
+                <Building2 className="w-3 h-3 text-gray-400 flex-shrink-0" />
+                <SelectValue placeholder="Perusahaan" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Semua Perusahaan</SelectItem>
+                {companies.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+              </SelectContent>
+            </Select>
+
+            {/* Assigned Team */}
+            <Select value={assignedFilter} onValueChange={setAssignedFilter}>
+              <SelectTrigger className="h-8 text-xs gap-1">
+                <Users className="w-3 h-3 text-gray-400 flex-shrink-0" />
+                <SelectValue placeholder="Assignee" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Semua Tim</SelectItem>
+                {assignees.map((a) => <SelectItem key={a!} value={a!}>{a}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
+        {/* ── Active Filter Pills ── */}
+        {activeFilters.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1.5 items-center">
+            {activeFilters.map((f) => (
+              <FilterPill key={f.label} label={f.label} onRemove={f.clear} />
+            ))}
+            <button onClick={clearAll} className="text-xs text-gray-400 hover:text-gray-600 ml-1">
+              Hapus semua
+            </button>
+          </div>
+        )}
       </div>
 
-      <div className="mx-auto max-w-[1640px] space-y-4 p-4 lg:p-5">
-        <section className="relative overflow-hidden rounded-2xl border border-slate-800 bg-gradient-to-r from-[#10203a] via-[#1e2b52] to-[#7b3f55] px-5 py-5 shadow-2xl shadow-black/10">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_70%_30%,rgba(255,255,255,0.14),transparent_32%)]" />
-          <div className="relative flex flex-wrap items-end justify-between gap-4">
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight text-white">Selamat datang kembali, Admin 👋</h1>
-              <p className="mt-1 text-sm text-slate-300">Kelola semua proyek, job, percakapan, dan sumber daya AI dalam satu tempat.</p>
-            </div>
-            <p className="max-w-xs text-right text-sm italic text-white/80">“Dari ide, menjadi karya nyata bersama AI.”</p>
+      {/* ── Task Table ── */}
+      <div className="flex-1 overflow-auto px-4 sm:px-6 py-4">
+        {isLoading ? (
+          <TableSkeleton />
+        ) : filtered.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-24 text-gray-400 gap-3">
+            <Search className="w-10 h-10 opacity-30" />
+            <p className="text-sm font-medium">Tidak ada task yang cocok</p>
+            {(search || activeFilters.length > 0) && (
+              <Button variant="ghost" size="sm" onClick={clearAll}>Hapus filter</Button>
+            )}
           </div>
-        </section>
-
-        <section className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-          <MetricCard index={0} label="Total Proyek" value={Math.max(summary.active, 0)} note={`Aktif ${summary.active} • Selesai ${summary.completed}`} icon={FolderKanban} href="/ai-tasks" />
-          <MetricCard index={1} label="Total Job" value={tasks.length} note={`Berjalan ${summary.running} • Review ${reviewCount}`} icon={BriefcaseBusiness} href="/ai-tasks" />
-          <MetricCard index={2} label="AI Worker" value={summary.workers} note={executionMapData?.bridgeConfigured ? "Execution bridge aktif" : "Menunggu bridge"} icon={Bot} href="/ai-operations" />
-          <MetricCard index={3} label="Percakapan" value={messages.length} note={`Belum diproses ${summary.unread}`} icon={MessageSquare} href="/messages" />
-          <MetricCard index={4} label="Progress Selesai" value={`${completionRate}%`} note={`${summary.completed} job selesai`} icon={Clock3} href="/ai-tasks?status=Completed" />
-          <MetricCard index={5} label="Execution" value={summary.running} note="Job aktif di worker" icon={Database} href="/ai-observability" />
-        </section>
-
-        <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_390px]">
-          <div className="space-y-4">
-            <div className="rounded-2xl border border-slate-800 bg-[#0d1827] p-4 shadow-lg shadow-black/10">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <h2 className="text-base font-semibold text-white">Buat Job Baru</h2>
-                  <p className="mt-0.5 text-xs text-slate-500">Berikan perintah, ide, atau tugas. AI akan membantu mengerjakan sampai selesai.</p>
-                </div>
-                <div className="rounded-lg border border-slate-700 bg-[#111f31] px-3 py-2 text-xs text-slate-300">Mode: AI Core (DEV)</div>
-              </div>
-              <div className="mt-3 rounded-xl border border-slate-700 bg-[#101c2d] p-3">
-                <textarea
-                  className="min-h-16 w-full resize-none bg-transparent text-sm text-slate-200 outline-none placeholder:text-slate-500"
-                  placeholder="Tulis job yang ingin dikerjakan..."
-                  aria-label="Tulis job baru"
-                />
-                <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-slate-800 pt-3">
-                  <div className="flex flex-wrap gap-4 text-xs text-slate-500">
-                    <span>📎 File</span>
-                    <span>▣ Referensi</span>
-                    <span>▱ Pilih Proyek</span>
-                    <span>••• Opsi Lainnya</span>
-                  </div>
-                  <Link href="/ai-core-chat">
-                    <Button size="sm" className="min-w-36 bg-gradient-to-r from-blue-600 to-violet-600 text-white">
-                      <Send className="mr-2 h-4 w-4" />
-                      Kirim Job
-                    </Button>
-                  </Link>
-                </div>
-              </div>
+        ) : (
+          <>
+            {/* ── Desktop Table ── */}
+            <div className="hidden md:block rounded-lg border border-gray-200 overflow-hidden">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-gray-50 hover:bg-gray-50">
+                    <TableHead className="text-xs font-semibold text-gray-500 w-28">No. Task</TableHead>
+                    <TableHead className="text-xs font-semibold text-gray-500">Pelanggan</TableHead>
+                    <TableHead className="text-xs font-semibold text-gray-500">Judul</TableHead>
+                    <TableHead className="text-xs font-semibold text-gray-500 w-32">Status</TableHead>
+                    <TableHead className="text-xs font-semibold text-gray-500 w-24">Prioritas</TableHead>
+                    <TableHead className="text-xs font-semibold text-gray-500 w-24">Kategori</TableHead>
+                    <TableHead className="text-xs font-semibold text-gray-500 w-24">Divisi</TableHead>
+                    <TableHead className="text-xs font-semibold text-gray-500 w-32">AI Intent</TableHead>
+                    <TableHead className="text-xs font-semibold text-gray-500 w-24">Audit</TableHead>
+                    <TableHead className="text-xs font-semibold text-gray-500">Pesan Terakhir</TableHead>
+                    <TableHead className="text-xs font-semibold text-gray-500 w-28">Assignee</TableHead>
+                    <TableHead className="text-xs font-semibold text-gray-500 w-8" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {filtered.map((task) => (
+                    <TaskRow key={task.id} task={task} onStatusChange={(s) => updateMutation.mutate({ id: task.id, status: s })} />
+                  ))}
+                </TableBody>
+              </Table>
             </div>
 
-            <div className="overflow-hidden rounded-2xl border border-slate-800 bg-[#0d1827] shadow-lg shadow-black/10">
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 px-4 py-3">
-                <div className="flex gap-5 text-xs font-medium">
-                  <span className="border-b-2 border-blue-500 pb-3 text-blue-400">Job Terbaru</span>
-                  <span className="text-slate-500">Proyek Aktif</span>
-                  <span className="text-slate-500">Menunggu Review</span>
-                  <span className="text-slate-500">Selesai</span>
-                </div>
-                <Link href="/ai-tasks" className="text-xs font-medium text-blue-400 hover:text-blue-300">Lihat Semua →</Link>
-              </div>
-
-              <div className="overflow-x-auto">
-                <div className="min-w-[780px]">
-                  <div className="grid grid-cols-[2.1fr_0.7fr_0.8fr_0.7fr_1fr_0.8fr] gap-3 border-b border-slate-800 px-4 py-2 text-[10px] uppercase tracking-wide text-slate-600">
-                    <span>Job</span><span>Proyek</span><span>Progress</span><span>Status</span><span>AI Worker</span><span>Diperbarui</span>
-                  </div>
-                  {tasksLoading ? (
-                    Array.from({ length: 4 }).map((_, index) => <div key={index} className="p-3"><Skeleton className="h-12 w-full bg-slate-800" /></div>)
-                  ) : activeJobs.length === 0 ? (
-                    <div className="p-10 text-center text-sm text-slate-500">Belum ada job.</div>
-                  ) : activeJobs.map((task) => {
-                    const execution = executionMapData?.byTask[String(task.id)];
-                    const progress = execution?.progress ?? progressFor(task.status);
-                    const worker = execution?.workerId ?? execution?.assignedClientId ?? task.assignedTo ?? "Belum dipilih";
-                    return (
-                      <Link key={task.id} href={`/ai-tasks/${task.id}`}>
-                        <div className="grid cursor-pointer grid-cols-[2.1fr_0.7fr_0.8fr_0.7fr_1fr_0.8fr] items-center gap-3 border-b border-slate-800/70 px-4 py-3 transition hover:bg-slate-800/35">
-                          <div className="min-w-0">
-                            <div className="truncate text-sm font-semibold text-slate-200">{task.title}</div>
-                            <div className="mt-0.5 truncate text-[11px] text-slate-500">{task.latestMessage ?? task.aiIntent ?? task.taskNumber ?? `Task #${task.id}`}</div>
-                          </div>
-                          <span className="w-fit rounded-md bg-violet-500/15 px-2 py-1 text-[10px] font-medium text-violet-300">{task.aiIntent ?? "General"}</span>
-                          <div className="flex items-center gap-2">
-                            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-700">
-                              <div className="h-full rounded-full bg-gradient-to-r from-blue-500 to-cyan-400" style={{ width: `${progress}%` }} />
-                            </div>
-                            <span className="w-8 text-right text-[10px] text-slate-400">{progress}%</span>
-                          </div>
-                          <span className={`w-fit rounded-md border px-2 py-1 text-[10px] font-medium ${statusClasses(task.status)}`}>{statusLabel(task.status)}</span>
-                          <span className="truncate text-[11px] text-slate-400"><span className="mr-1 text-emerald-400">●</span>{worker}</span>
-                          <span className="text-[11px] text-slate-500">{formatDistanceToNow(new Date(task.updatedAt), { addSuffix: true })}</span>
-                        </div>
-                      </Link>
-                    );
-                  })}
-                </div>
-              </div>
+            {/* ── Mobile Cards ── */}
+            <div className="md:hidden space-y-3">
+              {filtered.map((task) => (
+                <MobileTaskCard key={task.id} task={task} onStatusChange={(s) => updateMutation.mutate({ id: task.id, status: s })} />
+              ))}
             </div>
-
-            <div className="grid gap-4 lg:grid-cols-2">
-              <div className="rounded-2xl border border-slate-800 bg-[#0d1827] p-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-white">Aktivitas Job (7 Hari Terakhir)</h3>
-                  <div className="flex gap-3 text-[10px] text-slate-500">
-                    <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-blue-500" />Baru</span>
-                    <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-violet-500" />Berjalan</span>
-                    <span><i className="mr-1 inline-block h-2 w-2 rounded-full bg-emerald-500" />Selesai</span>
-                  </div>
-                </div>
-                <MiniBars values={chartValues} />
-                <div className="mt-2 grid grid-cols-7 text-center text-[9px] text-slate-600">
-                  {["15 Okt","16 Okt","17 Okt","18 Okt","19 Okt","20 Okt","21 Okt"].map((d) => <span key={d}>{d}</span>)}
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-slate-800 bg-[#0d1827] p-4">
-                <h3 className="text-sm font-semibold text-white">Distribusi Job per Status</h3>
-                <div className="mt-4 flex items-center justify-center gap-8">
-                  <div
-                    className="h-28 w-28 rounded-full"
-                    style={{ background: "conic-gradient(#8b5cf6 0 28%, #3b82f6 28% 50%, #f59e0b 50% 68%, #10b981 68% 83%, #64748b 83% 100%)" }}
-                  >
-                    <div className="m-[18px] h-[76px] w-[76px] rounded-full bg-[#0d1827]" />
-                  </div>
-                  <div className="space-y-2 text-xs text-slate-400">
-                    <div><span className="mr-2 text-violet-400">●</span>Berjalan <b className="ml-3 text-slate-200">{summary.running}</b></div>
-                    <div><span className="mr-2 text-blue-400">●</span>Aktif <b className="ml-3 text-slate-200">{summary.active}</b></div>
-                    <div><span className="mr-2 text-amber-400">●</span>Review <b className="ml-3 text-slate-200">{reviewCount}</b></div>
-                    <div><span className="mr-2 text-emerald-400">●</span>Selesai <b className="ml-3 text-slate-200">{summary.completed}</b></div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <aside className="space-y-4">
-            <div className="rounded-2xl border border-slate-800 bg-[#0d1827] p-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-white">Chat Terbaru</h2>
-                <Link href="/messages" className="text-[11px] font-medium text-blue-400">Lihat Semua →</Link>
-              </div>
-              <div className="mt-3 divide-y divide-slate-800">
-                {messagesLoading ? (
-                  Array.from({ length: 5 }).map((_, index) => <div key={index} className="py-3"><Skeleton className="h-12 w-full bg-slate-800" /></div>)
-                ) : recentMessages.length === 0 ? (
-                  <div className="py-8 text-center text-xs text-slate-500">Belum ada percakapan.</div>
-                ) : recentMessages.map((message, index) => (
-                  <div key={message.id} className="flex gap-3 py-3">
-                    <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${index === 0 ? "bg-violet-600" : "bg-slate-800"}`}>
-                      {index === 0 ? <Bot className="h-5 w-5 text-white" /> : <MessageSquare className="h-4 w-4 text-slate-400" />}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="truncate text-xs font-semibold text-slate-200">{message.senderName ?? message.from ?? "AI Core"}</span>
-                        <span className="ml-auto text-[10px] text-slate-600">{message.createdAt ? formatDistanceToNow(new Date(message.createdAt), { addSuffix: false }) : "—"}</span>
-                      </div>
-                      <p className="mt-1 truncate text-[11px] text-slate-500">{message.body ?? "(tanpa teks)"}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-slate-800 bg-[#0d1827] p-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-white">Kalender & Deadline</h2>
-                <span className="text-[11px] text-blue-400">Hari ini</span>
-              </div>
-              <div className="mt-1 flex items-center gap-2 text-xs text-slate-500">
-                <CalendarDays className="h-3.5 w-3.5" />
-                Rencana operasional hari ini
-              </div>
-              <div className="mt-4 space-y-4">
-                {[
-                  ["10:00", "Review job prioritas", "Review", "bg-amber-400"],
-                  ["13:00", "Update progress worker", "Worker", "bg-blue-400"],
-                  ["15:00", "Final validation task", "Gate", "bg-orange-400"],
-                  ["20:00", "Laporan harian AI Task", "Report", "bg-emerald-400"],
-                ].map(([time, title, tag, color]) => (
-                  <div key={time} className="flex items-start gap-3 text-xs">
-                    <span className={`mt-1 h-2 w-2 rounded-full ${color}`} />
-                    <span className="w-10 shrink-0 text-slate-500">{time}</span>
-                    <span className="min-w-0 flex-1 text-slate-300">{title}</span>
-                    <span className="rounded bg-slate-800 px-2 py-0.5 text-[10px] text-slate-500">{tag}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-slate-800 bg-[#0d1827] p-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold text-white">AI Worker Status</h2>
-                <Link href="/ai-operations" className="text-[11px] text-blue-400">Lihat Semua →</Link>
-              </div>
-              <div className="mt-3 space-y-2">
-                {Object.values(executionMapData?.byTask ?? {}).slice(0, 5).map((job, index) => (
-                  <div key={job.id} className="flex items-center gap-3 rounded-xl border border-slate-800 bg-[#101c2d] px-3 py-2.5">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-800">
-                      <Cpu className="h-4 w-4 text-slate-400" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-xs font-medium text-slate-300">{job.workerId ?? job.assignedClientId ?? `Worker ${index + 1}`}</div>
-                      <div className="mt-0.5 text-[10px] text-slate-600">Progress {job.progress}%</div>
-                    </div>
-                    <span className="text-[10px] text-emerald-400">● Online</span>
-                  </div>
-                ))}
-                {Object.keys(executionMapData?.byTask ?? {}).length === 0 && (
-                  <div className="rounded-xl border border-dashed border-slate-700 p-5 text-center text-xs text-slate-500">Belum ada worker aktif.</div>
-                )}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <Link href="/team">
-                <div className="rounded-xl border border-slate-800 bg-[#0d1827] p-3 transition hover:border-blue-500/40">
-                  <Users className="h-4 w-4 text-blue-400" />
-                  <div className="mt-2 text-xs font-semibold text-slate-300">Tim & Worker</div>
-                </div>
-              </Link>
-              <Link href="/reports">
-                <div className="rounded-xl border border-slate-800 bg-[#0d1827] p-3 transition hover:border-violet-500/40">
-                  <WalletCards className="h-4 w-4 text-violet-400" />
-                  <div className="mt-2 text-xs font-semibold text-slate-300">Laporan</div>
-                </div>
-              </Link>
-            </div>
-
-            <div className="rounded-2xl border border-blue-500/15 bg-gradient-to-br from-blue-500/10 to-violet-500/10 p-4">
-              <div className="flex items-center gap-2 text-xs font-semibold text-blue-300">
-                <Sparkles className="h-4 w-4" />
-                AI Task DEV
-              </div>
-              <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
-                Data kartu, job, percakapan, progress, dan worker ditarik dari endpoint yang sudah ada. Tidak ada perubahan schema/database pada redesign ini.
-              </p>
-              <div className="mt-3 flex items-center gap-2 text-[10px] text-emerald-400">
-                <CheckCircle2 className="h-3.5 w-3.5" />
-                UI terhubung ke data aktual
-              </div>
-              <div className="mt-1 flex items-center gap-2 text-[10px] text-slate-500">
-                <Zap className="h-3.5 w-3.5" />
-                Realtime refresh melalui event yang sudah tersedia
-              </div>
-              <div className="mt-1 flex items-center gap-2 text-[10px] text-slate-500">
-                <Inbox className="h-3.5 w-3.5" />
-                Inbox mengikuti data message aktual
-              </div>
-            </div>
-          </aside>
-        </section>
+          </>
+        )}
       </div>
     </div>
+  );
+}
+
+// ─── Desktop Table Row ────────────────────────────────────────────────────────
+
+function TaskRow({ task, onStatusChange }: { task: AiTask; onStatusChange: (s: string) => void }) {
+  const age = formatDistanceToNow(new Date(task.createdAt), { addSuffix: true });
+
+  return (
+    <TableRow className="hover:bg-gray-50 group">
+      {/* Task number */}
+      <TableCell className="py-2.5">
+        <Link href={`/ai-tasks/${task.id}`}>
+          <span className="font-mono text-xs text-blue-600 hover:underline cursor-pointer">
+            {task.taskNumber ?? `#${task.id}`}
+          </span>
+        </Link>
+        <div className="flex items-center gap-1 mt-0.5 text-[10px] text-gray-400">
+          <Clock className="w-3 h-3" />{age}
+        </div>
+      </TableCell>
+
+      {/* Customer */}
+      <TableCell className="py-2.5">
+        <div className="text-sm font-medium text-gray-900 truncate max-w-[120px]">
+          {task.customerName ?? <span className="text-gray-400 italic">—</span>}
+        </div>
+        {task.customerPhone && (
+          <div className="flex items-center gap-1 text-[11px] text-gray-400 mt-0.5">
+            <Phone className="w-3 h-3" />
+            {task.customerPhone}
+          </div>
+        )}
+      </TableCell>
+
+      {/* Title */}
+      <TableCell className="py-2.5 max-w-[200px]">
+        <Link href={`/ai-tasks/${task.id}`}>
+          <p className="text-sm font-medium text-gray-900 hover:text-blue-600 cursor-pointer line-clamp-2 leading-snug">
+            {task.title}
+          </p>
+        </Link>
+      </TableCell>
+
+      {/* Status */}
+      <TableCell className="py-2.5">
+        <StatusBadge status={task.status} />
+      </TableCell>
+
+      {/* Priority */}
+      <TableCell className="py-2.5">
+        <PriorityBadge priority={task.priority} />
+      </TableCell>
+
+      {/* Category */}
+      <TableCell className="py-2.5">
+        {task.category ? (
+          <span className="text-xs text-gray-600 bg-gray-100 px-2 py-0.5 rounded font-medium">
+            {task.category}
+          </span>
+        ) : (
+          <span className="text-xs text-gray-300">—</span>
+        )}
+      </TableCell>
+
+      {/* Division */}
+      <TableCell className="py-2.5">
+        {task.division ? (
+          <span className="text-xs text-gray-600">{task.division}</span>
+        ) : (
+          <span className="text-xs text-gray-300">—</span>
+        )}
+      </TableCell>
+
+      {/* AI Intent */}
+      <TableCell className="py-2.5 max-w-[120px]">
+        {task.aiIntent ? (
+          <div className="flex items-start gap-1">
+            <Brain className="w-3 h-3 text-purple-500 flex-shrink-0 mt-0.5" />
+            <span className="text-xs text-purple-700 line-clamp-2 leading-snug">{task.aiIntent}</span>
+          </div>
+        ) : (
+          <span className="text-xs text-gray-300">—</span>
+        )}
+      </TableCell>
+
+      {/* Audit */}
+      <TableCell className="py-2.5">
+        <AuditBadge status={task.auditStatus} />
+      </TableCell>
+
+      {/* Latest Message */}
+      <TableCell className="py-2.5 max-w-[180px]">
+        {task.latestMessage ? (
+          <div className="flex items-start gap-1">
+            <MessageSquare className="w-3 h-3 text-green-500 flex-shrink-0 mt-0.5" />
+            <span className="text-xs text-gray-600 line-clamp-2 leading-snug">{task.latestMessage}</span>
+          </div>
+        ) : (
+          <span className="text-xs text-gray-300">—</span>
+        )}
+      </TableCell>
+
+      {/* Assignee */}
+      <TableCell className="py-2.5">
+        {task.assignedTo ? (
+          <span className="text-xs text-gray-700 font-medium truncate block max-w-[100px]">{task.assignedTo}</span>
+        ) : (
+          <span className="text-xs text-gray-300 italic">Belum</span>
+        )}
+        {task.assignedRole && (
+          <span className="text-[10px] text-gray-400 block">{task.assignedRole}</span>
+        )}
+      </TableCell>
+
+      {/* Actions */}
+      <TableCell className="py-2.5">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity">
+              <ChevronDown className="w-3.5 h-3.5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-48">
+            {ALL_STATUSES.filter((s) => s !== normalizeStatus(task.status)).map((s) => {
+              const cfg = STATUS_CONFIG[s];
+              return (
+                <DropdownMenuItem key={s} onClick={() => onStatusChange(s)} className="text-xs gap-2">
+                  <span className={`w-2 h-2 rounded-full flex-shrink-0 ${cfg?.dot ?? "bg-gray-400"}`} />
+                  {s}
+                </DropdownMenuItem>
+              );
+            })}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </TableCell>
+    </TableRow>
+  );
+}
+
+// ─── Mobile Card ──────────────────────────────────────────────────────────────
+
+function MobileTaskCard({ task, onStatusChange }: { task: AiTask; onStatusChange: (s: string) => void }) {
+  const age = formatDistanceToNow(new Date(task.createdAt), { addSuffix: true });
+
+  return (
+    <Card className="border border-gray-200 shadow-sm">
+      <CardContent className="p-4">
+        {/* Header */}
+        <div className="flex items-start justify-between gap-2 mb-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Link href={`/ai-tasks/${task.id}`}>
+              <span className="font-mono text-xs text-blue-600 hover:underline">
+                {task.taskNumber ?? `#${task.id}`}
+              </span>
+            </Link>
+            <StatusBadge status={task.status} />
+            <PriorityBadge priority={task.priority} />
+          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline" size="sm" className="h-7 px-2 text-xs gap-1 flex-shrink-0">
+                Pindah <ChevronDown className="w-3 h-3" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              {ALL_STATUSES.filter((s) => s !== normalizeStatus(task.status)).map((s) => {
+                const cfg = STATUS_CONFIG[s];
+                return (
+                  <DropdownMenuItem key={s} onClick={() => onStatusChange(s)} className="text-xs gap-2">
+                    <span className={`w-2 h-2 rounded-full flex-shrink-0 ${cfg?.dot ?? "bg-gray-400"}`} />
+                    {s}
+                  </DropdownMenuItem>
+                );
+              })}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+
+        {/* Title */}
+        <Link href={`/ai-tasks/${task.id}`}>
+          <p className="text-sm font-semibold text-gray-900 hover:text-blue-600 mb-1 line-clamp-2">
+            {task.title}
+          </p>
+        </Link>
+
+        {/* Customer */}
+        {(task.customerName || task.customerPhone) && (
+          <div className="flex items-center gap-1 text-xs text-gray-500 mb-2">
+            <Phone className="w-3 h-3 flex-shrink-0" />
+            <span>{task.customerName ?? ""}</span>
+            {task.customerPhone && <span className="text-gray-400">{task.customerPhone}</span>}
+          </div>
+        )}
+
+        {/* Meta row */}
+        <div className="flex flex-wrap gap-2 text-[11px] text-gray-500 mb-2">
+          {task.category && <span className="bg-gray-100 px-1.5 py-0.5 rounded">{task.category}</span>}
+          {task.division && <span className="bg-gray-100 px-1.5 py-0.5 rounded">{task.division}</span>}
+          {task.assignedTo && (
+            <span className="flex items-center gap-1">
+              <Users className="w-3 h-3" />{task.assignedTo}
+            </span>
+          )}
+          <span className="flex items-center gap-1 text-gray-400">
+            <Clock className="w-3 h-3" />{age}
+          </span>
+        </div>
+
+        {/* AI Intent */}
+        {task.aiIntent && (
+          <div className="flex items-start gap-1 bg-purple-50 rounded px-2 py-1 mb-2">
+            <Brain className="w-3 h-3 text-purple-500 flex-shrink-0 mt-0.5" />
+            <span className="text-xs text-purple-700 line-clamp-2">{task.aiIntent}</span>
+          </div>
+        )}
+
+        {/* Latest message */}
+        {task.latestMessage && (
+          <div className="flex items-start gap-1 bg-green-50 rounded px-2 py-1 mb-2">
+            <MessageSquare className="w-3 h-3 text-green-500 flex-shrink-0 mt-0.5" />
+            <span className="text-xs text-gray-600 line-clamp-2">{task.latestMessage}</span>
+          </div>
+        )}
+
+        {/* Audit */}
+        <div className="flex items-center gap-1">
+          <AuditBadge status={task.auditStatus} />
+        </div>
+      </CardContent>
+    </Card>
   );
 }
