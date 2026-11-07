@@ -1273,7 +1273,7 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
           environment: "development",
           verificationMode,
           remoteCorrelationId,
-          autoContinue: mode === "chatgpt" && task.category === "ai_chat",
+          autoContinue: mode === "chatgpt" && (body.lifecycleStart === true || task.category === "ai_chat"),
           ...(mode === "chatgpt" ? { accountAlias } : {}),
         },
       }).where(and(
@@ -1308,7 +1308,7 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
           environment: "development",
           verificationMode,
           remoteCorrelationId: `${externalId}:${correlationId}`,
-          autoContinue: mode === "chatgpt" && task.category === "ai_chat",
+          autoContinue: mode === "chatgpt" && (body.lifecycleStart === true || task.category === "ai_chat"),
           continuationDepth: 0,
           ...(mode === "chatgpt" ? { accountAlias } : {}),
         },

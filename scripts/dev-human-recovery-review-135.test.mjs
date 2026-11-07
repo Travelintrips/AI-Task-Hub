@@ -32,3 +32,11 @@ test('UI shows real eligibility and requires explicit confirmation',()=>{
   assert.match(ui,/humanReviewMutation\.isPending/);
   assert.match(ui,/Belum ditetapkan \(Administrator\)/);
 });
+
+test('explicit Mulai Lifecycle GPT02 enables checkpoint-gated autoContinue for any task category',()=>{
+  const count=api.split('autoContinue: mode === "chatgpt" && (body.lifecycleStart === true || task.category === "ai_chat")').length-1;
+  assert.equal(count,2);
+  assert.match(api,/const proof = verifiedContinuation\(events\)/);
+  assert.match(api,/if \(!proof\) continue/);
+  assert.match(api,/if \(meta\["environment"\] !== "development" \|\| meta\["autoContinue"\] !== true/);
+});
