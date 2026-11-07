@@ -561,6 +561,29 @@ export default function AiTaskDetail() {
     staleTime: 0,
   });
 
+  const { data: recoveryReview, isFetching: recoveryReviewFetching } = useQuery<{
+    executionId: string | null; executionStatus: string | null;
+    eligibleForHumanReview: boolean; verifiedContinuationCheckpoint: boolean;
+    resumeAuthorized: false; originalError: string | null;
+    picName: string | null; picAccountVerified: false;
+    humanTask: { id: number; task_code: string; status: string; assigned_user: string | null } | null;
+    nextAction: string;
+  }>({
+    queryKey: ["ai-task-recovery-review", id],
+    queryFn: () => apiFetch(`/ai-tasks/${id}/recovery-review`),
+    enabled: executionData?.execution?.status?.toLowerCase() === "failed",
+    retry: false,
+    refetchInterval: 30_000,
+  });
+  const humanReviewMutation = useMutation({
+    mutationFn: () => apiFetch(`/ai-tasks/${id}/human-review`, {method:"POST",body:JSON.stringify({})}),
+    onSuccess: () => {
+      toast({title:"Review Human dicatat",description:"Menunggu administrator menetapkan Human yang memiliki akun terverifikasi. Resume GPT02 masih dikunci."});
+      void queryClient.invalidateQueries({queryKey:["ai-task-recovery-review",id]});
+    },
+    onError: (err:Error) => toast({title:"Gagal membuat review Human",description:err.message,variant:"destructive"}),
+  });
+
   const startExecutionMutation = useMutation({
     mutationFn: (mode: "worker" | "chatgpt") =>
       apiFetch(`/ai-tasks/${id}/execution`, {
@@ -1019,7 +1042,25 @@ export default function AiTaskDetail() {
               <div role="alert" className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-900">
                 <strong>Lifecycle GPT02 gagal — pekerjaan belum selesai.</strong>
                 <p className="mt-1">{executionData.execution.errorMessage || "Tidak ada respons worker yang terverifikasi."}</p>
-                <p className="mt-1 text-xs">Jangan mengirim ulang command secara manual. Gunakan Periksa Rekonsiliasi GPT02 (baca-saja), lalu minta peninjauan PIC terhadap status browser, checkpoint, dan ACK sebelum pemulihan terotorisasi.</p>
+                <p className="mt-1 text-xs">Jangan mengirim ulang command secara manual. Gunakan Periksa Rekonsiliasi GPT02 (baca-saja) sebelum pemulihan terotorisasi.</p>
+                {recoveryReviewFetching && !recoveryReview && <p className="mt-2 text-xs">Memeriksa kesiapan review pemulihan…</p>}
+                {recoveryReview?.humanTask ? (
+                  <div className="mt-3 rounded-lg border border-amber-300 bg-white p-3 text-xs">
+                    <p className="font-semibold">Human Review: {recoveryReview.humanTask.task_code}</p>
+                    <p>Status: {recoveryReview.humanTask.status} · Penugas: {recoveryReview.humanTask.assigned_user || "Belum ditetapkan (Administrator)"}</p>
+                    <p>GPT02 tidak boleh di-resume sampai bukti checkpoint, ACK, lease, dan otorisasi diperiksa.</p>
+                  </div>
+                ) : recoveryReview?.eligibleForHumanReview ? (
+                  <div className="mt-3 space-y-2 rounded-lg border border-red-200 bg-white p-3 text-xs">
+                    <p>Checkpoint terverifikasi: Tidak · Resume otomatis: Ditolak · PIC {recoveryReview.picName || "belum ditetapkan"} belum terhubung ke akun Human terverifikasi.</p>
+                    <p>OpenClaw belum terbukti menangani hambatan ini. Permintaan berikut adalah peninjauan, bukan klaim bahwa OpenClaw gagal.</p>
+                    <Button variant="outline" size="sm" disabled={humanReviewMutation.isPending} onClick={() => {
+                      if (window.confirm("Buat Human Review untuk kegagalan GPT02? Tugas menunggu penetapan Administrator. Tidak ada dispatch ulang atau resume.")) humanReviewMutation.mutate();
+                    }}>{humanReviewMutation.isPending ? "Mencatat…" : "Ajukan Review Human (tanpa resume)"}</Button>
+                  </div>
+                ) : recoveryReview?.verifiedContinuationCheckpoint ? (
+                  <p className="mt-2 text-xs">Checkpoint tersedia, tetapi resume hanya boleh dipertimbangkan melalui otorisasi resmi.</p>
+                ) : null}
               </div>
             )}
             {executionData.execution.status.toLowerCase() === "completed" &&

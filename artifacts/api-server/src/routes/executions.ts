@@ -985,6 +985,87 @@ router.get("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Res
   }
 });
 
+// DEV-only Human review handoff for a terminal GPT02 failure with no verified checkpoint.
+// This never resumes, redispatches, assigns an invented PIC, or marks the AI task PASS.
+router.get("/ai-tasks/:id/recovery-review", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  if (process.env.NODE_ENV !== "development" || process.env.APP_ENV === "production") {res.sendStatus(404);return;}
+  const taskId=Number(req.params.id);
+  if (!Number.isSafeInteger(taskId)||taskId<1) {res.status(400).json({error:"INVALID_TASK_ID"});return;}
+  try {
+    const companyId=getCompanyIdForWrite(req);
+    const [task]=await db.select().from(aiTasksTable).where(and(eq(aiTasksTable.id,taskId),eq(aiTasksTable.companyId,companyId))).limit(1);
+    if (!task) {res.sendStatus(404);return;}
+    const [execution]=await db.select().from(aiExecutionJobsTable)
+      .where(and(eq(aiExecutionJobsTable.taskId,taskId),eq(aiExecutionJobsTable.companyId,companyId),eq(aiExecutionJobsTable.source,"AI_TASK")))
+      .orderBy(desc(aiExecutionJobsTable.createdAt)).limit(1);
+    const sourceId=execution ? `execution:${execution.id}` : "";
+    const [human]=sourceId ? (await db.execute(sql`
+      SELECT id,task_code,status,assigned_user,assigned_role,created_at
+      FROM ai_platform.ai_human_tasks WHERE source_module='ai_core_lifecycle' AND source_type='job'
+        AND source_id=${sourceId} LIMIT 1`)).rows : [];
+    const events=execution ? await db.select().from(aiExecutionEventsTable).where(eq(aiExecutionEventsTable.executionId,execution.id)).orderBy(desc(aiExecutionEventsTable.createdAt)).limit(100) : [];
+    const checkpoint=verifiedContinuation(events);
+    const eligible=execution?.status==="failed" && !execution.finalAckVerified && !checkpoint;
+    res.setHeader("Cache-Control","no-store");
+    res.json({executionId:execution?.id??null,executionStatus:execution?.status??null,
+      eligibleForHumanReview:eligible,verifiedContinuationCheckpoint:!!checkpoint,
+      resumeAuthorized:false,originalError:execution?.errorMessage??null,
+      picName:task.assignedTo??null,picAccountVerified:false,
+      humanTask:human??null,
+      nextAction:checkpoint?"OFFICIAL_CHECKPOINT_AUTHORIZATION_REQUIRED":eligible?"HUMAN_REVIEW_REQUIRED":"AUDIT_EXECUTION_FIRST"});
+  } catch (error) {logger.error({error,taskId},"DEV human recovery read failed");res.status(503).json({error:"RECOVERY_REVIEW_UNAVAILABLE"});}
+});
+
+router.post("/ai-tasks/:id/human-review", requireAuth, async(req:Request,res:Response):Promise<void>=>{
+  if(process.env.NODE_ENV!=="development"||process.env.APP_ENV==="production"){res.sendStatus(404);return;}
+  const taskId=Number(req.params.id);
+  if(!Number.isSafeInteger(taskId)||taskId<1){res.status(400).json({error:"INVALID_TASK_ID"});return;}
+  const origin=req.get("origin");
+  if(origin){try{if(new URL(origin).host!==req.get("host")){res.status(403).json({error:"CROSS_ORIGIN_DENIED"});return;}}catch{res.status(403).json({error:"CROSS_ORIGIN_DENIED"});return;}}
+  try{
+    const companyId=getCompanyIdForWrite(req);
+    const outcome=await db.transaction(async tx=>{
+      // Serialize all concurrent human-review requests for the same tenant and task.
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`recovery:${companyId}:${taskId}`}))`);
+      const [task]=await tx.select().from(aiTasksTable).where(and(eq(aiTasksTable.id,taskId),eq(aiTasksTable.companyId,companyId))).limit(1);
+      if(!task)return {kind:"not_found" as const};
+      const [execution]=await tx.select().from(aiExecutionJobsTable)
+        .where(and(eq(aiExecutionJobsTable.taskId,taskId),eq(aiExecutionJobsTable.companyId,companyId),eq(aiExecutionJobsTable.source,"AI_TASK")))
+        .orderBy(desc(aiExecutionJobsTable.createdAt)).limit(1);
+      if(!execution)return {kind:"not_ready" as const};
+      const sourceId=`execution:${execution.id}`;
+      const existing=await tx.execute(sql`SELECT id,task_code,status FROM ai_platform.ai_human_tasks
+        WHERE source_module='ai_core_lifecycle' AND source_type='job' AND source_id=${sourceId} LIMIT 1`);
+      if(existing.rows.length)return {kind:"existing" as const,task:existing.rows[0]};
+      if(execution.status!=="failed"||execution.finalAckVerified||!execution.commandId)return {kind:"not_ready" as const};
+      const events=await tx.select().from(aiExecutionEventsTable).where(eq(aiExecutionEventsTable.executionId,execution.id)).orderBy(desc(aiExecutionEventsTable.createdAt)).limit(100);
+      if(verifiedContinuation(events))return {kind:"verified_checkpoint" as const};
+      const actor=`ai-task-user:${req.user?.id??"unknown"}`;
+      const code=`HT-RECOVERY-${randomUUID().slice(0,12).toUpperCase()}`;
+      const reason=`GPT02 failed without verified checkpoint: ${(execution.errorMessage??"Unknown failure").slice(0,500)}`;
+      const context=JSON.stringify({taskId,companyId,executionId:execution.id,commandId:execution.commandId,
+        picName:task.assignedTo??null,picIdentityVerified:false,openClawAttemptVerified:false,
+        verifiedCheckpoint:false,resumeAllowed:false,requestedBy:actor});
+      const inserted=await tx.execute(sql`INSERT INTO ai_platform.ai_human_tasks
+        (task_code,source_module,source_type,source_id,assigned_role,priority,status,reason,instructions,payload_json)
+        VALUES(${code},'ai_core_lifecycle','job',${sourceId},'Administrator',80,'pending',${reason},
+        'Tinjau kegagalan GPT02. Verifikasi browser dan instruksi asli, checkpoint, OpenClaw, serta identitas PIC sebelum penugasan. Tidak boleh resend command, bypass ACK atau resume tanpa otorisasi.',${context}::jsonb)
+        ON CONFLICT DO NOTHING RETURNING id,task_code,status`);
+      const created=inserted.rows[0];
+      if(!created){const duplicate=await tx.execute(sql`SELECT id,task_code,status FROM ai_platform.ai_human_tasks WHERE source_module='ai_core_lifecycle' AND source_id=${sourceId} LIMIT 1`);return {kind:"existing" as const,task:duplicate.rows[0]};}
+      await tx.execute(sql`INSERT INTO ai_platform.ai_human_task_history(task_id,action,performed_by,notes,new_status)
+        VALUES(${created["id"]},'created',${actor},'Unassigned DEV human recovery review; OpenClaw not independently verified; resume locked','pending')`);
+      return {kind:"created" as const,task:created};
+    });
+    if(outcome.kind==="not_found"){res.sendStatus(404);return;}
+    if(outcome.kind==="not_ready"||outcome.kind==="verified_checkpoint"){
+      res.status(409).json({error:outcome.kind==="verified_checkpoint"?"VERIFIED_CHECKPOINT_REQUIRES_AUTHORIZATION":"SOURCE_NOT_ELIGIBLE_FOR_HUMAN_REVIEW"});return;
+    }
+    res.setHeader("Cache-Control","no-store");
+    res.status(outcome.kind==="created"?201:200).json({humanTask:outcome.task,reused:outcome.kind==="existing",resumeAllowed:false,picAssigned:false});
+  }catch(error){logger.error({error,taskId},"DEV human review create failed");res.status(503).json({error:"HUMAN_REVIEW_UNAVAILABLE"});}
+});
+
 // Resume only from a signed, AI Core-verified checkpoint on the selected source job.
 // AI Task requests continuation; AI Core remains the sole command dispatcher.
 router.post("/ai-tasks/:id/continue", requireAuth, async (req: Request, res: Response): Promise<void> => {
@@ -1192,7 +1273,7 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
           environment: "development",
           verificationMode,
           remoteCorrelationId,
-          autoContinue: mode === "chatgpt" && task.category === "ai_chat",
+          autoContinue: mode === "chatgpt" && (body.lifecycleStart === true || task.category === "ai_chat"),
           ...(mode === "chatgpt" ? { accountAlias } : {}),
         },
       }).where(and(
@@ -1227,7 +1308,7 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
           environment: "development",
           verificationMode,
           remoteCorrelationId: `${externalId}:${correlationId}`,
-          autoContinue: mode === "chatgpt" && task.category === "ai_chat",
+          autoContinue: mode === "chatgpt" && (body.lifecycleStart === true || task.category === "ai_chat"),
           continuationDepth: 0,
           ...(mode === "chatgpt" ? { accountAlias } : {}),
         },
