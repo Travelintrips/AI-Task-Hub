@@ -18,14 +18,17 @@ test("Dashboard is the one navigation entry; old detail routes remain intact", (
 });
 test("Unified list uses native AI Tasks and the read-only registry with source labels", () => {
   assert.match(ui, /getJson<AiTask\[]>\("\/api\/ai-tasks"\)/);
-  assert.match(ui, /getJson<\{ jobs: BridgeJob\[] \}>\("\/api\/bridge\/admin\/jobs"\)/);
+  assert.match(ui, /getJson<\{ jobs: BridgeJob\[]; hiddenTaskIds\?: number\[] \}>\("\/api\/bridge\/admin\/jobs"\)/);
   assert.match(ui, /sourceLabel: "AI Tasks"/);
   assert.match(ui, /sourceLabel: j\.source === "AI_CORE" \? "AI Core"/);
   assert.match(ui, /sourceRows\.filter\(r => r\.bucket === "completed"\)/);
   assert.match(ui, /aria-pressed=\{status === s\.key/);
   assert.match(ui, /refetchInterval: false/);
   assert.match(ui, /postAdminCleanup/);
-  assert.match(ui, /hide-jobs/);
+  assert.match(ui, /hide-dashboard-items/);
+  assert.match(ui, /eligibleTaskIds/);
+  assert.match(ui, /selectedTasks/);
+  assert.match(ui, /hiddenTaskIds/);
   assert.match(ui, /delete-sessions/);
   assert.match(ui, /Check All/);
 });
