@@ -8,6 +8,7 @@ import {
 } from "../lib/job-bridge-validation";
 
 import { attachBridgeCleanupRoutes } from "./job-bridge-admin-cleanup";
+import { attachBridgeDashboardVisibilityRoutes } from "./job-bridge-dashboard-visibility";
 import {
   parseAiCoreExternalId,
   observeKind,
@@ -434,7 +435,12 @@ router.get("/bridge/admin/jobs", ...adminOnly, async (req: Request, res: Respons
        ORDER BY created_at DESC LIMIT 100`,
       [req.query.includeArchived === "true"],
     );
-    res.json({ jobs: result.rows });
+    const hidden = await pool.query(
+      "SELECT DISTINCT entity_id FROM public.audit_logs " +
+      "WHERE action='dashboard_hidden' AND entity_type='ai_task' " +
+      "AND entity_id ~ '^[0-9]+$' LIMIT 5000",
+    );
+    res.json({ jobs: result.rows, hiddenTaskIds: hidden.rows.map(row => Number(row.entity_id)) });
   } catch (error) { queryError(res, error); }
 });
 router.get("/bridge/admin/sessions", ...adminOnly, async (_req: Request, res: Response): Promise<void> => {
@@ -460,5 +466,6 @@ router.get("/bridge/admin/jobs/:id/events", ...adminOnly, async (req: Request, r
 });
 
 attachBridgeCleanupRoutes(router);
+attachBridgeDashboardVisibilityRoutes(router);
 
 export default router;
