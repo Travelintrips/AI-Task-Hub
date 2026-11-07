@@ -1,0 +1,5 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';
+const api=readFileSync(new URL('../artifacts/api-server/src/routes/executions.ts',import.meta.url),'utf8');
+const ui=readFileSync(new URL('../artifacts/ai-task-center/src/pages/ai-task-detail.tsx',import.meta.url),'utf8');
+test('recovery-review exposes only bounded evidence booleans and code, no transcript',()=>{const s=api.slice(api.indexOf('router.get("/ai-tasks/:id/recovery-review"'),api.indexOf('router.post("/ai-tasks/:id/human-review"'));for(const p of ['failure_code','send_attempt_recorded','assistant_ack_verified','openclaw_attempt_verified','signed_checkpoint_count'])assert.ok(s.includes(p));assert.ok(!s.includes('SELECT *'));assert.ok(!s.includes('assistantResponseText'));});
+test('human review evidence appears inline and is never counted as PASS',()=>{for(const p of ['Bukti diagnosis untuk reviewer','Buka Human Tasks (reviewer)','Belum ada bukti','Belum terverifikasi','GPT02 tidak boleh di-resume'])assert.ok(ui.includes(p));});

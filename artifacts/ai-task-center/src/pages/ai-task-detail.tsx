@@ -566,7 +566,10 @@ export default function AiTaskDetail() {
     eligibleForHumanReview: boolean; verifiedContinuationCheckpoint: boolean;
     resumeAuthorized: false; originalError: string | null;
     picName: string | null; picAccountVerified: false;
-    humanTask: { id: number; task_code: string; status: string; assigned_user: string | null } | null;
+    humanTask: { id: number; task_code: string; status: string; assigned_user: string | null;
+      failure_code?: string | null; send_attempt_recorded?: string | null;
+      assistant_ack_verified?: string | null; openclaw_attempt_verified?: string | null;
+      signed_checkpoint_count?: string | null; } | null;
     nextAction: string;
   }>({
     queryKey: ["ai-task-recovery-review", id],
@@ -1048,7 +1051,16 @@ export default function AiTaskDetail() {
                   <div className="mt-3 rounded-lg border border-amber-300 bg-white p-3 text-xs">
                     <p className="font-semibold">Human Review: {recoveryReview.humanTask.task_code}</p>
                     <p>Status: {recoveryReview.humanTask.status} · Penugas: {recoveryReview.humanTask.assigned_user || "Belum ditetapkan (Administrator)"}</p>
-                    <p>GPT02 tidak boleh di-resume sampai bukti checkpoint, ACK, lease, dan otorisasi diperiksa.</p>
+                    <div className="mt-2 rounded border border-gray-200 bg-gray-50 p-2 space-y-1">
+                      <p className="font-semibold">Bukti diagnosis untuk reviewer</p>
+                      <p>Kode kegagalan: {recoveryReview.humanTask.failure_code || "Belum dilampirkan"}</p>
+                      <p>Pengiriman native: {recoveryReview.humanTask.send_attempt_recorded === "true" ? "Ada catatan percobaan" : "Belum terbukti"}</p>
+                      <p>ACK asisten: {recoveryReview.humanTask.assistant_ack_verified === "true" ? "Terverifikasi" : "Belum terverifikasi"}</p>
+                      <p>OpenClaw membantu: {recoveryReview.humanTask.openclaw_attempt_verified === "true" ? "Ada bukti" : "Belum ada bukti"}</p>
+                      <p>Checkpoint bertanda tangan: {recoveryReview.humanTask.signed_checkpoint_count || "0"}</p>
+                    </div>
+                    <p className="mt-2">GPT02 tidak boleh di-resume sampai bukti checkpoint, ACK, lease, dan otorisasi diperiksa.</p>
+                    <a className="mt-2 inline-block font-semibold text-blue-700 underline" href="https://dev.cstlogistic.co.id/human-tasks" target="_blank" rel="noopener noreferrer">Buka Human Tasks (reviewer)</a>
                   </div>
                 ) : recoveryReview?.eligibleForHumanReview ? (
                   <div className="mt-3 space-y-2 rounded-lg border border-red-200 bg-white p-3 text-xs">

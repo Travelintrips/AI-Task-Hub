@@ -1000,7 +1000,12 @@ router.get("/ai-tasks/:id/recovery-review", requireAuth, async (req: Request, re
       .orderBy(desc(aiExecutionJobsTable.createdAt)).limit(1);
     const sourceId=execution ? `execution:${execution.id}` : "";
     const [human]=sourceId ? (await db.execute(sql`
-      SELECT id,task_code,status,assigned_user,assigned_role,created_at
+      SELECT id,task_code,status,assigned_user,assigned_role,created_at,
+        payload_json->'recoveryEvidence'->>'failureCode' AS failure_code,
+        payload_json->'recoveryEvidence'->>'nativeSendAttemptRecorded' AS send_attempt_recorded,
+        payload_json->'recoveryEvidence'->>'assistantAckVerified' AS assistant_ack_verified,
+        payload_json->'recoveryEvidence'->>'openClawAttemptVerified' AS openclaw_attempt_verified,
+        payload_json->'recoveryEvidence'->>'signedCheckpointCount' AS signed_checkpoint_count
       FROM ai_platform.ai_human_tasks WHERE source_module='ai_core_lifecycle' AND source_type='job'
         AND source_id=${sourceId} LIMIT 1`)).rows : [];
     const events=execution ? await db.select().from(aiExecutionEventsTable).where(eq(aiExecutionEventsTable.executionId,execution.id)).orderBy(desc(aiExecutionEventsTable.createdAt)).limit(100) : [];
