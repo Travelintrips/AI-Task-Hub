@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import { getStoredToken } from "@/lib/auth-api";
+import { BridgeJobVisibility } from "@/components/bridge-job-visibility";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { useServerEvents } from "@/hooks/use-server-events";
 import { formatDistanceToNow } from "date-fns";
@@ -573,6 +574,8 @@ export default function AiTaskBoard() {
 
         {/* Status summary cards */}
         <StatusCards tasks={allTasks} activeFilter={statusFilter} onFilter={setStatus} />
+
+        <BridgeJobVisibility location="ai-tasks" />
 
         {/* Search + Filter bar */}
         <div className="flex gap-2 flex-wrap items-center">

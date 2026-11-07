@@ -23,6 +23,7 @@ import {
 } from "@/components/ui/table";
 import { Card, CardContent } from "@/components/ui/card";
 import { OnboardingBanner } from "@/components/onboarding-banner";
+import { BridgeJobVisibility } from "@/components/bridge-job-visibility";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -361,6 +362,8 @@ export default function Dashboard() {
             <span className="hidden sm:inline">Refresh</span>
           </Button>
         </div>
+
+        <BridgeJobVisibility location="dashboard" />
 
         {/* ── Summary Cards ── */}
         {isLoading ? (
