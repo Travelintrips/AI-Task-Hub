@@ -61,6 +61,23 @@ async function getJson<T>(endpoint: string): Promise<T> {
   return result.json() as Promise<T>;
 }
 
+async function postAdminCleanup<T>(endpoint: string, body: unknown): Promise<T> {
+  const token = getStoredToken();
+  const result = await fetch(endpoint, {
+    method: "POST",
+    headers: { "content-type": "application/json", ...(token ? { Authorization: "Bearer " + token } : {}) },
+    body: JSON.stringify(body),
+  });
+  if (!result.ok) {
+    const details = await result.json().catch(() => ({})) as { error?: string };
+    throw new Error(details.error || "HTTP " + result.status);
+  }
+  return result.json() as Promise<T>;
+}
+const deletableSession = (s: Session) =>
+  !s.heartbeat_recent && ["IDLE", "DISCONNECTED", "AUTH_REQUIRED"].includes(s.state) &&
+  Date.now() - Date.parse(s.last_seen_at) >= 5 * 60 * 1000;
+
 export default function UnifiedDashboard() {
   const { user } = useAuth();
   const canSeeBridge = user?.role === "super_admin";
@@ -69,6 +86,10 @@ export default function UnifiedDashboard() {
   const [search, setSearch] = useState("");
   const [openedJob, setOpenedJob] = useState<string | null>(null);
   const [openedSession, setOpenedSession] = useState<string | null>(null);
+  const [selectedJobs, setSelectedJobs] = useState<string[]>([]);
+  const [selectedSessions, setSelectedSessions] = useState<string[]>([]);
+  const [cleanupPending, setCleanupPending] = useState(false);
+  const [cleanupMessage, setCleanupMessage] = useState("");
   const activeBridgeId = openedJob?.startsWith("bridge:") ? openedJob.slice("bridge:".length) : null;
 
   // Read both sources directly. Never create a mirror task or modify original records.
@@ -156,10 +177,55 @@ export default function UnifiedDashboard() {
       { key: "session" as const, name: "Sesi" },
     ] : []),
   ];
+  const eligibleJobIds = filtered.filter(r => r.kind === "bridge" &&
+    ["COMPLETED", "FAILED"].includes(r.status)).map(r => r.rawId);
+  const eligibleSessionKeys = activeSessions.filter(deletableSession)
+    .map(s => s.source + ":" + s.session_id);
+  const toggleAllJobs = (checked: boolean) => setSelectedJobs(checked ? eligibleJobIds : []);
+  const toggleAllSessions = (checked: boolean) => setSelectedSessions(checked ? eligibleSessionKeys : []);
+  const archiveSelected = async () => {
+    if (!selectedJobs.length || cleanupPending ||
+        !window.confirm("Arsipkan " + selectedJobs.length +
+          " job terpilih dari Dashboard? Riwayat hasil dan ACK tetap disimpan.")) return;
+    setCleanupPending(true);
+    setCleanupMessage("");
+    try {
+      const result = await postAdminCleanup<{ hidden: number; message: string }>(
+        "/api/bridge/admin/hide-jobs", { ids: selectedJobs });
+      setCleanupMessage(result.message);
+      setSelectedJobs([]);
+      setOpenedJob(null);
+      await bridge.refetch();
+    } catch (e) {
+      setCleanupMessage("Gagal mengarsipkan: " + (e instanceof Error ? e.message : "kesalahan API"));
+    } finally { setCleanupPending(false); }
+  };
+  const deleteSelectedSessions = async () => {
+    const keys = activeSessions.filter(s => selectedSessions.includes(s.source + ":" + s.session_id));
+    if (!keys.length || cleanupPending ||
+        !window.confirm("Hapus permanen " + keys.length +
+          " sesi tidak aktif terpilih? Job dan riwayat ACK tidak dihapus.")) return;
+    setCleanupPending(true);
+    setCleanupMessage("");
+    try {
+      const result = await postAdminCleanup<{ deleted: number }>(
+        "/api/bridge/admin/delete-sessions",
+        { sessions: keys.map(s => ({ source: s.source, sessionId: s.session_id })) });
+      setCleanupMessage(result.deleted + " sesi tidak aktif telah dihapus.");
+      setSelectedSessions([]);
+      setOpenedSession(null);
+      await sessions.refetch();
+    } catch (e) {
+      setCleanupMessage("Gagal menghapus sesi: " + (e instanceof Error ? e.message : "kesalahan API"));
+    } finally { setCleanupPending(false); }
+  };
   const chooseSource = (next: SourceFilter) => {
     setSource(next);
     setStatus("all");
     setOpenedJob(null);
+    setSelectedJobs([]);
+    setSelectedSessions([]);
+    setCleanupMessage("");
   };
   const refreshAll = () => {
     void tasks.refetch();
@@ -200,7 +266,7 @@ export default function UnifiedDashboard() {
           {errors.join("; ")}. Data dari sumber tersebut belum tersedia; angka yang tampil hanya data yang berhasil dibaca.
         </div>}
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-          {stats.map(s => <button type="button" key={s.key} onClick={() => {setSource(source === "session" ? "all" : source); setStatus(current => current === s.key && s.key !== "all" ? "all" : s.key);}}
+          {stats.map(s => <button type="button" key={s.key} onClick={() => {setSource(source === "session" ? "all" : source); setSelectedJobs([]); setStatus(current => current === s.key && s.key !== "all" ? "all" : s.key);}}
             aria-pressed={status === s.key && source !== "session"}
             className={"text-left rounded-xl border-2 bg-white p-4 transition-colors hover:border-blue-400 focus-visible:outline-2 focus-visible:outline-blue-600 " +
               (status === s.key && source !== "session" ? "border-blue-500" : "border-slate-200")}>
@@ -219,9 +285,21 @@ export default function UnifiedDashboard() {
           )}
         </div>
 
+        {cleanupMessage && <p role="status" className="rounded-md border px-3 py-2 text-sm">{cleanupMessage}</p>}
+
         {source === "session" ? (
           <section className="rounded-xl border bg-white p-4 space-y-3">
-            <h2 className="font-semibold">Sesi yang terdaftar</h2>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="font-semibold">Sesi yang terdaftar</h2>
+              <Button type="button" size="sm" variant="destructive" onClick={() => void deleteSelectedSessions()}
+                disabled={!selectedSessions.length || cleanupPending}>Hapus Sesi ({selectedSessions.length})</Button>
+            </div>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" aria-label="Check All sesi tidak aktif" disabled={!eligibleSessionKeys.length || cleanupPending}
+                checked={eligibleSessionKeys.length > 0 && eligibleSessionKeys.every(k => selectedSessions.includes(k))}
+                onChange={e => toggleAllSessions(e.target.checked)} />
+              Check All (sesi tidak aktif saja)
+            </label>
             <p className="text-xs text-muted-foreground">Sesi di Job Registry berbeda dari heartbeat worker AI Core.</p>
             {sessions.isError && <p role="alert" className="text-red-700 text-sm">Sesi tidak dapat dibaca.</p>}
             {sessions.isLoading && <p>Memuat sesi…</p>}
@@ -230,6 +308,13 @@ export default function UnifiedDashboard() {
             {activeSessions.map(session => {
               const key = session.source + ":" + session.session_id;
               return <div key={key} className="border-b py-2">
+                <label className="inline-flex items-center gap-2 text-xs mb-2">
+                  <input type="checkbox" aria-label={"Pilih sesi " + key}
+                    disabled={!deletableSession(session) || cleanupPending}
+                    checked={selectedSessions.includes(key)}
+                    onChange={e => setSelectedSessions(prev => e.target.checked ? [...prev,key] : prev.filter(k => k !== key))} />
+                  {deletableSession(session) ? "Pilih sesi" : "Sesi aktif atau belum aman dihapus"}
+                </label>
                 <button type="button" className="flex w-full flex-wrap items-center justify-between text-left gap-3 hover:text-blue-700"
                   onClick={() => setOpenedSession(old => old === key ? null : key)} aria-expanded={openedSession === key}>
                   <span className="text-sm font-medium">{session.source} · {session.session_id}</span>
@@ -248,10 +333,15 @@ export default function UnifiedDashboard() {
             <div className="p-4 flex flex-wrap justify-between gap-3 items-center">
               <div><h2 className="font-semibold">Daftar pekerjaan terpadu</h2>
                 <p className="text-xs text-muted-foreground mt-1">{filtered.length} pekerjaan ditampilkan · klik baris untuk detail dan bukti</p>
+                <p className="text-xs text-muted-foreground">Checkbox hanya untuk job AI Core COMPLETED/FAILED. Hapus dari Dashboard mengarsipkan tampilan, bukan menghapus log/ACK.</p>
               </div>
               <div className="flex items-center gap-2">
+                <Button type="button" size="sm" variant="destructive"
+                  disabled={!selectedJobs.length || cleanupPending} onClick={() => void archiveSelected()}>
+                  Hapus dari Dashboard ({selectedJobs.length})
+                </Button>
                 <Search className="w-4 h-4 text-slate-500" />
-                <input type="search" value={search} onChange={e => setSearch(e.target.value)}
+                <input type="search" value={search} onChange={e => {setSearch(e.target.value);setSelectedJobs([]);}}
                   aria-label="Cari seluruh pekerjaan" placeholder="Cari judul, ID, sumber…"
                   className="border rounded-md px-3 py-2 text-sm w-52 max-w-full" />
               </div>
@@ -259,6 +349,15 @@ export default function UnifiedDashboard() {
             <div className="overflow-x-auto">
               <table className="w-full min-w-[760px] text-left text-sm">
                 <thead className="border-y bg-slate-50 text-slate-600"><tr>
+                  <th className="p-3 font-medium w-20">
+                    <label className="flex flex-col gap-1 text-xs">
+                      <input type="checkbox" aria-label="Check All job yang aman diarsipkan"
+                        disabled={!eligibleJobIds.length || cleanupPending}
+                        checked={eligibleJobIds.length > 0 && eligibleJobIds.every(id => selectedJobs.includes(id))}
+                        onChange={e => toggleAllJobs(e.target.checked)} />
+                      Check All
+                    </label>
+                  </th>
                   <th className="p-3 font-medium">Pekerjaan</th>
                   <th className="p-3 font-medium">Sumber</th>
                   <th className="p-3 font-medium">Pelaksana</th>
@@ -269,11 +368,14 @@ export default function UnifiedDashboard() {
                 <tbody>
                   {filtered.map(row => (
                     <RowWithEvents key={row.key} row={row}
+                      selectable={canSeeBridge && row.kind === "bridge" && ["COMPLETED","FAILED"].includes(row.status)}
+                      selected={selectedJobs.includes(row.rawId)} selecting={cleanupPending}
+                      onSelect={checked => setSelectedJobs(prev => checked ? [...prev,row.rawId] : prev.filter(id => id !== row.rawId))}
                       expanded={openedJob === row.key}
                       onExpand={() => setOpenedJob(current => current === row.key ? null : row.key)}
                       events={row.kind === "bridge" && openedJob === row.key ? events : undefined} />
                   ))}
-                  {filtered.length === 0 && <tr><td colSpan={6} className="py-12 text-center text-muted-foreground">
+                  {filtered.length === 0 && <tr><td colSpan={7} className="py-12 text-center text-muted-foreground">
                     {loading ? "Memuat pekerjaan…" : errors.length ? "Sebagian sumber tidak tersedia, atau tidak ada hasil untuk filter ini." : "Tidak ada pekerjaan untuk filter ini."}
                   </td></tr>}
                 </tbody>
@@ -290,12 +392,19 @@ export default function UnifiedDashboard() {
   );
 }
 
-function RowWithEvents({ row, expanded, onExpand, events }: {
+function RowWithEvents({ row, expanded, onExpand, events, selectable, selected, onSelect, selecting }: {
   row: WorkRow; expanded: boolean; onExpand: () => void;
+  selectable: boolean; selected: boolean; onSelect: (checked: boolean) => void; selecting: boolean;
   events?: { data?: { events: JobEvent[] }; isLoading: boolean; isError: boolean };
 }) {
   return <>
     <tr className={"border-b " + (expanded ? "bg-blue-50/50" : "")}>
+      <td className="p-3">
+        <input type="checkbox" aria-label={"Pilih job " + row.title}
+          title={selectable ? "Pilih untuk arsip Dashboard" : "Hanya job AI Core selesai atau gagal"}
+          disabled={!selectable || selecting}
+          checked={selectable && selected} onChange={e => onSelect(e.target.checked)} />
+      </td>
       <td className="p-3 max-w-[360px]">
         <button type="button" onClick={onExpand} aria-expanded={expanded}
           className="flex items-start gap-2 text-left w-full hover:text-blue-700 focus-visible:underline">
@@ -313,7 +422,7 @@ function RowWithEvents({ row, expanded, onExpand, events }: {
         row.ack ? <span className="text-green-700 font-semibold">ACK Terverifikasi</span> : "Belum terverifikasi" :
         <span className="text-muted-foreground">Status tugas</span>}</td>
     </tr>
-    {expanded && <tr className="bg-slate-50 border-b"><td colSpan={6} className="p-4">
+    {expanded && <tr className="bg-slate-50 border-b"><td colSpan={7} className="p-4">
       <div className="space-y-2 text-sm">
         <p className="font-semibold">Detail pekerjaan</p>
         <p className="text-xs text-muted-foreground break-all">ID {row.rawId} · {row.sourceType}</p>

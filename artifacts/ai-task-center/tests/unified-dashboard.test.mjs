@@ -24,7 +24,10 @@ test("Unified list uses native AI Tasks and the read-only registry with source l
   assert.match(ui, /sourceRows\.filter\(r => r\.bucket === "completed"\)/);
   assert.match(ui, /aria-pressed=\{status === s\.key/);
   assert.match(ui, /refetchInterval: false/);
-  assert.doesNotMatch(ui, /method:\s*["'](?:POST|PUT|PATCH|DELETE)["']/);
+  assert.match(ui, /postAdminCleanup/);
+  assert.match(ui, /hide-jobs/);
+  assert.match(ui, /delete-sessions/);
+  assert.match(ui, /Check All/);
 });
 test("Results are expanded on demand; only bridge UUIDs request event history", () => {
   assert.match(ui, /openedJob\?\.startsWith\("bridge:"\)/);

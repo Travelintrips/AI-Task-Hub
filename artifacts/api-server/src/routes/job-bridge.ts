@@ -7,6 +7,7 @@ import {
   projectAiCoreObservedStatus,
 } from "../lib/job-bridge-validation";
 
+import { attachBridgeCleanupRoutes } from "./job-bridge-admin-cleanup";
 import {
   parseAiCoreExternalId,
   observeKind,
@@ -421,12 +422,17 @@ router.post("/bridge/sessions/heartbeat", requireBridge, async (req: Request, re
 });
 
 // Human visibility is super-admin-only until proper multi-tenant support exists.
-router.get("/bridge/admin/jobs", ...adminOnly, async (_req: Request, res: Response): Promise<void> => {
+router.get("/bridge/admin/jobs", ...adminOnly, async (req: Request, res: Response): Promise<void> => {
   try {
     const result = await pool.query(
       `SELECT id,source,external_id,source_session_id,title,status,owner,created_at,updated_at,
-       callback_received_at,result_verified_at FROM ${schema}.jobs
+       callback_received_at,result_verified_at FROM ${schema}.jobs j
+       WHERE ($1::boolean OR NOT EXISTS (
+         SELECT 1 FROM ${schema}.job_events e
+         WHERE e.job_id=j.id AND e.kind='DASHBOARD_ARCHIVED'
+       ))
        ORDER BY created_at DESC LIMIT 100`,
+      [req.query.includeArchived === "true"],
     );
     res.json({ jobs: result.rows });
   } catch (error) { queryError(res, error); }
@@ -452,5 +458,7 @@ router.get("/bridge/admin/jobs/:id/events", ...adminOnly, async (req: Request, r
     res.json({ events: result.rows });
   } catch (error) { queryError(res, error); }
 });
+
+attachBridgeCleanupRoutes(router);
 
 export default router;
