@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import healthRouter from "./health";
 import jobBridgeRouter from "./job-bridge";
-import chatgptRegistrationRouter from "./chatgpt-registration";
+
 import tasksRouter from "./tasks";
 import teamRouter from "./team";
 import messagesRouter from "./messages";
@@ -69,12 +69,17 @@ import companyGovernanceRouter from "./company-governance";
 import { companyOnboardingRouter } from "./company-onboarding";
 import holdingDashboardRouter from "./holding-dashboard";
 import aiOperationsRouter from "./ai-operations";
+import taskStorageRouter from "./task-storage";
 import creativeAiRouter from "./creative-ai";
 import notificationReceiversRouter from "./notification-receivers";
 import sportCenterRouter from "./sport-center";
 import publicSportCenterRouter from "./public-sport-center";
 import freightRouter from "./freight";
+import executionsRouter from "./executions";
+import unifiedExecutionTimelineRouter from "./unified-execution-timeline";
+import eventsRouter from "./events";
 import { extractUser } from "../middleware/auth";
+import chatgptRegistrationRouter from "./chatgpt-registration";
 
 const router: IRouter = Router();
 
@@ -87,7 +92,7 @@ router.use(authRouter);
 // Application routes
 router.use(healthRouter);
 router.use(jobBridgeRouter);
-router.use(chatgptRegistrationRouter);
+
 router.use(tasksRouter);
 router.use(teamRouter);
 router.use(messagesRouter);
@@ -96,7 +101,11 @@ router.use(documentValidationRouter);
 router.use(documentsRouter);
 router.use(dashboardRouter);
 router.use(whatsappRouter);
+router.use(taskStorageRouter);
 router.use(aiTasksRouter);
+router.use(executionsRouter);
+router.use(unifiedExecutionTimelineRouter);
+router.use(eventsRouter);
 router.use(storageRouter);
 router.use(attachmentsRouter);
 router.use(auditsRouter);
@@ -180,5 +189,6 @@ router.use(sportCenterRouter);
 router.use(publicSportCenterRouter);
 // ── Freight / PPJK Document Upload ────────────────────────────────────────────
 router.use(freightRouter);
+router.use(chatgptRegistrationRouter);
 
 export default router;

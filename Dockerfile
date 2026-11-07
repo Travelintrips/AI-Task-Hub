@@ -28,9 +28,6 @@ RUN ln -s /app /workspace
 
 COPY --from=build --chown=node:node /runtime/ /app/
 
-# esbuild worker paths are resolved from the build-stage workspace. Preserve
-# that absolute path in the runtime image without duplicating application data.
-RUN ln -s /app /workspace
 
 USER node
 

@@ -51,3 +51,6 @@ export * from "./whatsapp_commands";
 export * from "./notification_receivers";
 // ── Suppliers ────────────────────────────────────────────────────────────────
 export * from "./suppliers";
+
+// ── AI Task Execution Control Plane ──────────────────────────────────────────
+export * from "./execution_jobs";

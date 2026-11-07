@@ -14,6 +14,7 @@ import TaskDetail from "@/pages/task-detail";
 import AiTaskBoard from "@/pages/ai-task-board";
 import AiTaskDetail from "@/pages/ai-task-detail";
 import Messages from "@/pages/messages";
+import AiCoreChatPage from "@/pages/ai-core-chat";
 import Documents from "@/pages/documents";
 import Team from "@/pages/team";
 import Users from "@/pages/users";
@@ -39,6 +40,7 @@ import GovernancePage from "@/pages/governance";
 import TrainingPage from "@/pages/training";
 import AiObservabilityPage from "@/pages/ai-observability";
 import BridgeJobsPage from "@/pages/bridge-jobs";
+import UnifiedExecutionTimelinePage from "@/pages/unified-execution-timeline";
 import CreativeAiPage from "@/pages/creative-ai";
 import CustomerMemoryPage from "@/pages/customer-memory";
 import VendorsPage from "@/pages/vendors";
@@ -123,6 +125,7 @@ function AppRouter() {
         <Route path="/tasks/:id">{(params) => { window.location.replace(`/ai-tasks/${params.id}`); return null; }}</Route>
         <Route path="/ai-tasks" component={AiTaskBoard} />
         <Route path="/ai-tasks/:id" component={AiTaskDetail} />
+        <Route path="/ai-core-chat" component={AiCoreChatPage} />
         <Route path="/messages" component={Messages} />
         <Route path="/documents" component={Documents} />
         <Route path="/team" component={Team} />
@@ -145,6 +148,7 @@ function AppRouter() {
         <Route path="/training" component={TrainingPage} />
         <Route path="/ai-observability" component={AiObservabilityPage} />
         <Route path="/bridge-jobs" component={BridgeJobsPage} />
+        <Route path="/execution-timeline" component={UnifiedExecutionTimelinePage} />
         <Route path="/creative-ai" component={CreativeAiPage} />
         <Route path="/creative-ai/:taskId" component={CreativeAiPage} />
         <Route path="/crm/customers/:id/memory" component={CustomerMemoryPage} />

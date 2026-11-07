@@ -25,7 +25,9 @@ export const pool = new Pool({
   ssl: process.env.DB_SSL === "false" ? false : { rejectUnauthorized: false },
   application_name: process.env.DB_APPLICATION_NAME?.trim() || "ai-task-hub",
   connectionTimeoutMillis: intEnv("DB_CONNECTION_TIMEOUT_MS", 10_000),
-  idleTimeoutMillis: intEnv("DB_IDLE_TIMEOUT_MS", 30_000),
+  idleTimeoutMillis: intEnv("DB_IDLE_TIMEOUT_MS", 300_000),
+  keepAlive: true,
+  keepAliveInitialDelayMillis: 30_000,
   max: intEnv("DB_POOL_MAX", 10),
 });
 

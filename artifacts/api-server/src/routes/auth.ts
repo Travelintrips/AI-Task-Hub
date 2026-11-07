@@ -9,6 +9,31 @@ import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
+const isProduction = process.env.NODE_ENV === "production";
+
+const devPasswordlessLoginEnabled = (() => {
+  const baseUrl = process.env.PUBLIC_APP_BASE_URL?.trim().replace(/\/+$/, "");
+  return (
+    process.env.DEV_PASSWORDLESS_LOGIN === "true" &&
+    baseUrl === "https://dev-ai-task.cstlogistic.co.id"
+  );
+})();
+
+function getSupabaseAuthConfig() {
+  const supabaseUrl = (
+    isProduction
+      ? process.env.SUPABASE_URL
+      : process.env.SUPABASE_URL_DEV || process.env.SUPABASE_URL
+  )?.trim();
+  const publishableKey = (
+    isProduction
+      ? process.env.SUPABASE_ANON_KEY
+      : process.env.SUPABASE_ANON_KEY_DEV || process.env.SUPABASE_ANON_KEY
+  )?.trim();
+
+  return { supabaseUrl, publishableKey };
+}
+
 // ─── POST /auth/setup ──────────────────────────────────────────────────────────
 // Creates first super_admin when no users exist. Use only on initial setup.
 
@@ -64,8 +89,8 @@ router.post("/auth/setup", async (req: Request, res: Response): Promise<void> =>
 router.post("/auth/login", async (req: Request, res: Response): Promise<void> => {
   const { email, password } = req.body as { email?: string; password?: string };
 
-  if (!email || !password) {
-    res.status(400).json({ error: "email and password are required" });
+  if (!email || (!devPasswordlessLoginEnabled && !password)) {
+    res.status(400).json({ error: devPasswordlessLoginEnabled ? "email is required" : "email and password are required" });
     return;
   }
 
@@ -76,15 +101,17 @@ router.post("/auth/login", async (req: Request, res: Response): Promise<void> =>
       .where(eq(usersTable.email, email.toLowerCase().trim()))
       .limit(1);
 
-    if (!user || !user.isActive || !user.passwordHash) {
+    if (!user || !user.isActive || (!devPasswordlessLoginEnabled && !user.passwordHash)) {
       res.status(401).json({ error: "Invalid credentials" });
       return;
     }
 
-    const valid = await bcrypt.compare(password, user.passwordHash);
-    if (!valid) {
-      res.status(401).json({ error: "Invalid credentials" });
-      return;
+    if (!devPasswordlessLoginEnabled) {
+      const valid = await bcrypt.compare(password!, user.passwordHash);
+      if (!valid) {
+        res.status(401).json({ error: "Invalid credentials" });
+        return;
+      }
     }
 
     await db
@@ -100,7 +127,7 @@ router.post("/auth/login", async (req: Request, res: Response): Promise<void> =>
       name: user.name,
     });
 
-    logger.info({ userId: user.id, role: user.role, companyId: user.companyId }, "User logged in");
+    logger.info({ userId: user.id, role: user.role, companyId: user.companyId, passwordless: devPasswordlessLoginEnabled }, "User logged in");
 
     res.json({ token, user: safeUser(user) });
   } catch (err) {
@@ -112,7 +139,7 @@ router.post("/auth/login", async (req: Request, res: Response): Promise<void> =>
 // ─── Google Sign-In via Supabase OAuth ─────────────────────────────────────────
 
 router.get("/auth/google/start", (_req: Request, res: Response): void => {
-  const supabaseUrl = process.env.SUPABASE_URL?.trim();
+  const { supabaseUrl } = getSupabaseAuthConfig();
   const appBaseUrl = process.env.PUBLIC_APP_BASE_URL?.trim();
 
   if (!supabaseUrl || !appBaseUrl) {
@@ -128,8 +155,7 @@ router.get("/auth/google/start", (_req: Request, res: Response): void => {
 
 router.post("/auth/google", async (req: Request, res: Response): Promise<void> => {
   const { accessToken } = req.body as { accessToken?: string };
-  const supabaseUrl = process.env.SUPABASE_URL?.trim();
-  const publishableKey = process.env.SUPABASE_ANON_KEY?.trim();
+  const { supabaseUrl, publishableKey } = getSupabaseAuthConfig();
 
   if (!accessToken) {
     res.status(400).json({ error: "Supabase access token is required" });
@@ -167,6 +193,40 @@ router.post("/auth/google", async (req: Request, res: Response): Promise<void> =
 
     if (!email || !authUser.email_confirmed_at || !hasGoogleIdentity) {
       res.status(401).json({ error: "Verified Google account required" });
+      return;
+    }
+
+    if (!isProduction) {
+      const [registeredUser] = await db
+        .select()
+        .from(usersTable)
+        .where(eq(usersTable.email, email))
+        .limit(1);
+
+      if (!registeredUser || !registeredUser.isActive) {
+        res.status(403).json({ error: "Google account is not registered or is inactive" });
+        return;
+      }
+
+      await db
+        .update(usersTable)
+        .set({ lastLoginAt: new Date() })
+        .where(eq(usersTable.id, registeredUser.id));
+
+      const token = signToken({
+        id: registeredUser.id,
+        email: registeredUser.email,
+        role: registeredUser.role as UserRole,
+        companyId: registeredUser.companyId,
+        name: registeredUser.name,
+      });
+
+      logger.info(
+        { userId: registeredUser.id, email, role: registeredUser.role },
+        "DEV user logged in with Google via Supabase OAuth",
+      );
+
+      res.json({ token, user: safeUser({ ...registeredUser, lastLoginAt: new Date() }) });
       return;
     }
 
