@@ -8,6 +8,7 @@ import {
   auditLogsTable,
   teamMembersTable,
   whatsappMessagesTable,
+  taskTimelineTable,
   getAiTaskStatusVariants,
   normalizeAiTaskStatus,
   type AiTaskStatus,
@@ -450,7 +451,43 @@ router.get("/ai-tasks/:id/audit",  requireAuth, (_req, res) =>
   res.status(404).json({ error: "Tidak ada audit" }));
 router.post("/ai-tasks/:id/audit", requireAuth, (_req, res) =>
   res.status(501).json({ error: "Audit belum tersedia" }));
-router.get("/ai-tasks/:id/timeline",  requireAuth, (_req, res) => res.json([]));
+// Timeline is read from the same task-scoped store used by logTimeline and
+// the customer mini-task portal. Do not disclose cross-company task history.
+router.get("/ai-tasks/:id/timeline", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id < 1) {
+    res.status(400).json({ error: "Invalid task id" });
+    return;
+  }
+  try {
+    const companyId = getCompanyId(req);
+    const conditions: SQL[] = [eq(aiTasksTable.id, id)];
+    if (companyId) conditions.push(eq(aiTasksTable.companyId, companyId));
+    const [task] = await db
+      .select({ id: aiTasksTable.id })
+      .from(aiTasksTable)
+      .where(and(...conditions))
+      .limit(1);
+    if (!task) {
+      res.status(404).json({ error: "AI task not found" });
+      return;
+    }
+    const timeline = await db
+      .select()
+      .from(taskTimelineTable)
+      .where(eq(taskTimelineTable.taskId, id))
+      .orderBy(desc(taskTimelineTable.createdAt), desc(taskTimelineTable.id))
+      .limit(200);
+    res.setHeader("Cache-Control", "no-store");
+    res.json(timeline.map((event) => ({
+      ...event,
+      createdAt: event.createdAt.toISOString(),
+    })));
+  } catch (err) {
+    logger.error({ err, taskId: id }, "GET /ai-tasks/:id/timeline failed");
+    res.status(500).json({ error: "Failed to load task timeline" });
+  }
+});
 router.post("/ai-tasks/:id/generate-token", requireAuth, (_req, res) =>
   res.status(501).json({ error: "Token belum tersedia" }));
 
