@@ -566,11 +566,11 @@ export default function AiTaskDetail() {
       apiFetch(`/ai-tasks/${id}/execution`, {
         method: "POST",
         body: JSON.stringify(mode === "chatgpt"
-          ? { mode: "chatgpt", accountAlias: "GPT01" }
+          ? { mode: "chatgpt", accountAlias: "GPT02", lifecycleStart: true }
           : { mode: "worker" }),
       }),
     onSuccess: (_data, mode) => {
-      toast({ title: mode === "chatgpt" ? "Execution dikirim ke ChatGPT via AI Core DEV" : "Execution dikirim ke worker AI Core DEV" });
+      toast({ title: mode === "chatgpt" ? "Permintaan lifecycle GPT02 dicatat di AI Core DEV" : "Execution dikirim ke worker AI Core DEV", description: "Pantau ACK dan checkpoint; status bisnis tidak otomatis menjadi RUNNING." });
       void queryClient.invalidateQueries({ queryKey: ["ai-task-execution", id] });
     },
     onError: (err: Error) => {
@@ -919,11 +919,11 @@ export default function AiTaskDetail() {
         </div>
       </div>
 
-      <div className="border border-gray-200 rounded-xl bg-white p-4 shadow-sm">
+      <div id="penugasan-lifecycle" className="border border-blue-200 rounded-xl bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-blue-600">Execution Control</p>
-            <h2 className="mt-1 text-sm font-semibold text-gray-900">AI Core / Worker Progress</h2>
+            <p className="text-xs font-semibold uppercase tracking-wide text-blue-600">Intake → Penugasan → Lifecycle</p>
+            <h2 className="mt-1 text-base font-semibold text-gray-900">Penugasan & Lifecycle AI Core</h2>
             <p className="mt-1 text-xs text-gray-500">
               Progress ini berasal dari execution ledger dan event AI Core, bukan hanya status bisnis task.
             </p>
@@ -951,17 +951,44 @@ export default function AiTaskDetail() {
                 </Button>
                 <Button
                   size="sm"
-                  disabled={!executionData?.bridgeConfigured || startExecutionMutation.isPending}
-                  onClick={() => startExecutionMutation.mutate("chatgpt")}
+                  disabled={!executionData?.bridgeConfigured || !task.assignedTo || assigneeMutation.isPending || startExecutionMutation.isPending || ["completed", "cancelled"].includes(task.status)}
+                  onClick={() => { if (window.confirm(`Mulai lifecycle GPT02 untuk task ${task.taskNumber ?? task.id} dengan PIC ${task.assignedTo}? Pengiriman akan menggunakan idempotency key dan harus dibuktikan dengan ACK.`)) startExecutionMutation.mutate("chatgpt"); }}
                 >
                   {startExecutionMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Brain className="h-3.5 w-3.5 mr-1" />}
-                  Run ChatGPT
+                  Mulai Lifecycle GPT02
                 </Button>
               </>
             )}
           </div>
         </div>
 
+        <div className="mt-4 grid grid-cols-1 gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 md:grid-cols-3">
+          <div>
+            <Label className="text-xs text-slate-600">Penanggung jawab (PIC Human)</Label>
+            <Select value={task.assignedTo ?? "__none__"}
+              onValueChange={(v) => assigneeMutation.mutate(v === "__none__" ? null : v)}
+              disabled={assigneeMutation.isPending || Boolean(executionData?.execution)}>
+              <SelectTrigger className="mt-1 bg-white"><SelectValue placeholder="Pilih PIC" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none__">Belum ditetapkan</SelectItem>
+                {teamMembers.map(member => <SelectItem key={member.id} value={member.name}>{member.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label className="text-xs text-slate-600">Pelaksana utama</Label>
+            <div className="mt-1 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900">GPT02 — AI Core DEV</div>
+            <p className="mt-1 text-xs text-slate-500">Ketersediaan/ACK harus dibuktikan melalui execution ledger.</p>
+          </div>
+          <div>
+            <Label className="text-xs text-slate-600">Tahapan lifecycle</Label>
+            <div className="mt-1 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800">
+              {executionData?.execution ? `Execution: ${executionData.execution.status}` : task.assignedTo ? "Siap mengajukan dispatch" : "Menunggu PIC"}
+            </div>
+            <p className="mt-1 text-xs text-slate-500">Tidak mengubah status bisnis sebelum bukti worker tersedia.</p>
+          </div>
+        </div>
+        {!task.assignedTo && <p role="status" className="mt-2 text-xs text-amber-700">Pilih PIC dari Tim terlebih dahulu untuk memulai lifecycle GPT02.</p>}
         {!executionData?.bridgeConfigured && (
           <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
             AI Core DEV bridge belum dikonfigurasi pada runtime AI Task.

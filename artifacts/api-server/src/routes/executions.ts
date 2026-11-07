@@ -1119,6 +1119,14 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
     }
 
     const body = req.body as Record<string, unknown>;
+    // Lifecycle-specific guard: never turn a new inquiry into an unowned AI command.
+    // Keep the existing idempotent dispatch and reconciliation code below unchanged.
+    if (body.lifecycleStart === true &&
+        (body.mode !== "chatgpt" || body.accountAlias !== "GPT02" ||
+         !task.assignedTo?.trim() || ["completed", "cancelled"].includes(task.status))) {
+      res.status(409).json({error: "LIFECYCLE_ASSIGNMENT_OR_MODE_NOT_READY", message: "Assign an active PIC and use GPT02 before lifecycle dispatch."});
+      return;
+    }
     let mode: "chatgpt" | "worker" = body.mode === "chatgpt" ? "chatgpt" : "worker";
     let accountAlias = typeof body.accountAlias === "string" && /^GPT[0-9]{2,4}$/.test(body.accountAlias.trim().toUpperCase())
       ? body.accountAlias.trim().toUpperCase()
