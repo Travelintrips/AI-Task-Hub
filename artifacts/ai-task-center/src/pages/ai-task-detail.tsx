@@ -1015,14 +1015,25 @@ export default function AiTaskDetail() {
 
         {executionData?.execution ? (
           <div className="mt-4 space-y-4">
+            {executionData.execution.status.toLowerCase() === "failed" && (
+              <div role="alert" className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-900">
+                <strong>Lifecycle GPT02 gagal — pekerjaan belum selesai.</strong>
+                <p className="mt-1">{executionData.execution.errorMessage || "Tidak ada respons worker yang terverifikasi."}</p>
+                <p className="mt-1 text-xs">Jangan mengirim ulang command secara manual. Gunakan Periksa Rekonsiliasi GPT02 (baca-saja), lalu minta peninjauan PIC terhadap status browser, checkpoint, dan ACK sebelum pemulihan terotorisasi.</p>
+              </div>
+            )}
+            {executionData.execution.status.toLowerCase() === "completed" &&
+              !(executionData.execution.callbackVerified && executionData.execution.attestationVerified && executionData.execution.finalAckVerified) && (
+              <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">Status COMPLETED belum berarti PASS. Callback, attestation, dan final ACK harus terverifikasi.</p>
+            )}
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
               <div className="rounded-lg bg-gray-50 p-3">
                 <p className="text-[10px] uppercase text-gray-400">Status</p>
                 <p className="mt-1 text-sm font-semibold capitalize text-gray-800">{executionData.execution.status}</p>
               </div>
               <div className="rounded-lg bg-gray-50 p-3">
-                <p className="text-[10px] uppercase text-gray-400">Progress</p>
-                <p className="mt-1 text-sm font-semibold text-gray-800">{executionData.execution.progress}%</p>
+                <p className="text-[10px] uppercase text-gray-400">Tahap execution (bukan progres proyek)</p>
+                <p className="mt-1 text-sm font-semibold text-gray-800">{executionData.execution.status.toLowerCase() === "failed" ? "GAGAL — bukan 100% selesai" : `${executionData.execution.progress}% ledger`}</p>
               </div>
               <div className="rounded-lg bg-gray-50 p-3">
                 <p className="text-[10px] uppercase text-gray-400">Worker</p>
@@ -1037,10 +1048,10 @@ export default function AiTaskDetail() {
             <div>
               <div className="mb-1 flex justify-between text-[11px] text-gray-500">
                 <span>{executionData.execution.externalId}</span>
-                <span>{executionData.execution.progress}%</span>
+                <span>{executionData.execution.status.toLowerCase() === "failed" ? "Execution gagal" : `${executionData.execution.progress}% tahap ledger`}</span>
               </div>
               <div className="h-2 overflow-hidden rounded-full bg-gray-100">
-                <div className="h-full rounded-full bg-blue-500 transition-all" style={{ width: `${executionData.execution.progress}%` }} />
+                {executionData.execution.status.toLowerCase() !== "failed" && <div className="h-full rounded-full bg-blue-500 transition-all" style={{ width: `${executionData.execution.progress}%` }} />}
               </div>
             </div>
 
