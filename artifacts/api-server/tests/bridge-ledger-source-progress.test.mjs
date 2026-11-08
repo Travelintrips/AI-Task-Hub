@@ -100,3 +100,17 @@ test('DEV PIC options are read-only, tenant-scoped and never attest operator app
  ]) assert.ok(route.includes(requirement),requirement);
  assert.doesNotMatch(route,/db\.update\(|db\.insert\(|db\.delete\(|submitAiTaskCommand\(/);
 });
+
+test('existing AI Task detail UI uses verified member-ID picker, not display-name dispatch gate',()=>{
+ const ui=readFileSync(new URL('../../ai-task-center/src/pages/ai-task-detail.tsx',import.meta.url),'utf8');
+ for(const expected of [
+  'gpt02-pic-options',
+  'gpt02-assign-pic',
+  'gpt02PicOptions?.assignmentReady',
+  'gpt02AssignPicMutation.mutate(memberId)',
+  'currentUser?.role === "super_admin"',
+  'PIC aktif terhubung berdasarkan ID',
+  'Nama saja tidak mengizinkan lifecycle GPT02',
+ ]) assert.ok(ui.includes(expected),expected);
+ assert.doesNotMatch(ui,/disabled=\{!executionData\?\.bridgeConfigured \|\| !task\.assignedTo/);
+});
