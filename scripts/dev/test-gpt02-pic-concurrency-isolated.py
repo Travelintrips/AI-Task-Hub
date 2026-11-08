@@ -55,7 +55,9 @@ def main():
             time.sleep(.3)
         else:
             raise RuntimeError("Isolated postgres did not become ready")
-        sql("""
+        # pg_isready may transiently succeed against bootstrap postmaster.
+        # Retry only synthetic schema setup while PostgreSQL finishes startup.
+        schema = """
         CREATE TABLE tasks(id integer PRIMARY KEY, company_id text NOT NULL,
                            assigned_to_id integer, status text NOT NULL);
         CREATE TABLE executions(id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -63,7 +65,15 @@ def main():
         CREATE TABLE audits(id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
                             task_id integer NOT NULL, member_id integer NOT NULL);
         INSERT INTO tasks VALUES(1,'default',1,'new_inquiry');
-        """)
+        """
+        for attempt in range(12):
+            try:
+                sql(schema)
+                break
+            except subprocess.CalledProcessError:
+                if attempt == 11:
+                    raise
+                time.sleep(.5)
         assignment = f"""
         BEGIN; {KEY}
         UPDATE tasks SET assigned_to_id=2 WHERE id=1 AND company_id='default'
