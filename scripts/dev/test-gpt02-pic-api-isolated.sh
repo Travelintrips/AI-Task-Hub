@@ -152,5 +152,3 @@ SELECT 'AUDIT_ROWS='||count(*) FROM audit_logs WHERE action='gpt02_pic_assigned'
 SELECT 'ASSIGNED_ID='||assigned_to_id FROM ai_tasks WHERE id=1001;
 SELECT 'EXECUTION_ROWS='||count(*) FROM ai_execution_jobs;
 SQL
-
-[executed on device: srv1792369 (0891e23a-6a6b-4f8c-a16a-962e888e2014)]
