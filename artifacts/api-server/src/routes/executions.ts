@@ -1305,6 +1305,58 @@ router.get("/ai-tasks/:id/gpt02-pic-options", requireAuth, async (req: Request, 
   }
 });
 
+// DEV-only audited PIC readback for a single company-scoped task.
+// This deliberately never reports operator approval or native execution proof.
+router.get("/ai-tasks/:id/gpt02-pic-audit", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  if (process.env.NODE_ENV !== "development" || process.env.APP_ENV === "production") {
+    res.sendStatus(404); return;
+  }
+  if (req.user?.role !== "super_admin") {
+    res.status(403).json({error:"SUPER_ADMIN_REQUIRED"}); return;
+  }
+  const taskId=Number(req.params.id);
+  if (!Number.isSafeInteger(taskId) || taskId<=0) {
+    res.status(400).json({error:"INVALID_TASK_ID"}); return;
+  }
+  try {
+    const companyId=getCompanyIdForWrite(req);
+    const [task]=await db.select({
+      id:aiTasksTable.id,assignedToId:aiTasksTable.assignedToId,
+      assignedTo:aiTasksTable.assignedTo,
+    }).from(aiTasksTable)
+      .where(and(eq(aiTasksTable.id,taskId),eq(aiTasksTable.companyId,companyId))).limit(1);
+    if (!task) { res.sendStatus(404); return; }
+    const [audit]=await db.select({
+      id:auditLogsTable.id,actorId:auditLogsTable.userId,
+      actorName:auditLogsTable.userName,at:auditLogsTable.createdAt,
+      after:auditLogsTable.after,
+    }).from(auditLogsTable)
+      .where(and(eq(auditLogsTable.companyId,companyId),
+        eq(auditLogsTable.entityId,taskId),eq(auditLogsTable.action,"gpt02_pic_assigned")))
+      .orderBy(desc(auditLogsTable.createdAt),desc(auditLogsTable.id)).limit(1);
+    const payload=(()=>{
+      try {return JSON.parse(audit?.after??"null") as unknown;}catch{return null;}
+    })();
+    const recorded=asRecord(payload);
+    const auditMatchesCurrent=!!audit && audit.actorId != null &&
+      typeof recorded["memberId"]==="number" &&
+      recorded["memberId"]===task.assignedToId &&
+      recorded["memberName"]===task.assignedTo &&
+      recorded["taskId"]===taskId && recorded["companyId"]===companyId;
+    res.setHeader("Cache-Control","no-store");
+    res.json({taskId,assignedMemberId:task.assignedToId,
+      assignedTo:task.assignedTo,auditPresent:!!audit,
+      auditMatchesCurrent,assignmentAudited:auditMatchesCurrent,
+      auditId:audit?.id??null,actorId:audit?.actorId??null,
+      actorName:audit?.actorName??null,assignedAt:audit?.at??null,
+      operatorApprovalGranted:false,commandDispatched:false,
+      nativeAckVerified:false});
+  } catch (err) {
+    logger.warn({err,taskId},"DEV GPT02 PIC audit readback unavailable");
+    res.status(503).json({error:"GPT02_PIC_AUDIT_UNAVAILABLE"});
+  }
+});
+
 // Explicit DEV-only PIC assignment for GPT02. No command or worker dispatch.
 // Do not infer a team-member ID from a display name or supplied JWT claims.
 router.post("/ai-tasks/:id/gpt02-assign-pic", requireAuth, async (req: Request, res: Response): Promise<void> => {
