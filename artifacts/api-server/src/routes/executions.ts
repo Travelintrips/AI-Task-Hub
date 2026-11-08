@@ -1576,6 +1576,30 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
              currentTask.assignedTo !== task.assignedTo)) {
           throw new Error("GPT02_PIC_CHANGED_DURING_ADMISSION");
         }
+        // The caller must not bypass the dashboard's audit gate by invoking
+        // the dispatch API directly. Read the audit inside the admission lock.
+        let verifiedPicAuditId: number | null = null;
+        if (mode === "chatgpt" && accountAlias === "GPT02") {
+          const [latestAudit]=await tx.select({
+            id:auditLogsTable.id,after:auditLogsTable.after,
+            actorId:auditLogsTable.userId,
+          }).from(auditLogsTable)
+            .where(and(eq(auditLogsTable.companyId,companyId),
+              eq(auditLogsTable.entityId,taskId),
+              eq(auditLogsTable.action,"gpt02_pic_assigned")))
+            .orderBy(desc(auditLogsTable.createdAt),desc(auditLogsTable.id)).limit(1);
+          let auditPayload: Record<string, unknown> = {};
+          try { auditPayload=asRecord(JSON.parse(latestAudit?.after??"null")); }
+          catch { auditPayload={}; }
+          if (!latestAudit || latestAudit.actorId == null ||
+              auditPayload["memberId"]!==currentTask.assignedToId ||
+              auditPayload["memberName"]!==currentTask.assignedTo ||
+              auditPayload["companyId"]!==companyId ||
+              auditPayload["taskId"]!==taskId) {
+            throw new Error("GPT02_PIC_AUDIT_NOT_VERIFIED");
+          }
+          verifiedPicAuditId=latestAudit.id;
+        }
         return tx.insert(aiExecutionJobsTable).values({
         companyId,
         taskId,
@@ -1596,6 +1620,8 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
           autoContinue: mode === "chatgpt" && (body.lifecycleStart === true || task.category === "ai_chat"),
           continuationDepth: 0,
           ...(mode === "chatgpt" ? { accountAlias } : {}),
+          ...(verifiedPicAuditId !== null ?
+            { picAssignmentAuditId:verifiedPicAuditId, picAssignedMemberId:currentTask.assignedToId } : {}),
         },
         }).onConflictDoNothing().returning().then(rows => rows[0] ?? null);
       });
@@ -1752,7 +1778,8 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
     }
   } catch (err) {
     if (err instanceof Error && ["GPT02_TASK_CHANGED_DURING_ADMISSION",
-        "GPT02_PIC_CHANGED_DURING_ADMISSION"].includes(err.message)) {
+        "GPT02_PIC_CHANGED_DURING_ADMISSION",
+        "GPT02_PIC_AUDIT_NOT_VERIFIED"].includes(err.message)) {
       res.status(409).json({error:err.message,dispatchNotStarted:true});
       return;
     }
