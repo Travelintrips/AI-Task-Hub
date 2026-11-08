@@ -52,6 +52,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { getStoredToken } from "@/lib/auth-api";
+import { useAuth } from "@/contexts/auth-context";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -117,6 +118,7 @@ interface AiTask {
   customerPhone: string | null;
   companyId: string | null;
   assignedTo: string | null;
+  assignedToId?: number | null;
   aiSummary: string | null;
   missingData: string | null;
   createdAt: string;
@@ -508,6 +510,7 @@ export default function AiTaskDetail() {
   const params = useParams<{ id: string }>();
   const id = params.id;
   const { toast } = useToast();
+  const { user: currentUser } = useAuth();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -546,6 +549,34 @@ export default function AiTaskDetail() {
       const status = query.state.data?.execution?.status;
       return status && !["completed", "failed", "cancelled"].includes(status) ? 5_000 : 15_000;
     },
+  });
+
+  // DEV-only assignment view for Super Admin. A team-member record is not
+  // approval to dispatch GPT02 or proof of native worker completion.
+  const gpt02PicPath = `/ai-tasks/${id}/gpt02-pic-options?companyId=${encodeURIComponent(task?.companyId ?? "")}`;
+  const { data: gpt02PicOptions, error: gpt02PicError, isFetching: gpt02PicFetching } = useQuery<{
+    taskId: number; taskStatus: string; taskAssignmentPresent: boolean;
+    assignmentReady: boolean; selectedMemberId: number | null;
+    members: {id: number; name: string}[];
+    choicesTruncated: boolean; operatorApprovalGranted: false;
+    commandDispatched: false;
+  }>({
+    queryKey: ["gpt02-pic-options", id, task?.companyId],
+    queryFn: () => apiFetch(gpt02PicPath),
+    enabled: currentUser?.role === "super_admin" && Boolean(task?.companyId),
+    retry: false,
+  });
+  const gpt02AssignPicMutation = useMutation({
+    mutationFn: (memberId: number) => apiFetch(
+      `/ai-tasks/${id}/gpt02-assign-pic?companyId=${encodeURIComponent(task?.companyId ?? "")}`,
+      { method: "POST", body: JSON.stringify({ memberId }) }),
+    onSuccess: () => {
+      toast({title:"PIC GPT02 dicatat",description:"Identitas anggota tim aktif cocok; otorisasi runtime masih perlu diverifikasi."});
+      void queryClient.invalidateQueries({queryKey:["ai-task",id]});
+      void queryClient.invalidateQueries({queryKey:["ai-tasks"]});
+      void queryClient.invalidateQueries({queryKey:["gpt02-pic-options",id]});
+    },
+    onError: (err: Error) => toast({title:"Gagal menetapkan PIC GPT02",description:err.message,variant:"destructive"}),
   });
 
   const [reconciliationRequested, setReconciliationRequested] = useState(false);
@@ -977,7 +1008,7 @@ export default function AiTaskDetail() {
                 </Button>
                 <Button
                   size="sm"
-                  disabled={!executionData?.bridgeConfigured || !task.assignedTo || assigneeMutation.isPending || startExecutionMutation.isPending || ["completed", "cancelled"].includes(task.status)}
+                  disabled={!executionData?.bridgeConfigured || !gpt02PicOptions?.assignmentReady || startExecutionMutation.isPending || gpt02AssignPicMutation.isPending || ["completed", "cancelled"].includes(task.status)}
                   onClick={() => { if (window.confirm(`Mulai lifecycle GPT02 untuk task ${task.taskNumber ?? task.id} dengan PIC ${task.assignedTo}? Pengiriman akan menggunakan idempotency key dan harus dibuktikan dengan ACK.`)) startExecutionMutation.mutate("chatgpt"); }}
                 >
                   {startExecutionMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Brain className="h-3.5 w-3.5 mr-1" />}
@@ -991,15 +1022,35 @@ export default function AiTaskDetail() {
         <div className="mt-4 grid grid-cols-1 gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 md:grid-cols-3">
           <div>
             <Label className="text-xs text-slate-600">Penanggung jawab (PIC Human)</Label>
-            <Select value={task.assignedTo ?? "__none__"}
-              onValueChange={(v) => assigneeMutation.mutate(v === "__none__" ? null : v)}
-              disabled={assigneeMutation.isPending || Boolean(executionData?.execution)}>
-              <SelectTrigger className="mt-1 bg-white"><SelectValue placeholder="Pilih PIC" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__none__">Belum ditetapkan</SelectItem>
-                {teamMembers.map(member => <SelectItem key={member.id} value={member.name}>{member.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            {currentUser?.role === "super_admin" ? (
+              <>
+                <Select
+                  value={gpt02PicOptions?.selectedMemberId ? String(gpt02PicOptions.selectedMemberId) : "__none__"}
+                  onValueChange={(value) => {
+                    const memberId = Number(value);
+                    if (Number.isSafeInteger(memberId) && memberId > 0) gpt02AssignPicMutation.mutate(memberId);
+                  }}
+                  disabled={gpt02PicFetching || !!gpt02PicError || gpt02AssignPicMutation.isPending ||
+                    Boolean(executionData?.execution) || ["completed","cancelled"].includes(task.status)}>
+                  <SelectTrigger className="mt-1 bg-white"><SelectValue placeholder="Pilih PIC aktif" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__" disabled>Belum terverifikasi</SelectItem>
+                    {(gpt02PicOptions?.members ?? []).map(member =>
+                      <SelectItem key={member.id} value={String(member.id)}>{member.name} (ID {member.id})</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                {gpt02PicError && <p role="alert" className="mt-1 text-xs text-red-700">Daftar PIC tidak tersedia. Periksa akses Super Admin DEV.</p>}
+                {gpt02PicOptions?.choicesTruncated && <p className="mt-1 text-xs text-amber-700">Daftar dibatasi 100 anggota; pilihan lain memerlukan pemeriksaan admin.</p>}
+                <p className="mt-1 text-xs text-slate-600">
+                  {gpt02PicOptions?.assignmentReady ? "PIC aktif terhubung berdasarkan ID." :
+                    "PIC belum diverifikasi berdasarkan ID dan perusahaan."}
+                </p>
+              </>
+            ) : (
+              <div className="mt-1 rounded-md border bg-white p-2 text-sm">
+                {task.assignedTo ?? "Belum ditetapkan"} — penugasan GPT02 oleh Super Admin
+              </div>
+            )}
           </div>
           <div>
             <Label className="text-xs text-slate-600">Pelaksana utama</Label>
@@ -1009,12 +1060,12 @@ export default function AiTaskDetail() {
           <div>
             <Label className="text-xs text-slate-600">Tahapan lifecycle</Label>
             <div className="mt-1 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800">
-              {executionData?.execution ? `Execution: ${executionData.execution.status}` : task.assignedTo ? "Siap mengajukan dispatch" : "Menunggu PIC"}
+              {executionData?.execution ? `Execution: ${executionData.execution.status}` : gpt02PicOptions?.assignmentReady ? "PIC terhubung; izin runtime belum terverifikasi" : "Menunggu verifikasi PIC"}
             </div>
             <p className="mt-1 text-xs text-slate-500">Tidak mengubah status bisnis sebelum bukti worker tersedia.</p>
           </div>
         </div>
-        {!task.assignedTo && <p role="status" className="mt-2 text-xs text-amber-700">Pilih PIC dari Tim terlebih dahulu untuk memulai lifecycle GPT02.</p>}
+        {!gpt02PicOptions?.assignmentReady && <p role="status" className="mt-2 text-xs text-amber-700">Tentukan PIC aktif berdasarkan ID melalui Super Admin DEV. Nama saja tidak mengizinkan lifecycle GPT02.</p>}
         {!executionData?.bridgeConfigured && (
           <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
             AI Core DEV bridge belum dikonfigurasi pada runtime AI Task.
