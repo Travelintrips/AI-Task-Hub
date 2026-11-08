@@ -702,7 +702,7 @@ router.get("/bridge/jobs/by-external-id/:externalId", requireBridgeToken,
       external_id: job.externalId, id: job.id, task_id: job.taskId ?? null,
       status: job.status, progress: job.progress,
       timeline: meta,
-      readOnly: true, mayIssueGrant: false, mayDispatchWorker: false,
+      readOnly: true, passiveLedger: true, mayIssueGrant: false, mayDispatchWorker: false,
       verifiedExecution: false,
     });
   } catch (err) {

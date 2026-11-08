@@ -26,6 +26,7 @@ test('response is non-authorizing and does not mutate data or invoke a worker',(
  assert.match(route,/Cache-Control", "no-store"/);
  assert.match(route,/mayIssueGrant: false, mayDispatchWorker: false/);
  assert.match(route,/verifiedExecution: false/);
+ assert.match(route,/passiveLedger: true/);
  assert.doesNotMatch(route,/db\.insert\(|db\.delete\(|db\.update\(|fetch\(|submitAiTaskCommand\(/);
 });
 
