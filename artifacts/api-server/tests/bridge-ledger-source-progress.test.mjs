@@ -156,3 +156,10 @@ test('AI Task direct dispatch failures cannot report 100 percent without final A
  assert.match(failureWrite,/progress: Math\.max\(0, Math\.min\(90, execution\.progress\)\)/);
  assert.doesNotMatch(failureWrite,/progress: 100/);
 });
+
+test('no failed execution path, retry event or continuation can report 100 percent',()=>{
+ const source=readFileSync(new URL('../src/routes/executions.ts',import.meta.url),'utf8');
+ assert.doesNotMatch(source,/status:\s*"failed",\s*progress:\s*100\b/);
+ const guarded=[...source.matchAll(/status:\s*"failed",\s*progress:\s*Math\.max\(0, Math\.min\(90/g)];
+ assert.ok(guarded.length>=5,'All direct, retry and continuation failure paths must be guarded');
+});
