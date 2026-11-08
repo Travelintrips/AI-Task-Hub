@@ -579,6 +579,21 @@ export default function AiTaskDetail() {
     enabled:currentUser?.role==="super_admin" && Boolean(task?.companyId),
     retry:false,
   });
+  const {data:gpt02Lineage,error:gpt02LineageError,isFetching:gpt02LineageFetching,
+    refetch:refreshGpt02Lineage} = useQuery<{
+      taskId:number; executionId:string|null; commandId:string|null;
+      executionStatus:string|null; coreStatus:string|null;
+      coreCommandMatched:boolean; coreTaskIdPresent:boolean;
+      attestationVerified:boolean; finalAckVerified:boolean;
+      bindingSchemaReady:boolean; diagnosticReasons:string[];
+      nativeLineageAttested:false; dispatchPermitted:false; resumePermitted:false;
+      completionPermitted:false; readOnly:true;
+    }>({
+    queryKey:["gpt02-lineage",id,task?.companyId],
+    queryFn:()=>apiFetch(`/ai-tasks/${id}/gpt02-lineage?companyId=${encodeURIComponent(task?.companyId ?? "")}`),
+    enabled:currentUser?.role==="super_admin" && Boolean(task?.companyId),
+    retry:false,
+  });
   const gpt02AssignPicMutation = useMutation({
     mutationFn: (memberId: number) => apiFetch(
       `/ai-tasks/${id}/gpt02-assign-pic?companyId=${encodeURIComponent(task?.companyId ?? "")}`,
@@ -1088,6 +1103,29 @@ export default function AiTaskDetail() {
         </div>
         {!gpt02PicOptions?.assignmentReady && <p role="status" className="mt-2 text-xs text-amber-700">Tentukan PIC aktif berdasarkan ID melalui Super Admin DEV. Nama saja tidak mengizinkan lifecycle GPT02.</p>}
         {gpt02PicOptions?.assignmentReady && !gpt02PicAudit?.auditMatchesCurrent && <p role="status" className="mt-2 text-xs text-amber-700">Audit PIC belum cocok. Tidak mengizinkan lifecycle GPT02 sampai bukti penugasan dapat dibaca kembali.</p>}
+        {currentUser?.role==="super_admin" && (
+          <div className="mt-3 space-y-2 rounded-lg border border-slate-200 bg-white p-3 text-xs">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="font-semibold text-slate-900">Diagnostik lineage GPT02 — baca-saja</span>
+              <Button variant="outline" size="sm" onClick={()=>{void refreshGpt02Lineage();}}
+                disabled={gpt02LineageFetching}>Periksa ulang bukti</Button>
+            </div>
+            {gpt02LineageError && <p role="alert" className="text-red-700">
+              Diagnostik tidak tersedia. Status NO-GO tetap berlaku.
+            </p>}
+            {gpt02Lineage && (
+              <div role="status" className="space-y-1 text-slate-700">
+                <p>Task #{gpt02Lineage.taskId} · Eksekusi: {gpt02Lineage.executionStatus ?? "Belum ada"} · AI Core: {gpt02Lineage.coreStatus ?? "Belum terhubung"}</p>
+                <p className="break-all">Attempt: {gpt02Lineage.executionId ?? "Belum ada"}</p>
+                <p className="break-all">Command: {gpt02Lineage.commandId ?? "Belum ada"}</p>
+                <p>Core command cocok: {gpt02Lineage.coreCommandMatched ? "Ya" : "Tidak"} · Core Task ID: {gpt02Lineage.coreTaskIdPresent ? "Ada" : "Belum ada"}</p>
+                <p>Binding schema: {gpt02Lineage.bindingSchemaReady ? "Ada" : "Belum tersedia"} · Attestation: {gpt02Lineage.attestationVerified ? "Tercatat" : "Belum"} · Final ACK: {gpt02Lineage.finalAckVerified ? "Tercatat" : "Belum"}</p>
+                <p className="font-medium text-amber-800">NO-GO: {gpt02Lineage.diagnosticReasons.length ? gpt02Lineage.diagnosticReasons.join(", ") : "Verifikasi native independen tetap diperlukan"}</p>
+                <p>Hasil ini bukan persetujuan operator, izin resume, atau bukti final native.</p>
+              </div>
+            )}
+          </div>
+        )}
         {!executionData?.bridgeConfigured && (
           <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
             AI Core DEV bridge belum dikonfigurasi pada runtime AI Task.
