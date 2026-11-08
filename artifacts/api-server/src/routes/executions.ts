@@ -1320,6 +1320,85 @@ router.get("/ai-tasks/:id/gpt02-pic-options", requireAuth, async (req: Request, 
   }
 });
 
+// DEV-only lineage diagnostic. Never creates a command, polls the bridge,
+// reschedules a job or interprets a shared DB match as native attestation.
+router.get("/ai-tasks/:id/gpt02-lineage", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  if (process.env.NODE_ENV !== "development" || process.env.APP_ENV === "production") {
+    res.sendStatus(404); return;
+  }
+  if (req.user?.role !== "super_admin") {
+    res.status(403).json({error:"SUPER_ADMIN_REQUIRED"}); return;
+  }
+  const taskId=Number(req.params.id);
+  if (!Number.isSafeInteger(taskId) || taskId<=0) {
+    res.status(400).json({error:"INVALID_TASK_ID"}); return;
+  }
+  try {
+    const companyId=getCompanyIdForWrite(req);
+    const result=await db.execute(sql`
+      SELECT t.id AS task_id, t.assigned_to_id IS NOT NULL AS pic_id_present,
+        j.id::text AS execution_id, j.status AS execution_status,
+        j.command_id::text AS command_id, j.correlation_id::text AS correlation_id,
+        COALESCE(j.callback_verified,false) AS callback_verified,
+        COALESCE(j.attestation_verified,false) AS attestation_verified,
+        COALESCE(j.final_ack_verified,false) AS final_ack_verified,
+        c.id IS NOT NULL AS core_command_found,
+        c.task_id IS NOT NULL AS core_task_id_present,
+        c.status AS core_status,
+        to_regclass('ai_platform.dev_gpt02_task_attempt_binding_claims') IS NOT NULL AS binding_claim_table_present,
+        to_regclass('ai_platform.dev_gpt02_binding_attestation_nonces') IS NOT NULL AS binding_nonce_table_present
+      FROM public.ai_tasks t
+      LEFT JOIN LATERAL (
+        SELECT id,status,command_id,correlation_id,callback_verified,
+               attestation_verified,final_ack_verified
+        FROM public.ai_execution_jobs
+        WHERE task_id=t.id AND company_id=t.company_id AND source='AI_TASK'
+        ORDER BY created_at DESC,id DESC LIMIT 1
+      ) j ON true
+      LEFT JOIN ai_platform.ai_coding_bridge_commands c ON c.id=j.command_id
+      WHERE t.id=${taskId} AND t.company_id=${companyId}
+      LIMIT 1
+    `);
+    const row=result.rows[0] as Record<string,unknown> | undefined;
+    if (!row) {res.sendStatus(404);return;}
+    const bool=(key:string)=>row[key]===true;
+    const executionId=typeof row["execution_id"]==="string"?row["execution_id"]:null;
+    const commandId=typeof row["command_id"]==="string"?row["command_id"]:null;
+    const executionStatus=typeof row["execution_status"]==="string"?row["execution_status"]:null;
+    const coreStatus=typeof row["core_status"]==="string"?row["core_status"]:null;
+    const reasons:string[]=[];
+    if (!bool("pic_id_present")) reasons.push("PIC_ID_MISSING");
+    if (!executionId) reasons.push("ATTEMPT_MISSING");
+    if (!commandId) reasons.push("COMMAND_ID_MISSING");
+    if (!bool("core_command_found")) reasons.push("CORE_COMMAND_NOT_MATCHED");
+    if (!bool("core_task_id_present")) reasons.push("CORE_TASK_LINK_MISSING");
+    if (!bool("binding_claim_table_present")||!bool("binding_nonce_table_present")) reasons.push("BINDING_SCHEMA_NOT_READY");
+    if (!bool("attestation_verified")) reasons.push("ATTESTATION_UNVERIFIED");
+    if (!bool("final_ack_verified")) reasons.push("NATIVE_FINAL_ACK_UNVERIFIED");
+    if (executionStatus==="failed"||coreStatus?.toUpperCase()==="FAILED") reasons.push("EXECUTION_FAILED");
+    res.setHeader("Cache-Control","no-store");
+    res.json({
+      taskId,executionId,commandId,
+      correlationId:typeof row["correlation_id"]==="string"?row["correlation_id"]:null,
+      executionStatus,coreStatus,
+      picIdPresent:bool("pic_id_present"),
+      coreCommandMatched:bool("core_command_found"),
+      coreTaskIdPresent:bool("core_task_id_present"),
+      callbackVerified:bool("callback_verified"),
+      attestationVerified:bool("attestation_verified"),
+      finalAckVerified:bool("final_ack_verified"),
+      bindingSchemaReady:bool("binding_claim_table_present")&&bool("binding_nonce_table_present"),
+      diagnosticReasons:reasons,
+      nativeLineageAttested:false,operatorApprovalGranted:false,
+      dispatchPermitted:false,resumePermitted:false,completionPermitted:false,
+      readOnly:true,
+    });
+  } catch (err) {
+    logger.warn({err,taskId},"DEV GPT02 lineage diagnostic unavailable");
+    res.status(503).json({error:"GPT02_LINEAGE_DIAGNOSTIC_UNAVAILABLE"});
+  }
+});
+
 // DEV-only audited PIC readback for a single company-scoped task.
 // This deliberately never reports operator approval or native execution proof.
 router.get("/ai-tasks/:id/gpt02-pic-audit", requireAuth, async (req: Request, res: Response): Promise<void> => {
