@@ -306,3 +306,35 @@ test('GPT02 automatic and manual continuations require new authorized admission'
  assert.ok(deny>=0 && create>deny);
  assert.match(manual.slice(deny,create),/dispatchNotStarted:true/);
 });
+
+test('GPT02 native lineage diagnostic is scoped, read-only and permanently non-authorizing',()=>{
+ const src=readFileSync(new URL('../src/routes/executions.ts',import.meta.url),'utf8');
+ const begin=src.indexOf('router.get("/ai-tasks/:id/gpt02-lineage", requireAuth');
+ const end=src.indexOf('router.get("/ai-tasks/:id/gpt02-pic-audit", requireAuth',begin);
+ assert.ok(begin>0&&end>begin);
+ const route=src.slice(begin,end);
+ for(const expected of [
+  'process.env.NODE_ENV !== "development"',
+  'process.env.APP_ENV === "production"',
+  'req.user?.role !== "super_admin"',
+  'WHERE t.id=${taskId} AND t.company_id=${companyId}',
+  "source='AI_TASK'",
+  'c.id=j.command_id',
+  'binding_claim_table_present',
+  'binding_nonce_table_present',
+  'CORE_TASK_LINK_MISSING',
+  'NATIVE_FINAL_ACK_UNVERIFIED',
+  'EXECUTION_FAILED',
+  'nativeLineageAttested:false',
+  'dispatchPermitted:false,resumePermitted:false,completionPermitted:false',
+  'readOnly:true',
+ ]) assert.ok(route.includes(expected),expected);
+ assert.doesNotMatch(route,/db\.update\(|db\.insert\(|db\.delete\(|submitAiTaskChatGptCommand\(|scheduleExecutionTracking\(/);
+});
+test('GPT02 lineage diagnostic appears on existing task detail with no resume control',()=>{
+ const src=readFileSync(new URL('../../ai-task-center/src/pages/ai-task-detail.tsx',import.meta.url),'utf8');
+ assert.ok(src.includes('gpt02-lineage'));
+ assert.ok(src.includes('Diagnostik lineage GPT02 — baca-saja'));
+ assert.ok(src.includes('NO-GO:'));
+ assert.ok(src.includes('bukan persetujuan operator, izin resume'));
+});
