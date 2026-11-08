@@ -271,6 +271,12 @@ router.patch("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): 
       updates.status = parsedStatus;
     }
     if (priority       !== undefined) updates.priority       = priority       as string;
+    // Never let the legacy name-only assignment silently overwrite a verified
+    // GPT02 member ID. The UPDATE predicate also handles concurrent PIC assignment.
+    const changingPicName = assignedTo !== undefined && assignedTo !== current.assignedTo;
+    if (changingPicName && current.assignedToId != null) {
+      res.status(409).json({error:"VERIFIED_PIC_REQUIRES_ID_ASSIGNMENT"}); return;
+    }
     if (assignedTo     !== undefined) updates.assignedTo     = assignedTo     as string | null;
     if (assignedRole   !== undefined) updates.assignedRole   = assignedRole   as string | null;
     if (assignedDivision !== undefined) updates.assignedDivision = assignedDivision as string | null;
@@ -285,8 +291,12 @@ router.patch("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): 
     const [updated] = await db
       .update(aiTasksTable)
       .set(updates)
-      .where(and(...conditions))
+      .where(and(...conditions,
+        ...(changingPicName ? [sql`${aiTasksTable.assignedToId} IS NULL`] : [])))
       .returning();
+    if (!updated) {
+      res.status(409).json({error:"VERIFIED_PIC_REQUIRES_ID_ASSIGNMENT"}); return;
+    }
 
     // ── Activity log ─────────────────────────────────────────────────────────
     const changes: string[] = [];
