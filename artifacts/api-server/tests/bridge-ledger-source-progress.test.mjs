@@ -163,3 +163,25 @@ test('no failed execution path, retry event or continuation can report 100 perce
  const guarded=[...source.matchAll(/status:\s*"failed",\s*progress:\s*Math\.max\(0, Math\.min\(90/g)];
  assert.ok(guarded.length>=5,'All direct, retry and continuation failure paths must be guarded');
 });
+
+test('assignment and first execution share transaction-scoped advisory fence',()=>{
+ const source=readFileSync(new URL('../src/routes/executions.ts',import.meta.url),'utf8');
+ const assignment=source.slice(
+  source.indexOf('router.post("/ai-tasks/:id/gpt02-assign-pic"'),
+  source.indexOf('router.post("/ai-tasks/:id/execution"'));
+ const execution=source.slice(
+  source.indexOf('router.post("/ai-tasks/:id/execution"'),
+  source.indexOf('// Read-only preview and readiness check.'));
+ const fence="pg_advisory_xact_lock(hashtextextended(";
+ assert.ok(assignment.includes(fence));
+ assert.ok(execution.includes(fence));
+ const write=assignment.indexOf('tx.update(aiTasksTable)');
+ assert.ok(assignment.indexOf(fence)<write);
+ const lock=execution.indexOf(fence);
+ const check=execution.indexOf('const [currentTask] = await tx.select',lock);
+ const create=execution.indexOf('tx.insert(aiExecutionJobsTable)',check);
+ assert.ok(lock>=0&&check>lock&&create>check);
+ assert.ok(execution.includes('GPT02_PIC_CHANGED_DURING_ADMISSION'));
+ assert.ok(execution.includes('dispatchNotStarted:true'));
+ assert.ok(execution.indexOf('submitAiTaskChatGptCommand(')>create);
+});
