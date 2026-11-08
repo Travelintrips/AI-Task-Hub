@@ -256,3 +256,26 @@ test('direct GPT02 execution requires matching PIC audit within transaction fenc
   'dispatchNotStarted:true'
  ]) assert.ok(handler.includes(requirement), requirement);
 });
+
+test('legacy failed/blocked GPT02 execution cannot restart without supervised recovery',()=>{
+ const source=readFileSync(new URL('../src/routes/executions.ts',import.meta.url),'utf8');
+ const start=source.indexOf('router.post("/ai-tasks/:id/execution", requireAuth');
+ const end=source.indexOf('// Read-only preview and readiness check.',start);
+ const handler=source.slice(start,end);
+ const guard=handler.indexOf('GPT02_EXISTING_ATTEMPT_REQUIRES_AUTHORIZED_RECOVERY');
+ const reset=handler.indexOf('const [reset] = await db.update(aiExecutionJobsTable)');
+ assert.ok(guard>0 && reset>guard);
+ assert.ok(handler.slice(0,reset).includes('mode === "chatgpt" && accountAlias === "GPT02"'));
+ assert.match(handler.slice(guard-250,guard+400),/dispatchNotStarted: true/);
+});
+test('worker reasoning route cannot bypass GPT02 PIC audit by automatic handoff',()=>{
+ const source=readFileSync(new URL('../src/routes/executions.ts',import.meta.url),'utf8');
+ const start=source.indexOf('router.post("/ai-tasks/:id/execution", requireAuth');
+ const end=source.indexOf('// Read-only preview and readiness check.',start);
+ const handler=source.slice(start,end);
+ const reasoning=handler.indexOf('AI_CORE_REASONING_ROUTE_REQUIRED');
+ const blocked=handler.indexOf('GPT02_REASONING_HANDOFF_REQUIRES_AUTHORIZED_ADMISSION');
+ const promotion=handler.indexOf('mode = "chatgpt";',reasoning);
+ assert.ok(reasoning>=0 && blocked>reasoning && promotion>blocked);
+ assert.match(handler.slice(blocked-100,blocked+85),/if \(accountAlias === "GPT02"\)/);
+});
