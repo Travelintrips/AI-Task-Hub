@@ -231,3 +231,28 @@ test('GPT02 task detail requires matched audit before lifecycle button can dispa
  assert.ok(src.includes('queryKey:["gpt02-pic-audit",id,task?.companyId]'));
  assert.ok(src.includes('Audit PIC belum cocok'));
 });
+
+test('direct GPT02 execution requires matching PIC audit within transaction fence',()=>{
+ const src=readFileSync(new URL('../src/routes/executions.ts',import.meta.url),'utf8');
+ const start=src.indexOf('router.post("/ai-tasks/:id/execution", requireAuth');
+ const end=src.indexOf('// Read-only preview and readiness check.',start);
+ const handler=src.slice(start,end);
+ const lock=handler.indexOf('pg_advisory_xact_lock');
+ const audit=handler.indexOf('const [latestAudit]=await tx.select',lock);
+ const create=handler.indexOf('tx.insert(aiExecutionJobsTable)',audit);
+ const dispatch=handler.indexOf('submitAiTaskChatGptCommand(',create);
+ assert.ok(lock>=0 && audit>lock && create>audit && dispatch>create);
+ for(const requirement of [
+  'eq(auditLogsTable.companyId,companyId)',
+  'eq(auditLogsTable.entityId,taskId)',
+  'eq(auditLogsTable.action,"gpt02_pic_assigned")',
+  'auditPayload["memberId"]!==currentTask.assignedToId',
+  'auditPayload["memberName"]!==currentTask.assignedTo',
+  'auditPayload["companyId"]!==companyId',
+  'auditPayload["taskId"]!==taskId',
+  'GPT02_PIC_AUDIT_NOT_VERIFIED',
+  'picAssignmentAuditId:verifiedPicAuditId',
+  'picAssignedMemberId:currentTask.assignedToId',
+  'dispatchNotStarted:true'
+ ]) assert.ok(handler.includes(requirement), requirement);
+});
