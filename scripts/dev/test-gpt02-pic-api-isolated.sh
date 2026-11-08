@@ -91,6 +91,9 @@ ALTER TABLE ai_execution_jobs ADD COLUMN started_at timestamptz;
 ALTER TABLE ai_execution_jobs ADD COLUMN completed_at timestamptz;
 ALTER TABLE ai_execution_jobs ADD COLUMN created_at timestamptz;
 ALTER TABLE ai_execution_jobs ADD COLUMN updated_at timestamptz;
+CREATE SCHEMA ai_platform;
+CREATE TABLE ai_platform.ai_coding_bridge_commands (id uuid PRIMARY KEY, task_id text, status text);
+INSERT INTO ai_platform.ai_coding_bridge_commands VALUES ('83db99f5-cbda-4e60-be71-3090fb411bbb',NULL,'FAILED');
 INSERT INTO team_members VALUES
 (201,'default','Synthetic Active PIC',true),
 (202,'default','Synthetic Inactive PIC',false),
@@ -102,11 +105,14 @@ INSERT INTO ai_tasks VALUES
 (1004,'default','completed',null,null),
 (1005,'default','new_inquiry',201,'Synthetic Active PIC'),
 (1006,'default','new_inquiry',null,null),
-(1007,'default','new_inquiry',201,'Synthetic Active PIC');
+(1007,'default','new_inquiry',201,'Synthetic Active PIC'),
+(1008,'default','new_inquiry',null,null);
 ALTER TABLE audit_logs ADD CONSTRAINT reject_test_1006 CHECK (entity_id IS DISTINCT FROM '1006');
 INSERT INTO ai_execution_jobs(task_id,company_id) VALUES(1003,'default');
 INSERT INTO ai_execution_jobs(task_id,company_id,source,external_id,status,metadata)
  VALUES(1007,'default','AI_TASK','ai-task:default:1007','failed','{"accountAlias":"GPT02"}'::jsonb);
+INSERT INTO ai_execution_jobs(task_id,company_id,source,command_id,status)
+ VALUES(1008,'default','AI_TASK','83db99f5-cbda-4e60-be71-3090fb411bbb','failed');
 SQL
 docker run -d --network "$NET" --name "$API" \
  -e NODE_ENV=development -e APP_ENV=development -e PORT=8080 \
@@ -151,7 +157,13 @@ function assert(x,msg){if(!x)throw Error(msg);}
  assert(r.status===409&&r.data.error==="GPT02_EXISTING_ATTEMPT_REQUIRES_AUTHORIZED_RECOVERY"&&r.data.dispatchNotStarted===true,"direct GPT02 retry denied");
  r=await req("POST",1007,"execution",auth,{mode:"chatgpt",accountAlias:"GPT01",instruction:"Synthetic test should never dispatch"});
  assert(r.status===409&&r.data.error==="GPT02_EXISTING_ATTEMPT_REQUIRES_AUTHORIZED_RECOVERY","persisted GPT02 alias cannot be bypassed");
- console.log("ISOLATED_REAL_API_16_OF_16_PASS");
+ r=await req("GET",1008,"gpt02-lineage",auth);
+ assert(r.status===200&&r.data.coreCommandMatched===true&&r.data.coreTaskIdPresent===false&&r.data.finalAckVerified===false&&r.data.dispatchPermitted===false&&r.data.completionPermitted===false&&r.data.readOnly===true,"matched failed Core command must remain NO-GO");
+ assert(r.data.diagnosticReasons.includes("CORE_TASK_LINK_MISSING")&&r.data.diagnosticReasons.includes("NATIVE_FINAL_ACK_UNVERIFIED")&&r.data.diagnosticReasons.includes("EXECUTION_FAILED"),"lineage blocking reasons");
+ r=await req("GET",1008,"gpt02-lineage",staff);assert(r.status===403,"lineage super admin only");
+ r=await req("GET",1008,"gpt02-lineage",auth,null,"other");assert(r.status===404,"lineage tenant scope");
+ r=await req("GET",1001,"gpt02-lineage",auth);assert(r.status===200&&r.data.diagnosticReasons.includes("ATTEMPT_MISSING"),"unexecuted task diagnostic");
+ console.log("ISOLATED_REAL_API_20_OF_20_PASS");
 })().catch(err=>{console.error("ISOLATED_REAL_API_FAIL",err.message);process.exitCode=1});
 JS
 docker exec -i "$PG" psql -U test -d testdb -A -t -v ON_ERROR_STOP=1 <<'SQL'
