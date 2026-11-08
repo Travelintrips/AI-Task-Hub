@@ -1515,7 +1515,8 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
           status:aiTasksTable.status,
         }).from(aiTasksTable)
           .where(and(eq(aiTasksTable.id,taskId),eq(aiTasksTable.companyId,companyId))).limit(1);
-        if (!currentTask || ["completed","cancelled"].includes(currentTask.status)) {
+        if (!currentTask || (mode === "chatgpt" && accountAlias === "GPT02" &&
+            ["completed","cancelled"].includes(currentTask.status))) {
           throw new Error("GPT02_TASK_CHANGED_DURING_ADMISSION");
         }
         if (mode === "chatgpt" && accountAlias === "GPT02" &&
