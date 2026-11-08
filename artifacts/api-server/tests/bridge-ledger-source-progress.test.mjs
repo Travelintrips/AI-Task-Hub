@@ -78,3 +78,25 @@ test('DEV PIC assignment is scoped, explicit, and cannot dispatch a command',()=
  ]) assert.ok(route.includes(requirement),requirement);
  assert.doesNotMatch(route,/submitAiTaskCommand\(|scheduleExecutionTracking\(|scheduleChatGptDispatchRetry\(/);
 });
+
+test('DEV PIC options are read-only, tenant-scoped and never attest operator approval',()=>{
+ const source=readFileSync(new URL('../src/routes/executions.ts',import.meta.url),'utf8');
+ const start=source.indexOf('router.get("/ai-tasks/:id/gpt02-pic-options", requireAuth');
+ const end=source.indexOf('router.post("/ai-tasks/:id/gpt02-assign-pic", requireAuth',start);
+ assert.ok(start>0&&end>start);
+ const route=source.slice(start,end);
+ for(const requirement of [
+  'req.user?.role !== "super_admin"',
+  'process.env.NODE_ENV !== "development"',
+  'eq(aiTasksTable.companyId,companyId)',
+  'eq(teamMembersTable.companyId,companyId)',
+  'eq(teamMembersTable.isActive,true)',
+  'assignedToId:aiTasksTable.assignedToId',
+  'taskAssignmentPresent:!!selected',
+  'taskOwnerAuthenticated:false',
+  'operatorApprovalGranted:false',
+  'commandDispatched:false',
+  'choicesTruncated:members.length===100'
+ ]) assert.ok(route.includes(requirement),requirement);
+ assert.doesNotMatch(route,/db\.update\(|db\.insert\(|db\.delete\(|submitAiTaskCommand\(/);
+});
