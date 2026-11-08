@@ -391,9 +391,11 @@ async function retryChatGptDispatch(executionId: string): Promise<void> {
   } catch (err) {
     const message = err instanceof Error ? err.message : "AI_CORE_CHATGPT_DISPATCH_FAILED";
     if (!isRetryableChatGptDispatchError(message)) {
+      // Dispatch failure is terminal for this attempt, not task completion.
+      // Keep previously observed progress bounded until independently verified ACK.
       const [failed] = await db.update(aiExecutionJobsTable).set({
         status: "failed",
-        progress: 100,
+        progress: Math.max(0, Math.min(90, execution.progress)),
         errorMessage: message,
         completedAt: new Date(),
       }).where(eq(aiExecutionJobsTable.id, execution.id)).returning();
