@@ -1518,6 +1518,18 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
     }
 
     if (existing) {
+      // A GPT02 retry is not a fresh authorized admission. The original
+      // execution may predate PIC/audit binding, and a retry cannot assume
+      // that its old command identity is safe to wake again.
+      if (mode === "chatgpt" && accountAlias === "GPT02") {
+        res.status(409).json({
+          error: "GPT02_EXISTING_ATTEMPT_REQUIRES_AUTHORIZED_RECOVERY",
+          executionId: existing.id,
+          dispatchNotStarted: true,
+          message: "Use supervised existing-attempt reconciliation; automatic GPT02 retry is disabled.",
+        });
+        return;
+      }
       reused = true;
       // A retry after an uncertain ChatGPT handoff is the SAME logical command.
       // Reuse its correlation: a new random value could wake a second worker.
@@ -1694,6 +1706,12 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
           // Fail closed rather than create a second dispatcher for it.
           if (await fetchAiTaskCommandTimeline(externalId)) {
             throw new Error("AI_CORE_EXISTING_WORKER_COMMAND_PREVENTS_HANDOFF");
+          }
+          // An ordinary worker's 422 reasoning route is not an independently
+          // approved GPT02 task attempt. Never promote it to GPT02 without
+          // the locked and audited GPT02 admission workflow.
+          if (accountAlias === "GPT02") {
+            throw new Error("GPT02_REASONING_HANDOFF_REQUIRES_AUTHORIZED_ADMISSION");
           }
           mode = "chatgpt";
           const handoffMetadata = {
