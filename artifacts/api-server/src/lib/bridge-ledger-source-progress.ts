@@ -8,7 +8,7 @@ export function passiveBridgeSourceProgress(
   previousProgress: number,
   verifiedFinalAck: boolean,
 ): number {
-  if (verifiedFinalAck) return 100;
+  if (normalizedStatus === "COMPLETED" && verifiedFinalAck) return 100;
   const prior = Number.isFinite(previousProgress)
     ? Math.max(0, Math.min(90, Math.trunc(previousProgress)))
     : 0;
