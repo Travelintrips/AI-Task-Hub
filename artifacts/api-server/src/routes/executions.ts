@@ -1277,9 +1277,19 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
     // Lifecycle-specific guard: never turn a new inquiry into an unowned AI command.
     // Keep the existing idempotent dispatch and reconciliation code below unchanged.
     if (body.lifecycleStart === true &&
-        (body.mode !== "chatgpt" || body.accountAlias !== "GPT02" ||
-         !task.assignedTo?.trim() || ["completed", "cancelled"].includes(task.status))) {
-      res.status(409).json({error: "LIFECYCLE_ASSIGNMENT_OR_MODE_NOT_READY", message: "Assign an active PIC and use GPT02 before lifecycle dispatch."});
+        (body.mode !== "chatgpt" || body.accountAlias !== "GPT02")) {
+      res.status(409).json({error: "LIFECYCLE_ASSIGNMENT_OR_MODE_NOT_READY", message: "Lifecycle requires GPT02 ChatGPT mode."});
+      return;
+    }
+    // A caller cannot bypass the DEV GPT02 PIC gate by omitting lifecycleStart.
+    // This validates recorded task assignment only; it does not attest identity,
+    // mint an attempt, authorize native worker execution or prove completion.
+    const requestedGpt02 = body.mode === "chatgpt" &&
+      typeof body.accountAlias === "string" &&
+      body.accountAlias.trim().toUpperCase() === "GPT02";
+    if (requestedGpt02 &&
+        (!task.assignedTo?.trim() || ["completed", "cancelled"].includes(task.status))) {
+      res.status(409).json({error: "GPT02_TASK_ASSIGNMENT_NOT_READY", message: "An active task and assigned PIC are required before GPT02 dispatch."});
       return;
     }
     let mode: "chatgpt" | "worker" = body.mode === "chatgpt" ? "chatgpt" : "worker";
