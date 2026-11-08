@@ -1505,7 +1505,7 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
     } else {
       const correlationId = randomUUID();
       const idempotencyKey = `${externalId}:${correlationId}`;
-      const [created] = await db.transaction(async (tx) => {
+      const created = await db.transaction(async (tx) => {
         // Cross-instance fence shared with the PIC assignment transaction.
         // The lock lasts through task readback and the new execution insert.
         await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${companyId} || ':' || ${taskId}::text, 0))`);
