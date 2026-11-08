@@ -18,6 +18,9 @@ test('COMPLETED without verified final ACK stays at or below 90%',()=>{
 test('verified native final ACK is sole path to source-ledger 100%',()=>{
  assert.equal(project('COMPLETED',10,true),100);
  assert.equal(project('FAILED',10,false),10);
+ for (const status of ['FAILED','BLOCKED','DEPLOYED','MERGED','RUNNING']) {
+  assert.notEqual(project(status,10,true),100);
+ }
 });
 test('normal source events remain bounded and invalid previous values do not grant completion',()=>{
  assert.equal(project('RUNNING',10,false),25);
