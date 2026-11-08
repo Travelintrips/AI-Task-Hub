@@ -1261,6 +1261,53 @@ router.post("/ai-tasks/:id/continue", requireAuth, async (req: Request, res: Res
   }
 });
 
+// Explicit DEV-only PIC assignment for GPT02. No command or worker dispatch.
+// Do not infer a team-member ID from a display name or supplied JWT claims.
+router.post("/ai-tasks/:id/gpt02-assign-pic", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  if (process.env.NODE_ENV !== "development" || process.env.APP_ENV === "production") {
+    res.sendStatus(404); return;
+  }
+  if (req.user?.role !== "super_admin") {
+    res.status(403).json({error:"SUPER_ADMIN_REQUIRED"}); return;
+  }
+  const taskId=Number(req.params.id);
+  const memberId=(req.body as Record<string,unknown>)?.["memberId"];
+  if (!Number.isSafeInteger(taskId) || taskId<=0 ||
+      typeof memberId!=="number" || !Number.isSafeInteger(memberId) || memberId<=0) {
+    res.status(400).json({error:"INVALID_TASK_OR_MEMBER_ID"}); return;
+  }
+  try {
+    const companyId=getCompanyIdForWrite(req);
+    const [member]=await db.select({id:teamMembersTable.id,name:teamMembersTable.name,
+      isActive:teamMembersTable.isActive})
+      .from(teamMembersTable)
+      .where(and(eq(teamMembersTable.id,memberId),
+        eq(teamMembersTable.companyId,companyId),eq(teamMembersTable.isActive,true)))
+      .limit(1);
+    if (!member || !member.name.trim()) {
+      res.status(409).json({error:"ACTIVE_COMPANY_MEMBER_NOT_FOUND"}); return;
+    }
+    // Re-validate task status in the UPDATE predicate against concurrent edits.
+    const [assigned]=await db.update(aiTasksTable)
+      .set({assignedToId:member.id,assignedTo:member.name})
+      .where(and(eq(aiTasksTable.id,taskId),eq(aiTasksTable.companyId,companyId),
+        sql`${aiTasksTable.status} NOT IN ('completed','cancelled')`))
+      .returning({id:aiTasksTable.id,assignedToId:aiTasksTable.assignedToId,
+        assignedTo:aiTasksTable.assignedTo});
+    if (!assigned) {
+      res.status(409).json({error:"TASK_NOT_FOUND_OR_TERMINAL"}); return;
+    }
+    res.setHeader("Cache-Control","no-store");
+    res.status(200).json({taskId:assigned.id,memberId:assigned.assignedToId,
+      assignedTo:assigned.assignedTo,memberRecordObserved:true,
+      accountIdentityAttested:false,operatorApprovalGranted:false,
+      commandDispatched:false});
+  } catch (err) {
+    logger.warn({err,taskId},"DEV GPT02 PIC assignment unavailable");
+    res.status(503).json({error:"GPT02_PIC_ASSIGNMENT_UNAVAILABLE"});
+  }
+});
+
 router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const taskId = Number(req.params.id);
