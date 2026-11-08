@@ -142,3 +142,17 @@ test('GPT02 PIC audit is written in the same transaction as task assignment',()=
  assert.match(route,/companyId,/);
  assert.doesNotMatch(route,/await db\.insert\(auditLogsTable\)/);
 });
+
+test('AI Task direct dispatch failures cannot report 100 percent without final ACK',()=>{
+ const source=readFileSync(new URL('../src/routes/executions.ts',import.meta.url),'utf8');
+ const start=source.indexOf('router.post("/ai-tasks/:id/execution", requireAuth');
+ const end=source.indexOf('// Read-only preview and readiness check.',start);
+ assert.ok(start>0&&end>start);
+ const handler=source.slice(start,end);
+ const failedAt=handler.indexOf('const [failed] = await db.update(aiExecutionJobsTable).set({');
+ assert.ok(failedAt>0);
+ const failureWrite=handler.slice(failedAt,failedAt+450);
+ assert.match(failureWrite,/status: "failed"/);
+ assert.match(failureWrite,/progress: Math\.max\(0, Math\.min\(90, execution\.progress\)\)/);
+ assert.doesNotMatch(failureWrite,/progress: 100/);
+});
