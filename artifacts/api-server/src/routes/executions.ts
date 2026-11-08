@@ -11,6 +11,7 @@ import {
 import { getCompanyId, getCompanyIdForWrite, requireAuth } from "../middleware/auth";
 import { emitSseEvent } from "../lib/sse";
 import { safeSourceTimelineMetadata } from "../lib/safe-source-timeline-metadata";
+import { bridgeLedgerReadbackAllowed } from "../lib/bridge-ledger-readback-policy";
 import { isAttestedCheckpointResponse, verifiedContinuation } from "../lib/verified-continuation";
 import { hasVerifiedSourceFinalAck } from "../lib/verified-source-final-ack";
 import { hasExplicitSopFailure } from "../lib/verified-sop-outcome";
@@ -666,8 +667,9 @@ router.get("/bridge/jobs/by-external-id/:externalId", requireBridgeToken,
  async (req: Request, res: Response): Promise<void> => {
   res.setHeader("Cache-Control", "no-store");
   // Deployment activation is explicit. Endpoint stays absent by default.
-  if (process.env.APP_ENV !== "development" || process.env.NODE_ENV === "production" ||
-      process.env.AI_TASK_BRIDGE_READBACK_ENABLED !== "true") {
+  // The DEV container identifies itself with NODE_ENV=development; APP_ENV
+  // may be absent there. Explicit APP_ENV=production still denies access.
+  if (!bridgeLedgerReadbackAllowed(process.env)) {
     res.status(404).json({ error: "Not found" });
     return;
   }
