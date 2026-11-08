@@ -76,6 +76,13 @@ test('DEV PIC assignment is scoped, explicit, and cannot dispatch a command',()=
   'FROM ai_execution_jobs e',
   'e.task_id = ${taskId} AND e.company_id = ${companyId}',
   'TASK_NOT_FOUND_TERMINAL_OR_ALREADY_EXECUTING',
+  'db.transaction(async (tx) =>',
+  'await tx.insert(auditLogsTable).values({',
+  'action:"gpt02_pic_assigned"',
+  'userId:req.user!.id',
+  'userEmail:req.user!.email',
+  'operatorApprovalGranted:false,commandDispatched:false',
+
   'assignedToId:member.id',
   'operatorApprovalGranted:false',
   'commandDispatched:false',
@@ -117,4 +124,21 @@ test('existing AI Task detail UI uses verified member-ID picker, not display-nam
   'Nama saja tidak mengizinkan lifecycle GPT02',
  ]) assert.ok(ui.includes(expected),expected);
  assert.doesNotMatch(ui,/disabled=\{!executionData\?\.bridgeConfigured \|\| !task\.assignedTo/);
+});
+
+test('GPT02 PIC audit is written in the same transaction as task assignment',()=>{
+ const source=readFileSync(new URL('../src/routes/executions.ts',import.meta.url),'utf8');
+ const begin=source.indexOf('router.post("/ai-tasks/:id/gpt02-assign-pic", requireAuth');
+ const end=source.indexOf('router.post("/ai-tasks/:id/execution", requireAuth',begin);
+ const route=source.slice(begin,end);
+ const transactionStart=route.indexOf('db.transaction(async (tx) =>');
+ const taskWrite=route.indexOf('tx.update(aiTasksTable)',transactionStart);
+ const auditWrite=route.indexOf('tx.insert(auditLogsTable)',taskWrite);
+ const transactionEnd=route.indexOf('return updated;',auditWrite);
+ assert.ok(transactionStart>=0 && taskWrite>transactionStart &&
+    auditWrite>taskWrite && transactionEnd>auditWrite);
+ assert.match(route,/userId:req\.user!\.id/);
+ assert.match(route,/userEmail:req\.user!\.email/);
+ assert.match(route,/companyId,/);
+ assert.doesNotMatch(route,/await db\.insert\(auditLogsTable\)/);
 });
