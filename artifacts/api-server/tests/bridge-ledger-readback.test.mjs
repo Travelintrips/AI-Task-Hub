@@ -31,6 +31,9 @@ test('response is non-authorizing and does not mutate data or invoke a worker',(
  assert.match(route,/mayIssueGrant: false, mayDispatchWorker: false/);
  assert.match(route,/verifiedExecution: false/);
  assert.match(route,/passiveLedger: true/);
+ for(const field of ['taskLinkageVerified: false','attemptBindingVerified: false','accountableOwnerVerified: false']) {
+  assert.ok(route.includes(field));
+ }
  assert.doesNotMatch(route,/db\.insert\(|db\.delete\(|db\.update\(|fetch\(|submitAiTaskCommand\(/);
 });
 
@@ -44,4 +47,16 @@ test('runtime DEV policy accepts existing container shape and denies PROD, misma
    assert.equal(bridgeLedgerReadbackAllowed({...dev,...patch}),false);
  }
  assert.equal(bridgeLedgerReadbackAllowed({NODE_ENV:'development'}),false);
+});
+
+test('passive bridge registration never masquerades as linked intake or owner assignment',()=>{
+ const start=code.indexOf('router.post("/bridge/jobs", requireBridgeToken');
+ const end=code.indexOf('router.post("/bridge/jobs/:id/source-event"',start);
+ assert.ok(start>=0&&end>start);
+ const registration=code.slice(start,end);
+ for(const field of ['task_linkage_verified: false','attempt_binding_verified: false',
+   'accountable_owner_verified: false','passive_ledger_only: true']){
+   assert.ok(registration.includes(field),field);
+ }
+ assert.doesNotMatch(registration,/taskId:\s*sourceMetadata\[/);
 });
