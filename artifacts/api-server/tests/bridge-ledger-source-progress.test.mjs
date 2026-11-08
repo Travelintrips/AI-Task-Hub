@@ -56,3 +56,25 @@ test('GPT02 assignment guard cannot be bypassed by omitting lifecycleStart',()=>
  assert.match(intake,/GPT02_TASK_ASSIGNMENT_NOT_READY/);
  assert.doesNotMatch(intake,/if \(body\.lifecycleStart === true &&\s*\([^)]*!task\.assignedTo/);
 });
+
+test('DEV PIC assignment is scoped, explicit, and cannot dispatch a command',()=>{
+ const source=readFileSync(new URL('../src/routes/executions.ts',import.meta.url),'utf8');
+ const start=source.indexOf('router.post("/ai-tasks/:id/gpt02-assign-pic", requireAuth');
+ const end=source.indexOf('router.post("/ai-tasks/:id/execution", requireAuth',start);
+ assert.ok(start>0&&end>start);
+ const route=source.slice(start,end);
+ for(const requirement of [
+  'process.env.NODE_ENV !== "development"',
+  'process.env.APP_ENV === "production"',
+  'req.user?.role !== "super_admin"',
+  'Number.isSafeInteger(memberId)',
+  'eq(teamMembersTable.companyId,companyId)',
+  'eq(teamMembersTable.isActive,true)',
+  'eq(aiTasksTable.companyId,companyId)',
+  "NOT IN ('completed','cancelled')",
+  'assignedToId:member.id',
+  'operatorApprovalGranted:false',
+  'commandDispatched:false',
+ ]) assert.ok(route.includes(requirement),requirement);
+ assert.doesNotMatch(route,/submitAiTaskCommand\(|scheduleExecutionTracking\(|scheduleChatGptDispatchRetry\(/);
+});
