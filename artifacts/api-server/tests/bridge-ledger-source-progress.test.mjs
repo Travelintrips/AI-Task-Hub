@@ -185,3 +185,16 @@ test('assignment and first execution share transaction-scoped advisory fence',()
  assert.ok(execution.includes('dispatchNotStarted:true'));
  assert.ok(execution.indexOf('submitAiTaskChatGptCommand(')>create);
 });
+
+test('legacy PATCH refuses to replace verified GPT02 member ID with free-text PIC',()=>{
+ const source=readFileSync(new URL('../src/routes/ai-tasks.ts',import.meta.url),'utf8');
+ const start=source.indexOf('router.patch("/ai-tasks/:id", requireAuth');
+ const end=source.indexOf('// ─── POST /ai-tasks/:id/comments',start);
+ assert.ok(start>=0&&end>start);
+ const route=source.slice(start,end);
+ assert.ok(route.includes('const changingPicName = assignedTo !== undefined && assignedTo !== current.assignedTo'));
+ assert.ok(route.includes('current.assignedToId != null'));
+ assert.ok(route.includes('sql`${aiTasksTable.assignedToId} IS NULL`'));
+ assert.ok(route.includes('VERIFIED_PIC_REQUIRES_ID_ASSIGNMENT'));
+ assert.ok(route.indexOf('const changingPicName')<route.indexOf('.update(aiTasksTable)'));
+});
