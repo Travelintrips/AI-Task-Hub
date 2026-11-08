@@ -314,6 +314,13 @@ async function retryChatGptDispatch(executionId: string): Promise<void> {
   }
 
   const accountAlias = typeof metadata["accountAlias"] === "string" ? metadata["accountAlias"] : "";
+  // Fail closed: a waiting GPT02 session cannot automatically wake an older
+  // command even if the account session later becomes available.
+  if (accountAlias === "GPT02") {
+    stopChatGptDispatchRetry(executionId);
+    logger.warn({executionId}, "GPT02 automatic retry withheld pending operator recovery");
+    return;
+  }
   const remoteCorrelationId = typeof metadata["remoteCorrelationId"] === "string" ? metadata["remoteCorrelationId"] : "";
   if (!/^GPT[0-9]{2,4}$/.test(accountAlias) || !remoteCorrelationId || !execution.instruction) {
     stopChatGptDispatchRetry(executionId);
@@ -493,6 +500,9 @@ async function recoverVerifiedSopContinuations(): Promise<void> {
       }
       const alias = meta["accountAlias"];
       if (typeof alias !== "string" || !/^GPT[0-9]{2,4}$/.test(alias)) continue;
+      // A signed checkpoint is not a new operator grant. Never autonomously
+      // create another GPT02 attempt from a historic/source execution.
+      if (alias === "GPT02") continue;
       const events = await db.select().from(aiExecutionEventsTable)
         .where(eq(aiExecutionEventsTable.executionId, source.id))
         .orderBy(desc(aiExecutionEventsTable.createdAt)).limit(100);
@@ -1182,6 +1192,11 @@ router.post("/ai-tasks/:id/continue", requireAuth, async (req: Request, res: Res
     if (typeof accountAlias !== "string" || !/^GPT[0-9]{2,4}$/.test(accountAlias)) {
       res.status(409).json({ error: "SOURCE_ACCOUNT_NOT_VERIFIED" }); return;
     }
+    if (accountAlias === "GPT02") {
+      res.status(409).json({error:"GPT02_CONTINUATION_REQUIRES_NEW_AUTHORIZED_ADMISSION",
+        dispatchNotStarted:true, sourceExecutionId:source.id});
+      return;
+    }
     const fingerprint = createHash("sha256")
       .update([source.commandId, proof.jobId, proof.checkpointId, proof.stepId, proof.sopVersion].join("|"))
       .digest("hex").slice(0, 24);
@@ -1521,7 +1536,8 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
       // A GPT02 retry is not a fresh authorized admission. The original
       // execution may predate PIC/audit binding, and a retry cannot assume
       // that its old command identity is safe to wake again.
-      if (mode === "chatgpt" && accountAlias === "GPT02") {
+      if ((mode === "chatgpt" && accountAlias === "GPT02") ||
+          asRecord(existing.metadata)["accountAlias"] === "GPT02") {
         res.status(409).json({
           error: "GPT02_EXISTING_ATTEMPT_REQUIRES_AUTHORIZED_RECOVERY",
           executionId: existing.id,
