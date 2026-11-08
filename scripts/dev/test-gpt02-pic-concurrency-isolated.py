@@ -58,6 +58,7 @@ def main():
         # pg_isready may transiently succeed against bootstrap postmaster.
         # Retry only synthetic schema setup while PostgreSQL finishes startup.
         schema = """
+        BEGIN;
         CREATE TABLE tasks(id integer PRIMARY KEY, company_id text NOT NULL,
                            assigned_to_id integer, status text NOT NULL);
         CREATE TABLE executions(id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -65,6 +66,7 @@ def main():
         CREATE TABLE audits(id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
                             task_id integer NOT NULL, member_id integer NOT NULL);
         INSERT INTO tasks VALUES(1,'default',1,'new_inquiry');
+        COMMIT;
         """
         for attempt in range(12):
             try:
