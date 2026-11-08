@@ -12,6 +12,7 @@ import { getCompanyId, getCompanyIdForWrite, requireAuth } from "../middleware/a
 import { emitSseEvent } from "../lib/sse";
 import { safeSourceTimelineMetadata } from "../lib/safe-source-timeline-metadata";
 import { bridgeLedgerReadbackAllowed } from "../lib/bridge-ledger-readback-policy";
+import { summarizeBridgeLedgerEvents } from "../lib/bridge-ledger-event-summary";
 import { isAttestedCheckpointResponse, verifiedContinuation } from "../lib/verified-continuation";
 import { hasVerifiedSourceFinalAck } from "../lib/verified-source-final-ack";
 import { hasExplicitSopFailure } from "../lib/verified-sop-outcome";
@@ -696,12 +697,23 @@ router.get("/bridge/jobs/by-external-id/:externalId", requireBridgeToken,
         sql`${aiExecutionJobsTable.metadata}->>'passiveLedger' = 'true'`))
       .limit(1);
     if (!job) { res.status(404).json({ error: "Bridge job not found" }); return; }
+    // Only safe columns, no event payload, instructions, messages or credentials.
+    // Limit 101 allows an explicit truncation marker for >100 events.
+    const events = await db.select({
+      eventType:aiExecutionEventsTable.eventType,
+      status:aiExecutionEventsTable.status,
+      signatureVerified:aiExecutionEventsTable.signatureVerified,
+    }).from(aiExecutionEventsTable)
+      .where(eq(aiExecutionEventsTable.executionId,job.id))
+      .orderBy(aiExecutionEventsTable.createdAt,aiExecutionEventsTable.id)
+      .limit(101);
+    const eventEvidence=summarizeBridgeLedgerEvents(events,job.status,job.progress);
     const meta = safeSourceTimelineMetadata(job.metadata);
     // Do not copy arbitrary job metadata, conversation text or credentials.
     res.status(200).json({ found: true, source: "AI_CORE",
       external_id: job.externalId, id: job.id, task_id: job.taskId ?? null,
       status: job.status, progress: job.progress,
-      timeline: meta,
+      timeline: meta, eventEvidence,
       readOnly: true, passiveLedger: true, mayIssueGrant: false, mayDispatchWorker: false,
       verifiedExecution: false,
     });

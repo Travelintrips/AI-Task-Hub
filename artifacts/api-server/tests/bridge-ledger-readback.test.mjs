@@ -21,6 +21,10 @@ test('only AI_CORE plus exact externalId may be read; 404 is explicit',()=>{
 
  assert.match(route,/res\.status\(404\)/);
  assert.match(route,/safeSourceTimelineMetadata\(job\.metadata\)/);
+ assert.match(route,/summarizeBridgeLedgerEvents\(events,job.status,job.progress\)/);
+ assert.match(route,/\.limit\(101\)/);
+ assert.match(route,/eventEvidence/);
+
 });
 test('response is non-authorizing and does not mutate data or invoke a worker',()=>{
  assert.match(route,/Cache-Control", "no-store"/);
