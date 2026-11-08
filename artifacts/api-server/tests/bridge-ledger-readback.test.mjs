@@ -10,13 +10,15 @@ test('bridge readback route requires the existing token guard and exact command 
  assert.ok(start>=0&&end>start);
  assert.match(route,/requireBridgeToken/);
  assert.match(route,/bridgeLedgerReadbackAllowed\(process\.env\)/);
- assert.match(route,/bridgeLedgerReadbackAllowed\(process\.env\)/);
  assert.match(route,/bridge-command:/);
  assert.match(route,/res\.status\(400\)/);
 });
 test('only AI_CORE plus exact externalId may be read; 404 is explicit',()=>{
  assert.match(route,/eq\(aiExecutionJobsTable\.source, "AI_CORE"\)/);
  assert.match(route,/eq\(aiExecutionJobsTable\.externalId, externalId\)/);
+ assert.match(route,/eq\(aiExecutionJobsTable\.companyId, "default"\)/);
+ assert.match(route,/passiveLedger' = 'true'/);
+
  assert.match(route,/res\.status\(404\)/);
  assert.match(route,/safeSourceTimelineMetadata\(job\.metadata\)/);
 });

@@ -689,7 +689,11 @@ router.get("/bridge/jobs/by-external-id/:externalId", requireBridgeToken,
       taskId: aiExecutionJobsTable.taskId,
     }).from(aiExecutionJobsTable)
       .where(and(eq(aiExecutionJobsTable.source, "AI_CORE"),
-        eq(aiExecutionJobsTable.externalId, externalId)))
+        eq(aiExecutionJobsTable.companyId, "default"),
+        eq(aiExecutionJobsTable.externalId, externalId),
+        // This private readback is reserved for the passive AI Core ledger.
+        // A non-ledger execution with a matching external ID is not evidence.
+        sql`${aiExecutionJobsTable.metadata}->>'passiveLedger' = 'true'`))
       .limit(1);
     if (!job) { res.status(404).json({ error: "Bridge job not found" }); return; }
     const meta = safeSourceTimelineMetadata(job.metadata);
