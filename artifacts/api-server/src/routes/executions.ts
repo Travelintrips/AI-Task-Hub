@@ -1332,11 +1332,17 @@ router.post("/ai-tasks/:id/gpt02-assign-pic", requireAuth, async (req: Request, 
     const [assigned]=await db.update(aiTasksTable)
       .set({assignedToId:member.id,assignedTo:member.name})
       .where(and(eq(aiTasksTable.id,taskId),eq(aiTasksTable.companyId,companyId),
-        sql`${aiTasksTable.status} NOT IN ('completed','cancelled')`))
+        sql`${aiTasksTable.status} NOT IN ('completed','cancelled')`,
+        // Do not change the accountable PIC of any task with an existing
+        // execution, including failed/blocked or passive stale records.
+        sql`NOT EXISTS (
+          SELECT 1 FROM ai_execution_jobs e
+          WHERE e.task_id = ${taskId} AND e.company_id = ${companyId}
+        )`))
       .returning({id:aiTasksTable.id,assignedToId:aiTasksTable.assignedToId,
         assignedTo:aiTasksTable.assignedTo});
     if (!assigned) {
-      res.status(409).json({error:"TASK_NOT_FOUND_OR_TERMINAL"}); return;
+      res.status(409).json({error:"TASK_NOT_FOUND_TERMINAL_OR_ALREADY_EXECUTING"}); return;
     }
     res.setHeader("Cache-Control","no-store");
     res.status(200).json({taskId:assigned.id,memberId:assigned.assignedToId,
