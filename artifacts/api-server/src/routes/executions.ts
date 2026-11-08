@@ -6,6 +6,7 @@ import {
   aiExecutionEventsTable,
   aiExecutionJobsTable,
   aiTasksTable,
+  teamMembersTable,
   db,
 } from "@workspace/db";
 import { getCompanyId, getCompanyIdForWrite, requireAuth } from "../middleware/auth";
@@ -1287,10 +1288,27 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
       : process.env.AI_TASK_DEFAULT_GPT_ALIAS?.trim().toUpperCase() || "GPT01";
     // Neither an omitted lifecycleStart flag nor the server default alias may
     // bypass the DEV GPT02 PIC gate. A recorded PIC is not identity attestation.
-    if (mode === "chatgpt" && accountAlias === "GPT02" &&
-        (!task.assignedTo?.trim() || ["completed", "cancelled"].includes(task.status))) {
-      res.status(409).json({error: "GPT02_TASK_ASSIGNMENT_NOT_READY", message: "An active task and assigned PIC are required before GPT02 dispatch."});
-      return;
+    if (mode === "chatgpt" && accountAlias === "GPT02") {
+      // A display name alone is never a trusted PIC. Resolve the persisted
+      // assignee FK within this exact company and recheck active membership
+      // at dispatch time, rather than accepting caller-supplied metadata.
+      if (!task.assignedToId || !task.assignedTo?.trim() ||
+          ["completed", "cancelled"].includes(task.status)) {
+        res.status(409).json({error: "GPT02_TASK_ASSIGNMENT_NOT_READY", message: "An active task with an assigned member ID is required."});
+        return;
+      }
+      const [member] = await db.select({id:teamMembersTable.id,
+        name:teamMembersTable.name,isActive:teamMembersTable.isActive})
+        .from(teamMembersTable)
+        .where(and(eq(teamMembersTable.id,task.assignedToId),
+          eq(teamMembersTable.companyId,companyId)))
+        .limit(1);
+      if (!member || member.isActive !== true || member.name !== task.assignedTo) {
+        res.status(409).json({error: "GPT02_PIC_IDENTITY_NOT_VERIFIED", message: "PIC must match an active team member in this company."});
+        return;
+      }
+      // A matching team-member record establishes assignment integrity only;
+      // it is not operator consent or independent worker authority.
     }
     const requestedClientId = typeof body.assignedClientId === "string" ? body.assignedClientId.trim() : "";
     // No implicit worker forcing here. AI Core owns generic worker selection and
