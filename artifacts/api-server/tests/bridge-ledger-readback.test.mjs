@@ -9,6 +9,8 @@ test('bridge readback route requires the existing token guard and exact command 
  assert.ok(start>=0&&end>start);
  assert.match(route,/requireBridgeToken/);
  assert.match(route,/AI_TASK_BRIDGE_READBACK_ENABLED !== "true"/);
+ assert.match(route,/process\.env\.APP_ENV !== "development"/);
+ assert.match(route,/process\.env\.NODE_ENV === "production"/);
  assert.match(route,/bridge-command:/);
  assert.match(route,/res\.status\(400\)/);
 });

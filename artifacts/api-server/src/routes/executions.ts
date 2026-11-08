@@ -440,7 +440,8 @@ router.get("/bridge/jobs/by-external-id/:externalId", requireBridgeToken,
  async (req: Request, res: Response): Promise<void> => {
   res.setHeader("Cache-Control", "no-store");
   // Deployment activation is explicit. Endpoint stays absent by default.
-  if (process.env.AI_TASK_BRIDGE_READBACK_ENABLED !== "true") {
+  if (process.env.APP_ENV !== "development" || process.env.NODE_ENV === "production" ||
+      process.env.AI_TASK_BRIDGE_READBACK_ENABLED !== "true") {
     res.status(404).json({ error: "Not found" });
     return;
   }
