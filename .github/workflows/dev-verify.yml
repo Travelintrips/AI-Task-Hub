@@ -36,6 +36,8 @@ jobs:
         run: pnpm --filter @workspace/api-server run test:short-links
       - name: Verify read-only bridge GET cannot mutate lifecycle
         run: node --test artifacts/api-server/tests/bridge-ledger-readback.test.mjs
+      - name: Verify read-only DEV deployment preflight fails closed
+        run: node --test scripts/dev/bridge-ledger-readback-runtime-preflight.test.mjs
       - name: Typecheck
         run: pnpm run typecheck
       - name: Build
