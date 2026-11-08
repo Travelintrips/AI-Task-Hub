@@ -1354,8 +1354,8 @@ router.post("/ai-tasks/:id/gpt02-assign-pic", requireAuth, async (req: Request, 
         userId:req.user!.id,
         userEmail:req.user!.email,
         userName:req.user!.name,
-        afterData:{memberId:member.id,memberName:member.name,taskId,companyId,
-          operatorApprovalGranted:false,commandDispatched:false},
+        after:JSON.stringify({memberId:member.id,memberName:member.name,taskId,companyId,
+          operatorApprovalGranted:false,commandDispatched:false}),
       });
       return updated;
     });
