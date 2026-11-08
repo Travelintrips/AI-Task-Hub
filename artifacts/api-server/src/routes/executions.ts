@@ -7,6 +7,7 @@ import {
   aiExecutionJobsTable,
   aiTasksTable,
   teamMembersTable,
+  auditLogsTable,
   db,
 } from "@workspace/db";
 import { getCompanyId, getCompanyIdForWrite, requireAuth } from "../middleware/auth";
@@ -1328,19 +1329,36 @@ router.post("/ai-tasks/:id/gpt02-assign-pic", requireAuth, async (req: Request, 
     if (!member || !member.name.trim()) {
       res.status(409).json({error:"ACTIVE_COMPANY_MEMBER_NOT_FOUND"}); return;
     }
-    // Re-validate task status in the UPDATE predicate against concurrent edits.
-    const [assigned]=await db.update(aiTasksTable)
-      .set({assignedToId:member.id,assignedTo:member.name})
-      .where(and(eq(aiTasksTable.id,taskId),eq(aiTasksTable.companyId,companyId),
-        sql`${aiTasksTable.status} NOT IN ('completed','cancelled')`,
-        // Do not change the accountable PIC of any task with an existing
-        // execution, including failed/blocked or passive stale records.
-        sql`NOT EXISTS (
-          SELECT 1 FROM ai_execution_jobs e
-          WHERE e.task_id = ${taskId} AND e.company_id = ${companyId}
-        )`))
-      .returning({id:aiTasksTable.id,assignedToId:aiTasksTable.assignedToId,
-        assignedTo:aiTasksTable.assignedTo});
+    // The assignment and audit row must commit or roll back together. Never
+    // claim that a PIC changed when the audit insert failed.
+    const assigned=await db.transaction(async (tx) => {
+      const [updated]=await tx.update(aiTasksTable)
+        .set({assignedToId:member.id,assignedTo:member.name})
+        .where(and(eq(aiTasksTable.id,taskId),eq(aiTasksTable.companyId,companyId),
+          sql`${aiTasksTable.status} NOT IN ('completed','cancelled')`,
+          // This guards already-committed executions; a separate serialization
+          // mechanism is still required to close the concurrent intake race.
+          sql`NOT EXISTS (
+            SELECT 1 FROM ai_execution_jobs e
+            WHERE e.task_id = ${taskId} AND e.company_id = ${companyId}
+          )`))
+        .returning({id:aiTasksTable.id,assignedToId:aiTasksTable.assignedToId,
+          assignedTo:aiTasksTable.assignedTo});
+      if (!updated) return null;
+      await tx.insert(auditLogsTable).values({
+        action:"gpt02_pic_assigned",
+        module:"ai_tasks",
+        entityType:"ai_task",
+        entityId:String(taskId),
+        companyId,
+        userId:req.user!.id,
+        userEmail:req.user!.email,
+        userName:req.user!.name,
+        afterData:{memberId:member.id,memberName:member.name,taskId,companyId,
+          operatorApprovalGranted:false,commandDispatched:false},
+      });
+      return updated;
+    });
     if (!assigned) {
       res.status(409).json({error:"TASK_NOT_FOUND_TERMINAL_OR_ALREADY_EXECUTING"}); return;
     }
