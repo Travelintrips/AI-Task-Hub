@@ -1,4 +1,5 @@
 import { Router, type IRouter, type Request, type Response } from "express";
+import { INTERNAL_E2E_PREFIX, isSilentInternalE2eJob } from "../lib/dev-internal-e2e";
 import { eq, ne, desc, and, ilike, or, isNull, gte, lte, inArray, SQL } from "drizzle-orm";
 import {
   db,
@@ -7,6 +8,7 @@ import {
   auditLogsTable,
   teamMembersTable,
   whatsappMessagesTable,
+  taskTimelineTable,
   getAiTaskStatusVariants,
   normalizeAiTaskStatus,
   type AiTaskStatus,
@@ -149,6 +151,13 @@ router.post("/ai-tasks", requireAuth, async (req: Request, res: Response): Promi
       return;
     }
 
+    // Reserved test marker: only super admins in an explicitly enabled DEV runtime.
+    if (title.trim().startsWith(INTERNAL_E2E_PREFIX) &&
+        (!isSilentInternalE2eJob(title.trim()) || req.user?.role !== "super_admin")) {
+      res.status(403).json({ error: "INTERNAL_E2E_DEV_SUPER_ADMIN_ONLY" });
+      return;
+    }
+
     const normalizedStatus = status ? normalizeAiTaskStatus(status) : "new_inquiry";
     if (!normalizedStatus) {
       res.status(400).json({ error: `Status tidak valid: ${status}` });
@@ -201,7 +210,7 @@ router.post("/ai-tasks", requireAuth, async (req: Request, res: Response): Promi
 
     emitSseEvent("new_task", { taskId: created.id, taskNumber, companyId }, companyId);
 
-    notifyTaskCreated({
+    if (!isSilentInternalE2eJob(created.title)) notifyTaskCreated({
       taskId:       created.id,
       taskNumber,
       title:        created.title,
@@ -264,6 +273,7 @@ router.patch("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): 
     if (priority       !== undefined) updates.priority       = priority       as string;
     if (assignedTo     !== undefined) updates.assignedTo     = assignedTo     as string | null;
     if (assignedRole   !== undefined) updates.assignedRole   = assignedRole   as string | null;
+    if (assignedDivision !== undefined) updates.assignedDivision = assignedDivision as string | null;
     if (adminNotes     !== undefined) updates.adminNotes     = adminNotes     as string | null;
     if (requiredAction !== undefined) updates.requiredAction = requiredAction as string | null;
     if (driverName     !== undefined) updates.driverName     = driverName     as string | null;
@@ -295,7 +305,7 @@ router.patch("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): 
     }
 
     // ── Sinkron balik ke Supabase logistic_orders (fire-and-forget) ──────────
-    if (normalizedStatus && normalizedStatus !== normalizeAiTaskStatus(current.status) && current.taskNumber) {
+    if (!isSilentInternalE2eJob(current.title) && normalizedStatus && normalizedStatus !== normalizeAiTaskStatus(current.status) && current.taskNumber) {
       pushStatusToSupabase(current.taskNumber, current.status, normalizedStatus)
         .catch((err) => logger.error({ err }, "pushStatusToSupabase gagal"));
     }
@@ -441,7 +451,43 @@ router.get("/ai-tasks/:id/audit",  requireAuth, (_req, res) =>
   res.status(404).json({ error: "Tidak ada audit" }));
 router.post("/ai-tasks/:id/audit", requireAuth, (_req, res) =>
   res.status(501).json({ error: "Audit belum tersedia" }));
-router.get("/ai-tasks/:id/timeline",  requireAuth, (_req, res) => res.json([]));
+// Timeline is read from the same task-scoped store used by logTimeline and
+// the customer mini-task portal. Do not disclose cross-company task history.
+router.get("/ai-tasks/:id/timeline", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id < 1) {
+    res.status(400).json({ error: "Invalid task id" });
+    return;
+  }
+  try {
+    const companyId = getCompanyId(req);
+    const conditions: SQL[] = [eq(aiTasksTable.id, id)];
+    if (companyId) conditions.push(eq(aiTasksTable.companyId, companyId));
+    const [task] = await db
+      .select({ id: aiTasksTable.id })
+      .from(aiTasksTable)
+      .where(and(...conditions))
+      .limit(1);
+    if (!task) {
+      res.status(404).json({ error: "AI task not found" });
+      return;
+    }
+    const timeline = await db
+      .select()
+      .from(taskTimelineTable)
+      .where(eq(taskTimelineTable.taskId, id))
+      .orderBy(desc(taskTimelineTable.createdAt), desc(taskTimelineTable.id))
+      .limit(200);
+    res.setHeader("Cache-Control", "no-store");
+    res.json(timeline.map((event) => ({
+      ...event,
+      createdAt: event.createdAt.toISOString(),
+    })));
+  } catch (err) {
+    logger.error({ err, taskId: id }, "GET /ai-tasks/:id/timeline failed");
+    res.status(500).json({ error: "Failed to load task timeline" });
+  }
+});
 router.post("/ai-tasks/:id/generate-token", requireAuth, (_req, res) =>
   res.status(501).json({ error: "Token belum tersedia" }));
 

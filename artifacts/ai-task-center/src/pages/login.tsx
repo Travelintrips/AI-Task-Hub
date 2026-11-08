@@ -58,14 +58,14 @@ export default function Login() {
                             >
                               Masuk dengan Google
                             </Button>
-                
+
                             <div className="flex items-center gap-3">
                               <div className="h-px flex-1 bg-border" />
                               <span className="text-xs text-muted-foreground">atau</span>
                               <div className="h-px flex-1 bg-border" />
                             </div>
-                
-                
+
+
               </>
             )}
 
@@ -106,7 +106,7 @@ export default function Login() {
                                   </button>
                                 </div>
                               </div>
-                
+
               )}
               <Button type="submit" className="w-full" disabled={loading}>
                 {loading ? "Memproses..." : "Masuk"}

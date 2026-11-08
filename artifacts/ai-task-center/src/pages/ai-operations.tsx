@@ -2,7 +2,7 @@
  * Sprint 10B-4 — AI Operations Center
  * 7 tabs: Overview · Registry · Analytics · Quality · Failures · Leaderboard · Holding (super_admin)
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/auth-context";
 import { useLocation } from "wouter";
 import { Badge } from "@/components/ui/badge";
@@ -668,6 +668,7 @@ export default function AiOperationsPage() {
 
   const [activeTab, setActiveTab] = useState<TabId>("overview");
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const [registry, setRegistry] = useState<RegistryData | null>(null);
   const [health, setHealth] = useState<HealthData | null>(null);
@@ -679,6 +680,10 @@ export default function AiOperationsPage() {
 
   const role = user?.role;
   const isSuperAdmin = role === "super_admin";
+  const canRead = role === "super_admin" || role === "company_admin" || role === "owner" || role === "supervisor";
+  useEffect(() => {
+    if (canRead) void loadTab("overview");
+  }, [canRead]);
 
   if (!user || (role !== "super_admin" && role !== "company_admin" && role !== "owner" && role !== "supervisor")) {
     return (
@@ -694,6 +699,7 @@ export default function AiOperationsPage() {
   async function loadTab(tab: TabId) {
     setActiveTab(tab);
     setLoading(true);
+    setLoadError(null);
     try {
       if (tab === "overview") {
         const [h, r] = await Promise.all([
@@ -716,14 +722,11 @@ export default function AiOperationsPage() {
         setHolding(await apiFetch<HoldingData>("/ai-ops/holding"));
       }
     } catch (err) {
+      setLoadError(String(err));
       toast({ title: "Gagal memuat data", description: String(err), variant: "destructive" });
     } finally {
       setLoading(false);
     }
-  }
-
-  if (!health && !registry && !loading) {
-    loadTab("overview");
   }
 
   const visibleTabs = TABS.filter((t) => !t.superAdminOnly || isSuperAdmin);
@@ -778,6 +781,13 @@ export default function AiOperationsPage() {
       </div>
 
       <div className="flex-1 overflow-auto p-6">
+        {loadError && (
+          <div role="alert" className="mb-4 rounded-lg border border-red-500/40 bg-red-500/10 p-4 text-sm">
+            <p className="font-semibold">Gagal memuat AI Operations Center</p>
+            <p className="mt-1 break-words">{loadError}</p>
+            <Button variant="outline" size="sm" className="mt-3" onClick={() => void loadTab(activeTab)} disabled={loading}>Coba lagi</Button>
+          </div>
+        )}
         {activeTab === "overview" && <OverviewTab health={health} registry={registry} />}
         {activeTab === "registry" && <RegistryTab registry={registry} />}
         {activeTab === "analytics" && <AnalyticsTab analytics={analytics} />}

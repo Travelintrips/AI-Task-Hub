@@ -67,7 +67,8 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   });
   const body = await res.json().catch(() => null);
   if (!res.ok) {
-    const message = body && typeof body.error === "string" ? body.error : `HTTP ${res.status}`;
+    const message = body && typeof body.message === "string" ? body.message :
+      body && typeof body.error === "string" ? body.error : `HTTP ${res.status}`;
     throw new Error(message);
   }
   return body as T;
@@ -142,7 +143,8 @@ export default function AiCoreChatPage() {
       const payload = query.state.data as ExecutionPayload | undefined;
       const status = payload?.execution?.status;
       if (status && ["completed", "failed", "blocked", "cancelled"].includes(status)) return false;
-      return sseState === "connected" ? false : 15_000;
+      // SSE can miss events across reconnects; reconcile active executions periodically.
+      return 15_000;
     },
     staleTime: 1_000,
   });
@@ -161,6 +163,20 @@ export default function AiCoreChatPage() {
     mutationFn: async () => {
       const instruction = prompt.trim();
       if (!instruction) throw new Error("Tulis pesan terlebih dahulu.");
+      // Resume the selected job, never create an orphan chat task for continuation.
+      // The server derives the next step only from AI Core signed checkpoint evidence.
+      const isContinuation = /\bCONTINUE_JOB\b/i.test(instruction) ||
+        /^(?:lanjut(?:kan)?(?: terus)?|continue(?: job)?|resume)[!.\s]*$/i.test(instruction);
+      if (isContinuation) {
+        if (!activeTaskId || !activeTask || !executionData?.execution?.id) {
+          throw new Error("Pilih percakapan dengan job asal sebelum melanjutkan.");
+        }
+        await apiFetch(`/api/ai-tasks/${activeTaskId}/continue`, {
+          method: "POST",
+          body: JSON.stringify({ sourceExecutionId: executionData.execution.id }),
+        });
+        return activeTask;
+      }
 
       const created = await apiFetch<AiTask>("/api/ai-tasks", {
         method: "POST",

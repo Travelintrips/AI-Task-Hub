@@ -1,5 +1,7 @@
 import { Router, type IRouter } from "express";
 import healthRouter from "./health";
+import jobBridgeRouter from "./job-bridge";
+
 import tasksRouter from "./tasks";
 import teamRouter from "./team";
 import messagesRouter from "./messages";
@@ -67,6 +69,7 @@ import companyGovernanceRouter from "./company-governance";
 import { companyOnboardingRouter } from "./company-onboarding";
 import holdingDashboardRouter from "./holding-dashboard";
 import aiOperationsRouter from "./ai-operations";
+import taskStorageRouter from "./task-storage";
 import creativeAiRouter from "./creative-ai";
 import notificationReceiversRouter from "./notification-receivers";
 import sportCenterRouter from "./sport-center";
@@ -88,6 +91,8 @@ router.use(authRouter);
 
 // Application routes
 router.use(healthRouter);
+router.use(jobBridgeRouter);
+
 router.use(tasksRouter);
 router.use(teamRouter);
 router.use(messagesRouter);
@@ -96,6 +101,7 @@ router.use(documentValidationRouter);
 router.use(documentsRouter);
 router.use(dashboardRouter);
 router.use(whatsappRouter);
+router.use(taskStorageRouter);
 router.use(aiTasksRouter);
 router.use(executionsRouter);
 router.use(unifiedExecutionTimelineRouter);

@@ -1,0 +1,197 @@
+name: AI Task PROD Ledger Monitor
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: ai-task-prod-ledger-monitor
+  cancel-in-progress: true
+
+jobs:
+  monitor:
+    name: Audit AI Core ledger mirror
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: production
+    env:
+      HOST: 72.61.210.205
+      PORT: "22"
+      USERNAME: root
+      ISSUE_TITLE: "[AI Task] PROD ledger reconciliation degraded"
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure VPS access
+        env:
+          SSH_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SSH_KEY"
+          install -m 0700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_hostinger
+          chmod 0600 ~/.ssh/id_hostinger
+          touch ~/.ssh/known_hosts
+
+      - name: Run read-only production audit
+        id: audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          remote_output=$(ssh -i ~/.ssh/id_hostinger -p "$PORT" \
+            -o StrictHostKeyChecking=accept-new \
+            -o UserKnownHostsFile=~/.ssh/known_hosts \
+            -o ConnectTimeout=20 \
+            -o ConnectionAttempts=3 \
+            -o ServerAliveInterval=20 \
+            -o ServerAliveCountMax=6 \
+            "$USERNAME@$HOST" \
+            "AI_TASK_LEDGER_AUDIT_FAIL_ON_STALE=true AI_TASK_LEDGER_AUDIT_STALE_MINUTES=20 bash -s" \
+            < deploy/hostinger/verify-ai-task-ledger-prod.sh 2>&1)
+          remote_rc=$?
+          set -e
+
+          audit_json=$(printf '%s\n' "$remote_output" \
+            | sed -n 's/^AI_TASK_LEDGER_AUDIT=//p' | tail -n 1)
+          if ! jq -e . >/dev/null 2>&1 <<<"$audit_json"; then
+            audit_json=$(jq -nc --argjson rc "$remote_rc" '{
+              schema_version:1,
+              checked_at:(now | todateiso8601),
+              healthy:false,
+              degraded_reasons:["monitor_transport_failed"],
+              monitor_transport_rc:$rc,
+              public_healthy:false,
+              public_status:{healthz:"unknown",readyz:"unknown",audit_logs_anonymous:"unknown"},
+              interlock_violation_count:0,
+              mismatch_count:0,
+              review_ack_violation_count:0,
+              stale_active_count:0,
+              database_query:"not_observed"
+            }')
+          fi
+
+          healthy=$(jq -r '.healthy == true' <<<"$audit_json")
+          fingerprint=$(jq -r '[
+            (.public_healthy // false),
+            (.interlock_violation_count // 0),
+            (.mismatch_count // 0),
+            (.review_ack_violation_count // 0),
+            (.stale_active_count // 0),
+            (.database_query // "unknown"),
+            ((.degraded_reasons // []) | sort | join(","))
+          ] | map(tostring) | join("|")' <<<"$audit_json")
+
+          echo "healthy=$healthy" >> "$GITHUB_OUTPUT"
+          echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
+          {
+            echo "json<<AUDIT_JSON_EOF"
+            jq -c . <<<"$audit_json"
+            echo "AUDIT_JSON_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+          echo "AI_TASK_LEDGER_MONITOR_HEALTHY=$healthy"
+          jq -c '{checked_at,healthy,degraded_reasons,public_status,interlock_violation_count,mismatch_count,review_ack_violation_count,stale_active_count,active_count,waiting_for_ack_count,ai_core_status_counts}' <<<"$audit_json"
+
+      - name: Reconcile deduplicated incident issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AUDIT_JSON: ${{ steps.audit.outputs.json }}
+          HEALTHY: ${{ steps.audit.outputs.healthy }}
+          FINGERPRINT: ${{ steps.audit.outputs.fingerprint }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          api="https://api.github.com/repos/$GITHUB_REPOSITORY"
+          headers=(-H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" -H "X-GitHub-Api-Version: 2022-11-28")
+          curl -fsS "${headers[@]}" "$api/issues?state=all&per_page=100" -o /tmp/issues.json
+
+          issue_number=$(jq -r --arg title "$ISSUE_TITLE" '[.[]
+            | select(has("pull_request") | not)
+            | select(.title == $title)]
+            | sort_by(.number) | reverse | .[0].number // empty' /tmp/issues.json)
+          issue_state=""
+          issue_body=""
+          if [[ "$issue_number" =~ ^[0-9]+$ ]]; then
+            issue_state=$(jq -r --argjson number "$issue_number" '.[] | select(.number == $number) | .state' /tmp/issues.json)
+            issue_body=$(jq -r --argjson number "$issue_number" '.[] | select(.number == $number) | .body // ""' /tmp/issues.json)
+          fi
+
+          checked_at=$(jq -r '.checked_at // "unknown"' <<<"$AUDIT_JSON")
+          reasons=$(jq -r '(.degraded_reasons // []) | join(", ") | if length == 0 then "none" else . end' <<<"$AUDIT_JSON")
+          public=$(jq -c '.public_status // {}' <<<"$AUDIT_JSON")
+          counts=$(jq -c '{
+            interlock_violations:(.interlock_violation_count // 0),
+            ledger_mismatches:(.mismatch_count // 0),
+            review_ack_violations:(.review_ack_violation_count // 0),
+            stale_active_jobs:(.stale_active_count // 0),
+            active_jobs:(.active_count // 0),
+            waiting_for_ack:(.waiting_for_ack_count // 0)
+          }' <<<"$AUDIT_JSON")
+          details=$(jq -c '{
+            interlock_violations:(.interlock_violations // []),
+            mismatches:(.mismatches // []),
+            review_ack_violations:(.review_ack_violations // []),
+            stale_active:(.stale_active // [])
+          }' <<<"$AUDIT_JSON")
+
+          if [ "$HEALTHY" = "true" ]; then
+            if [ "$issue_state" = "open" ]; then
+              body=$(cat <<EOF
+          Production ledger reconciliation recovered.
+
+          - Checked: $checked_at
+          - Public endpoints: \`$public\`
+          - Counts: \`$counts\`
+
+          <!-- ai-task-ledger-fingerprint:healthy -->
+          EOF
+              )
+              payload=$(jq -nc --arg body "$body" '{state:"closed",state_reason:"completed",body:$body}')
+              curl -fsS "${headers[@]}" -X PATCH -H "Content-Type: application/json" \
+                -d "$payload" "$api/issues/$issue_number" >/dev/null
+              echo "AI_TASK_LEDGER_INCIDENT=CLOSED issue=$issue_number"
+            else
+              echo "AI_TASK_LEDGER_INCIDENT=NONE"
+            fi
+            exit 0
+          fi
+
+          marker="<!-- ai-task-ledger-fingerprint:$FINGERPRINT -->"
+          if [ "$issue_state" = "open" ] && grep -Fq "$marker" <<<"$issue_body"; then
+            echo "AI_TASK_LEDGER_INCIDENT=UNCHANGED issue=$issue_number"
+            echo "::warning::AI Task PROD ledger remains degraded; existing incident is unchanged."
+            exit 0
+          fi
+
+          body=$(cat <<EOF
+          AI Task PROD ledger reconciliation is degraded.
+
+          - Checked: $checked_at
+          - Reasons: $reasons
+          - Public endpoints: \`$public\`
+          - Counts: \`$counts\`
+          - Bounded evidence: \`$details\`
+          - Monitor run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID
+
+          $marker
+          EOF
+          )
+
+          if [[ "$issue_number" =~ ^[0-9]+$ ]]; then
+            payload=$(jq -nc --arg body "$body" '{state:"open",body:$body}')
+            curl -fsS "${headers[@]}" -X PATCH -H "Content-Type: application/json" \
+              -d "$payload" "$api/issues/$issue_number" >/dev/null
+            echo "AI_TASK_LEDGER_INCIDENT=UPDATED issue=$issue_number"
+          else
+            payload=$(jq -nc --arg title "$ISSUE_TITLE" --arg body "$body" '{title:$title,body:$body}')
+            response=$(curl -fsS "${headers[@]}" -X POST -H "Content-Type: application/json" \
+              -d "$payload" "$api/issues")
+            echo "AI_TASK_LEDGER_INCIDENT=CREATED issue=$(jq -r '.number' <<<"$response")"
+          fi
+          echo "::warning::AI Task PROD ledger audit detected degradation; the deduplicated incident issue is open."
