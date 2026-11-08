@@ -101,9 +101,12 @@ INSERT INTO ai_tasks VALUES
 (1003,'default','new_inquiry',null,null),
 (1004,'default','completed',null,null),
 (1005,'default','new_inquiry',201,'Synthetic Active PIC'),
-(1006,'default','new_inquiry',null,null);
+(1006,'default','new_inquiry',null,null),
+(1007,'default','new_inquiry',201,'Synthetic Active PIC');
 ALTER TABLE audit_logs ADD CONSTRAINT reject_test_1006 CHECK (entity_id IS DISTINCT FROM '1006');
 INSERT INTO ai_execution_jobs(task_id,company_id) VALUES(1003,'default');
+INSERT INTO ai_execution_jobs(task_id,company_id,source,external_id,status,metadata)
+ VALUES(1007,'default','AI_TASK','ai-task:default:1007','failed','{"accountAlias":"GPT02"}'::jsonb);
 SQL
 docker run -d --network "$NET" --name "$API" \
  -e NODE_ENV=development -e APP_ENV=development -e PORT=8080 \
@@ -144,7 +147,11 @@ function assert(x,msg){if(!x)throw Error(msg);}
  r=await req("POST",1006,"gpt02-assign-pic",auth,{memberId:201});assert(r.status===503,"failing audit must reject assignment");
  r=await req("GET",1006,"gpt02-pic-options",auth);assert(r.status===200&&r.data.assignmentReady===false,"audit error rolls back task update");
  r=await req("POST",1005,"execution",auth,{mode:"chatgpt",accountAlias:"GPT02",instruction:"Synthetic test only - must never dispatch"});assert(r.status===409&&r.data.error==="GPT02_PIC_AUDIT_NOT_VERIFIED"&&r.data.dispatchNotStarted===true,"audit gate blocks unverified GPT02 before ledger");
- console.log("ISOLATED_REAL_API_14_OF_14_PASS");
+ r=await req("POST",1007,"execution",auth,{mode:"chatgpt",accountAlias:"GPT02",instruction:"Synthetic test should never dispatch"});
+ assert(r.status===409&&r.data.error==="GPT02_EXISTING_ATTEMPT_REQUIRES_AUTHORIZED_RECOVERY"&&r.data.dispatchNotStarted===true,"direct GPT02 retry denied");
+ r=await req("POST",1007,"execution",auth,{mode:"chatgpt",accountAlias:"GPT01",instruction:"Synthetic test should never dispatch"});
+ assert(r.status===409&&r.data.error==="GPT02_EXISTING_ATTEMPT_REQUIRES_AUTHORIZED_RECOVERY","persisted GPT02 alias cannot be bypassed");
+ console.log("ISOLATED_REAL_API_16_OF_16_PASS");
 })().catch(err=>{console.error("ISOLATED_REAL_API_FAIL",err.message);process.exitCode=1});
 JS
 docker exec -i "$PG" psql -U test -d testdb -A -t -v ON_ERROR_STOP=1 <<'SQL'
