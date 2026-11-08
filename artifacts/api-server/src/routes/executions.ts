@@ -434,6 +434,50 @@ function scheduleExecutionTracking(executionId: string, delayMs = 1_000): void {
   executionSyncTimers.set(executionId, timer);
 }
 
+// Read-only, exact external ID readback for the existing AI Core bridge.
+// The receiver remains passive and never authorizes GPT02 execution.
+router.get("/bridge/jobs/by-external-id/:externalId", requireBridgeToken,
+ async (req: Request, res: Response): Promise<void> => {
+  res.setHeader("Cache-Control", "no-store");
+  // Deployment activation is explicit. Endpoint stays absent by default.
+  if (process.env.AI_TASK_BRIDGE_READBACK_ENABLED !== "true") {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  const externalId = String(req.params.externalId ?? "");
+  if (!/^bridge-command:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(externalId)) {
+    res.status(400).json({ error: "Invalid bridge external ID" });
+    return;
+  }
+  try {
+    const [job] = await db.select({
+      id: aiExecutionJobsTable.id,
+      source: aiExecutionJobsTable.source,
+      externalId: aiExecutionJobsTable.externalId,
+      status: aiExecutionJobsTable.status,
+      progress: aiExecutionJobsTable.progress,
+      metadata: aiExecutionJobsTable.metadata,
+      taskId: aiExecutionJobsTable.taskId,
+    }).from(aiExecutionJobsTable)
+      .where(and(eq(aiExecutionJobsTable.source, "AI_CORE"),
+        eq(aiExecutionJobsTable.externalId, externalId)))
+      .limit(1);
+    if (!job) { res.status(404).json({ error: "Bridge job not found" }); return; }
+    const meta = safeSourceTimelineMetadata(job.metadata);
+    // Do not copy arbitrary job metadata, conversation text or credentials.
+    res.status(200).json({ found: true, source: "AI_CORE",
+      external_id: job.externalId, id: job.id, task_id: job.taskId ?? null,
+      status: job.status, progress: job.progress,
+      timeline: meta,
+      readOnly: true, mayIssueGrant: false, mayDispatchWorker: false,
+      verifiedExecution: false,
+    });
+  } catch (err) {
+    logger.error({ err }, "GET /bridge/jobs/by-external-id failed");
+    res.status(503).json({ error: "Bridge ledger readback unavailable" });
+  }
+});
+
 // AI Core -> AI Task passive ledger registration.
 router.post("/bridge/jobs", requireBridgeToken, async (req: Request, res: Response): Promise<void> => {
   try {
