@@ -198,3 +198,36 @@ test('legacy PATCH refuses to replace verified GPT02 member ID with free-text PI
  assert.ok(route.includes('VERIFIED_PIC_REQUIRES_ID_ASSIGNMENT'));
  assert.ok(route.indexOf('const changingPicName')<route.indexOf('.update(aiTasksTable)'));
 });
+
+test('GPT02 PIC audit readback is DEV-only, company-scoped, and cannot authorize runtime',()=>{
+ const src=readFileSync(new URL('../src/routes/executions.ts',import.meta.url),'utf8');
+ const begin=src.indexOf('router.get("/ai-tasks/:id/gpt02-pic-audit", requireAuth');
+ const end=src.indexOf('router.post("/ai-tasks/:id/gpt02-assign-pic", requireAuth',begin);
+ assert.ok(begin>0 && end>begin);
+ const route=src.slice(begin,end);
+ for(const item of [
+  'process.env.NODE_ENV !== "development"',
+  'process.env.APP_ENV === "production"',
+  'req.user?.role !== "super_admin"',
+  'eq(aiTasksTable.companyId,companyId)',
+  'eq(auditLogsTable.companyId,companyId)',
+  'eq(auditLogsTable.entityId,taskId)',
+  'eq(auditLogsTable.action,"gpt02_pic_assigned")',
+  'recorded["memberId"]===task.assignedToId',
+  'recorded["memberName"]===task.assignedTo',
+  'recorded["companyId"]===companyId',
+  'audit.actorId != null',
+  'auditMatchesCurrent',
+  'operatorApprovalGranted:false',
+  'commandDispatched:false',
+  'nativeAckVerified:false',
+ ]) assert.ok(route.includes(item),item);
+ assert.doesNotMatch(route,/db\.update\(|db\.insert\(|submitAiTaskCommand\(/);
+});
+test('GPT02 task detail requires matched audit before lifecycle button can dispatch',()=>{
+ const src=readFileSync(new URL('../../ai-task-center/src/pages/ai-task-detail.tsx',import.meta.url),'utf8');
+ assert.ok(src.includes('gpt02-pic-audit'));
+ assert.ok(src.includes('!gpt02PicAudit?.auditMatchesCurrent'));
+ assert.ok(src.includes('queryKey:["gpt02-pic-audit",id,task?.companyId]'));
+ assert.ok(src.includes('Audit PIC belum cocok'));
+});
