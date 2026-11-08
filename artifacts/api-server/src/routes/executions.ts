@@ -1334,6 +1334,8 @@ router.post("/ai-tasks/:id/gpt02-assign-pic", requireAuth, async (req: Request, 
     // The assignment and audit row must commit or roll back together. Never
     // claim that a PIC changed when the audit insert failed.
     const assigned=await db.transaction(async (tx) => {
+      // Serialize the assignment check and write with new execution admission.
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${companyId} || ':' || ${taskId}::text, 0))`);
       const [updated]=await tx.update(aiTasksTable)
         .set({assignedToId:member.id,assignedTo:member.name})
         .where(and(eq(aiTasksTable.id,taskId),eq(aiTasksTable.companyId,companyId),
@@ -1503,7 +1505,25 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
     } else {
       const correlationId = randomUUID();
       const idempotencyKey = `${externalId}:${correlationId}`;
-      const [created] = await db.insert(aiExecutionJobsTable).values({
+      const [created] = await db.transaction(async (tx) => {
+        // Cross-instance fence shared with the PIC assignment transaction.
+        // The lock lasts through task readback and the new execution insert.
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${companyId} || ':' || ${taskId}::text, 0))`);
+        const [currentTask] = await tx.select({
+          assignedToId:aiTasksTable.assignedToId,
+          assignedTo:aiTasksTable.assignedTo,
+          status:aiTasksTable.status,
+        }).from(aiTasksTable)
+          .where(and(eq(aiTasksTable.id,taskId),eq(aiTasksTable.companyId,companyId))).limit(1);
+        if (!currentTask || ["completed","cancelled"].includes(currentTask.status)) {
+          throw new Error("GPT02_TASK_CHANGED_DURING_ADMISSION");
+        }
+        if (mode === "chatgpt" && accountAlias === "GPT02" &&
+            (currentTask.assignedToId !== task.assignedToId ||
+             currentTask.assignedTo !== task.assignedTo)) {
+          throw new Error("GPT02_PIC_CHANGED_DURING_ADMISSION");
+        }
+        return tx.insert(aiExecutionJobsTable).values({
         companyId,
         taskId,
         source: "AI_TASK",
@@ -1524,7 +1544,8 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
           continuationDepth: 0,
           ...(mode === "chatgpt" ? { accountAlias } : {}),
         },
-      }).onConflictDoNothing().returning();
+        }).onConflictDoNothing().returning().then(rows => rows[0] ?? null);
+      });
       if (!created) {
         const [collision] = await db.select().from(aiExecutionJobsTable)
           .where(and(eq(aiExecutionJobsTable.source, "AI_TASK"), eq(aiExecutionJobsTable.externalId, externalId))).limit(1);
@@ -1677,6 +1698,11 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
       res.status(502).json({ error: "AI Core dispatch failed", execution: failed ?? execution });
     }
   } catch (err) {
+    if (err instanceof Error && ["GPT02_TASK_CHANGED_DURING_ADMISSION",
+        "GPT02_PIC_CHANGED_DURING_ADMISSION"].includes(err.message)) {
+      res.status(409).json({error:err.message,dispatchNotStarted:true});
+      return;
+    }
     logger.error({ err }, "POST task execution failed");
     res.status(500).json({ error: "Failed to start execution" });
   }
