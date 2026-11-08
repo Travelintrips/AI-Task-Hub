@@ -293,7 +293,7 @@ test('scheduled GPT02 account-session retry is disabled until supervised recover
 });
 test('GPT02 automatic and manual continuations require new authorized admission',()=>{
  const source=readFileSync(new URL('../src/routes/executions.ts',import.meta.url),'utf8');
- const autoStart=source.indexOf('async function processAutomaticSopContinuation(');
+ const autoStart=source.indexOf('async function recoverVerifiedSopContinuations(');
  const autoEnd=source.indexOf('router.post("/ai-tasks/:id/continue"',autoStart);
  assert.ok(autoStart>=0 && autoEnd>autoStart);
  const auto=source.slice(autoStart,autoEnd);
