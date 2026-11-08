@@ -12,6 +12,7 @@ import { getCompanyId, getCompanyIdForWrite, requireAuth } from "../middleware/a
 import { emitSseEvent } from "../lib/sse";
 import { safeSourceTimelineMetadata } from "../lib/safe-source-timeline-metadata";
 import { bridgeLedgerReadbackAllowed } from "../lib/bridge-ledger-readback-policy";
+import { passiveBridgeSourceProgress } from "../lib/bridge-ledger-source-progress";
 import { summarizeBridgeLedgerEvents } from "../lib/bridge-ledger-event-summary";
 import { isAttestedCheckpointResponse, verifiedContinuation } from "../lib/verified-continuation";
 import { hasVerifiedSourceFinalAck } from "../lib/verified-source-final-ack";
@@ -874,7 +875,7 @@ router.post("/bridge/jobs/:id/source-event", requireBridgeToken, async (req: Req
       // COMPLETED event must remain "verifying" until Final ACK is verified.
       status: verifiedFinal ? "completed" : normalized === "FAILED" ? "failed" : normalized === "BLOCKED" ? "blocked" :
         normalized === "COMPLETED" ? "verifying" : normalized.toLowerCase(),
-      progress: verifiedFinal ? 100 : normalized === "COMPLETED" ? 90 : terminal ? 100 : Math.max(job.progress, 25),
+      progress: passiveBridgeSourceProgress(normalized, job.progress, verifiedFinal),
       workerId: typeof observation["workerId"] === "string" ? observation["workerId"] : job.workerId,
       startedAt: ["RUNNING", "IN_PROGRESS"].includes(normalized) ? job.startedAt ?? new Date() : job.startedAt,
       ...(verifiedFinal ? {
