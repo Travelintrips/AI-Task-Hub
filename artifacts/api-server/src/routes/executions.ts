@@ -717,6 +717,8 @@ router.get("/bridge/jobs/by-external-id/:externalId", requireBridgeToken,
       timeline: meta, eventEvidence,
       readOnly: true, passiveLedger: true, mayIssueGrant: false, mayDispatchWorker: false,
       verifiedExecution: false,
+      taskLinkageVerified: false, attemptBindingVerified: false,
+      accountableOwnerVerified: false,
     });
   } catch (err) {
     logger.error({ err }, "GET /bridge/jobs/by-external-id failed");
@@ -781,6 +783,10 @@ router.post("/bridge/jobs", requireBridgeToken, async (req: Request, res: Respon
         external_id: row.externalId,
         status: row.status,
         correlation_id: row.correlationId,
+        task_linkage_verified: false,
+        attempt_binding_verified: false,
+        accountable_owner_verified: false,
+        passive_ledger_only: true,
       },
     });
   } catch (err) {
