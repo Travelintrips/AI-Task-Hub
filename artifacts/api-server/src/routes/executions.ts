@@ -404,7 +404,7 @@ async function retryChatGptDispatch(executionId: string): Promise<void> {
         executionId,
         taskId: execution.taskId,
         status: "failed",
-        progress: 100,
+        progress: Math.max(0, Math.min(90, execution.progress)),
       }, execution.companyId);
       if (failed) stopExecutionTracking(failed.id);
       return;
@@ -571,7 +571,7 @@ async function recoverVerifiedSopContinuations(): Promise<void> {
           await db.update(aiExecutionJobsTable).set({ status: "dispatching", errorMessage: "AI_CORE_DISPATCH_OUTCOME_UNCONFIRMED", metadata: { ...asRecord(created.metadata), dispatchState: "dispatching_unconfirmed", lastDispatchError: message } }).where(eq(aiExecutionJobsTable.id, created.id));
         } else {
           await db.update(aiExecutionJobsTable).set({
-            status: "failed", progress: 100, errorMessage: message, completedAt: new Date(),
+            status: "failed", progress: Math.max(0, Math.min(90, created.progress)), errorMessage: message, completedAt: new Date(),
           }).where(eq(aiExecutionJobsTable.id, created.id));
         }
       }
@@ -1254,7 +1254,7 @@ router.post("/ai-tasks/:id/continue", requireAuth, async (req: Request, res: Res
         res.status(202).json({ execution: uncertain ?? created, outcomeUnconfirmed: true }); return;
       }
       const [failed] = await db.update(aiExecutionJobsTable).set({
-        status: "failed", progress: 100, errorMessage: message, completedAt: new Date(),
+        status: "failed", progress: Math.max(0, Math.min(90, created.progress)), errorMessage: message, completedAt: new Date(),
       }).where(eq(aiExecutionJobsTable.id, created.id)).returning();
       res.status(502).json({ error: "CONTINUATION_DISPATCH_REJECTED", execution: failed ?? created });
     }
@@ -1669,7 +1669,7 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
 
       const [failed] = await db.update(aiExecutionJobsTable).set({
         status: "failed",
-        progress: 100,
+        progress: Math.max(0, Math.min(90, execution.progress)),
         errorMessage: message,
         completedAt: new Date(),
       }).where(eq(aiExecutionJobsTable.id, execution.id)).returning();
