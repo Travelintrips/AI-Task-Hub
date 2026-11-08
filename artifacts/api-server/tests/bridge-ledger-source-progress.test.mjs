@@ -266,6 +266,7 @@ test('legacy failed/blocked GPT02 execution cannot restart without supervised re
  const reset=handler.indexOf('const [reset] = await db.update(aiExecutionJobsTable)');
  assert.ok(guard>0 && reset>guard);
  assert.ok(handler.slice(0,reset).includes('mode === "chatgpt" && accountAlias === "GPT02"'));
+ assert.ok(handler.slice(0,reset).includes('asRecord(existing.metadata)["accountAlias"] === "GPT02"'));
  assert.match(handler.slice(guard-250,guard+400),/dispatchNotStarted: true/);
 });
 test('worker reasoning route cannot bypass GPT02 PIC audit by automatic handoff',()=>{
@@ -278,4 +279,30 @@ test('worker reasoning route cannot bypass GPT02 PIC audit by automatic handoff'
  const promotion=handler.indexOf('mode = "chatgpt";',reasoning);
  assert.ok(reasoning>=0 && blocked>reasoning && promotion>blocked);
  assert.match(handler.slice(blocked-100,blocked+85),/if \(accountAlias === "GPT02"\)/);
+});
+
+test('scheduled GPT02 account-session retry is disabled until supervised recovery',()=>{
+ const source=readFileSync(new URL('../src/routes/executions.ts',import.meta.url),'utf8');
+ const section=source.slice(source.indexOf('async function retryChatGptDispatch('),
+  source.indexOf('function scheduleChatGptDispatchRetry(',source.indexOf('async function retryChatGptDispatch(')));
+ const block=section.indexOf('if (accountAlias === "GPT02")');
+ const claim=section.indexOf('const [claimed] = await db.update(aiExecutionJobsTable)');
+ const dispatch=section.indexOf('submitAiTaskChatGptCommand(');
+ assert.ok(block>=0 && claim>block && dispatch>claim);
+ assert.match(section.slice(block,claim),/stopChatGptDispatchRetry\(executionId\)/);
+});
+test('GPT02 automatic and manual continuations require new authorized admission',()=>{
+ const source=readFileSync(new URL('../src/routes/executions.ts',import.meta.url),'utf8');
+ const autoStart=source.indexOf('async function processAutomaticSopContinuation(');
+ const autoEnd=source.indexOf('router.post("/ai-tasks/:id/continue"',autoStart);
+ assert.ok(autoStart>=0 && autoEnd>autoStart);
+ const auto=source.slice(autoStart,autoEnd);
+ assert.ok(auto.includes('if (alias === "GPT02") continue;'));
+ assert.ok(auto.indexOf('if (alias === "GPT02") continue;')<auto.indexOf('submitAiTaskChatGptCommand('));
+ const manual=source.slice(autoEnd,source.indexOf('router.post("/ai-tasks/:id/gpt02-pic-options"',autoEnd)>0?
+ source.indexOf('router.post("/ai-tasks/:id/gpt02-pic-options"',autoEnd):source.indexOf('router.post("/ai-tasks/:id/execution"',autoEnd));
+ const deny=manual.indexOf('GPT02_CONTINUATION_REQUIRES_NEW_AUTHORIZED_ADMISSION');
+ const create=manual.indexOf('db.insert(aiExecutionJobsTable)');
+ assert.ok(deny>=0 && create>deny);
+ assert.match(manual.slice(deny,create),/dispatchNotStarted:true/);
 });
