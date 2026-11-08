@@ -566,6 +566,19 @@ export default function AiTaskDetail() {
     enabled: currentUser?.role === "super_admin" && Boolean(task?.companyId),
     retry: false,
   });
+  const { data: gpt02PicAudit, error: gpt02PicAuditError,
+    isFetching: gpt02PicAuditFetching } = useQuery<{
+      taskId:number; assignedMemberId:number|null; assignedTo:string|null;
+      auditPresent:boolean; auditMatchesCurrent:boolean; assignmentAudited:boolean;
+      auditId:number|null; actorId:number|null; actorName:string|null;
+      assignedAt:string|null; operatorApprovalGranted:false;
+      commandDispatched:false; nativeAckVerified:false;
+    }>({
+    queryKey:["gpt02-pic-audit",id,task?.companyId],
+    queryFn:()=>apiFetch(`/ai-tasks/${id}/gpt02-pic-audit?companyId=${encodeURIComponent(task?.companyId ?? "")}`),
+    enabled:currentUser?.role==="super_admin" && Boolean(task?.companyId),
+    retry:false,
+  });
   const gpt02AssignPicMutation = useMutation({
     mutationFn: (memberId: number) => apiFetch(
       `/ai-tasks/${id}/gpt02-assign-pic?companyId=${encodeURIComponent(task?.companyId ?? "")}`,
@@ -575,6 +588,7 @@ export default function AiTaskDetail() {
       void queryClient.invalidateQueries({queryKey:["ai-task",id]});
       void queryClient.invalidateQueries({queryKey:["ai-tasks"]});
       void queryClient.invalidateQueries({queryKey:["gpt02-pic-options",id]});
+      void queryClient.invalidateQueries({queryKey:["gpt02-pic-audit",id]});
     },
     onError: (err: Error) => toast({title:"Gagal menetapkan PIC GPT02",description:err.message,variant:"destructive"}),
   });
@@ -1008,7 +1022,7 @@ export default function AiTaskDetail() {
                 </Button>
                 <Button
                   size="sm"
-                  disabled={!executionData?.bridgeConfigured || !gpt02PicOptions?.assignmentReady || startExecutionMutation.isPending || gpt02AssignPicMutation.isPending || ["completed", "cancelled"].includes(task.status)}
+                  disabled={!executionData?.bridgeConfigured || !gpt02PicOptions?.assignmentReady || !gpt02PicAudit?.auditMatchesCurrent || startExecutionMutation.isPending || gpt02AssignPicMutation.isPending || ["completed", "cancelled"].includes(task.status)}
                   onClick={() => { if (window.confirm(`Mulai lifecycle GPT02 untuk task ${task.taskNumber ?? task.id} dengan PIC ${task.assignedTo}? Pengiriman akan menggunakan idempotency key dan harus dibuktikan dengan ACK.`)) startExecutionMutation.mutate("chatgpt"); }}
                 >
                   {startExecutionMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Brain className="h-3.5 w-3.5 mr-1" />}
@@ -1045,6 +1059,13 @@ export default function AiTaskDetail() {
                   {gpt02PicOptions?.assignmentReady ? "PIC aktif terhubung berdasarkan ID." :
                     "PIC belum diverifikasi berdasarkan ID dan perusahaan."}
                 </p>
+                <p role="status" className="mt-1 text-xs text-slate-600">
+                  {gpt02PicAuditFetching ? "Memeriksa catatan audit PIC..." :
+                    gpt02PicAuditError ? "Audit PIC tidak tersedia; lifecycle GPT02 ditahan." :
+                    gpt02PicAudit?.auditMatchesCurrent ?
+                      `Audit PIC cocok — ${gpt02PicAudit.actorName ?? "Super Admin"} (${gpt02PicAudit.assignedAt ? new Date(gpt02PicAudit.assignedAt).toLocaleString("id-ID") : "waktu tidak tersedia"}).` :
+                      "Belum ada audit PIC yang cocok dengan penugasan saat ini."}
+                </p>
               </>
             ) : (
               <div className="mt-1 rounded-md border bg-white p-2 text-sm">
@@ -1066,6 +1087,7 @@ export default function AiTaskDetail() {
           </div>
         </div>
         {!gpt02PicOptions?.assignmentReady && <p role="status" className="mt-2 text-xs text-amber-700">Tentukan PIC aktif berdasarkan ID melalui Super Admin DEV. Nama saja tidak mengizinkan lifecycle GPT02.</p>}
+        {gpt02PicOptions?.assignmentReady && !gpt02PicAudit?.auditMatchesCurrent && <p role="status" className="mt-2 text-xs text-amber-700">Audit PIC belum cocok. Tidak mengizinkan lifecycle GPT02 sampai bukti penugasan dapat dibaca kembali.</p>}
         {!executionData?.bridgeConfigured && (
           <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
             AI Core DEV bridge belum dikonfigurasi pada runtime AI Task.
