@@ -1,6 +1,6 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { INTERNAL_E2E_PREFIX, isSilentInternalE2eJob } from "../lib/dev-internal-e2e";
-import { eq, ne, desc, and, ilike, or, isNull, gte, lte, inArray, SQL } from "drizzle-orm";
+import { eq, ne, desc, and, ilike, or, isNull, gte, lte, inArray, SQL, sql } from "drizzle-orm";
 import {
   db,
   aiTasksTable,
