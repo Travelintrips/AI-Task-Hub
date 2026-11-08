@@ -869,7 +869,6 @@ router.post("/bridge/jobs/:id/source-event", requireBridgeToken, async (req: Req
 
     const normalized = status.toUpperCase();
     const observation = safeSourceTimelineMetadata(body["metadata"]);
-    const terminal = ["COMPLETED", "FAILED", "BLOCKED", "DEPLOYED", "MERGED"].includes(normalized);
     const [updated] = await db.update(aiExecutionJobsTable).set({
       // Latest DEV Final ACK verification is authoritative; a source-only
       // COMPLETED event must remain "verifying" until Final ACK is verified.
