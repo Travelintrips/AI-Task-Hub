@@ -1261,6 +1261,47 @@ router.post("/ai-tasks/:id/continue", requireAuth, async (req: Request, res: Res
   }
 });
 
+// Read-only picker data. This is not a directory of authenticated approvers:
+// team_members records establish assignment eligibility only.
+router.get("/ai-tasks/:id/gpt02-pic-options", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  if (process.env.NODE_ENV !== "development" || process.env.APP_ENV === "production") {
+    res.sendStatus(404); return;
+  }
+  if (req.user?.role !== "super_admin") {
+    res.status(403).json({error:"SUPER_ADMIN_REQUIRED"}); return;
+  }
+  const taskId=Number(req.params.id);
+  if (!Number.isSafeInteger(taskId) || taskId<=0) {
+    res.status(400).json({error:"INVALID_TASK_ID"}); return;
+  }
+  try {
+    const companyId=getCompanyIdForWrite(req);
+    const [task]=await db.select({id:aiTasksTable.id,status:aiTasksTable.status,
+      assignedToId:aiTasksTable.assignedToId,assignedTo:aiTasksTable.assignedTo})
+      .from(aiTasksTable)
+      .where(and(eq(aiTasksTable.id,taskId),eq(aiTasksTable.companyId,companyId)))
+      .limit(1);
+    if (!task) { res.sendStatus(404); return; }
+    const members=await db.select({id:teamMembersTable.id,name:teamMembersTable.name})
+      .from(teamMembersTable)
+      .where(and(eq(teamMembersTable.companyId,companyId),eq(teamMembersTable.isActive,true)))
+      .orderBy(teamMembersTable.name).limit(100);
+    const selected=members.find(m=>m.id===task.assignedToId && m.name===task.assignedTo);
+    res.setHeader("Cache-Control","no-store");
+    res.json({taskId:task.id,taskStatus:task.status,
+      taskAssignmentPresent:!!selected,
+      assignmentReady:!!selected && !["completed","cancelled"].includes(task.status),
+      selectedMemberId:selected?.id??null,
+      members:members.map(m=>({id:m.id,name:m.name})),
+      choicesTruncated:members.length===100,
+      taskOwnerAuthenticated:false,operatorApprovalGranted:false,
+      commandDispatched:false});
+  } catch (err) {
+    logger.warn({err,taskId},"DEV GPT02 PIC options unavailable");
+    res.status(503).json({error:"GPT02_PIC_OPTIONS_UNAVAILABLE"});
+  }
+});
+
 // Explicit DEV-only PIC assignment for GPT02. No command or worker dispatch.
 // Do not infer a team-member ID from a display name or supplied JWT claims.
 router.post("/ai-tasks/:id/gpt02-assign-pic", requireAuth, async (req: Request, res: Response): Promise<void> => {
