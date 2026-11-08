@@ -37,3 +37,16 @@ test('bridge source-event route uses guarded projection, not terminal=100 shortc
  assert.match(route,/passiveBridgeSourceProgress\(normalized, job\.progress, verifiedFinal\)/);
  assert.doesNotMatch(route,/terminal\s*\?\s*100/);
 });
+
+test('GPT02 assignment guard cannot be bypassed by omitting lifecycleStart',()=>{
+ const source=readFileSync(new URL('../src/routes/executions.ts',import.meta.url),'utf8');
+ const start=source.indexOf('router.post("/ai-tasks/:id/execution", requireAuth');
+ const end=source.indexOf('const externalId = buildAiTaskExternalCommandId',start);
+ assert.ok(start>0&&end>start);
+ const intake=source.slice(start,end);
+ assert.match(intake,/const requestedGpt02 = body\.mode === "chatgpt"/);
+ assert.match(intake,/if \(requestedGpt02 &&/);
+ assert.match(intake,/!task\.assignedTo\?\.trim\(\)/);
+ assert.match(intake,/GPT02_TASK_ASSIGNMENT_NOT_READY/);
+ assert.doesNotMatch(intake,/if \(body\.lifecycleStart === true &&\s*\([^)]*!task\.assignedTo/);
+});
