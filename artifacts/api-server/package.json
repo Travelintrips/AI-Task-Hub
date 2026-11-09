@@ -10,7 +10,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:short-links": "node ./tests/run-payment-proof-short-link-tests.mjs",
     "test:job-bridge": "node ./tests/run-job-bridge-tests.mjs",
-    "test:gpt02-lineage": "node ./tests/run-gpt02-lineage-gate-tests.mjs"
+    "test:gpt02-lineage": "node ./tests/run-gpt02-lineage-gate-tests.mjs",
+    "test:build-portability": "node ./tests/run-pino-relocatable-build-tests.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",
