@@ -1,0 +1,9 @@
+# GPT02 — read-only DEV readiness for dormant preparer and scoped RLS
+
+The earlier runtime readiness checker reported `HUB_CORE_PREPARATION_NOT_DEPLOYED` correctly, but could not tell the difference between a correctly staged dormant function, exactly pinned preparer policies, and a partially installed or over-permissioned function. This change adds **informational only** status fields `schemaState.dormantPreparerFunctionVerified` and `schemaState.scopedPreparerRlsVerified`.
+
+The checker uses a single bounded `BEGIN READ ONLY` PostgreSQL query on the pinned CST-DEV project. The dormant-function test verifies exactly one `gpt02_stage.prepare_core_task_dormant`, SHA-256 of its real `pg_proc.prosrc`, no EXECUTE rights for postgres/anon/authenticated/service_role/preparer, pinned `search_path=pg_catalog`, NOLOGIN owner, and zero direct parent Hub/Core DML. The RLS test hashes the canonical ten-policy catalogue projection and requires an exact fingerprint, exactly ten owner-only policies and two INSERT policies. A policy or stored-procedure drift fails the informational field closed.
+
+**Not an activation gate.** Neither field is added to the list of required operational approvals, and both are deliberately separate from `preparationInstalled`. The latter still requires the actual operational function name and a verified, distinct login. The readiness response always reports `releaseDecision=NO_GO`, `dispatchPermitted=false`, `issuerGrantReady=false`, even with all synthetic booleans set true. No PROD code, hosted mutation, task creation, role activation, signature, nonce, or command is involved.
+
+Source: `scripts/dev/gpt02-lifecycle-live-preflight.cjs`. Tests: `scripts/dev/gpt02-lifecycle-live-preflight.test.cjs`; existing AI Task DEV Verify step runs them without adding workflows or jobs.

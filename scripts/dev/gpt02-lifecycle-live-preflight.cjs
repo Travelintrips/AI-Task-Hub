@@ -34,6 +34,8 @@ function evaluate(observed={}) {
   databaseRole:typeof observed.databaseRole==='string'?observed.databaseRole:null,
   schemaState:{preparationInstalled:checks.preparationInstalled,
     dormantPreparationTableStaged:observed.dormantPreparationTableStaged===true,
+    dormantPreparerFunctionVerified:observed.dormantPreparerFunctionVerified===true,
+    scopedPreparerRlsVerified:observed.scopedPreparerRlsVerified===true,
     approvalFunctionsInstalled:checks.approvalFunctionsInstalled,
     historicalTaskBoundaryEnforced:checks.historicalTaskBoundaryEnforced},
   roleState:{hubRestricted:checks.restrictedHubRole,preparerDedicated:checks.dedicatedPreparerRole,
@@ -82,6 +84,31 @@ const QUERY=`SELECT now()::text AS checked_at,current_user AS database_role,
     WHERE n.nspname='gpt02_stage' AND c.relname='core_preparations') AS dormant_table_locked,
  EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
    WHERE n.nspname='gpt02_stage' AND p.proname='prepare_core_task') AS preparer_function_exists,
+ (SELECT count(*)=1 AND bool_and(
+   p.prosecdef AND pg_get_userbyid(p.proowner)='gpt02_core_prep_owner'
+   AND 'search_path=pg_catalog'=ANY(p.proconfig)
+   AND encode(sha256(convert_to(p.prosrc,'UTF8')),'hex')='b18275516add255e76f31414a28732bdd900b556b10f38d42e2e4bdf9f7415d4'
+   AND NOT has_function_privilege('postgres',p.oid,'EXECUTE')
+   AND NOT has_function_privilege('gpt02_core_prep_login',p.oid,'EXECUTE')
+   AND NOT has_function_privilege('anon',p.oid,'EXECUTE')
+   AND NOT has_function_privilege('authenticated',p.oid,'EXECUTE')
+   AND NOT has_function_privilege('service_role',p.oid,'EXECUTE')
+   AND NOT has_schema_privilege('gpt02_core_prep_login','gpt02_stage','USAGE')
+   AND NOT has_table_privilege('gpt02_core_prep_owner','public.ai_execution_jobs','SELECT,INSERT,UPDATE,DELETE,REFERENCES')
+   AND NOT has_table_privilege('gpt02_core_prep_owner','ai_platform.ai_coding_tasks','SELECT,INSERT,UPDATE,DELETE,REFERENCES')
+   AND EXISTS(SELECT 1 FROM pg_roles r WHERE r.rolname='gpt02_core_prep_owner' AND NOT r.rolcanlogin
+     AND NOT r.rolsuper AND NOT r.rolbypassrls AND r.rolconnlimit=0))
+   FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+   WHERE n.nspname='gpt02_stage' AND p.proname='prepare_core_task_dormant') AS dormant_function_locked,
+ (SELECT count(*)=10 AND
+   count(*) FILTER (WHERE p.roles='{gpt02_core_prep_owner}'::name[])=10 AND
+   count(*) FILTER (WHERE p.cmd='INSERT')=2 AND
+   encode(sha256(convert_to(string_agg(
+     format('%s|%s|%s|%s|%s|%s|%s|%s',p.schemaname,p.tablename,p.policyname,p.permissive,p.roles::text,p.cmd,
+       coalesce(p.qual,'<NULL>'),coalesce(p.with_check,'<NULL>')),
+     E'\n' ORDER BY p.schemaname,p.tablename,p.policyname),'UTF8')),'hex')=
+       'b157e1fbfe1a844309373db42743257f1996895316dc87166d385637c9f8031d'
+   FROM pg_policies p WHERE p.policyname LIKE 'gpt02_preparer_%') AS scoped_preparer_rls_exact,
  EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
    WHERE n.nspname='gpt02_private' AND p.proname='record_linked_approval') AS attestor_function_exists,
  EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
@@ -108,6 +135,8 @@ function observedFromRow(row={},pinnedProject=false){
   isolatedPreparerPermissions:false,
   preparationInstalled:row.preparation_table_exists===true&&row.preparer_function_exists===true,
   dormantPreparationTableStaged:row.dormant_table_locked===true&&row.preparer_function_exists===false,
+  dormantPreparerFunctionVerified:row.dormant_function_locked===true&&row.dormant_table_locked===true&&row.preparer_function_exists===false,
+  scopedPreparerRlsVerified:row.scoped_preparer_rls_exact===true,
   attestorRoleReady:row.attestor_role_ready===true,issuerRoleReady:row.issuer_role_ready===true,
   approvalFunctionsInstalled:row.attestor_function_exists===true&&row.issuer_function_exists===true,
   historicalTaskBoundaryEnforced:row.historical_task_boundary_enforced===true,

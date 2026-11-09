@@ -101,3 +101,51 @@ test('staged empty private table is visible separately from active Core preparat
  assert.ok(v.blockers.includes('HUB_CORE_PREPARATION_NOT_DEPLOYED'));
  assert.equal(v.releaseDecision,'NO_GO');assert.equal(v.dispatchPermitted,false);
 });
+
+test('dormant function and exact ten RLS policies are visible without granting lifecycle or execution',()=>{
+ const base={database_role:'postgres',is_readonly:true,preparer_role_limited:false,
+  preparer_dormant_staged:true,preparation_table_exists:true,dormant_table_locked:true,
+  preparer_function_exists:false,dormant_function_locked:true,scoped_preparer_rls_exact:true,
+  historical_task_boundary_enforced:true,
+  issuer_role_ready:false,attestor_role_ready:false,
+  approved_count:0,receipt_count:0,prepared_count:0};
+ const result=evaluate(observedFromRow(base,true));
+ assert.equal(result.schemaState.dormantPreparationTableStaged,true);
+ assert.equal(result.schemaState.dormantPreparerFunctionVerified,true);
+ assert.equal(result.schemaState.scopedPreparerRlsVerified,true);
+ assert.equal(result.schemaState.preparationInstalled,false);
+ assert.equal(result.roleState.preparerDedicated,false);
+ assert.ok(result.blockers.includes('HUB_CORE_PREPARATION_NOT_DEPLOYED'));
+ assert.ok(result.blockers.includes('FRESH_SUPER_ADMIN_SIGNATURE_NOT_VERIFIED'));
+ assert.equal(result.dispatchPermitted,false);assert.equal(result.releaseDecision,'NO_GO');
+ // A dormant function can never be called "verified" after an active-name
+ // function appears, even if an old dormant copy still matches byte-for-byte.
+ const active=evaluate(observedFromRow({...base,preparer_function_exists:true},true));
+ assert.equal(active.schemaState.dormantPreparerFunctionVerified,false);
+ assert.equal(active.dispatchPermitted,false);assert.equal(active.releaseDecision,'NO_GO');
+});
+test('mismatched function digest, leaked EXECUTE or changed RLS policy fingerprint fail closed',()=>{
+ const base={is_readonly:true,preparation_table_exists:true,dormant_table_locked:true,
+  preparer_function_exists:false,dormant_function_locked:true,scoped_preparer_rls_exact:true};
+ for(const key of ['dormant_function_locked','scoped_preparer_rls_exact','dormant_table_locked']){
+  const bad=evaluate(observedFromRow({...base,[key]:false},true));
+  if(key!=='scoped_preparer_rls_exact')assert.equal(bad.schemaState.dormantPreparerFunctionVerified,false);
+  if(key==='scoped_preparer_rls_exact')assert.equal(bad.schemaState.scopedPreparerRlsVerified,false);
+  assert.equal(bad.dispatchPermitted,false);assert.equal(bad.releaseDecision,'NO_GO');
+ }
+ const absent=evaluate(observedFromRow({},true));
+ assert.equal(absent.schemaState.dormantPreparerFunctionVerified,false);
+ assert.equal(absent.schemaState.scopedPreparerRlsVerified,false);
+ assert.equal(absent.releaseDecision,'NO_GO');
+});
+test('read-only catalog query pins exact dormant SHA-256, owner ACL, and policy fingerprint',()=>{
+ assert.match(QUERY,/dormant_function_locked/);
+ assert.match(QUERY,/scoped_preparer_rls_exact/);
+ assert.match(QUERY,/b18275516add255e76f31414a28732bdd900b556b10f38d42e2e4bdf9f7415d4/);
+ assert.match(QUERY,/b157e1fbfe1a844309373db42743257f1996895316dc87166d385637c9f8031d/);
+ assert.match(QUERY,/has_function_privilege\('postgres',p.oid,'EXECUTE'\)/);
+ assert.match(QUERY,/has_function_privilege\('gpt02_core_prep_login',p.oid,'EXECUTE'\)/);
+ assert.match(QUERY,/has_table_privilege\('gpt02_core_prep_owner','public.ai_execution_jobs'/);
+ assert.match(QUERY,/count\(\*\)=10/);
+ assert.doesNotMatch(QUERY,/supabase_migrations\.schema_migrations/);
+});
