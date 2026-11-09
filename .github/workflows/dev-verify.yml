@@ -90,6 +90,8 @@ jobs:
         run: |
           node --test artifacts/api-server/tests/gpt02-prepared-read-inert.test.mjs
           node --check scripts/dev/build-gpt02-prepared-read-inert-overlay.cjs
+      - name: Verify post-nonce single non-authorizing fence invariants
+        run: node --test scripts/dev/gpt02-nondispatch-fence.contract.test.mjs
       - name: Typecheck
         run: pnpm run typecheck
       - name: Build

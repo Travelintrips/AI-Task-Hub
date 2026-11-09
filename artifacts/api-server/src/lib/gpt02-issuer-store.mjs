@@ -10,6 +10,22 @@ const ACCOUNT_ID=/^[A-Za-z0-9][A-Za-z0-9_.:@-]{0,127}$/;
 const ROLES=Object.freeze({attestor:'dev_gpt02_attestor_evidence',issuer:'dev_gpt02_issuer_evidence'});
 const TABLES=['gpt02_private.approvals','gpt02_private.receipts'];
 const LINK_TABLES=['gpt02_private.operator_links','gpt02_private.core_identity_receipts'];
+const FENCE_TABLES=['gpt02_private.post_consumption_fences'];
+const FENCE_COLUMNS=Object.freeze([
+ ['gpt02_private.post_consumption_fences','fence_id','uuid'],
+ ['gpt02_private.post_consumption_fences','receipt_id','uuid'],
+ ['gpt02_private.post_consumption_fences','command_id','uuid'],
+ ['gpt02_private.post_consumption_fences','link_id','uuid'],
+ ['gpt02_private.post_consumption_fences','hub_execution_id','uuid'],
+ ['gpt02_private.post_consumption_fences','core_task_id','uuid'],
+ ['gpt02_private.post_consumption_fences','attempt_id','uuid'],
+ ['gpt02_private.post_consumption_fences','worker_id','text'],
+ ['gpt02_private.post_consumption_fences','lease_epoch','int8'],
+ ['gpt02_private.post_consumption_fences','lease_started_at','timestamptz'],
+ ['gpt02_private.post_consumption_fences','lease_expires_at','timestamptz'],
+ ['gpt02_private.post_consumption_fences','dispatch_allowed','bool'],
+ ['gpt02_private.post_consumption_fences','core_ledger_written','bool']
+]);
 const PERMISSIONS='SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER';
 const BASE_COLUMNS=Object.freeze([
  ['gpt02_private.approvals','command_id','uuid'],['gpt02_private.approvals','attempt_id','uuid'],
@@ -119,7 +135,9 @@ export class Gpt02IssuerStore {
  const tables=[...TABLES,...extraTables];
  const acl=(await c.query(ACL_SQL,[tables,PERMISSIONS])).rows;
  if(acl.length!==tables.length||acl.some(x=>x.present!==true||x.direct_access!==false))fail('DIRECT_EVIDENCE_ACCESS_OR_SCHEMA_MISSING');
- const columns=extraTables.length?[...BASE_COLUMNS,...LINK_COLUMNS]:BASE_COLUMNS;
+ const columns=[...BASE_COLUMNS,
+ ...(extraTables.some(x=>LINK_TABLES.includes(x))?LINK_COLUMNS:[]),
+ ...(extraTables.some(x=>FENCE_TABLES.includes(x))?FENCE_COLUMNS:[])];
  const shape=(await c.query(SCHEMA_SQL,[columns.map(x=>x[0]),columns.map(x=>x[1]),columns.map(x=>x[2])])).rows;
  if(shape.length!==columns.length||shape.some(x=>x.type_matches!==true))fail('EVIDENCE_SCHEMA_VERSION_MISMATCH');
 
@@ -160,6 +178,23 @@ export class Gpt02IssuerStore {
  recordedBy:link.recordedBy,evidenceConsumed:true,coreLedgerWritten:false,
  authorizationGranted:false,dispatchPermitted:false});
  },LINK_TABLES);
+ }
+ /** An append-only, one-time evidence fence after a signed nonce receipt.
+  * This is NOT a leased worker grant, task status transition, or dispatch token. */
+ async reserveNonDispatchFence(input){
+  if(this.#kind!=='issuer')fail('ISSUER_CONNECTION_REQUIRED');
+  if(!object(input)||Object.keys(input).sort().join(',')!=='approval,operatorLink,receiptId'||
+    typeof input.receiptId!=='string'||!UUID.test(input.receiptId))fail('INVALID_FENCE_INPUT');
+  const {e,link}=this.#verifiedLinkedInput({approval:input.approval,operatorLink:input.operatorLink});
+  return this.#transaction(async c=>{
+   const r=(await c.query('SELECT gpt02_private.reserve_post_consumption_fence($1,$2,$3,$4) AS fence_id',
+     [input.receiptId,e.claims.commandId,link.linkId,'openclaw-dell-chatgpt-wake-dev'])).rows[0];
+   if(typeof r?.fence_id!=='string'||!UUID.test(r.fence_id))fail('FENCE_UNAVAILABLE_OR_ALREADY_RESERVED');
+   return Object.freeze({fenceId:r.fence_id,receiptId:input.receiptId,
+     commandId:e.claims.commandId,leaseEpoch:1,evidenceFenceReserved:true,
+     issuerLeaseGranted:false,coreLedgerWritten:false,operatorApprovalGranted:false,
+     dispatchPermitted:false,readOnly:false});
+  },[...LINK_TABLES,...FENCE_TABLES]);
  }
  async recordApproval(envelope){
  if(this.#kind!=='attestor')fail('ATTESTOR_CONNECTION_REQUIRED');
