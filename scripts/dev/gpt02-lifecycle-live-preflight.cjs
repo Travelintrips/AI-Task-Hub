@@ -15,7 +15,7 @@ function verifiedRootCa(env={}) {
 
 const NEED=['connected','readonly','pinnedProject','restrictedHubRole','dedicatedPreparerRole',
  'isolatedPreparerPermissions','preparationInstalled','attestorRoleReady','issuerRoleReady',
- 'approvalFunctionsInstalled','verifiedOperatorConsent','leaseIssuerOperational','nativeDispatchGranted'];
+ 'approvalFunctionsInstalled','historicalTaskBoundaryEnforced','verifiedOperatorConsent','leaseIssuerOperational','nativeDispatchGranted'];
 const REASONS={connected:'CST_DEV_DB_READ_UNAVAILABLE',readonly:'READ_ONLY_TRANSACTION_NOT_VERIFIED',
  pinnedProject:'CST_DEV_PROJECT_IDENTITY_NOT_PINNED',restrictedHubRole:'HUB_USES_PRIVILEGED_SHARED_DB_LOGIN',
  dedicatedPreparerRole:'DEDICATED_PREPARER_LOGIN_MISSING_OR_DISABLED',
@@ -23,6 +23,7 @@ const REASONS={connected:'CST_DEV_DB_READ_UNAVAILABLE',readonly:'READ_ONLY_TRANS
  preparationInstalled:'HUB_CORE_PREPARATION_NOT_DEPLOYED',
  attestorRoleReady:'ATTESTOR_IDENTITY_NOT_ACTIVE',issuerRoleReady:'ISSUER_IDENTITY_NOT_ACTIVE',
  approvalFunctionsInstalled:'SIGNED_APPROVAL_ROUTINES_NOT_DEPLOYED',
+ historicalTaskBoundaryEnforced:'APPROVAL_SCHEMA_STILL_ACCEPTS_HISTORICAL_TASK_IDS',
  verifiedOperatorConsent:'FRESH_SUPER_ADMIN_SIGNATURE_NOT_VERIFIED',
  leaseIssuerOperational:'ISSUER_LEASE_NOT_VERIFIED',nativeDispatchGranted:'NO_NEW_COMMAND_DISPATCH_AUTHORIZATION'};
 function evaluate(observed={}) {
@@ -31,7 +32,8 @@ function evaluate(observed={}) {
  return Object.freeze({environment:'CST-DEV',mode:'READ_ONLY_ACTIVATION_READINESS',
   checkedAt:typeof observed.checkedAt==='string'?observed.checkedAt:null,
   databaseRole:typeof observed.databaseRole==='string'?observed.databaseRole:null,
-  schemaState:{preparationInstalled:checks.preparationInstalled,approvalFunctionsInstalled:checks.approvalFunctionsInstalled},
+  schemaState:{preparationInstalled:checks.preparationInstalled,approvalFunctionsInstalled:checks.approvalFunctionsInstalled,
+    historicalTaskBoundaryEnforced:checks.historicalTaskBoundaryEnforced},
   roleState:{hubRestricted:checks.restrictedHubRole,preparerDedicated:checks.dedicatedPreparerRole,
     issuerReady:checks.issuerRoleReady,attestorReady:checks.attestorRoleReady},
   evidenceCounts:{approved:Number.isSafeInteger(observed.approved)&&observed.approved>=0?observed.approved:null,
@@ -72,6 +74,12 @@ const QUERY=`SELECT now()::text AS checked_at,current_user AS database_role,
    WHERE n.nspname='gpt02_private' AND p.proname='record_linked_approval') AS attestor_function_exists,
  EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
    WHERE n.nspname='gpt02_private' AND p.proname='consume_linked_approval') AS issuer_function_exists,
+ EXISTS (SELECT 1 FROM pg_catalog.pg_constraint co
+   JOIN pg_catalog.pg_class cl ON cl.oid=co.conrelid
+   JOIN pg_catalog.pg_namespace n ON n.oid=cl.relnamespace
+   WHERE n.nspname='gpt02_private' AND cl.relname='approvals'
+     AND co.contype='c' AND co.convalidated IS TRUE
+     AND regexp_replace(pg_catalog.pg_get_expr(co.conbin,co.conrelid),'[[:space:]()]','','g')='task_id>136') AS historical_task_boundary_enforced,
  (SELECT count(*)::int FROM gpt02_private.approvals) AS approved_count,
  (SELECT count(*)::int FROM gpt02_private.receipts) AS receipt_count,
  (SELECT count(*)::int FROM public.ai_execution_jobs WHERE status='prepared' AND company_id='default') AS prepared_count,
@@ -88,6 +96,7 @@ function observedFromRow(row={},pinnedProject=false){
   preparationInstalled:row.preparation_table_exists===true&&row.preparer_function_exists===true,
   attestorRoleReady:row.attestor_role_ready===true,issuerRoleReady:row.issuer_role_ready===true,
   approvalFunctionsInstalled:row.attestor_function_exists===true&&row.issuer_function_exists===true,
+  historicalTaskBoundaryEnforced:row.historical_task_boundary_enforced===true,
   verifiedOperatorConsent:false,leaseIssuerOperational:false,nativeDispatchGranted:false,
   approved:row.approved_count,receipts:row.receipt_count,preparedJobs:row.prepared_count,
   coreOperatorAdminCount:row.core_operator_admin_count};

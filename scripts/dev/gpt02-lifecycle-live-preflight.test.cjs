@@ -40,12 +40,12 @@ test('true healthy active Core operators do not replace cryptographic consent',(
 test('actual postgres login and NOLOGIN roles appear as concrete blockers',()=>{
  const row={database_role:'postgres',is_readonly:true,hub_role_restricted:false,preparer_role_limited:null,
   issuer_role_ready:false,attestor_role_ready:false,preparation_table_exists:false,
-  preparer_function_exists:false,attestor_function_exists:false,issuer_function_exists:false,
+  preparer_function_exists:false,attestor_function_exists:false,issuer_function_exists:false,historical_task_boundary_enforced:false,
   approved_count:0,receipt_count:0,prepared_count:0,core_operator_admin_count:2};
  const r=evaluate(observedFromRow(row,true));
  for(const k of ['HUB_USES_PRIVILEGED_SHARED_DB_LOGIN','DEDICATED_PREPARER_LOGIN_MISSING_OR_DISABLED',
   'HUB_CORE_PREPARATION_NOT_DEPLOYED','ATTESTOR_IDENTITY_NOT_ACTIVE','ISSUER_IDENTITY_NOT_ACTIVE',
-  'SIGNED_APPROVAL_ROUTINES_NOT_DEPLOYED'])assert.ok(r.blockers.includes(k),k);
+  'SIGNED_APPROVAL_ROUTINES_NOT_DEPLOYED','APPROVAL_SCHEMA_STILL_ACCEPTS_HISTORICAL_TASK_IDS'])assert.ok(r.blockers.includes(k),k);
  assert.equal(r.evidenceCounts.approved,0);assert.equal(r.evidenceCounts.receipts,0);
 });
 test('live query reads catalog and aggregate readiness only, no sensitive records or writes',()=>{
@@ -53,6 +53,9 @@ test('live query reads catalog and aggregate readiness only, no sensitive record
  assert.match(QUERY,/rolcreaterole OR rolbypassrls/);
  assert.match(QUERY,/gpt02_private\.approvals/);
  assert.match(QUERY,/gpt02_stage\.core_preparations/);
+ assert.match(QUERY,/historical_task_boundary_enforced/);
+ assert.match(QUERY,/co\.convalidated IS TRUE/);
+ assert.match(QUERY,/task_id>136/);
  assert.doesNotMatch(QUERY,/\b(?:INSERT|UPDATE|DELETE|TRUNCATE|ALTER|CREATE|GRANT|REVOKE|CALL|COPY)\b/i);
  assert.doesNotMatch(QUERY,/password_hash|email|access_token|auth\.users|private_key/i);
  const source=fs.readFileSync(require.resolve('./gpt02-lifecycle-live-preflight.cjs'),'utf8');
@@ -63,4 +66,19 @@ test('failed or missing database read reports NO_GO, never fakes green results',
  const r=evaluate();assert.equal(r.readOnly,true);assert.equal(r.releaseDecision,'NO_GO');
  assert.equal(r.dispatchPermitted,false);assert.equal(r.checks.connected,false);
  assert.ok(r.blockers.includes('CST_DEV_DB_READ_UNAVAILABLE'));
+});
+
+test('the signed approval table must enforce only future Task IDs at the DB layer',()=>{
+ const sample={is_readonly:true,database_role:'gpt02_core_prep_login',hub_role_restricted:true,
+   preparer_role_limited:true,issuer_role_ready:true,attestor_role_ready:true,
+   preparation_table_exists:true,preparer_function_exists:true,
+   attestor_function_exists:true,issuer_function_exists:true,
+   approved_count:0,receipt_count:0,prepared_count:0,core_operator_admin_count:1};
+ const old=evaluate(observedFromRow({...sample,historical_task_boundary_enforced:false},true));
+ assert.equal(old.schemaState.historicalTaskBoundaryEnforced,false);
+ assert.ok(old.blockers.includes('APPROVAL_SCHEMA_STILL_ACCEPTS_HISTORICAL_TASK_IDS'));
+ const future=evaluate(observedFromRow({...sample,historical_task_boundary_enforced:true},true));
+ assert.equal(future.schemaState.historicalTaskBoundaryEnforced,true);
+ assert.ok(!future.blockers.includes('APPROVAL_SCHEMA_STILL_ACCEPTS_HISTORICAL_TASK_IDS'));
+ assert.equal(future.releaseDecision,'NO_GO');assert.equal(future.dispatchPermitted,false);
 });
