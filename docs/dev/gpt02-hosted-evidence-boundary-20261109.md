@@ -1,3 +1,5 @@
+> Superseded by the user decision to use existing CST-DEV. See `gpt02-existing-cst-dev-preparation-20261109.md`. No new branch or cost confirmation is required by the revised topology. Historical observations below remain audit context, not the current deployment policy.
+
 # GPT02 hosted evidence boundary — 2026-11-09
 
 ## Confirmed live read-only finding

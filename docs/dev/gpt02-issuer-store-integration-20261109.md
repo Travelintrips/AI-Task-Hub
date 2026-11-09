@@ -49,3 +49,7 @@ The SQL fixture is not a live migration. Its record function relies on the isola
 ## Integrated v2 TEXT operator follow-up
 
 The results above describe the original PR155 snapshot (`4733cca`). The integrated PR156 candidate now uses v2 TEXT operator IDs in the signed `ai-task-hub.public.users` namespace. This addresses the observed TEXT account-key shape in the real Hub DEV schema without copying actual identities. The expanded issuer suite passes 26 behavioral scenarios (27 Node tests including its parent); the preview suite passes 8/8. See [the identity contract report](gpt02-issuer-text-operator-contract-20261109.md) for exact changes and limits. No live issuer/attestor role, schema or app connection has been installed.
+
+## Dual-origin operator linkage follow-up
+
+PR156 additionally verifies two origin-specific, independently pinned signatures before pairing a Hub TEXT operator with a Core INTEGER internal-user ID. See [dual-origin linkage](gpt02-dual-origin-operator-link-20261109.md). The linked path binds the complete task/execution/command/attempt/PIC/owner tuple to the original approval, commits receipt and identity evidence atomically, rejects legacy-consume bypass and checks exact evidence column types. It keeps `coreLedgerWritten=false` and all worker authority flags false. The expanded issuer suite has 46 behavioral scenarios (47 including the parent). Existing CST-DEV preparation from parallel PR155 is preserved, inactive and not upgraded by this work.

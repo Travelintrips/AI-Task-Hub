@@ -11,6 +11,26 @@ const ROLES=Object.freeze({attestor:'dev_gpt02_attestor_evidence',issuer:'dev_gp
 const TABLES=['gpt02_private.approvals','gpt02_private.receipts'];
 const LINK_TABLES=['gpt02_private.operator_links','gpt02_private.core_identity_receipts'];
 const PERMISSIONS='SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER';
+const BASE_COLUMNS=Object.freeze([
+ ['gpt02_private.approvals','command_id','uuid'],['gpt02_private.approvals','attempt_id','uuid'],
+ ['gpt02_private.approvals','task_id','int4'],['gpt02_private.approvals','company_id','text'],
+ ['gpt02_private.approvals','operator_namespace','text'],['gpt02_private.approvals','approver_id','text'],
+ ['gpt02_private.approvals','claims','jsonb'],['gpt02_private.approvals','expires_at','timestamptz'],
+ ['gpt02_private.receipts','id','uuid'],['gpt02_private.receipts','command_id','uuid'],
+ ['gpt02_private.receipts','nonce','text'],['gpt02_private.receipts','digest','text']
+]);
+const LINK_COLUMNS=Object.freeze([
+ ['gpt02_private.operator_links','link_id','uuid'],['gpt02_private.operator_links','command_id','uuid'],
+ ['gpt02_private.operator_links','hub_operator_id','text'],['gpt02_private.operator_links','core_operator_user_id','int4'],
+ ['gpt02_private.operator_links','claims','jsonb'],['gpt02_private.operator_links','expires_at','timestamptz'],
+ ['gpt02_private.core_identity_receipts','receipt_id','uuid'],['gpt02_private.core_identity_receipts','operator_user_id','int4'],
+ ['gpt02_private.core_identity_receipts','recorded_by','text'],['gpt02_private.core_identity_receipts','hub_operator_id','text'],
+ ['gpt02_private.core_identity_receipts','core_ledger_written','bool']
+]);
+const SCHEMA_SQL=`SELECT e.resource,e.column_name,COALESCE(a.atttypid=to_regtype(e.type_name),false) AS type_matches
+ FROM unnest($1::text[],$2::text[],$3::text[]) AS e(resource,column_name,type_name)
+ LEFT JOIN pg_attribute a ON a.attrelid=to_regclass(e.resource) AND a.attname=e.column_name AND a.attnum>0 AND NOT a.attisdropped`;
+
 const IDENTITY_SQL=`SELECT current_user AS active_role,session_user AS login_role,
  r.rolsuper OR r.rolbypassrls OR r.rolcreaterole OR r.rolcreatedb OR r.rolreplication AS elevated,
  EXISTS(SELECT 1 FROM pg_auth_members m WHERE m.member=r.oid) AS membership,
@@ -44,17 +64,18 @@ function verifiedEnvelope(envelope,key,now){
  if(bytes.length!==64||bytes.toString('base64url')!==s||!verify(null,Buffer.from(payload),key,bytes))fail('INVALID_SIGNATURE');
  return {claims:c,payload,signature:s,digest:createHash('sha256').update(payload).digest('hex')};
 }
-/** Hosted evidence must be in a separate Supabase project/branch, not just a new schema. */
+/** User-approved topology: the existing Hub DEV project, with scoped roles and a private schema. */
 export function hostedEvidenceTarget(env){
  const evidence=env.GPT02_EVIDENCE_DEV_PROJECT_REF;
  const hub=env.GPT02_HUB_DEV_PROJECT_REF;
  const prod=env.GPT02_PROD_PROJECT_REF;
  for(const ref of [evidence,hub,prod])
   if(typeof ref!=='string'||!/^[a-z]{20}$/.test(ref))fail('PINNED_SUPABASE_PROJECT_REFS_REQUIRED');
- if(evidence===hub||evidence===prod||hub===prod)fail('EVIDENCE_PROJECT_MUST_BE_INDEPENDENT');
+ if(evidence===prod||hub===prod)fail('EVIDENCE_PRODUCTION_TARGET_FORBIDDEN');
+ if(evidence!==hub)fail('EXISTING_CST_DEV_PROJECT_REQUIRED');
  const host=`db.${evidence}.supabase.co`;
  if(env.GPT02_EVIDENCE_DEV_HOST!==host||env.GPT02_EVIDENCE_DEV_DATABASE!=='postgres')fail('SUPABASE_DIRECT_TARGET_REQUIRED');
- return Object.freeze({projectRef:evidence,host,database:'postgres'});
+ return Object.freeze({projectRef:evidence,host,database:'postgres',topology:'EXISTING_CST_DEV_PRIVATE_SCHEMA'});
 }
 /** Only server deployment configuration, never request fields. */
 export function issuerPoolConfig(env,kind){
@@ -92,6 +113,10 @@ export class Gpt02IssuerStore {
  const tables=[...TABLES,...extraTables];
  const acl=(await c.query(ACL_SQL,[tables,PERMISSIONS])).rows;
  if(acl.length!==tables.length||acl.some(x=>x.present!==true||x.direct_access!==false))fail('DIRECT_EVIDENCE_ACCESS_OR_SCHEMA_MISSING');
+ const columns=extraTables.length?[...BASE_COLUMNS,...LINK_COLUMNS]:BASE_COLUMNS;
+ const shape=(await c.query(SCHEMA_SQL,[columns.map(x=>x[0]),columns.map(x=>x[1]),columns.map(x=>x[2])])).rows;
+ if(shape.length!==columns.length||shape.some(x=>x.type_matches!==true))fail('EVIDENCE_SCHEMA_VERSION_MISMATCH');
+
  const result=await fn(c);await c.query('COMMIT');started=false;return result;
  }catch(e){
  if(c&&started)try{await c.query('ROLLBACK');}catch{}

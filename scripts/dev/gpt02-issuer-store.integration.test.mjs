@@ -54,7 +54,7 @@ test('separate SCRAM connections, signature-pinned store and atomic evidence per
  assert.throws(()=>issuerPoolConfig({NODE_ENV:'development',APP_ENV:'development',SUPABASE_DATABASE_URL_DEV:'postgres://postgres:unused@localhost/app'},'issuer'),e=>e.code==='DEDICATED_DSN_REQUIRED');
  });
  await t.test('factory pins DEV host/database, fixed role, TLS and forbids DSN options',()=>{
- const env={NODE_ENV:'development',APP_ENV:'development',GPT02_EVIDENCE_DEV_PROJECT_REF:'e'.repeat(20),GPT02_HUB_DEV_PROJECT_REF:'h'.repeat(20),GPT02_PROD_PROJECT_REF:'p'.repeat(20),GPT02_EVIDENCE_DEV_HOST:`db.${'e'.repeat(20)}.supabase.co`,GPT02_EVIDENCE_DEV_DATABASE:'postgres',GPT02_ISSUER_DATABASE_URL_DEV:`postgres://dev_gpt02_issuer_evidence:synthetic@db.${'e'.repeat(20)}.supabase.co/postgres`};
+ const env={NODE_ENV:'development',APP_ENV:'development',GPT02_EVIDENCE_DEV_PROJECT_REF:'e'.repeat(20),GPT02_HUB_DEV_PROJECT_REF:'e'.repeat(20),GPT02_PROD_PROJECT_REF:'p'.repeat(20),GPT02_EVIDENCE_DEV_HOST:`db.${'e'.repeat(20)}.supabase.co`,GPT02_EVIDENCE_DEV_DATABASE:'postgres',GPT02_ISSUER_DATABASE_URL_DEV:`postgres://dev_gpt02_issuer_evidence:synthetic@db.${'e'.repeat(20)}.supabase.co/postgres`};
  const cfg=issuerPoolConfig(env,'issuer');assert.equal(cfg.ssl.rejectUnauthorized,true);assert.equal(cfg.max,2);
  for(const m of [{NODE_ENV:'production'},{APP_ENV:'production'},{GPT02_EVIDENCE_DEV_HOST:'prod.example.test'},{GPT02_ISSUER_DATABASE_URL_DEV:'postgres://postgres:synthetic@dev.example.test/evidence'},{GPT02_ISSUER_DATABASE_URL_DEV:env.GPT02_ISSUER_DATABASE_URL_DEV+'?sslmode=disable'}])assert.throws(()=>issuerPoolConfig({...env,...m},'issuer'));
  });
@@ -293,6 +293,19 @@ test('separate SCRAM connections, signature-pinned store and atomic evidence per
  }
  assert.equal(await count(linked.approval.claims.commandId),1);
  const n=(await admin.query('SELECT count(*)::int AS n FROM gpt02_private.core_identity_receipts WHERE command_id=$1',[linked.approval.claims.commandId])).rows[0].n;assert.equal(n,1);
+ });
+ await t.test('legacy BIGINT approver schema is rejected before any evidence write',async()=>{
+ const e=envelope();await admin.query('ALTER TABLE gpt02_private.approvals RENAME COLUMN approver_id TO text_approver_backup; ALTER TABLE gpt02_private.approvals ADD COLUMN approver_id bigint');
+ try{await rejection(attestor.recordApproval(e),'EVIDENCE_SCHEMA_VERSION_MISMATCH');}
+ finally{await admin.query('ALTER TABLE gpt02_private.approvals DROP COLUMN approver_id; ALTER TABLE gpt02_private.approvals RENAME COLUMN text_approver_backup TO approver_id');}
+ assert.equal((await admin.query('SELECT count(*)::int AS n FROM gpt02_private.approvals WHERE command_id=$1',[e.claims.commandId])).rows[0].n,0);
+ });
+ await t.test('changed Core operator column type is rejected before linked consumption',async()=>{
+ const x=linkedInput();await linkedAttestor.recordLinkedApproval(x);
+ await admin.query('ALTER TABLE gpt02_private.core_identity_receipts RENAME COLUMN operator_user_id TO integer_operator_backup; ALTER TABLE gpt02_private.core_identity_receipts ADD COLUMN operator_user_id text');
+ try{await rejection(linkedIssuer.consumeLinkedApproval(x),'EVIDENCE_SCHEMA_VERSION_MISMATCH');}
+ finally{await admin.query('ALTER TABLE gpt02_private.core_identity_receipts DROP COLUMN operator_user_id; ALTER TABLE gpt02_private.core_identity_receipts RENAME COLUMN integer_operator_backup TO operator_user_id');}
+ assert.equal(await count(x.approval.claims.commandId),0);await linkedIssuer.consumeLinkedApproval(x);assert.equal(await count(x.approval.claims.commandId),1);
  });
  await t.test('accidental link table access is rejected before issuing any identity receipt',async()=>{
  const x=linkedInput();await linkedAttestor.recordLinkedApproval(x);await admin.query(`GRANT SELECT ON gpt02_private.operator_links TO ${ROLE.issuer}`);
