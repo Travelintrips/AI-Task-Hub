@@ -59,7 +59,7 @@ const report={schemaVersion:1,environment:"DEV",mode:"STATIC_SOURCE_ONLY",
  coverage:{dynamicSqlChecked:false,queryPlansChecked:false,routinesTriggersSequencesChecked:false,
   schemaAndCrossTenantRlsChecked:false,authenticatedEndToEndChecked:false,readOnly:true},
  conclusion:{dbCutoverPermitted:false,issuerPermitted:false,nativeDispatchPermitted:false,
-  releaseDecision:"NO_GO",reason:"STATIC_INVENTORY_NOT_FULL_PRIVILEGE_OR_AUTHORIZED_E2E"}},
+  releaseDecision:"NO_GO",reason:"STATIC_INVENTORY_NOT_FULL_PRIVILEGE_OR_AUTHORIZED_E2E"},
 };
 if(process.argv.includes("--summary")){
  process.stdout.write(JSON.stringify({scanned:report.scanned,coverage:report.coverage,conclusion:report.conclusion})+"\n");
