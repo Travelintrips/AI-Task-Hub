@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { build as esbuild } from "esbuild";
 import esbuildPluginPino from "esbuild-plugin-pino";
-import { rm } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 
 // Plugins (e.g. 'esbuild-plugin-pino') may use `require` to resolve dependencies
 globalThis.require = createRequire(import.meta.url);
@@ -124,6 +124,28 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
     `,
     },
   });
+
+  // esbuild-plugin-pino embeds the absolute build host outdir inside index.mjs.
+  // A relocated Docker image would try to load worker threads from /tmp.
+  // The bundle banner already sets globalThis.__dirname at runtime.
+  const buildTimeResolver = "const outputDir = " + JSON.stringify(distDir) + ";";
+  const runtimeResolver = "const outputDir = globalThis.__dirname;";
+  const bundlePath = path.join(distDir, "index.mjs");
+  const bundle = await readFile(bundlePath, "utf8");
+  const occurrences = bundle.split(buildTimeResolver).length - 1;
+  if (occurrences !== 1) {
+    throw new Error("PINO_RELOCATABLE_WORKER_RESOLVER_UNVERIFIED:" + occurrences);
+  }
+  await writeFile(bundlePath, bundle.replace(buildTimeResolver, runtimeResolver));
+  // Update sourcesContent too, so source maps do not retain build-host paths.
+  const mapPath = path.join(distDir, "index.mjs.map");
+  const map = await readFile(mapPath, "utf8");
+  const escapedBuildResolver = JSON.stringify(buildTimeResolver).slice(1, -1);
+  const escapedRuntimeResolver = JSON.stringify(runtimeResolver).slice(1, -1);
+  if (map.split(escapedBuildResolver).length - 1 !== 1) {
+    throw new Error("PINO_RELOCATABLE_WORKER_SOURCEMAP_UNVERIFIED");
+  }
+  await writeFile(mapPath, map.replace(escapedBuildResolver, escapedRuntimeResolver));
 
 }
 
