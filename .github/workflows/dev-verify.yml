@@ -40,6 +40,8 @@ jobs:
         run: node --test scripts/dev/bridge-ledger-readback-runtime-preflight.test.mjs
       - name: Fail closed on privileged AI Task DEV database login cutover
         run: node --test scripts/dev/gpt02-hub-db-login-cutover-readonly.test.cjs
+      - name: Inventory DEV application database surface conservatively
+        run: node --test scripts/dev/gpt02-hub-db-static-access-inventory.test.cjs
       - name: Typecheck
         run: pnpm run typecheck
       - name: Build
