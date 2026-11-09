@@ -3,6 +3,7 @@ set -euo pipefail
 # PostgreSQL 17 role escrow: DISPOSABLE ONLY; never point at a hosted server.
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SOURCE="$ROOT/scripts/dev/gpt02-cst-dev-approval-future-task-constraint.sql"
+MIGRATION="$ROOT/scripts/dev/gpt02-cst-dev-approval-owner-escrow-maintenance.sql"
 NAME="gpt02-pg17-owner-escrow-$$"
 WORK="$(mktemp -d)"
 trap 'docker rm -f "$NAME" >/dev/null 2>&1 || true; rm -rf "$WORK"' EXIT
@@ -59,41 +60,7 @@ grep -Fq GPT02_APPROVAL_BOUNDARY_OWNER_AUTH_REQUIRED "$WORK/denied.log" || { cat
 echo PASS:APP_LOGIN_OWNER_DDL_DENIED
 # Single transaction: temporarily enable SET ONLY on the self-granted
 # membership. PostgreSQL17 keeps that uncommitted until final COMMIT.
-cat >"$WORK/transaction.sql" <<'SQL'
-BEGIN;
-DO $pre$
-BEGIN
- IF current_database()<>'postgres' OR current_user<>'postgres' OR session_user<>'postgres'
-  OR (SELECT rolsuper OR NOT rolcreaterole FROM pg_roles WHERE rolname='postgres')
-  OR pg_has_role('postgres','gpt02_store_owner','SET')
-  OR pg_has_role('postgres','gpt02_store_owner','USAGE')
-  OR (SELECT count(*) FROM pg_auth_members WHERE roleid='gpt02_store_owner'::regrole AND member='postgres'::regrole)<>2
-  OR NOT EXISTS(SELECT 1 FROM pg_auth_members m JOIN pg_roles g ON g.oid=m.grantor
-      WHERE m.roleid='gpt02_store_owner'::regrole AND m.member='postgres'::regrole
-        AND g.rolname='postgres' AND NOT m.admin_option AND NOT m.inherit_option AND NOT m.set_option)
-  OR NOT EXISTS(SELECT 1 FROM pg_auth_members m JOIN pg_roles g ON g.oid=m.grantor
-      WHERE m.roleid='gpt02_store_owner'::regrole AND m.member='postgres'::regrole
-        AND g.rolname='supabase_admin' AND m.admin_option AND NOT m.inherit_option AND NOT m.set_option)
- THEN RAISE EXCEPTION 'BASELINE_ROLE_DRIFT'; END IF;
-END $pre$;
-GRANT gpt02_store_owner TO postgres WITH SET TRUE GRANTED BY postgres;
-SET ROLE gpt02_store_owner;
-SQL
-sed -e '/^BEGIN;$/d' -e '/^COMMIT;$/d' "$SOURCE" >>"$WORK/transaction.sql"
-cat >>"$WORK/transaction.sql" <<'SQL'
-RESET ROLE;
-REVOKE SET OPTION FOR gpt02_store_owner FROM postgres GRANTED BY postgres RESTRICT;
-DO $post$
-BEGIN
- IF current_user<>'postgres' OR session_user<>'postgres' OR
-    pg_has_role('postgres','gpt02_store_owner','SET') OR
-    pg_has_role('postgres','gpt02_store_owner','USAGE') OR
-    (SELECT count(*) FROM pg_auth_members WHERE roleid='gpt02_store_owner'::regrole AND member='postgres'::regrole)<>2 OR
-    EXISTS(SELECT 1 FROM pg_auth_members WHERE roleid='gpt02_store_owner'::regrole AND member='postgres'::regrole AND (set_option OR inherit_option))
- THEN RAISE EXCEPTION 'RESIDUAL_PRIVILEGE_LEAK'; END IF;
-END $post$;
-COMMIT;
-SQL
+cp "$MIGRATION" "$WORK/transaction.sql"
 check_restore(){ [[ "$(member_state)" == "$baseline" ]] || { echo "ROLE_GRANTS_CHANGED:$(member_state)" >&2; exit 1; }
  [[ "$(q postgres "SELECT pg_has_role('postgres','gpt02_store_owner','SET')")" == f ]] || { echo RESIDUAL_SET_OPTION >&2; exit 1; }; }
 future_count(){ q postgres "SELECT count(*) FROM pg_constraint c JOIN pg_class cl ON cl.oid=c.conrelid JOIN pg_namespace n ON n.oid=cl.relnamespace WHERE n.nspname='gpt02_private' AND cl.relname='approvals' AND c.conname='gpt02_approvals_future_task_only' AND c.convalidated"; }
