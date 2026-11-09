@@ -14,6 +14,14 @@ test('staging table keeps immutable exact Hub/Core IDs and excludes historical t
 test('only SECURITY INVOKER non-operational contract function, no dispatched routine or grants',()=>{
  assert.equal((source.match(/LANGUAGE (?:sql|plpgsql) SECURITY INVOKER/g)||[]).length,2);
  assert.doesNotMatch(source,/SECURITY DEFINER|GRANT EXECUTE|GRANT SELECT|GRANT INSERT|CREATE EXTENSION|ALTER USER|ALTER ROLE|ALTER TABLE public|ALTER TABLE ai_platform/);
+ assert.match(source,/GRANT gpt02_core_prep_owner TO postgres WITH SET TRUE, INHERIT FALSE;/);
+ assert.match(source,/REVOKE gpt02_core_prep_owner FROM postgres;/);
+ assert.match(source,/SET LOCAL ROLE gpt02_core_prep_owner;/);
+ assert.match(source,/RESET ROLE;/);
+ for(const x of ["REVOKE REFERENCES(id) ON TABLE public.ai_execution_jobs FROM gpt02_core_prep_owner;",
+  "REVOKE REFERENCES(id) ON TABLE ai_platform.ai_coding_tasks FROM gpt02_core_prep_owner;",
+  "REVOKE CREATE ON DATABASE postgres FROM gpt02_core_prep_owner;"])assert.ok(source.includes(x),x);
+ assert.match(source,/GPT02_OWNER_MEMBERSHIP_NOT_REVOKED/);
  for(const s of ['REVOKE ALL ON ALL TABLES IN SCHEMA gpt02_stage FROM PUBLIC','REVOKE ALL ON ALL FUNCTIONS IN SCHEMA gpt02_stage FROM PUBLIC','REVOKE ALL ON ALL FUNCTIONS IN SCHEMA gpt02_stage FROM gpt02_core_prep_login'])assert.ok(source.includes(s));
  assert.doesNotMatch(source,/CREATE FUNCTION gpt02_stage\.prepare_core_task\(/);
 });
