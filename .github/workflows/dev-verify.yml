@@ -34,6 +34,26 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: API short-link unit regression
         run: pnpm --filter @workspace/api-server run test:short-links
+      - name: Verify read-only bridge GET cannot mutate lifecycle
+        run: node --test artifacts/api-server/tests/bridge-ledger-readback.test.mjs artifacts/api-server/tests/bridge-ledger-event-summary.test.mjs artifacts/api-server/tests/bridge-ledger-source-progress.test.mjs
+      - name: Verify read-only DEV deployment preflight fails closed
+        run: node --test scripts/dev/bridge-ledger-readback-runtime-preflight.test.mjs
+      - name: Fail closed on privileged AI Task DEV database login cutover
+        run: node --test scripts/dev/gpt02-hub-db-login-cutover-readonly.test.cjs
+      - name: Inventory DEV application database surface conservatively
+        run: node --test scripts/dev/gpt02-hub-db-static-access-inventory.test.cjs
+      - name: Verify isolated PostgreSQL 16 tenant RLS policy boundaries
+        run: bash scripts/dev/test-gpt02-hub-rls-isolated-postgres.sh
+      - name: Verify authenticated tenant admission stays non-authorizing
+        run: node --test scripts/dev/gpt02-verified-tenant-scope.test.cjs
+      - name: Verify AI Task child resources cannot cross tenant boundaries
+        run: node --test artifacts/api-server/tests/ai-task-child-tenant-scope.test.mjs
+      - name: GPT02 new authorized DEV test must stay non-dispatching until signed gates
+        run: node --test scripts/dev/gpt02-new-test-admission-readonly.test.cjs
+      - name: Preserve DEV passwordless dashboard and isolate GPT02 admission
+        run: node --test scripts/dev/gpt02-dev-admin-login-hardening.test.cjs
+      - name: Verify Google-backed GPT02 operator preflight cannot authorize commands
+        run: node --test scripts/dev/gpt02-operator-identity-preflight.test.cjs
       - name: GPT02 exact lineage fail-closed regression
         run: pnpm --filter @workspace/api-server run test:gpt02-lineage
       - name: Typecheck

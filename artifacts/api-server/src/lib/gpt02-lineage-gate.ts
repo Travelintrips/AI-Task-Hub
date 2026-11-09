@@ -62,6 +62,8 @@ export function evaluateGpt02LineageEvidence(row: Gpt02LineageEvidence) {
     coreStatus: text(row.core_status),
     picName: text(row.pic_name),
     picIdPresent: row.verified_pic_id != null,
+    coreCommandMatched: row.core_command_found === true,
+    bindingSchemaReady: !!claimId && !!nonce,
     callbackVerified: row.callback_verified === true,
     attestationVerified: row.attestation_verified === true,
     finalAckVerified: row.final_ack_verified === true && verifiedResponses === 1,

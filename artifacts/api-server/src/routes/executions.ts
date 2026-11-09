@@ -6,11 +6,16 @@ import {
   aiExecutionEventsTable,
   aiExecutionJobsTable,
   aiTasksTable,
+  teamMembersTable,
+  auditLogsTable,
   db,
 } from "@workspace/db";
 import { getCompanyId, getCompanyIdForWrite, requireAuth } from "../middleware/auth";
 import { emitSseEvent } from "../lib/sse";
 import { safeSourceTimelineMetadata } from "../lib/safe-source-timeline-metadata";
+import { bridgeLedgerReadbackAllowed } from "../lib/bridge-ledger-readback-policy";
+import { passiveBridgeSourceProgress } from "../lib/bridge-ledger-source-progress";
+import { summarizeBridgeLedgerEvents } from "../lib/bridge-ledger-event-summary";
 import { isAttestedCheckpointResponse, verifiedContinuation } from "../lib/verified-continuation";
 import { hasVerifiedSourceFinalAck } from "../lib/verified-source-final-ack";
 import { evaluateGpt02LineageEvidence } from "../lib/gpt02-lineage-gate";
@@ -310,6 +315,13 @@ async function retryChatGptDispatch(executionId: string): Promise<void> {
   }
 
   const accountAlias = typeof metadata["accountAlias"] === "string" ? metadata["accountAlias"] : "";
+  // Fail closed: a waiting GPT02 session cannot automatically wake an older
+  // command even if the account session later becomes available.
+  if (accountAlias === "GPT02") {
+    stopChatGptDispatchRetry(executionId);
+    logger.warn({executionId}, "GPT02 automatic retry withheld pending operator recovery");
+    return;
+  }
   const remoteCorrelationId = typeof metadata["remoteCorrelationId"] === "string" ? metadata["remoteCorrelationId"] : "";
   if (!/^GPT[0-9]{2,4}$/.test(accountAlias) || !remoteCorrelationId || !execution.instruction) {
     stopChatGptDispatchRetry(executionId);
@@ -387,9 +399,11 @@ async function retryChatGptDispatch(executionId: string): Promise<void> {
   } catch (err) {
     const message = err instanceof Error ? err.message : "AI_CORE_CHATGPT_DISPATCH_FAILED";
     if (!isRetryableChatGptDispatchError(message)) {
+      // Dispatch failure is terminal for this attempt, not task completion.
+      // Keep previously observed progress bounded until independently verified ACK.
       const [failed] = await db.update(aiExecutionJobsTable).set({
         status: "failed",
-        progress: 100,
+        progress: Math.max(0, Math.min(90, execution.progress)),
         errorMessage: message,
         completedAt: new Date(),
       }).where(eq(aiExecutionJobsTable.id, execution.id)).returning();
@@ -398,7 +412,7 @@ async function retryChatGptDispatch(executionId: string): Promise<void> {
         executionId,
         taskId: execution.taskId,
         status: "failed",
-        progress: 100,
+        progress: Math.max(0, Math.min(90, execution.progress)),
       }, execution.companyId);
       if (failed) stopExecutionTracking(failed.id);
       return;
@@ -487,6 +501,9 @@ async function recoverVerifiedSopContinuations(): Promise<void> {
       }
       const alias = meta["accountAlias"];
       if (typeof alias !== "string" || !/^GPT[0-9]{2,4}$/.test(alias)) continue;
+      // A signed checkpoint is not a new operator grant. Never autonomously
+      // create another GPT02 attempt from a historic/source execution.
+      if (alias === "GPT02") continue;
       const events = await db.select().from(aiExecutionEventsTable)
         .where(eq(aiExecutionEventsTable.executionId, source.id))
         .orderBy(desc(aiExecutionEventsTable.createdAt)).limit(100);
@@ -565,7 +582,7 @@ async function recoverVerifiedSopContinuations(): Promise<void> {
           await db.update(aiExecutionJobsTable).set({ status: "dispatching", errorMessage: "AI_CORE_DISPATCH_OUTCOME_UNCONFIRMED", metadata: { ...asRecord(created.metadata), dispatchState: "dispatching_unconfirmed", lastDispatchError: message } }).where(eq(aiExecutionJobsTable.id, created.id));
         } else {
           await db.update(aiExecutionJobsTable).set({
-            status: "failed", progress: 100, errorMessage: message, completedAt: new Date(),
+            status: "failed", progress: Math.max(0, Math.min(90, created.progress)), errorMessage: message, completedAt: new Date(),
           }).where(eq(aiExecutionJobsTable.id, created.id));
         }
       }
@@ -661,6 +678,69 @@ function scheduleExecutionTracking(executionId: string, delayMs = 1_000): void {
   executionSyncTimers.set(executionId, timer);
 }
 
+// Read-only, exact external ID readback for the existing AI Core bridge.
+// The receiver remains passive and never authorizes GPT02 execution.
+router.get("/bridge/jobs/by-external-id/:externalId", requireBridgeToken,
+ async (req: Request, res: Response): Promise<void> => {
+  res.setHeader("Cache-Control", "no-store");
+  // Deployment activation is explicit. Endpoint stays absent by default.
+  // The DEV container identifies itself with NODE_ENV=development; APP_ENV
+  // may be absent there. Explicit APP_ENV=production still denies access.
+  if (!bridgeLedgerReadbackAllowed(process.env)) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  const externalId = String(req.params.externalId ?? "");
+  if (!/^bridge-command:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(externalId)) {
+    res.status(400).json({ error: "Invalid bridge external ID" });
+    return;
+  }
+  try {
+    const [job] = await db.select({
+      id: aiExecutionJobsTable.id,
+      source: aiExecutionJobsTable.source,
+      externalId: aiExecutionJobsTable.externalId,
+      status: aiExecutionJobsTable.status,
+      progress: aiExecutionJobsTable.progress,
+      metadata: aiExecutionJobsTable.metadata,
+      taskId: aiExecutionJobsTable.taskId,
+    }).from(aiExecutionJobsTable)
+      .where(and(eq(aiExecutionJobsTable.source, "AI_CORE"),
+        eq(aiExecutionJobsTable.companyId, "default"),
+        eq(aiExecutionJobsTable.externalId, externalId),
+        // This private readback is reserved for the passive AI Core ledger.
+        // A non-ledger execution with a matching external ID is not evidence.
+        sql`${aiExecutionJobsTable.metadata}->>'passiveLedger' = 'true'`))
+      .limit(1);
+    if (!job) { res.status(404).json({ error: "Bridge job not found" }); return; }
+    // Only safe columns, no event payload, instructions, messages or credentials.
+    // Limit 101 allows an explicit truncation marker for >100 events.
+    const events = await db.select({
+      eventType:aiExecutionEventsTable.eventType,
+      status:aiExecutionEventsTable.status,
+      signatureVerified:aiExecutionEventsTable.signatureVerified,
+    }).from(aiExecutionEventsTable)
+      .where(eq(aiExecutionEventsTable.executionId,job.id))
+      .orderBy(aiExecutionEventsTable.createdAt,aiExecutionEventsTable.id)
+      .limit(101);
+    const eventEvidence=summarizeBridgeLedgerEvents(events,job.status,job.progress);
+    const meta = safeSourceTimelineMetadata(job.metadata);
+    // Do not copy arbitrary job metadata, conversation text or credentials.
+    res.status(200).json({ found: true, source: "AI_CORE",
+      external_id: job.externalId, id: job.id, task_id: job.taskId ?? null,
+      status: job.status, progress: job.progress,
+      timeline: meta, eventEvidence,
+      readOnly: true, passiveLedger: true, mayIssueGrant: false, mayDispatchWorker: false,
+      verifiedExecution: false,
+      taskLinkageVerified: false, attemptBindingVerified: false,
+      accountableOwnerVerified: false,
+    });
+  } catch (err) {
+    logger.error({ err }, "GET /bridge/jobs/by-external-id failed");
+    res.status(503).json({ error: "Bridge ledger readback unavailable" });
+  }
+});
+
 // Read-only signed bridge preview for AI Core DEV monitoring tests.
 router.get("/bridge/jobs/whatsapp-preview", requireBridgeToken, async (_req: Request, res: Response): Promise<void> => {
   try {
@@ -718,6 +798,10 @@ router.post("/bridge/jobs", requireBridgeToken, async (req: Request, res: Respon
         external_id: row.externalId,
         status: row.status,
         correlation_id: row.correlationId,
+        task_linkage_verified: false,
+        attempt_binding_verified: false,
+        accountable_owner_verified: false,
+        passive_ledger_only: true,
       },
     });
   } catch (err) {
@@ -806,13 +890,12 @@ router.post("/bridge/jobs/:id/source-event", requireBridgeToken, async (req: Req
 
     const normalized = status.toUpperCase();
     const observation = safeSourceTimelineMetadata(body["metadata"]);
-    const terminal = ["COMPLETED", "FAILED", "BLOCKED", "DEPLOYED", "MERGED"].includes(normalized);
     const [updated] = await db.update(aiExecutionJobsTable).set({
       // Latest DEV Final ACK verification is authoritative; a source-only
       // COMPLETED event must remain "verifying" until Final ACK is verified.
       status: verifiedFinal ? "completed" : normalized === "FAILED" ? "failed" : normalized === "BLOCKED" ? "blocked" :
         normalized === "COMPLETED" ? "verifying" : normalized.toLowerCase(),
-      progress: verifiedFinal ? 100 : normalized === "COMPLETED" ? 90 : terminal ? 100 : Math.max(job.progress, 25),
+      progress: passiveBridgeSourceProgress(normalized, job.progress, verifiedFinal),
       workerId: typeof observation["workerId"] === "string" ? observation["workerId"] : job.workerId,
       startedAt: ["RUNNING", "IN_PROGRESS"].includes(normalized) ? job.startedAt ?? new Date() : job.startedAt,
       ...(verifiedFinal ? {
@@ -1110,6 +1193,11 @@ router.post("/ai-tasks/:id/continue", requireAuth, async (req: Request, res: Res
     if (typeof accountAlias !== "string" || !/^GPT[0-9]{2,4}$/.test(accountAlias)) {
       res.status(409).json({ error: "SOURCE_ACCOUNT_NOT_VERIFIED" }); return;
     }
+    if (accountAlias === "GPT02") {
+      res.status(409).json({error:"GPT02_CONTINUATION_REQUIRES_NEW_AUTHORIZED_ADMISSION",
+        dispatchNotStarted:true, sourceExecutionId:source.id});
+      return;
+    }
     const fingerprint = createHash("sha256")
       .update([source.commandId, proof.jobId, proof.checkpointId, proof.stepId, proof.sopVersion].join("|"))
       .digest("hex").slice(0, 24);
@@ -1182,13 +1270,178 @@ router.post("/ai-tasks/:id/continue", requireAuth, async (req: Request, res: Res
         res.status(202).json({ execution: uncertain ?? created, outcomeUnconfirmed: true }); return;
       }
       const [failed] = await db.update(aiExecutionJobsTable).set({
-        status: "failed", progress: 100, errorMessage: message, completedAt: new Date(),
+        status: "failed", progress: Math.max(0, Math.min(90, created.progress)), errorMessage: message, completedAt: new Date(),
       }).where(eq(aiExecutionJobsTable.id, created.id)).returning();
       res.status(502).json({ error: "CONTINUATION_DISPATCH_REJECTED", execution: failed ?? created });
     }
   } catch (err) {
     logger.error({ err }, "POST task continuation failed");
     res.status(500).json({ error: "CONTINUATION_UNAVAILABLE" });
+  }
+});
+
+// Read-only picker data. This is not a directory of authenticated approvers:
+// team_members records establish assignment eligibility only.
+router.get("/ai-tasks/:id/gpt02-pic-options", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  if (process.env.NODE_ENV !== "development" || process.env.APP_ENV === "production") {
+    res.sendStatus(404); return;
+  }
+  if (req.user?.role !== "super_admin") {
+    res.status(403).json({error:"SUPER_ADMIN_REQUIRED"}); return;
+  }
+  const taskId=Number(req.params.id);
+  if (!Number.isSafeInteger(taskId) || taskId<=0) {
+    res.status(400).json({error:"INVALID_TASK_ID"}); return;
+  }
+  try {
+    const companyId=getCompanyIdForWrite(req);
+    const [task]=await db.select({id:aiTasksTable.id,status:aiTasksTable.status,
+      assignedToId:aiTasksTable.assignedToId,assignedTo:aiTasksTable.assignedTo})
+      .from(aiTasksTable)
+      .where(and(eq(aiTasksTable.id,taskId),eq(aiTasksTable.companyId,companyId)))
+      .limit(1);
+    if (!task) { res.sendStatus(404); return; }
+    const members=await db.select({id:teamMembersTable.id,name:teamMembersTable.name})
+      .from(teamMembersTable)
+      .where(and(eq(teamMembersTable.companyId,companyId),eq(teamMembersTable.isActive,true)))
+      .orderBy(teamMembersTable.name).limit(100);
+    const selected=members.find(m=>m.id===task.assignedToId && m.name===task.assignedTo);
+    res.setHeader("Cache-Control","no-store");
+    res.json({taskId:task.id,taskStatus:task.status,
+      taskAssignmentPresent:!!selected,
+      assignmentReady:!!selected && !["completed","cancelled"].includes(task.status),
+      selectedMemberId:selected?.id??null,
+      members:members.map(m=>({id:m.id,name:m.name})),
+      choicesTruncated:members.length===100,
+      taskOwnerAuthenticated:false,operatorApprovalGranted:false,
+      commandDispatched:false});
+  } catch (err) {
+    logger.warn({err,taskId},"DEV GPT02 PIC options unavailable");
+    res.status(503).json({error:"GPT02_PIC_OPTIONS_UNAVAILABLE"});
+  }
+});
+
+// DEV-only audited PIC readback for a single company-scoped task.
+// This deliberately never reports operator approval or native execution proof.
+router.get("/ai-tasks/:id/gpt02-pic-audit", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  if (process.env.NODE_ENV !== "development" || process.env.APP_ENV === "production") {
+    res.sendStatus(404); return;
+  }
+  if (req.user?.role !== "super_admin") {
+    res.status(403).json({error:"SUPER_ADMIN_REQUIRED"}); return;
+  }
+  const taskId=Number(req.params.id);
+  if (!Number.isSafeInteger(taskId) || taskId<=0) {
+    res.status(400).json({error:"INVALID_TASK_ID"}); return;
+  }
+  try {
+    const companyId=getCompanyIdForWrite(req);
+    const [task]=await db.select({
+      id:aiTasksTable.id,assignedToId:aiTasksTable.assignedToId,
+      assignedTo:aiTasksTable.assignedTo,
+    }).from(aiTasksTable)
+      .where(and(eq(aiTasksTable.id,taskId),eq(aiTasksTable.companyId,companyId))).limit(1);
+    if (!task) { res.sendStatus(404); return; }
+    const [audit]=await db.select({
+      id:auditLogsTable.id,actorId:auditLogsTable.userId,
+      actorName:auditLogsTable.userName,at:auditLogsTable.createdAt,
+      after:auditLogsTable.after,
+    }).from(auditLogsTable)
+      .where(and(eq(auditLogsTable.companyId,companyId),
+        eq(auditLogsTable.entityId,taskId),eq(auditLogsTable.action,"gpt02_pic_assigned")))
+      .orderBy(desc(auditLogsTable.createdAt),desc(auditLogsTable.id)).limit(1);
+    const payload=(()=>{
+      try {return JSON.parse(audit?.after??"null") as unknown;}catch{return null;}
+    })();
+    const recorded=asRecord(payload);
+    const auditMatchesCurrent=!!audit && audit.actorId != null &&
+      typeof recorded["memberId"]==="number" &&
+      recorded["memberId"]===task.assignedToId &&
+      recorded["memberName"]===task.assignedTo &&
+      recorded["taskId"]===taskId && recorded["companyId"]===companyId;
+    res.setHeader("Cache-Control","no-store");
+    res.json({taskId,assignedMemberId:task.assignedToId,
+      assignedTo:task.assignedTo,auditPresent:!!audit,
+      auditMatchesCurrent,assignmentAudited:auditMatchesCurrent,
+      auditId:audit?.id??null,actorId:audit?.actorId??null,
+      actorName:audit?.actorName??null,assignedAt:audit?.at??null,
+      operatorApprovalGranted:false,commandDispatched:false,
+      nativeAckVerified:false});
+  } catch (err) {
+    logger.warn({err,taskId},"DEV GPT02 PIC audit readback unavailable");
+    res.status(503).json({error:"GPT02_PIC_AUDIT_UNAVAILABLE"});
+  }
+});
+
+// Explicit DEV-only PIC assignment for GPT02. No command or worker dispatch.
+// Do not infer a team-member ID from a display name or supplied JWT claims.
+router.post("/ai-tasks/:id/gpt02-assign-pic", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  if (process.env.NODE_ENV !== "development" || process.env.APP_ENV === "production") {
+    res.sendStatus(404); return;
+  }
+  if (req.user?.role !== "super_admin") {
+    res.status(403).json({error:"SUPER_ADMIN_REQUIRED"}); return;
+  }
+  const taskId=Number(req.params.id);
+  const memberId=(req.body as Record<string,unknown>)?.["memberId"];
+  if (!Number.isSafeInteger(taskId) || taskId<=0 ||
+      typeof memberId!=="number" || !Number.isSafeInteger(memberId) || memberId<=0) {
+    res.status(400).json({error:"INVALID_TASK_OR_MEMBER_ID"}); return;
+  }
+  try {
+    const companyId=getCompanyIdForWrite(req);
+    const [member]=await db.select({id:teamMembersTable.id,name:teamMembersTable.name,
+      isActive:teamMembersTable.isActive})
+      .from(teamMembersTable)
+      .where(and(eq(teamMembersTable.id,memberId),
+        eq(teamMembersTable.companyId,companyId),eq(teamMembersTable.isActive,true)))
+      .limit(1);
+    if (!member || !member.name.trim()) {
+      res.status(409).json({error:"ACTIVE_COMPANY_MEMBER_NOT_FOUND"}); return;
+    }
+    // The assignment and audit row must commit or roll back together. Never
+    // claim that a PIC changed when the audit insert failed.
+    const assigned=await db.transaction(async (tx) => {
+      // Serialize the assignment check and write with new execution admission.
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${companyId} || ':' || ${taskId}::text, 0))`);
+      const [updated]=await tx.update(aiTasksTable)
+        .set({assignedToId:member.id,assignedTo:member.name})
+        .where(and(eq(aiTasksTable.id,taskId),eq(aiTasksTable.companyId,companyId),
+          sql`${aiTasksTable.status} NOT IN ('completed','cancelled')`,
+          // This guards already-committed executions; a separate serialization
+          // mechanism is still required to close the concurrent intake race.
+          sql`NOT EXISTS (
+            SELECT 1 FROM ai_execution_jobs e
+            WHERE e.task_id = ${taskId} AND e.company_id = ${companyId}
+          )`))
+        .returning({id:aiTasksTable.id,assignedToId:aiTasksTable.assignedToId,
+          assignedTo:aiTasksTable.assignedTo});
+      if (!updated) return null;
+      await tx.insert(auditLogsTable).values({
+        action:"gpt02_pic_assigned",
+        module:"ai_tasks",
+        entityType:"ai_task",
+        entityId:taskId,
+        companyId,
+        userId:req.user!.id,
+        userEmail:req.user!.email,
+        userName:req.user!.name,
+        after:JSON.stringify({memberId:member.id,memberName:member.name,taskId,companyId,
+          operatorApprovalGranted:false,commandDispatched:false}),
+      });
+      return updated;
+    });
+    if (!assigned) {
+      res.status(409).json({error:"TASK_NOT_FOUND_TERMINAL_OR_ALREADY_EXECUTING"}); return;
+    }
+    res.setHeader("Cache-Control","no-store");
+    res.status(200).json({taskId:assigned.id,memberId:assigned.assignedToId,
+      assignedTo:assigned.assignedTo,memberRecordObserved:true,
+      accountIdentityAttested:false,operatorApprovalGranted:false,
+      commandDispatched:false});
+  } catch (err) {
+    logger.warn({err,taskId},"DEV GPT02 PIC assignment unavailable");
+    res.status(503).json({error:"GPT02_PIC_ASSIGNMENT_UNAVAILABLE"});
   }
 });
 
@@ -1209,15 +1462,38 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
     // Lifecycle-specific guard: never turn a new inquiry into an unowned AI command.
     // Keep the existing idempotent dispatch and reconciliation code below unchanged.
     if (body.lifecycleStart === true &&
-        (body.mode !== "chatgpt" || body.accountAlias !== "GPT02" ||
-         !task.assignedTo?.trim() || ["completed", "cancelled"].includes(task.status))) {
-      res.status(409).json({error: "LIFECYCLE_ASSIGNMENT_OR_MODE_NOT_READY", message: "Assign an active PIC and use GPT02 before lifecycle dispatch."});
+        (body.mode !== "chatgpt" || body.accountAlias !== "GPT02")) {
+      res.status(409).json({error: "LIFECYCLE_ASSIGNMENT_OR_MODE_NOT_READY", message: "Lifecycle requires GPT02 ChatGPT mode."});
       return;
     }
     let mode: "chatgpt" | "worker" = body.mode === "chatgpt" ? "chatgpt" : "worker";
     let accountAlias = typeof body.accountAlias === "string" && /^GPT[0-9]{2,4}$/.test(body.accountAlias.trim().toUpperCase())
       ? body.accountAlias.trim().toUpperCase()
       : process.env.AI_TASK_DEFAULT_GPT_ALIAS?.trim().toUpperCase() || "GPT01";
+    // Neither an omitted lifecycleStart flag nor the server default alias may
+    // bypass the DEV GPT02 PIC gate. A recorded PIC is not identity attestation.
+    if (mode === "chatgpt" && accountAlias === "GPT02") {
+      // A display name alone is never a trusted PIC. Resolve the persisted
+      // assignee FK within this exact company and recheck active membership
+      // at dispatch time, rather than accepting caller-supplied metadata.
+      if (!task.assignedToId || !task.assignedTo?.trim() ||
+          ["completed", "cancelled"].includes(task.status)) {
+        res.status(409).json({error: "GPT02_TASK_ASSIGNMENT_NOT_READY", message: "An active task with an assigned member ID is required."});
+        return;
+      }
+      const [member] = await db.select({id:teamMembersTable.id,
+        name:teamMembersTable.name,isActive:teamMembersTable.isActive})
+        .from(teamMembersTable)
+        .where(and(eq(teamMembersTable.id,task.assignedToId),
+          eq(teamMembersTable.companyId,companyId)))
+        .limit(1);
+      if (!member || member.isActive !== true || member.name !== task.assignedTo) {
+        res.status(409).json({error: "GPT02_PIC_IDENTITY_NOT_VERIFIED", message: "PIC must match an active team member in this company."});
+        return;
+      }
+      // A matching team-member record establishes assignment integrity only;
+      // it is not operator consent or independent worker authority.
+    }
     const requestedClientId = typeof body.assignedClientId === "string" ? body.assignedClientId.trim() : "";
     // No implicit worker forcing here. AI Core owns generic worker selection and
     // capability/availability policy. A client ID is forwarded only when the
@@ -1258,6 +1534,19 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
     }
 
     if (existing) {
+      // A GPT02 retry is not a fresh authorized admission. The original
+      // execution may predate PIC/audit binding, and a retry cannot assume
+      // that its old command identity is safe to wake again.
+      if ((mode === "chatgpt" && accountAlias === "GPT02") ||
+          asRecord(existing.metadata)["accountAlias"] === "GPT02") {
+        res.status(409).json({
+          error: "GPT02_EXISTING_ATTEMPT_REQUIRES_AUTHORIZED_RECOVERY",
+          executionId: existing.id,
+          dispatchNotStarted: true,
+          message: "Use supervised existing-attempt reconciliation; automatic GPT02 retry is disabled.",
+        });
+        return;
+      }
       reused = true;
       // A retry after an uncertain ChatGPT handoff is the SAME logical command.
       // Reuse its correlation: a new random value could wake a second worker.
@@ -1297,7 +1586,50 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
     } else {
       const correlationId = randomUUID();
       const idempotencyKey = `${externalId}:${correlationId}`;
-      const [created] = await db.insert(aiExecutionJobsTable).values({
+      const created = await db.transaction(async (tx) => {
+        // Cross-instance fence shared with the PIC assignment transaction.
+        // The lock lasts through task readback and the new execution insert.
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${companyId} || ':' || ${taskId}::text, 0))`);
+        const [currentTask] = await tx.select({
+          assignedToId:aiTasksTable.assignedToId,
+          assignedTo:aiTasksTable.assignedTo,
+          status:aiTasksTable.status,
+        }).from(aiTasksTable)
+          .where(and(eq(aiTasksTable.id,taskId),eq(aiTasksTable.companyId,companyId))).limit(1);
+        if (!currentTask || (mode === "chatgpt" && accountAlias === "GPT02" &&
+            ["completed","cancelled"].includes(currentTask.status))) {
+          throw new Error("GPT02_TASK_CHANGED_DURING_ADMISSION");
+        }
+        if (mode === "chatgpt" && accountAlias === "GPT02" &&
+            (currentTask.assignedToId !== task.assignedToId ||
+             currentTask.assignedTo !== task.assignedTo)) {
+          throw new Error("GPT02_PIC_CHANGED_DURING_ADMISSION");
+        }
+        // The caller must not bypass the dashboard's audit gate by invoking
+        // the dispatch API directly. Read the audit inside the admission lock.
+        let verifiedPicAuditId: number | null = null;
+        if (mode === "chatgpt" && accountAlias === "GPT02") {
+          const [latestAudit]=await tx.select({
+            id:auditLogsTable.id,after:auditLogsTable.after,
+            actorId:auditLogsTable.userId,
+          }).from(auditLogsTable)
+            .where(and(eq(auditLogsTable.companyId,companyId),
+              eq(auditLogsTable.entityId,taskId),
+              eq(auditLogsTable.action,"gpt02_pic_assigned")))
+            .orderBy(desc(auditLogsTable.createdAt),desc(auditLogsTable.id)).limit(1);
+          let auditPayload: Record<string, unknown> = {};
+          try { auditPayload=asRecord(JSON.parse(latestAudit?.after??"null")); }
+          catch { auditPayload={}; }
+          if (!latestAudit || latestAudit.actorId == null ||
+              auditPayload["memberId"]!==currentTask.assignedToId ||
+              auditPayload["memberName"]!==currentTask.assignedTo ||
+              auditPayload["companyId"]!==companyId ||
+              auditPayload["taskId"]!==taskId) {
+            throw new Error("GPT02_PIC_AUDIT_NOT_VERIFIED");
+          }
+          verifiedPicAuditId=latestAudit.id;
+        }
+        return tx.insert(aiExecutionJobsTable).values({
         companyId,
         taskId,
         source: "AI_TASK",
@@ -1317,8 +1649,11 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
           autoContinue: mode === "chatgpt" && (body.lifecycleStart === true || task.category === "ai_chat"),
           continuationDepth: 0,
           ...(mode === "chatgpt" ? { accountAlias } : {}),
+          ...(verifiedPicAuditId !== null ?
+            { picAssignmentAuditId:verifiedPicAuditId, picAssignedMemberId:currentTask.assignedToId } : {}),
         },
-      }).onConflictDoNothing().returning();
+        }).onConflictDoNothing().returning().then(rows => rows[0] ?? null);
+      });
       if (!created) {
         const [collision] = await db.select().from(aiExecutionJobsTable)
           .where(and(eq(aiExecutionJobsTable.source, "AI_TASK"), eq(aiExecutionJobsTable.externalId, externalId))).limit(1);
@@ -1388,6 +1723,12 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
           // Fail closed rather than create a second dispatcher for it.
           if (await fetchAiTaskCommandTimeline(externalId)) {
             throw new Error("AI_CORE_EXISTING_WORKER_COMMAND_PREVENTS_HANDOFF");
+          }
+          // An ordinary worker's 422 reasoning route is not an independently
+          // approved GPT02 task attempt. Never promote it to GPT02 without
+          // the locked and audited GPT02 admission workflow.
+          if (accountAlias === "GPT02") {
+            throw new Error("GPT02_REASONING_HANDOFF_REQUIRES_AUTHORIZED_ADMISSION");
           }
           mode = "chatgpt";
           const handoffMetadata = {
@@ -1463,7 +1804,7 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
 
       const [failed] = await db.update(aiExecutionJobsTable).set({
         status: "failed",
-        progress: 100,
+        progress: Math.max(0, Math.min(90, execution.progress)),
         errorMessage: message,
         completedAt: new Date(),
       }).where(eq(aiExecutionJobsTable.id, execution.id)).returning();
@@ -1471,6 +1812,12 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
       res.status(502).json({ error: "AI Core dispatch failed", execution: failed ?? execution });
     }
   } catch (err) {
+    if (err instanceof Error && ["GPT02_TASK_CHANGED_DURING_ADMISSION",
+        "GPT02_PIC_CHANGED_DURING_ADMISSION",
+        "GPT02_PIC_AUDIT_NOT_VERIFIED"].includes(err.message)) {
+      res.status(409).json({error:err.message,dispatchNotStarted:true});
+      return;
+    }
     logger.error({ err }, "POST task execution failed");
     res.status(500).json({ error: "Failed to start execution" });
   }

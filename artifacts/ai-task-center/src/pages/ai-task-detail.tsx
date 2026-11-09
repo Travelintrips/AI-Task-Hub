@@ -52,6 +52,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { getStoredToken } from "@/lib/auth-api";
+import { useAuth } from "@/contexts/auth-context";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -117,6 +118,7 @@ interface AiTask {
   customerPhone: string | null;
   companyId: string | null;
   assignedTo: string | null;
+  assignedToId?: number | null;
   aiSummary: string | null;
   missingData: string | null;
   createdAt: string;
@@ -508,6 +510,7 @@ export default function AiTaskDetail() {
   const params = useParams<{ id: string }>();
   const id = params.id;
   const { toast } = useToast();
+  const { user: currentUser } = useAuth();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -546,6 +549,63 @@ export default function AiTaskDetail() {
       const status = query.state.data?.execution?.status;
       return status && !["completed", "failed", "cancelled"].includes(status) ? 5_000 : 15_000;
     },
+  });
+
+  // DEV-only assignment view for Super Admin. A team-member record is not
+  // approval to dispatch GPT02 or proof of native worker completion.
+  const gpt02PicPath = `/ai-tasks/${id}/gpt02-pic-options?companyId=${encodeURIComponent(task?.companyId ?? "")}`;
+  const { data: gpt02PicOptions, error: gpt02PicError, isFetching: gpt02PicFetching } = useQuery<{
+    taskId: number; taskStatus: string; taskAssignmentPresent: boolean;
+    assignmentReady: boolean; selectedMemberId: number | null;
+    members: {id: number; name: string}[];
+    choicesTruncated: boolean; operatorApprovalGranted: false;
+    commandDispatched: false;
+  }>({
+    queryKey: ["gpt02-pic-options", id, task?.companyId],
+    queryFn: () => apiFetch(gpt02PicPath),
+    enabled: currentUser?.role === "super_admin" && Boolean(task?.companyId),
+    retry: false,
+  });
+  const { data: gpt02PicAudit, error: gpt02PicAuditError,
+    isFetching: gpt02PicAuditFetching } = useQuery<{
+      taskId:number; assignedMemberId:number|null; assignedTo:string|null;
+      auditPresent:boolean; auditMatchesCurrent:boolean; assignmentAudited:boolean;
+      auditId:number|null; actorId:number|null; actorName:string|null;
+      assignedAt:string|null; operatorApprovalGranted:false;
+      commandDispatched:false; nativeAckVerified:false;
+    }>({
+    queryKey:["gpt02-pic-audit",id,task?.companyId],
+    queryFn:()=>apiFetch(`/ai-tasks/${id}/gpt02-pic-audit?companyId=${encodeURIComponent(task?.companyId ?? "")}`),
+    enabled:currentUser?.role==="super_admin" && Boolean(task?.companyId),
+    retry:false,
+  });
+  const {data:gpt02Lineage,error:gpt02LineageError,isFetching:gpt02LineageFetching,
+    refetch:refreshGpt02Lineage} = useQuery<{
+      taskId:number; executionId:string|null; commandId:string|null;
+      executionStatus:string|null; coreStatus:string|null;
+      coreCommandMatched:boolean; coreTaskIdPresent:boolean;
+      attestationVerified:boolean; finalAckVerified:boolean;
+      bindingSchemaReady:boolean; diagnosticReasons:string[];
+      nativeLineageAttested:false; dispatchPermitted:false; resumePermitted:false;
+      completionPermitted:false; readOnly:true;
+    }>({
+    queryKey:["gpt02-lineage",id,task?.companyId],
+    queryFn:()=>apiFetch(`/ai-tasks/${id}/gpt02-lineage?companyId=${encodeURIComponent(task?.companyId ?? "")}`),
+    enabled:currentUser?.role==="super_admin" && Boolean(task?.companyId),
+    retry:false,
+  });
+  const gpt02AssignPicMutation = useMutation({
+    mutationFn: (memberId: number) => apiFetch(
+      `/ai-tasks/${id}/gpt02-assign-pic?companyId=${encodeURIComponent(task?.companyId ?? "")}`,
+      { method: "POST", body: JSON.stringify({ memberId }) }),
+    onSuccess: () => {
+      toast({title:"PIC GPT02 dicatat",description:"Identitas anggota tim aktif cocok; otorisasi runtime masih perlu diverifikasi."});
+      void queryClient.invalidateQueries({queryKey:["ai-task",id]});
+      void queryClient.invalidateQueries({queryKey:["ai-tasks"]});
+      void queryClient.invalidateQueries({queryKey:["gpt02-pic-options",id]});
+      void queryClient.invalidateQueries({queryKey:["gpt02-pic-audit",id]});
+    },
+    onError: (err: Error) => toast({title:"Gagal menetapkan PIC GPT02",description:err.message,variant:"destructive"}),
   });
 
   const [reconciliationRequested, setReconciliationRequested] = useState(false);
@@ -977,7 +1037,7 @@ export default function AiTaskDetail() {
                 </Button>
                 <Button
                   size="sm"
-                  disabled={!executionData?.bridgeConfigured || !task.assignedTo || assigneeMutation.isPending || startExecutionMutation.isPending || ["completed", "cancelled"].includes(task.status)}
+                  disabled={!executionData?.bridgeConfigured || !gpt02PicOptions?.assignmentReady || !gpt02PicAudit?.auditMatchesCurrent || startExecutionMutation.isPending || gpt02AssignPicMutation.isPending || ["completed", "cancelled"].includes(task.status)}
                   onClick={() => { if (window.confirm(`Mulai lifecycle GPT02 untuk task ${task.taskNumber ?? task.id} dengan PIC ${task.assignedTo}? Pengiriman akan menggunakan idempotency key dan harus dibuktikan dengan ACK.`)) startExecutionMutation.mutate("chatgpt"); }}
                 >
                   {startExecutionMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Brain className="h-3.5 w-3.5 mr-1" />}
@@ -991,15 +1051,42 @@ export default function AiTaskDetail() {
         <div className="mt-4 grid grid-cols-1 gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 md:grid-cols-3">
           <div>
             <Label className="text-xs text-slate-600">Penanggung jawab (PIC Human)</Label>
-            <Select value={task.assignedTo ?? "__none__"}
-              onValueChange={(v) => assigneeMutation.mutate(v === "__none__" ? null : v)}
-              disabled={assigneeMutation.isPending || Boolean(executionData?.execution)}>
-              <SelectTrigger className="mt-1 bg-white"><SelectValue placeholder="Pilih PIC" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__none__">Belum ditetapkan</SelectItem>
-                {teamMembers.map(member => <SelectItem key={member.id} value={member.name}>{member.name}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            {currentUser?.role === "super_admin" ? (
+              <>
+                <Select
+                  value={gpt02PicOptions?.selectedMemberId ? String(gpt02PicOptions.selectedMemberId) : "__none__"}
+                  onValueChange={(value) => {
+                    const memberId = Number(value);
+                    if (Number.isSafeInteger(memberId) && memberId > 0) gpt02AssignPicMutation.mutate(memberId);
+                  }}
+                  disabled={gpt02PicFetching || !!gpt02PicError || gpt02AssignPicMutation.isPending ||
+                    Boolean(executionData?.execution) || ["completed","cancelled"].includes(task.status)}>
+                  <SelectTrigger className="mt-1 bg-white"><SelectValue placeholder="Pilih PIC aktif" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__" disabled>Belum terverifikasi</SelectItem>
+                    {(gpt02PicOptions?.members ?? []).map(member =>
+                      <SelectItem key={member.id} value={String(member.id)}>{member.name} (ID {member.id})</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                {gpt02PicError && <p role="alert" className="mt-1 text-xs text-red-700">Daftar PIC tidak tersedia. Periksa akses Super Admin DEV.</p>}
+                {gpt02PicOptions?.choicesTruncated && <p className="mt-1 text-xs text-amber-700">Daftar dibatasi 100 anggota; pilihan lain memerlukan pemeriksaan admin.</p>}
+                <p className="mt-1 text-xs text-slate-600">
+                  {gpt02PicOptions?.assignmentReady ? "PIC aktif terhubung berdasarkan ID." :
+                    "PIC belum diverifikasi berdasarkan ID dan perusahaan."}
+                </p>
+                <p role="status" className="mt-1 text-xs text-slate-600">
+                  {gpt02PicAuditFetching ? "Memeriksa catatan audit PIC..." :
+                    gpt02PicAuditError ? "Audit PIC tidak tersedia; lifecycle GPT02 ditahan." :
+                    gpt02PicAudit?.auditMatchesCurrent ?
+                      `Audit PIC cocok — ${gpt02PicAudit.actorName ?? "Super Admin"} (${gpt02PicAudit.assignedAt ? new Date(gpt02PicAudit.assignedAt).toLocaleString("id-ID") : "waktu tidak tersedia"}).` :
+                      "Belum ada audit PIC yang cocok dengan penugasan saat ini."}
+                </p>
+              </>
+            ) : (
+              <div className="mt-1 rounded-md border bg-white p-2 text-sm">
+                {task.assignedTo ?? "Belum ditetapkan"} — penugasan GPT02 oleh Super Admin
+              </div>
+            )}
           </div>
           <div>
             <Label className="text-xs text-slate-600">Pelaksana utama</Label>
@@ -1009,12 +1096,36 @@ export default function AiTaskDetail() {
           <div>
             <Label className="text-xs text-slate-600">Tahapan lifecycle</Label>
             <div className="mt-1 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800">
-              {executionData?.execution ? `Execution: ${executionData.execution.status}` : task.assignedTo ? "Siap mengajukan dispatch" : "Menunggu PIC"}
+              {executionData?.execution ? `Execution: ${executionData.execution.status}` : gpt02PicOptions?.assignmentReady ? "PIC terhubung; izin runtime belum terverifikasi" : "Menunggu verifikasi PIC"}
             </div>
             <p className="mt-1 text-xs text-slate-500">Tidak mengubah status bisnis sebelum bukti worker tersedia.</p>
           </div>
         </div>
-        {!task.assignedTo && <p role="status" className="mt-2 text-xs text-amber-700">Pilih PIC dari Tim terlebih dahulu untuk memulai lifecycle GPT02.</p>}
+        {!gpt02PicOptions?.assignmentReady && <p role="status" className="mt-2 text-xs text-amber-700">Tentukan PIC aktif berdasarkan ID melalui Super Admin DEV. Nama saja tidak mengizinkan lifecycle GPT02.</p>}
+        {gpt02PicOptions?.assignmentReady && !gpt02PicAudit?.auditMatchesCurrent && <p role="status" className="mt-2 text-xs text-amber-700">Audit PIC belum cocok. Tidak mengizinkan lifecycle GPT02 sampai bukti penugasan dapat dibaca kembali.</p>}
+        {currentUser?.role==="super_admin" && (
+          <div className="mt-3 space-y-2 rounded-lg border border-slate-200 bg-white p-3 text-xs">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="font-semibold text-slate-900">Diagnostik lineage GPT02 — baca-saja</span>
+              <Button variant="outline" size="sm" onClick={()=>{void refreshGpt02Lineage();}}
+                disabled={gpt02LineageFetching}>Periksa ulang bukti</Button>
+            </div>
+            {gpt02LineageError && <p role="alert" className="text-red-700">
+              Diagnostik tidak tersedia. Status NO-GO tetap berlaku.
+            </p>}
+            {gpt02Lineage && (
+              <div role="status" className="space-y-1 text-slate-700">
+                <p>Task #{gpt02Lineage.taskId} · Eksekusi: {gpt02Lineage.executionStatus ?? "Belum ada"} · AI Core: {gpt02Lineage.coreStatus ?? "Belum terhubung"}</p>
+                <p className="break-all">Attempt: {gpt02Lineage.executionId ?? "Belum ada"}</p>
+                <p className="break-all">Command: {gpt02Lineage.commandId ?? "Belum ada"}</p>
+                <p>Core command cocok: {gpt02Lineage.coreCommandMatched ? "Ya" : "Tidak"} · Core Task ID: {gpt02Lineage.coreTaskIdPresent ? "Ada" : "Belum ada"}</p>
+                <p>Binding schema: {gpt02Lineage.bindingSchemaReady ? "Ada" : "Belum tersedia"} · Attestation: {gpt02Lineage.attestationVerified ? "Tercatat" : "Belum"} · Final ACK: {gpt02Lineage.finalAckVerified ? "Tercatat" : "Belum"}</p>
+                <p className="font-medium text-amber-800">NO-GO: {gpt02Lineage.diagnosticReasons.length ? gpt02Lineage.diagnosticReasons.join(", ") : "Verifikasi native independen tetap diperlukan"}</p>
+                <p>Hasil ini bukan persetujuan operator, izin resume, atau bukti final native.</p>
+              </div>
+            )}
+          </div>
+        )}
         {!executionData?.bridgeConfigured && (
           <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
             AI Core DEV bridge belum dikonfigurasi pada runtime AI Task.
