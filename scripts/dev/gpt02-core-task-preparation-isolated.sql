@@ -62,6 +62,9 @@ CREATE POLICY owned_preparation_only ON gpt02_stage.core_preparations TO gpt02_c
 CREATE FUNCTION gpt02_stage.reject_mutation() RETURNS trigger
 LANGUAGE plpgsql SECURITY INVOKER SET search_path=pg_catalog AS $$BEGIN RAISE EXCEPTION USING ERRCODE='55000',MESSAGE='APPEND_ONLY_PREPARATION'; END $$;
 CREATE TRIGGER prevent_preparation_rewrite BEFORE UPDATE OR DELETE OR TRUNCATE ON gpt02_stage.core_preparations FOR EACH STATEMENT EXECUTE FUNCTION gpt02_stage.reject_mutation();
+RESET ROLE;
+-- GPT02_PREPARER_RLS_POLICY_INJECTION_POINT
+SET LOCAL ROLE gpt02_core_prep_owner;
 CREATE FUNCTION gpt02_stage.prepare_core_task(p_company text,p_task integer,p_project text,p_repo text,p_branch text,p_instruction text)
 RETURNS TABLE(core_task_id uuid,command_candidate_id uuid,attempt_id uuid,hub_execution_id uuid,created boolean,dispatch_permitted boolean)
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
