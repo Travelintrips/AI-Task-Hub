@@ -17,13 +17,15 @@ q(){ docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U "$1" -d postgres -Atqc "$
 run(){ docker exec -i "$NAME" psql -X -v ON_ERROR_STOP=1 -U "$1" -d postgres -q; }
 [[ "$(q postgres 'SHOW server_version_num')" == 17* ]] || { echo WRONG_POSTGRES_VERSION >&2; exit 1; }
 run postgres <<'SQL' >/dev/null
-CREATE ROLE supabase_admin LOGIN SUPERUSER;
+CREATE ROLE supabase_admin LOGIN CREATEROLE NOSUPERUSER;
+CREATE ROLE fixture_root LOGIN SUPERUSER;
 CREATE ROLE gpt02_store_owner NOLOGIN NOINHERIT;
 CREATE ROLE dev_gpt02_issuer_evidence NOLOGIN NOINHERIT CONNECTION LIMIT 0 VALID UNTIL '1970-01-01';
 CREATE ROLE dev_gpt02_attestor_evidence NOLOGIN NOINHERIT CONNECTION LIMIT 0 VALID UNTIL '1970-01-01';
 CREATE ROLE gpt02_core_prep_login NOLOGIN NOINHERIT CONNECTION LIMIT 0 VALID UNTIL '2000-01-01';
-SQL
-run supabase_admin <<'SQL' >/dev/null
+GRANT gpt02_store_owner TO supabase_admin WITH ADMIN TRUE;
+GRANT gpt02_store_owner TO supabase_admin WITH SET FALSE;
+GRANT gpt02_store_owner TO supabase_admin WITH INHERIT FALSE;
 CREATE SCHEMA gpt02_private AUTHORIZATION gpt02_store_owner;
 SET ROLE gpt02_store_owner;
 CREATE TABLE gpt02_private.approvals(task_id integer NOT NULL,
@@ -33,10 +35,14 @@ ALTER TABLE gpt02_private.approvals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE gpt02_private.approvals FORCE ROW LEVEL SECURITY;
 CREATE POLICY evidence_owner_only ON gpt02_private.approvals USING(true) WITH CHECK(true);
 RESET ROLE;
+ALTER ROLE postgres NOSUPERUSER CREATEROLE BYPASSRLS;
+SQL
+# A non-superuser with delegated ADMIN grants the independent membership,
+# so pg_auth_members.grantor matches the hosted Supabase semantics.
+run supabase_admin <<'SQL' >/dev/null
 GRANT gpt02_store_owner TO postgres WITH ADMIN TRUE;
 GRANT gpt02_store_owner TO postgres WITH SET FALSE;
 GRANT gpt02_store_owner TO postgres WITH INHERIT FALSE;
-ALTER ROLE postgres NOSUPERUSER CREATEROLE BYPASSRLS;
 SQL
 run postgres <<'SQL' >/dev/null
 GRANT gpt02_store_owner TO postgres WITH SET FALSE;
@@ -92,7 +98,7 @@ SQL
 check_restore(){ [[ "$(member_state)" == "$baseline" ]] || { echo "ROLE_GRANTS_CHANGED:$(member_state)" >&2; exit 1; }
  [[ "$(q postgres "SELECT pg_has_role('postgres','gpt02_store_owner','SET')")" == f ]] || { echo RESIDUAL_SET_OPTION >&2; exit 1; }; }
 future_count(){ q postgres "SELECT count(*) FROM pg_constraint c JOIN pg_class cl ON cl.oid=c.conrelid JOIN pg_namespace n ON n.oid=cl.relnamespace WHERE n.nspname='gpt02_private' AND cl.relname='approvals' AND c.conname='gpt02_approvals_future_task_only' AND c.convalidated"; }
-run supabase_admin <<'SQL' >/dev/null
+run fixture_root <<'SQL' >/dev/null
 INSERT INTO gpt02_private.approvals(task_id) VALUES (137);
 SQL
 if run postgres <"$WORK/transaction.sql" >"$WORK/fail.log" 2>&1; then echo NONEMPTY_ROW_ACCEPTED >&2; exit 1; fi
@@ -100,7 +106,7 @@ grep -Fq GPT02_APPROVAL_HISTORY_NOT_EMPTY "$WORK/fail.log" || { cat "$WORK/fail.
 check_restore
 [[ "$(future_count)" == 0 ]] || { echo ABORTED_CONSTRAINT_PERSISTED >&2; exit 1; }
 echo PASS:PG17_FAILURE_ROLLS_BACK_GRANT_AND_DDL
-run supabase_admin <<'SQL' >/dev/null
+run fixture_root <<'SQL' >/dev/null
 DELETE FROM gpt02_private.approvals;
 SQL
 run postgres <"$WORK/transaction.sql" >"$WORK/pass.log" 2>&1 || { cat "$WORK/pass.log" >&2; exit 1; }
@@ -111,8 +117,8 @@ run postgres <"$WORK/transaction.sql" >"$WORK/reapply.log" 2>&1 || { cat "$WORK/
 check_restore
 [[ "$(future_count)" == 1 ]] || { echo IDEMPOTENCY_FAILED >&2; exit 1; }
 echo PASS:PG17_IDEMPOTENT_REAPPLY
-if run supabase_admin <<<"INSERT INTO gpt02_private.approvals(task_id) VALUES (136);" >"$WORK/task136.log" 2>&1; then echo HISTORICAL_136_ACCEPTED >&2; exit 1; fi
+if run fixture_root <<<"INSERT INTO gpt02_private.approvals(task_id) VALUES (136);" >"$WORK/task136.log" 2>&1; then echo HISTORICAL_136_ACCEPTED >&2; exit 1; fi
 grep -Fq gpt02_approvals_future_task_only "$WORK/task136.log" || { cat "$WORK/task136.log" >&2; exit 1; }
-run supabase_admin <<<"INSERT INTO gpt02_private.approvals(task_id) VALUES (137);" >/dev/null
+run fixture_root <<<"INSERT INTO gpt02_private.approvals(task_id) VALUES (137);" >/dev/null
 echo PASS:PG17_TASK136_REJECTED_SYNTHETIC_137_ALLOWED
 echo GPT02_PG17_TRANSACTIONAL_ROLE_ESCROW_OFFLINE_PASS_NOT_DEPLOYED
