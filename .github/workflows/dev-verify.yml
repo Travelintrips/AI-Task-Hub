@@ -73,7 +73,7 @@ jobs:
       - name: GPT02 exact lineage fail-closed regression
         run: pnpm --filter @workspace/api-server run test:gpt02-lineage
       - name: Verify signed GPT02 operator proof is task-bound and non-authorizing
-        run: node --test scripts/dev/gpt02-signed-operator-approval-preview.test.cjs scripts/dev/gpt02-nondispatch-fence.contract.test.mjs
+        run: node --test scripts/dev/gpt02-signed-operator-approval-preview.test.cjs scripts/dev/gpt02-nondispatch-fence.contract.test.mjs scripts/dev/gpt02-lifecycle-live-preflight.test.cjs
       - name: Separate exact native delivery result from lifecycle approval
         run: node --test artifacts/api-server/tests/gpt02-execution-outcome.test.mjs
       - name: Verify exact result joins on isolated PostgreSQL
