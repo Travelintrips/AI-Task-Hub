@@ -35,8 +35,15 @@ CREATE ROLE gpt02_core_prep_owner NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCRE
 CREATE ROLE gpt02_core_prep_login NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS CONNECTION LIMIT 0 PASSWORD NULL VALID UNTIL '2000-01-01';
 GRANT gpt02_core_prep_owner TO supabase_admin WITH ADMIN TRUE;
 CREATE SCHEMA ai_platform;
-CREATE TABLE public.ai_execution_jobs(id uuid PRIMARY KEY,company_id text,status text);
-CREATE TABLE ai_platform.ai_coding_tasks(id uuid PRIMARY KEY);
+CREATE TYPE user_role AS ENUM ('super_admin','staff','ecommerce');
+CREATE TABLE public.ai_execution_jobs(
+ id uuid PRIMARY KEY,company_id text,task_id integer,source text,external_id text,
+ idempotency_key text,status text,progress integer,command_id uuid,
+ worker_id text,assigned_client_id text,callback_verified boolean,
+ attestation_verified boolean,final_ack_verified boolean,metadata jsonb);
+CREATE TABLE ai_platform.ai_coding_tasks(
+ id uuid PRIMARY KEY,task_number text,project_name text,repository text,branch text,
+ instruction text,status text,priority integer);
 CREATE SCHEMA gpt02_private;
 CREATE TABLE gpt02_private.approvals(task_id integer CONSTRAINT gpt02_approvals_future_task_only CHECK(task_id>136));
 CREATE TABLE gpt02_private.receipts(id uuid PRIMARY KEY);
@@ -134,12 +141,12 @@ CREATE ROLE dev_gpt02_issuer_evidence NOLOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS 
 CREATE ROLE dev_gpt02_attestor_evidence NOLOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS NOCREATEROLE CONNECTION LIMIT 0;
 ALTER SCHEMA ai_platform OWNER TO postgres;
 CREATE SCHEMA extensions AUTHORIZATION postgres;
-CREATE TABLE public.ai_tasks(id integer);
-CREATE TABLE public.team_members(id integer);
-CREATE TABLE public.audit_logs(id integer);
-CREATE TABLE public.users(id text);
-CREATE TABLE ai_platform.ai_coding_runs(id uuid);
-CREATE TABLE ai_platform.ai_coding_bridge_commands(id uuid);
+CREATE TABLE public.ai_tasks(id integer,company_id text);
+CREATE TABLE public.team_members(id integer,company_id text,is_active boolean);
+CREATE TABLE public.audit_logs(id integer,company_id text,action text,entity_id text);
+CREATE TABLE public.users(id text,company_id integer,is_active boolean,role user_role);
+CREATE TABLE ai_platform.ai_coding_runs(id uuid,task_id uuid);
+CREATE TABLE ai_platform.ai_coding_bridge_commands(id uuid,task_id uuid);
 ALTER TABLE public.ai_tasks OWNER TO postgres;
 ALTER TABLE public.team_members OWNER TO postgres;
 ALTER TABLE public.audit_logs OWNER TO postgres;
@@ -154,17 +161,13 @@ ALTER TABLE public.ai_execution_jobs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ai_platform.ai_coding_tasks ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ai_platform.ai_coding_runs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ai_platform.ai_coding_bridge_commands ENABLE ROW LEVEL SECURITY;
-CREATE POLICY gpt02_preparer_hub_task_read ON public.ai_tasks FOR SELECT TO gpt02_core_prep_owner USING(false);
-CREATE POLICY gpt02_preparer_pic_read ON public.team_members FOR SELECT TO gpt02_core_prep_owner USING(false);
-CREATE POLICY gpt02_preparer_pic_audit_read ON public.audit_logs FOR SELECT TO gpt02_core_prep_owner USING(false);
-CREATE POLICY gpt02_preparer_operator_read ON public.users FOR SELECT TO gpt02_core_prep_owner USING(false);
-CREATE POLICY gpt02_preparer_hub_execution_read ON public.ai_execution_jobs FOR SELECT TO gpt02_core_prep_owner USING(false);
-CREATE POLICY gpt02_preparer_hub_execution_insert ON public.ai_execution_jobs FOR INSERT TO gpt02_core_prep_owner WITH CHECK(false);
-CREATE POLICY gpt02_preparer_core_task_read ON ai_platform.ai_coding_tasks FOR SELECT TO gpt02_core_prep_owner USING(false);
-CREATE POLICY gpt02_preparer_core_task_insert ON ai_platform.ai_coding_tasks FOR INSERT TO gpt02_core_prep_owner WITH CHECK(false);
-CREATE POLICY gpt02_preparer_core_runs_read ON ai_platform.ai_coding_runs FOR SELECT TO gpt02_core_prep_owner USING(false);
-CREATE POLICY gpt02_preparer_core_commands_read ON ai_platform.ai_coding_bridge_commands FOR SELECT TO gpt02_core_prep_owner USING(false);
+
 SQL
+# Reuse the EXACT hosted RLS source; denial-only placeholder policies would
+# not detect compatibility with real restricted owner permissions.
+run postgres <"$ROOT/scripts/dev/gpt02-core-preparer-rls-candidate.sql" >"$WORK/policies.log" 2>&1 || { tail -30 "$WORK/policies.log";exit 1; }
+[[ "$(q postgres "SELECT count(*) FROM pg_policies WHERE policyname LIKE 'gpt02_preparer_%'")" == 10 ]] || { echo RLS_MISMATCH >&2;exit 1; }
+echo PASS:PG17_EXACT_STAGED_RLS_POLICIES
 # A real PostgreSQL transaction failure AFTER all GRANT statements must roll back
 # schema and relation grants, leaving the role graph and function ACL unchanged.
 if { printf 'BEGIN;\nSET LOCAL gpt02.offline_grant_fixture = yes;\n'; cat "$CANDIDATE";
@@ -227,4 +230,45 @@ if { printf 'BEGIN;\nSET LOCAL gpt02.offline_grant_fixture = yes;\n'; cat "$CAND
 fi
 grep -Fq GPT02_OFFLINE_GRANT_PARENT_BASELINE_CHANGED "$WORK/grants-repeat.log" || { tail -20 "$WORK/grants-repeat.log";exit 1; }
 echo PASS:PG_PARENT_GRANT_REPEAT_FAIL_CLOSED
+
+# Restore owner-only grants to the original empty hosted baseline and exercise
+# the actual CST-DEV migration candidate on the SAME fixture.
+HOSTED="$ROOT/scripts/dev/gpt02-preparer-parent-grants-hosted-dev-staged.sql"
+run postgres <<'SQL'
+REVOKE SELECT ON public.ai_tasks,public.team_members,public.users,public.audit_logs,
+  public.ai_execution_jobs,ai_platform.ai_coding_tasks,ai_platform.ai_coding_runs,
+  ai_platform.ai_coding_bridge_commands FROM gpt02_core_prep_owner;
+REVOKE INSERT ON public.ai_execution_jobs,ai_platform.ai_coding_tasks FROM gpt02_core_prep_owner;
+REVOKE USAGE ON SCHEMA ai_platform,extensions FROM gpt02_core_prep_owner;
+SQL
+[[ "$(q postgres "SELECT has_table_privilege('gpt02_core_prep_owner','public.ai_execution_jobs','INSERT')")" == f ]] || { echo OWNER_RESET_FAILED >&2;exit 1; }
+python3 - "$HOSTED" "$WORK/hosted-rollback.sql" <<'PY'
+from pathlib import Path
+import sys
+sql=Path(sys.argv[1]).read_text()
+needle='GRANT INSERT ON public.ai_execution_jobs,ai_platform.ai_coding_tasks TO gpt02_core_prep_owner;'
+assert sql.count(needle)==1
+Path(sys.argv[2]).write_text(sql.replace(needle,needle+"\nDO $ BEGIN RAISE EXCEPTION 'synthetic hosted grant rollback'; END $;"))
+PY
+if run_migration "$WORK/hosted-rollback.sql" >"$WORK/hosted-rollback.log" 2>&1;then echo HOSTED_GRANT_ROLLBACK_BROKEN >&2;exit 1;fi
+grep -Fq 'synthetic hosted grant rollback' "$WORK/hosted-rollback.log" || { tail -20 "$WORK/hosted-rollback.log";exit 1; }
+[[ "$(q postgres "SELECT has_table_privilege('gpt02_core_prep_owner','public.ai_execution_jobs','INSERT')")" == f ]] || { echo HOSTED_GRANT_LEAK >&2;exit 1; }
+echo PASS:PG17_HOSTED_GRANT_TRANSACTION_ROLLBACK
+run_migration "$HOSTED" >"$WORK/hosted-success.log" 2>&1 || { tail -25 "$WORK/hosted-success.log";exit 1; }
+[[ "$(q postgres "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE
+ ((n.nspname='public' AND c.relname IN ('ai_tasks','team_members','audit_logs','users','ai_execution_jobs'))
+ OR (n.nspname='ai_platform' AND c.relname IN ('ai_coding_tasks','ai_coding_runs','ai_coding_bridge_commands')))
+ AND has_table_privilege('gpt02_core_prep_owner',c.oid,'SELECT')")" == 8 ]] || { echo HOSTED_GRANT_SELECT_COUNT_DRIFT >&2;exit 1; }
+[[ "$(q postgres "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE
+ ((n.nspname='public' AND c.relname IN ('ai_tasks','team_members','audit_logs','users','ai_execution_jobs'))
+ OR (n.nspname='ai_platform' AND c.relname IN ('ai_coding_tasks','ai_coding_runs','ai_coding_bridge_commands')))
+ AND has_table_privilege('gpt02_core_prep_owner',c.oid,'INSERT')")" == 2 ]] || { echo HOSTED_GRANT_INSERT_COUNT_DRIFT >&2;exit 1; }
+[[ "$(q postgres "SELECT has_function_privilege('gpt02_core_prep_login','gpt02_stage.prepare_core_task_dormant(text,integer,text,text,text,text)','EXECUTE')::text||':'||has_schema_privilege('gpt02_core_prep_login','gpt02_stage','USAGE')::text")" == 'false:false' ]] || { echo HOSTED_GRANT_LOOSENED_LOGIN >&2;exit 1; }
+[[ "$(q postgres "SELECT (SELECT count(*) FROM gpt02_stage.core_preparations)||':'||(SELECT count(*) FROM public.ai_execution_jobs)||':'||(SELECT count(*) FROM ai_platform.ai_coding_tasks)||':'||(SELECT count(*) FROM gpt02_private.approvals)")" == '0:0:0:0' ]] || { echo HOSTED_GRANT_CHANGED_TASKS >&2;exit 1; }
+echo PASS:PG17_HOSTED_OWNER_GRANTS_EIGHT_SELECT_TWO_INSERT_NO_RUNTIME
+if run_migration "$HOSTED" >"$WORK/hosted-retry.log" 2>&1;then echo HOSTED_GRANT_REPLAY_ACCEPTED >&2;exit 1;fi
+grep -Fq GPT02_DEV_OWNER_PARENT_GRANT_PARENT_DRIFT "$WORK/hosted-retry.log" || { tail -14 "$WORK/hosted-retry.log";exit 1; }
+echo PASS:PG17_HOSTED_GRANT_RETRY_FAIL_CLOSED
+echo GPT02_HOSTED_OWNER_PARENT_GRANTS_ISOLATED_PASS_NO_LOGIN_NO_DISPATCH
+
 printf 'GPT02_DORMANT_PREPARER_MINIMAL_GRANTS_OFFLINE_PASS_NO_LOGIN_NO_COMMAND\n'
