@@ -5,7 +5,7 @@ const {scopeFromVerifiedPrincipal:admit}=require("./gpt02-verified-tenant-scope.
 const staff={id:17,companyId:"tenant_a",role:"staff"};
 const admin={id:1,companyId:"tenant_a",role:"super_admin"};
 test("denies unauthenticated, invalid or header-only user claim",()=>{
- for(const principal of [null,{}, {role:"super_admin",companyId:"tenant_b"}, {id:1,role:"super_admin",companyId:""}])
+ for(const principal of [null,{}, {role:"super_admin",companyId:"tenant_b"}, {id:1,role:"super_admin",companyId:""}, {id:2,role:"unexpected_admin",companyId:"tenant_a"}])
   assert.equal(admit(principal,"tenant_b").allowed,false);
 });
 test("normal user cannot select other tenant even with query or requested admin mode",()=>{
