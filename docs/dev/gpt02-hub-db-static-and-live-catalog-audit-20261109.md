@@ -65,6 +65,12 @@ The isolated regression on commit `9f925e9` deliberately demonstrates `GUC_SPOOF
 
 To close: define trusted authenticated tenant context and an audited Super Admin all-company read plan; bind requests to DB transactions with proper role/privilege separation; deny role/header spoofing; prove cross-company and company-scoped paths plus legacy null-company audit handling in authenticated API and browser E2E. No existing `postgres` login or RLS policy is modified by this analysis.
 
+## Dedicated database identity proof — 2026-11-09
+
+An additional **network-isolated** PostgreSQL 16 prototype in `scripts/dev/gpt02-hub-identity-rls-isolated.sql` now exercises three distinct, non-BYPASSRLS SQL identities: tenant A, tenant B and a read-only cross-company Super Admin role. Seven identity/boundary assertions passed on VPS, including a deliberately forged `app.company_id=tenant_b` while connected as the tenant A SQL identity; unlike the earlier GUC-only policy, this did **not** expose tenant B rows. The Super Admin reader observed both companies and legacy NULL-company audit rows and had no INSERT permission. The shared isolated CI test requires all seven assertions alongside the original four and the expected negative demonstration of GUC spoofability.
+
+This is an **offline behavior prototype, not an operational role-routing design or live migration**. Its test harness uses privileged `SET SESSION AUTHORIZATION` to simulate distinct identities; the Hub application must never possess such a capability. Before deployment, independently authenticate the web session, bind each authorized request to a database credential whose role cannot be switched to another tenant, preserve session-pool isolation, and design properly audited cross-company reads plus safe writes. Do not grant a generic Hub login membership in tenant/admin roles or treat forged header claims as auth. Multi-tenant provisioning, API/browser regression, actual DB login privilege inventory and full-table policy coverage remain incomplete. Native GPT02 is still NO-GO.
+
 ## Required deployment gates
 
 1. Classify the 33 raw SQL identifiers and map dynamic queries, SQL functions, triggers, audit trails, service integrations, 90 attached sequences and all mutating operations to database privileges.
