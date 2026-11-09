@@ -36,6 +36,17 @@ check ISSUER_CANNOT_INSERT_APPROVAL gpt02_test_issuer "SELECT NOT has_table_priv
 check ISSUER_CANNOT_CHANGE_CLAIM gpt02_test_issuer "SELECT NOT has_table_privilege(current_user,'gpt02_approval_test.nonce_claims','UPDATE')" t
 check ATTESTOR_CANNOT_UPDATE_CLAIM gpt02_test_attestor "SELECT NOT has_table_privilege(current_user,'gpt02_approval_test.nonce_claims','UPDATE')" t
 check ROLE_CANNOT_SWITCH_TO_ATTESTOR gpt02_test_issuer "SELECT NOT pg_has_role(current_user,'gpt02_test_attestor','MEMBER')" t
+# Validate a true PostgreSQL client connection under distinct restricted logins,
+# not only a superuser SET SESSION AUTHORIZATION simulation.
+direct_issuer="$(docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U gpt02_test_issuer -d postgres -Atqc 'SELECT current_user = session_user AND current_user = ''gpt02_test_issuer''')"
+[[ "$direct_issuer" == t ]] || { echo "FAIL:DIRECT_ISSUER_LOGIN" >&2; exit 1; }
+echo "PASS:DIRECT_ISSUER_LOGIN"
+direct_attestor="$(docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U gpt02_test_attestor -d postgres -Atqc 'SELECT current_user = session_user AND current_user = ''gpt02_test_attestor''')"
+[[ "$direct_attestor" == t ]] || { echo "FAIL:DIRECT_ATTESTOR_LOGIN" >&2; exit 1; }
+echo "PASS:DIRECT_ATTESTOR_LOGIN"
+direct_privileges="$(docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U gpt02_test_issuer -d postgres -Atqc "SELECT NOT rolsuper AND NOT rolbypassrls AND NOT rolcreaterole AND NOT rolcreatedb FROM pg_roles WHERE rolname=current_user")"
+[[ "$direct_privileges" == t ]] || { echo "FAIL:DIRECT_ISSUER_NONPRIVILEGED" >&2; exit 1; }
+echo "PASS:DIRECT_ISSUER_NONPRIVILEGED"
 # Separate psql processes start as close together as the runtime permits.
 for n in 1 2; do
  ( printf "SET SESSION AUTHORIZATION gpt02_test_issuer; %s;\n" "$call_sql" |
@@ -50,4 +61,4 @@ check DENY_NONCE_REPLAY gpt02_test_issuer "$call_sql" f
 actual="$(docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -Atqc "SELECT count(*) FROM gpt02_approval_test.nonce_claims WHERE command_id='$cmd'")"
 [[ "$actual" == 1 ]] || { echo "FAIL:CLAIM_LEDGER_DUPLICATE" >&2; exit 1; }
 echo "PASS:SINGLE_PERSISTED_CLAIM"
-echo "ISOLATED_NONCE_APPROVAL_13_CHECKS_PASS; LIVE_OPERATOR_APPROVAL_NOT_PROVEN; NATIVE_DISPATCH_NO_GO"
+echo "ISOLATED_NONCE_APPROVAL_16_CHECKS_PASS; LIVE_OPERATOR_APPROVAL_NOT_PROVEN; NATIVE_DISPATCH_NO_GO"
