@@ -3,7 +3,7 @@
 -- Tested function renamed to prepare_core_task_dormant to keep operational readiness NO-GO.
 -- No FUNCTION EXECUTE grant, no parent SELECT/INSERT/REFERENCES grant, no role LOGIN, no dispatch.
 -- Function-body SHA256: 31800f9e1de321d26ddf5f989a8e1977296b70ddbab11759bec9495ce349dc4b
-BEGIN;
+-- Supabase migration manager provides the transaction; do not embed COMMIT.
 SET LOCAL lock_timeout='4s';
 SET LOCAL statement_timeout='15s';
 SELECT pg_advisory_xact_lock(hashtextextended('gpt02_dormant_preparer_function_20261110',0));
@@ -161,7 +161,7 @@ BEGIN
  RETURN QUERY SELECT v_c,v_cmd,v_attempt,v_hub,true,false;
 END $$;
 
--- Revoke PUBLIC default EXECUTE on the function BEFORE COMMIT.
+-- Revoke PUBLIC default EXECUTE before migration manager commits.
 REVOKE ALL ON FUNCTION gpt02_stage.prepare_core_task_dormant(text,integer,text,text,text,text) FROM PUBLIC;
 REVOKE ALL ON FUNCTION gpt02_stage.prepare_core_task_dormant(text,integer,text,text,text,text) FROM gpt02_core_prep_login;
 REVOKE ALL ON FUNCTION gpt02_stage.prepare_core_task_dormant(text,integer,text,text,text,text) FROM anon,authenticated,service_role;
@@ -195,4 +195,3 @@ BEGIN
     RAISE EXCEPTION 'GPT02_DORMANT_PREPARER_FUNCTION_ACCESS_NOT_LOCKED';
  END IF;
 END $post$;
-COMMIT;

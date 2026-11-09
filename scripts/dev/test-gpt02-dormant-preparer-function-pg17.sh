@@ -20,6 +20,9 @@ done
 [[ "$ready" == true ]]|| { echo POSTGRES_17_NOT_READY >&2; exit 3; }
 q(){ docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U "$1" -d postgres -Atqc "$2"; }
 run(){ docker exec -i "$NAME" psql -X -v ON_ERROR_STOP=1 -U "$1" -d postgres -q; }
+# The Supabase migration manager supplies BEGIN/COMMIT. Mirror that in psql:
+# the SQL source MUST NOT commit early or migration history can be left behind.
+run_migration(){ { printf 'BEGIN;\n';cat "$1";printf '\nCOMMIT;\n'; } | run postgres; }
 version="$(q fixture_root 'SHOW server_version_num')"
 if [[ "$NODE_IMAGE" == "postgres:17-alpine" ]];then [[ "$version" == 17* ]]|| { echo WRONG_POSTGRES_VERSION >&2;exit 2; };else [[ "$version" == 16* ]]|| { echo WRONG_POSTGRES_VERSION >&2;exit 2; };fi
 run fixture_root <<'SQL' >/dev/null
@@ -76,31 +79,45 @@ old='SET ROLE gpt02_core_prep_owner;\n'
 assert s.count(old)==1
 Path(sys.argv[2]).write_text(s.replace(old,old+"DO $$ BEGIN RAISE EXCEPTION 'synthetic rollback proof'; END $$;\n"))
 PY
-if run postgres <"$WORK/error-injected.sql" >"$WORK/aborted.log" 2>&1;then echo FAILED_TO_ROLLBACK >&2; exit 1;fi
+if run_migration "$WORK/error-injected.sql" >"$WORK/aborted.log" 2>&1;then echo FAILED_TO_ROLLBACK >&2; exit 1;fi
 grep -Fq 'synthetic rollback proof' "$WORK/aborted.log"|| { tail -20 "$WORK/aborted.log" >&2; exit 1; }
 [[ "$(snapshot)" == "$initial" ]]|| { echo OWNER_GRANT_LEAK_AFTER_ROLLBACK >&2; exit 1; }
 [[ "$(q postgres "SELECT count(*) FROM pg_proc WHERE pronamespace='gpt02_stage'::regnamespace AND proname='prepare_core_task_dormant'")" == 0 ]]|| { echo FUNCTION_SURVIVED_ABORT >&2; exit 1; }
 echo PASS:PG17_ROLE_ESCROW_ROLLS_BACK_WITH_FUNCTION
 # Approval evidence appearing before migration must fail closed without grants.
 run fixture_root <<<"INSERT INTO gpt02_private.approvals(task_id) VALUES(137);" >/dev/null
-if run postgres <"$FILE" >"$WORK/nonempty.log" 2>&1;then echo NONEMPTY_APPROVAL_ACCEPTED >&2; exit 1;fi
+if run_migration "$FILE" >"$WORK/nonempty.log" 2>&1;then echo NONEMPTY_APPROVAL_ACCEPTED >&2; exit 1;fi
 grep -Fq GPT02_DORMANT_PREPARER_STAGING_OR_TASK_BOUNDARY_CHANGED "$WORK/nonempty.log"|| { tail -15 "$WORK/nonempty.log"; exit 1; }
 [[ "$(snapshot)" == "$initial" ]]|| { echo OWNER_GRANT_LEAK_AFTER_PRECHECK >&2; exit 1; }
 run fixture_root <<'SQL' >/dev/null
 DELETE FROM gpt02_private.approvals;
 SQL
 echo PASS:PG17_NONEMPTY_APPROVALS_DENIED
-run postgres <"$FILE" >"$WORK/created.log" 2>&1|| { tail -45 "$WORK/created.log" >&2; exit 1; }
+run_migration "$FILE" >"$WORK/created.log" 2>&1|| { tail -45 "$WORK/created.log" >&2; exit 1; }
 [[ "$(snapshot)" == "$initial" ]]|| { echo OWNER_GRANT_GRAPH_CHANGED >&2; exit 1; }
 [[ "$(q postgres "SELECT pg_has_role('postgres','gpt02_core_prep_owner','SET')")" == f ]]|| { echo OWNER_SET_RETAINED >&2; exit 1; }
 echo PASS:PG17_FUNCTION_CREATED_WITH_OWNER_GRANTS_RESTORED
+# The future Supabase ledger repair is a verification-only migration: it must
+# accept the exact existing body and refuse a changed hash without writes.
+ATTEST="$ROOT/scripts/dev/gpt02-dormant-function-existing-state-attestation.sql"
+run postgres < "$ATTEST" >"$WORK/attested.log" 2>&1 || { tail -25 "$WORK/attested.log" >&2;exit 1; }
+python3 - "$ATTEST" "$WORK/attestation-tampered.sql" <<'PYI'
+from pathlib import Path
+import sys
+s=Path(sys.argv[1]).read_text();old='b18275516add255e76f31414a28732bdd900b556b10f38d42e2e4bdf9f7415d4'
+assert s.count(old)==1
+Path(sys.argv[2]).write_text(s.replace(old,'0'*64))
+PYI
+if run postgres <"$WORK/attestation-tampered.sql" >"$WORK/bad-attest.log" 2>&1;then echo TAMPERED_ATTESTATION_ACCEPTED >&2;exit 1;fi
+grep -Fq GPT02_DORMANT_VERIFICATION_BODY_OR_OWNER_MISMATCH "$WORK/bad-attest.log" || { tail -20 "$WORK/bad-attest.log"; exit 1; }
+echo PASS:PG17_READONLY_ATTESTATION_EXACT_BODY_AND_TAMPER_REJECTION
 # Catalog verification from privileged fixture root; all runtime principals fail.
 actual="$(q fixture_root "SELECT p.prosecdef::text||':'||pg_get_userbyid(p.proowner)||':'||(SELECT count(*) FROM pg_proc WHERE pronamespace=p.pronamespace AND proname='prepare_core_task')::text||':'||has_function_privilege('postgres',p.oid,'EXECUTE')::text||':'||has_function_privilege('anon',p.oid,'EXECUTE')::text||':'||has_function_privilege('authenticated',p.oid,'EXECUTE')::text||':'||has_function_privilege('service_role',p.oid,'EXECUTE')::text||':'||has_function_privilege('gpt02_core_prep_login',p.oid,'EXECUTE')::text FROM pg_proc p WHERE p.pronamespace='gpt02_stage'::regnamespace AND p.proname='prepare_core_task_dormant'")"
 [[ "$actual" == 'true:gpt02_core_prep_owner:0:false:false:false:false:false' ]]|| { echo "FUNCTION_PRIVILEGE_INVALID:$actual" >&2; exit 1; }
 other="$(q fixture_root "SELECT (SELECT count(*) FROM gpt02_stage.core_preparations)||':'||(SELECT count(*) FROM ai_platform.ai_coding_tasks)||':'||(SELECT count(*) FROM public.ai_execution_jobs)||':'||has_table_privilege('gpt02_core_prep_owner','public.ai_execution_jobs','SELECT,INSERT,UPDATE,DELETE,REFERENCES')::text||':'||has_table_privilege('gpt02_core_prep_owner','ai_platform.ai_coding_tasks','SELECT,INSERT,UPDATE,DELETE,REFERENCES')::text||':'||has_schema_privilege('gpt02_core_prep_login','gpt02_stage','USAGE')::text")"
 [[ "$other" == '0:0:0:false:false:false' ]]|| { echo "LIVE_TABLE_GRANT_OR_DATA_LEAK:$other" >&2; exit 1; }
 echo PASS:PG17_ZERO_ROLE_EXECUTE_ZERO_PARENT_DML_ZERO_NEW_TASKS
-if run postgres <"$FILE" >"$WORK/reapply.log" 2>&1;then echo REAPPLIED_UNSAFE_FUNCTION >&2; exit 1;fi
+if run_migration "$FILE" >"$WORK/reapply.log" 2>&1;then echo REAPPLIED_UNSAFE_FUNCTION >&2; exit 1;fi
 grep -Fq GPT02_DORMANT_PREPARER_STAGING_OR_TASK_BOUNDARY_CHANGED "$WORK/reapply.log"|| { tail -12 "$WORK/reapply.log" >&2; exit 1; }
 [[ "$(snapshot)" == "$initial" ]]|| { echo ROLE_ESCROW_LEAK_AFTER_REAPPLY >&2; exit 1; }
 echo PASS:PG17_DUPLICATE_DORMANT_FUNCTION_DENIED
