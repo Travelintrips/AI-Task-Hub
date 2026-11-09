@@ -71,6 +71,9 @@ q 141 | psqlAs gpt02_core_prep_login >"$WORK/new141"
 # Mutate an audit as a fixture admin: it must never reuse a stale preparation.
 psqlAs postgres -c "UPDATE public.audit_logs SET after=jsonb_set(after::jsonb,'{actorIdentity,id}','\"google_fixture_staff\"')::text WHERE entity_id='140'" >/dev/null
 expectDenied ALTERED_OPERATOR_AUDIT_DENIED gpt02_core_prep_login "$(q 140)" ACTIVE_OPERATOR_IDENTITY_REQUIRED
+# Hosted public.users.company_id is INTEGER NULLABLE, whereas ai_tasks.company_id is TEXT.
+# A numeric company assignment may not be coerced into the tenant slug "default".
+expectDenied NUMERIC_COMPANY_ID_NOT_TENANT_AUTHORITY gpt02_core_prep_login "$(q 142)" ACTIVE_OPERATOR_IDENTITY_REQUIRED
 # All generated Core coding tasks are PENDING, no Core commands or runs except the injected fixture.
 counts="$(psqlAs postgres -c "SELECT (SELECT count(*) FROM gpt02_stage.core_preparations)||':'||(SELECT count(*) FROM ai_platform.ai_coding_tasks)||':'||(SELECT count(*) FROM ai_platform.ai_coding_bridge_commands)||':'||(SELECT count(*) FROM ai_platform.ai_coding_runs)")"
 [[ "$counts" == 3:3:0:1 ]] || { echo "WRONG_CORE_COUNTS:$counts" >&2; exit 1; }

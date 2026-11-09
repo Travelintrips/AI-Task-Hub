@@ -12,8 +12,9 @@ CREATE SCHEMA gpt02_stage AUTHORIZATION gpt02_core_prep_owner;
 REVOKE ALL ON SCHEMA gpt02_stage FROM PUBLIC;
 CREATE TABLE public.ai_tasks(id integer PRIMARY KEY,company_id text NOT NULL,status text NOT NULL,title text NOT NULL,assigned_to_id integer,assigned_to text);
 CREATE TABLE public.team_members(id integer PRIMARY KEY,company_id text NOT NULL,is_active boolean NOT NULL,name text NOT NULL,email text NOT NULL);
-CREATE TABLE public.users(id text PRIMARY KEY,company_id text NOT NULL,role text NOT NULL,is_active boolean NOT NULL,email text NOT NULL);
-CREATE TABLE public.audit_logs(id integer PRIMARY KEY,company_id text NOT NULL,entity_id text NOT NULL,action text NOT NULL,after text NOT NULL,user_email text NOT NULL);
+-- Match hosted Hub DEV: id TEXT, company_id INTEGER NULLABLE (not the Hub task tenant TEXT).
+CREATE TABLE public.users(id text PRIMARY KEY,company_id integer,role text NOT NULL,is_active boolean,email text);
+CREATE TABLE public.audit_logs(id integer PRIMARY KEY,company_id text NOT NULL,entity_id text NOT NULL,action text NOT NULL,after text NOT NULL,user_email text);
 CREATE TABLE public.ai_execution_jobs(id uuid PRIMARY KEY,task_id integer NOT NULL,company_id text NOT NULL);
 CREATE TABLE ai_platform.ai_coding_tasks(id uuid PRIMARY KEY DEFAULT gen_random_uuid(),task_number text NOT NULL UNIQUE,project_name text NOT NULL,repository text NOT NULL,branch text NOT NULL,instruction text NOT NULL,status text NOT NULL DEFAULT 'PENDING',priority integer NOT NULL DEFAULT 50);
 CREATE TABLE ai_platform.ai_coding_runs(id uuid PRIMARY KEY,task_id uuid NOT NULL,status text NOT NULL);
@@ -70,7 +71,10 @@ BEGIN
     RAISE EXCEPTION USING ERRCODE='42501',MESSAGE='ACTUAL_AUDITED_SUPER_ADMIN_REQUIRED';
  END IF;
  SELECT u.id INTO v_user FROM public.users u WHERE u.id=v_audit.after::jsonb->'actorIdentity'->>'id'
- AND lower(trim(u.email))=lower(trim(v_audit.user_email)) AND u.company_id=p_company
+ AND lower(trim(u.email))=lower(trim(v_audit.user_email))
+ -- Default-tenant Hub Super Admin may be global (company_id NULL). Integer company IDs
+ -- must not be compared/cast to task tenant "default" or silently accepted.
+ AND u.company_id IS NULL
  AND u.is_active IS TRUE AND u.role='super_admin' LIMIT 1;
  IF NOT FOUND THEN RAISE EXCEPTION USING ERRCODE='42501',MESSAGE='ACTIVE_OPERATOR_IDENTITY_REQUIRED'; END IF;
  IF EXISTS(SELECT 1 FROM public.ai_execution_jobs e WHERE e.task_id=p_task AND e.company_id=p_company) THEN
@@ -104,9 +108,13 @@ GRANT USAGE ON SCHEMA gpt02_stage TO gpt02_core_prep_login;
 GRANT EXECUTE ON FUNCTION gpt02_stage.prepare_core_task(text,integer,text,text,text,text) TO gpt02_core_prep_login;
 COMMIT;
 INSERT INTO public.team_members VALUES(5,'default',true,'Synthetic PIC','admin@example.invalid'),(6,'default',false,'Inactive PIC','admin2@example.invalid');
-INSERT INTO public.users VALUES('google_fixture_super_admin','default','super_admin',true,'admin@example.invalid'),('google_fixture_staff','default','staff',true,'staff@example.invalid');
-INSERT INTO public.ai_tasks VALUES(137,'default','new_inquiry','Synthetic new coding task',5,'Synthetic PIC'),(135,'default','new_inquiry','Old failed task',5,'Synthetic PIC'),(136,'default','new_inquiry','Already completed task',5,'Synthetic PIC'),(138,'other','new_inquiry','Other tenant task',5,'Synthetic PIC'),(139,'default','new_inquiry','Synthetic second task',5,'Synthetic PIC'),(140,'default','new_inquiry','Synthetic mutated audit',5,'Synthetic PIC'),(141,'default','new_inquiry','Synthetic expired preparation',5,'Synthetic PIC');
+INSERT INTO public.users VALUES('google_fixture_super_admin',NULL,'super_admin',true,'admin@example.invalid'),('google_fixture_staff',NULL,'staff',true,'staff@example.invalid'),('google_fixture_company_super_admin',5,'super_admin',true,'scoped@example.invalid');
+INSERT INTO public.ai_tasks VALUES(137,'default','new_inquiry','Synthetic new coding task',5,'Synthetic PIC'),(135,'default','new_inquiry','Old failed task',5,'Synthetic PIC'),(136,'default','new_inquiry','Already completed task',5,'Synthetic PIC'),(138,'other','new_inquiry','Other tenant task',5,'Synthetic PIC'),(139,'default','new_inquiry','Synthetic second task',5,'Synthetic PIC'),(140,'default','new_inquiry','Synthetic mutated audit',5,'Synthetic PIC'),(141,'default','new_inquiry','Synthetic expired preparation',5,'Synthetic PIC'),(142,'default','new_inquiry','Synthetic scoped operator must be rejected',5,'Synthetic PIC');
 INSERT INTO public.audit_logs(id,company_id,entity_id,action,after,user_email)
 SELECT 2000+id,'default',id::text,'gpt02_pic_assigned',jsonb_build_object('taskId',id,'companyId','default','memberId',5,'memberName','Synthetic PIC','actorIdentity',jsonb_build_object('id','google_fixture_super_admin','version',1,'role','super_admin','email','admin@example.invalid'))::text,'admin@example.invalid'
 FROM public.ai_tasks WHERE company_id='default';
+UPDATE public.audit_logs
+SET user_email='scoped@example.invalid',
+ after=jsonb_set(jsonb_set(after::jsonb,'{actorIdentity,id}','"google_fixture_company_super_admin"'),'{actorIdentity,email}','"scoped@example.invalid"')::text
+WHERE entity_id='142';
 INSERT INTO public.ai_execution_jobs VALUES(gen_random_uuid(),136,'default');

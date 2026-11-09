@@ -7,11 +7,13 @@ const request={companyId:'default',hubTaskId:137,projectName:'GPT02 DEV coding l
 const ids={core_task_id:'11111111-1111-4111-8111-111111111111',command_candidate_id:'22222222-2222-4222-8222-222222222222',attempt_id:'33333333-3333-4333-8333-333333333333',created:true,dispatch_permitted:false};
 const login={login:'gpt02_core_prep_login',session:'gpt02_core_prep_login',limited:true,no_membership:true,no_db_create:true};
 const acl={can_dispatch:false,direct_core_write:false,direct_preparation_write:false};
-function harness({identity=login,permissions=acl,rows=[ids],errorAt=null}={}){
+const actualSchema={hub_operator_id_text:true,hub_numeric_company_nullable:true,hub_tenant_text:true,audit_email_text:true,core_task_uuid:true};
+function harness({identity=login,permissions=acl,schema=actualSchema,rows=[ids],errorAt=null}={}){
  const statements=[];let destroyed=false;
  const client={async query(sql,params){statements.push({sql,params});if(errorAt&&sql.includes(errorAt))throw Error('synthetic secret must never surface');
   if(sql.includes('current_user AS login'))return {rows:[identity]};
   if(sql.includes('has_table_privilege'))return {rows:[permissions]};
+  if(sql.includes('catalog_rows'))return {rows:[{catalog_rows:5,compatible:Object.values(schema).every(Boolean)}]};
   if(sql.includes('gpt02_stage.prepare_core_task'))return {rows};
   return {rows:[]};},release(v){destroyed=v;}};
  const preparer=new Gpt02CoreTaskPreparer({pool:{async connect(){return client}}});
@@ -53,6 +55,17 @@ test('wrong login, membership, admin grants or direct DML all fail closed with r
   assert.equal(h.statements.some(x=>x.sql.includes('gpt02_stage.prepare_core_task')),false);
   assert.equal(h.statements.some(x=>x.sql==='ROLLBACK'),true);assert.equal(h.isDestroyed(),true);
  }
+});
+test('wrong hosted user/company/tenant/core column shape blocks preparer before any SQL write',async()=>{
+ for(const key of Object.keys(actualSchema)){
+  const h=harness({schema:{...actualSchema,[key]:false}});
+  await assert.rejects(h.preparer.prepare(request),e=>e.code==='HOSTED_IDENTITY_SCHEMA_MISMATCH');
+  assert.equal(h.statements.some(x=>x.sql.includes('gpt02_stage.prepare_core_task')),false);
+  assert.ok(h.statements.some(x=>x.sql==='ROLLBACK'));
+ }
+ const h=harness({schema:{...actualSchema,hub_numeric_company_nullable:null}});
+ await assert.rejects(h.preparer.prepare(request),e=>e.code==='HOSTED_IDENTITY_SCHEMA_MISMATCH');
+ assert.equal(h.statements.some(x=>x.sql.includes('gpt02_stage.prepare_core_task')),false);
 });
 test('malformed DB output never becomes false evidence of preparation',async()=>{
  for(const rows of [[],[ids,ids],[{...ids,dispatch_permitted:true}],[{...ids,command_candidate_id:ids.core_task_id}],[{...ids,core_task_id:'fake'}],[{...ids,created:'true'}]]){

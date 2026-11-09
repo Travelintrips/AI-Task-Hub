@@ -72,6 +72,30 @@ export class Gpt02CoreTaskPreparer {
      COALESCE((SELECT has_table_privilege(current_user,c.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='gpt02_stage' AND c.relname='core_preparations'),true) AS direct_preparation_write`)).rows[0];
    if(!direct||direct.can_dispatch!==false||direct.direct_core_write!==false||direct.direct_preparation_write!==false)
      deny('DIRECT_CORE_TABLE_PRIVILEGES_FORBIDDEN');
+   // Lock the preparer to the real Hub/Core catalog. Both tenant IDs and numeric
+   // company IDs exist in CST-DEV, but they are not interchangeable namespaces.
+   // No SECURITY DEFINER routine is invoked until these column shapes match.
+   // Use only pg_catalog OIDs: the deliberately restricted preparer has NO
+   // USAGE on public/ai_platform, so 'schema.table'::regclass would leak an
+   // unexpected 42501 rather than performing the non-mutating shape check.
+   const schema=(await client.query(`SELECT
+     COUNT(*)::integer AS catalog_rows,
+     COALESCE(BOOL_AND(a.attnum>0 AND NOT a.attisdropped
+       AND pg_catalog.format_type(a.atttypid,a.atttypmod)=expected.type_name
+       AND a.attnotnull=expected.required_not_null),false) AS compatible
+     FROM (VALUES
+       ('public','users','id','text',true),
+       ('public','users','company_id','integer',false),
+       ('public','ai_tasks','company_id','text',true),
+       ('public','audit_logs','user_email','text',false),
+       ('ai_platform','ai_coding_tasks','id','uuid',true)
+     ) AS expected(schema_name,relation_name,column_name,type_name,required_not_null)
+     LEFT JOIN pg_catalog.pg_namespace n ON n.nspname=expected.schema_name
+     LEFT JOIN pg_catalog.pg_class c ON c.relnamespace=n.oid AND c.relname=expected.relation_name
+       AND c.relkind IN ('r','p')
+     LEFT JOIN pg_catalog.pg_attribute a ON a.attrelid=c.oid AND a.attname=expected.column_name`)).rows[0];
+   if(!schema||schema.catalog_rows!==5||schema.compatible!==true)
+     deny('HOSTED_IDENTITY_SCHEMA_MISMATCH');
    const rows=(await client.query(
     'SELECT core_task_id,command_candidate_id,attempt_id,created,dispatch_permitted FROM gpt02_stage.prepare_core_task($1,$2,$3,$4,$5,$6)',params)).rows;
    if(rows.length!==1||!rows[0]||![rows[0].core_task_id,rows[0].command_candidate_id,rows[0].attempt_id].every(x=>typeof x==='string'&&UUID.test(x))||
