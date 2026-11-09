@@ -24,7 +24,7 @@ try {
  assert.equal(j.metadata.attemptId,p.attempt_id);assert.equal(j.metadata.dispatchStarted,false);
  assert.equal(audit.id,p.member_audit_id);
  const prepared={companyId:p.company_id,hubTaskId:p.hub_task_id,memberId:p.member_id,memberAuditId:p.member_audit_id,
-  operatorSubject:p.operator_subject,coreTaskId:p.core_task_id,commandCandidateId:p.command_candidate_id,attemptId:p.attempt_id,
+  operatorSubject:p.operator_subject,coreTaskId:p.core_task_id,hubExecutionId:p.hub_execution_id,commandCandidateId:p.command_candidate_id,attemptId:p.attempt_id,
   expiresAt:new Date(p.expires_at).getTime()};
  const job={companyId:j.company_id,taskId:j.task_id,executionId:j.id,status:j.status,commandId:j.command_id,
   workerCommandCount:0,attemptNumber:j.metadata.attemptNumber,dispatchStarted:j.metadata.dispatchStarted,
@@ -62,6 +62,7 @@ try {
  for(const k of ['approvalRecorded','nonceConsumed','issuerPermitted','dispatchPermitted','completionPermitted']) assert.equal(value[k],false);
  for(const change of [{job:{...job,executionId:randomUUID()}},{core:{...core,taskId:randomUUID()}},
  {prepared:{...prepared,memberAuditId:prepared.memberAuditId+1}},
+ {prepared:{...prepared,hubExecutionId:randomUUID()}},
  {job:{...job,status:'dispatched'}},{core:{...core,operatorUserId:78}}]){
   const rejected=inspectPreparedSignedLink({...input,...change});assert.equal(rejected.matched,false);assert.equal(rejected.dispatchPermitted,false);
  }

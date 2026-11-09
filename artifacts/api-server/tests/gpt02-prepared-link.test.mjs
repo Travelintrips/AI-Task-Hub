@@ -12,8 +12,8 @@ const publicKeys={approvalPublicKeyPem:approvalKeys.publicKey.export({type:'spki
  corePublicKeyPem:coreKeys.publicKey.export({type:'spki',format:'pem'}).toString()};
 function fixture(){
  const prepared={companyId:'default',hubTaskId:137,memberId:5,memberAuditId:4567,
-  operatorSubject:'google_fixture_operator',coreTaskId:randomUUID(),commandCandidateId:randomUUID(),attemptId:randomUUID(),expiresAt:now+90000};
- const job={companyId:'default',taskId:137,executionId:randomUUID(),status:'prepared',commandId:null,workerCommandCount:0,
+  operatorSubject:'google_fixture_operator',coreTaskId:randomUUID(),hubExecutionId:randomUUID(),commandCandidateId:randomUUID(),attemptId:randomUUID(),expiresAt:now+90000};
+ const job={companyId:'default',taskId:137,executionId:prepared.hubExecutionId,status:'prepared',commandId:null,workerCommandCount:0,
   attemptNumber:1,dispatchStarted:false,memberId:5,memberAuditId:4567,operatorSubject:'google_fixture_operator'};
  const core={taskId:prepared.coreTaskId,commandCandidateId:prepared.commandCandidateId,attemptId:prepared.attemptId,
   status:'PENDING',commandCount:0,runCount:0,workerId:'openclaw-dell-chatgpt-wake-dev',operatorUserId:77,
@@ -49,6 +49,7 @@ test('the signed canonical approval has one exact independently bound prepared c
  assert.equal(v.identifiers.commandCandidateId,x.prepared.commandCandidateId);
  assert.equal(v.identifiers.attemptId,x.prepared.attemptId);
  assert.equal(v.identifiers.executionId,x.job.executionId);
+ assert.equal(v.identifiers.executionId,x.prepared.hubExecutionId);
  assert.equal(v.identifiers.coreTaskId,x.core.taskId);
 });
 for(const [part,changes,name] of [
@@ -60,6 +61,8 @@ for(const [part,changes,name] of [
  ['prepared',{memberAuditId:99},'PIC audit swap'],
  ['prepared',{operatorSubject:'other'},'operator subject swap'],
  ['prepared',{coreTaskId:randomUUID()},'Core task swap'],
+ ['prepared',{hubExecutionId:randomUUID()},'immutable Hub reservation ID swap'],
+ ['prepared',{hubExecutionId:null},'missing immutable Hub reservation ID'],
  ['prepared',{commandCandidateId:randomUUID()},'command swap'],
  ['prepared',{attemptId:randomUUID()},'attempt swap'],
  ['prepared',{expiresAt:now-1},'expired preparation'],

@@ -31,8 +31,7 @@ function inspectSignedApproval({claims,signatureBase64url,publicKeyPem,now=Date.
  if(!payload)return deny("INVALID_CANONICAL_CLAIMS");
  if(claims.v!==2||claims.environment!=="DEV"||
    claims.audience!=="GPT02_NEW_TASK_SINGLE_COMMAND_APPROVAL"||
-   !Number.isSafeInteger(claims.taskId)||claims.taskId<1||
-   claims.taskId===135||!UUID.test(claims.commandId)||!UUID.test(claims.attemptId)||
+   !Number.isSafeInteger(claims.taskId)||claims.taskId<=136||!UUID.test(claims.commandId)||!UUID.test(claims.attemptId)||
    claims.commandId===claims.attemptId||!NONCE.test(claims.nonce)||
    claims.operatorNamespace!==OPERATOR_NAMESPACE||
    typeof claims.superAdminId!=="string"||!ACCOUNT_ID.test(claims.superAdminId)||

@@ -30,11 +30,12 @@ export function inspectPreparedSignedLink({prepared,job,core,hubOperator,proof,p
      !Number.isSafeInteger(prepared.memberId)||prepared.memberId<=0||
      !Number.isSafeInteger(prepared.memberAuditId)||prepared.memberAuditId<=0||
      !SUBJECT.test(prepared.operatorSubject)||
-     ![prepared.coreTaskId,prepared.commandCandidateId,prepared.attemptId].every(x=>typeof x==='string'&&UUID.test(x))||
-     new Set([prepared.coreTaskId,prepared.commandCandidateId,prepared.attemptId]).size!==3||
+     ![prepared.coreTaskId,prepared.hubExecutionId,prepared.commandCandidateId,prepared.attemptId].every(x=>typeof x==='string'&&UUID.test(x))||
+     new Set([prepared.coreTaskId,prepared.hubExecutionId,prepared.commandCandidateId,prepared.attemptId]).size!==4||
      typeof prepared.expiresAt!=='number'||prepared.expiresAt<=now||
      prepared.expiresAt-now>900000)return fail('UNTRUSTED_CORE_RESERVATION');
   if(job.companyId!==prepared.companyId||job.taskId!==prepared.hubTaskId||
+     job.executionId!==prepared.hubExecutionId||
      !UUID.test(job.executionId)||job.status!=='prepared'||job.commandId!==null||
      job.workerCommandCount!==0||job.attemptNumber!==1||job.dispatchStarted!==false||
      job.memberId!==prepared.memberId||job.memberAuditId!==prepared.memberAuditId||

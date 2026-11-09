@@ -79,8 +79,8 @@ test('separate SCRAM connections, signature-pinned store and atomic evidence per
  await rejection(s.consumeApproval({...envelope(),publicKeyPem:pem}),'INVALID_ENVELOPE');
  const forged=envelope();forged.claims.taskId++;await rejection(s.consumeApproval(forged),'INVALID_SIGNATURE');assert.equal(calls,0);
  });
- await t.test('Task 135, PROD, expired, overlong or malformed claims rejected before a write',async()=>{
- for(const changes of [{taskId:135},{environment:'PROD'},{expiresAt:Date.now()-1},{expiresAt:Date.now()+3600000},{issuedAt:Date.now()+20000},{companyId:'all'},{nonce:['not-a-string']}])await rejection(attestor.recordApproval(envelope(changes)),'INVALID_OR_EXPIRED_CLAIMS');
+ await t.test('historical Tasks 135/136, PROD, expired, overlong or malformed claims rejected before a write',async()=>{
+ for(const changes of [{taskId:135},{taskId:136},{environment:'PROD'},{expiresAt:Date.now()-1},{expiresAt:Date.now()+3600000},{issuedAt:Date.now()+20000},{companyId:'all'},{nonce:['not-a-string']}])await rejection(attestor.recordApproval(envelope(changes)),'INVALID_OR_EXPIRED_CLAIMS');
  });
  await t.test('v2 text-identity canonical bytes match preview and issuer implementations',async()=>{
  const {canonicalPayload,inspectSignedApproval}=require('./gpt02-signed-operator-approval-preview.cjs');
@@ -314,7 +314,7 @@ test('separate SCRAM connections, signature-pinned store and atomic evidence per
   const x=linkedInput(envelope({companyId:'default'}));
   const a=x.approval.claims,l=x.operatorLink.claims;
   const preparation={companyId:'default',hubTaskId:a.taskId,memberId:l.assigneeId,memberAuditId:9801,
-   operatorSubject:a.superAdminId,coreTaskId:l.coreTaskId,commandCandidateId:a.commandId,
+   operatorSubject:a.superAdminId,coreTaskId:l.coreTaskId,hubExecutionId:l.hubExecutionId,commandCandidateId:a.commandId,
    attemptId:a.attemptId,expiresAt:a.expiresAt};
   const job={companyId:'default',taskId:a.taskId,executionId:l.hubExecutionId,status:'prepared',
    commandId:null,workerCommandCount:0,attemptNumber:1,dispatchStarted:false,
@@ -330,7 +330,7 @@ test('separate SCRAM connections, signature-pinned store and atomic evidence per
   assert.equal(good.matched,true);assert.equal(good.dispatchPermitted,false);
   assert.equal(good.approvalRecorded,false);assert.equal(good.nonceConsumed,false);
   for(const [field,patch] of [
-   ['prepared',{coreTaskId:randomUUID()}],['job',{executionId:randomUUID()}],
+   ['prepared',{coreTaskId:randomUUID()}],['prepared',{hubExecutionId:randomUUID()}],['job',{executionId:randomUUID()}],
    ['core',{operatorUserId:78}],['hubOperator',{memberId:l.assigneeId+1}]]) {
    const mismatch=inspectPreparedSignedLink({...context,[field]:{...context[field],...patch}});
    assert.equal(mismatch.matched,false);assert.equal(mismatch.dispatchPermitted,false);

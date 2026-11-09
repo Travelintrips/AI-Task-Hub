@@ -70,7 +70,7 @@ function verifiedEnvelope(envelope,key,now){
  if(!object(envelope)||Object.keys(envelope).sort().join(',')!=='claims,signatureBase64url')fail('INVALID_ENVELOPE');
  const {claims:c,signatureBase64url:s}=envelope,payload=canonicalApproval(c);
  if(!Number.isSafeInteger(now)||now<0||c.v!==2||c.environment!=='DEV'||c.audience!=='GPT02_NEW_TASK_SINGLE_COMMAND_APPROVAL'||
- !Number.isSafeInteger(c.taskId)||c.taskId<=0||c.taskId===135||c.operatorNamespace!==OPERATOR_NAMESPACE||typeof c.superAdminId!=='string'||!ACCOUNT_ID.test(c.superAdminId)||
+ !Number.isSafeInteger(c.taskId)||c.taskId<=136||c.operatorNamespace!==OPERATOR_NAMESPACE||typeof c.superAdminId!=='string'||!ACCOUNT_ID.test(c.superAdminId)||
  typeof c.commandId!=='string'||!UUID.test(c.commandId)||typeof c.attemptId!=='string'||!UUID.test(c.attemptId)||c.commandId===c.attemptId||
  typeof c.nonce!=='string'||!/^[A-Za-z0-9_-]{32,128}$/.test(c.nonce)||typeof c.companyId!=='string'||!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(c.companyId)||
  ['all','*'].includes(c.companyId)||!Number.isSafeInteger(c.issuedAt)||!Number.isSafeInteger(c.expiresAt)||c.issuedAt<0||
