@@ -39,13 +39,19 @@ BEGIN;
 SELECT set_config('app.company_id','tenant_b',true);
 SELECT 'TENANT_B', (SELECT count(*) FROM gpt02_rls_test.ai_tasks)=1 AND (SELECT count(*) FROM gpt02_rls_test.audit_logs)=1;
 ROLLBACK;
+-- This reproduces the limitation, it is NOT a security PASS:
+-- a role able to execute arbitrary SQL can reassign an application GUC.
+BEGIN;
+SELECT set_config('app.company_id','tenant_b',true);
+SELECT 'GUC_SPOOFABLE', (SELECT count(*) FROM gpt02_rls_test.ai_tasks WHERE id=2)=1;
+ROLLBACK;
 RESET ROLE;
 SQL
 } | docker exec -i "$NAME" psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -At > /tmp/gpt02-rls-result-"$$".txt
 result="$(cat /tmp/gpt02-rls-result-"$$".txt)"
 rm -f /tmp/gpt02-rls-result-"$$".txt
-for name in NO_CONTEXT TENANT_A CROSS_TENANT_UNSEEN TENANT_B; do
+for name in NO_CONTEXT TENANT_A CROSS_TENANT_UNSEEN TENANT_B GUC_SPOOFABLE; do
  grep -Fqx "$name|t" <<< "$result" || { echo "FAILED:$name"; exit 1; }
 done
 echo "ISOLATED_RLS_4_OF_4_PASS"
-echo "WARNING: GUC spoofing by arbitrary SQL remains possible; middleware trust is NOT proven"
+echo "BLOCKER_GUC_SPOOFABLE_CONFIRMED; tenant RLS is NOT live-migration-ready"
