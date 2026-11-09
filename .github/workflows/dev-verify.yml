@@ -48,6 +48,8 @@ jobs:
         run: node --test scripts/dev/gpt02-verified-tenant-scope.test.cjs
       - name: Verify AI Task child resources cannot cross tenant boundaries
         run: node --test artifacts/api-server/tests/ai-task-child-tenant-scope.test.mjs
+      - name: GPT02 new authorized DEV test must stay non-dispatching until signed gates
+        run: node --test scripts/dev/gpt02-new-test-admission-readonly.test.cjs
       - name: Typecheck
         run: pnpm run typecheck
       - name: Build
