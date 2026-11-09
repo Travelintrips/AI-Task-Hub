@@ -44,6 +44,12 @@ jobs:
         run: node --test scripts/dev/gpt02-hub-db-static-access-inventory.test.cjs
       - name: Verify isolated PostgreSQL 16 tenant RLS policy boundaries
         run: bash scripts/dev/test-gpt02-hub-rls-isolated-postgres.sh
+      - name: Deny unverified GPT02 dedicated issuer cutover
+        run: node --test scripts/dev/gpt02-dedicated-issuer-cutover-readonly.test.cjs
+      - name: Verify isolated PostgreSQL atomic GPT02 approval nonce consumption
+        run: bash scripts/dev/test-gpt02-approval-nonce-isolated-postgres.sh
+      - name: Verify actual SCRAM issuer connections and atomic evidence persistence
+        run: bash scripts/dev/test-gpt02-issuer-store-isolated.sh
       - name: Verify authenticated tenant admission stays non-authorizing
         run: node --test scripts/dev/gpt02-verified-tenant-scope.test.cjs
       - name: Verify AI Task child resources cannot cross tenant boundaries
@@ -56,6 +62,8 @@ jobs:
         run: node --test scripts/dev/gpt02-operator-identity-preflight.test.cjs
       - name: GPT02 exact lineage fail-closed regression
         run: pnpm --filter @workspace/api-server run test:gpt02-lineage
+      - name: Verify signed GPT02 operator proof is task-bound and non-authorizing
+        run: node --test scripts/dev/gpt02-signed-operator-approval-preview.test.cjs
       - name: Typecheck
         run: pnpm run typecheck
       - name: Build
