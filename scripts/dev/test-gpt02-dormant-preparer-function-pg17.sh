@@ -164,6 +164,12 @@ ALTER TABLE ai_platform.ai_coding_bridge_commands ENABLE ROW LEVEL SECURITY;
 SQL
 # Reuse the EXACT hosted RLS source; denial-only placeholder policies would
 # not detect compatibility with real restricted owner permissions.
+# Match the actual CST-DEV users.role column type. Enum would alter the
+# policy deparser's cast and produce a false-negative RLS fingerprint.
+[[ "$(q postgres "SELECT pg_catalog.format_type(a.atttypid,a.atttypmod)
+ FROM pg_attribute a WHERE a.attrelid='public.users'::regclass AND a.attname='role'")" == text ]] || {
+ echo HOSTED_USER_ROLE_TYPE_DRIFT >&2; exit 1;
+}
 run postgres <"$ROOT/scripts/dev/gpt02-core-preparer-rls-candidate.sql" >"$WORK/policies.log" 2>&1 || { tail -30 "$WORK/policies.log";exit 1; }
 [[ "$(q postgres "SELECT count(*) FROM pg_policies WHERE policyname LIKE 'gpt02_preparer_%'")" == 10 ]] || { echo RLS_MISMATCH >&2;exit 1; }
 echo PASS:PG17_EXACT_STAGED_RLS_POLICIES
