@@ -5,10 +5,19 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 NAME="gpt02-rls-policy-test-$$"
 trap 'docker rm -f "$NAME" >/dev/null 2>&1 || true' EXIT
 docker run -d --rm --name "$NAME" --network none -e POSTGRES_PASSWORD=isolated-only postgres:16-alpine >/dev/null
-for i in $(seq 1 40); do
- if docker exec "$NAME" pg_isready -U postgres >/dev/null 2>&1; then break; fi
+ready=false
+for i in $(seq 1 60); do
+ if docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -Atqc 'SELECT 1' 2>/dev/null | grep -qx 1; then
+  ready=true
+  break
+ fi
  sleep 1
 done
+if [[ "$ready" != true ]]; then
+ docker logs --tail 30 "$NAME" >&2 || true
+ echo "ISOLATED_POSTGRES_NOT_READY" >&2
+ exit 2
+fi
 {
  cat "$ROOT/scripts/dev/gpt02-hub-rls-isolated-prototype.sql"
  cat <<'SQL'
