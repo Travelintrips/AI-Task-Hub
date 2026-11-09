@@ -54,6 +54,17 @@ The proposed SQL is deliberately **not** a live migration and uses small synthet
 
 **Crucial trust limitation:** PostgreSQL's custom setting `app.company_id` can be set by a connected SQL-capable app role. These RLS policies alone cannot prevent a compromised or injection-vulnerable application connection from impersonating another tenant by changing the setting. Before deploying any policy to live DEV, implement a defensible trusted-tenant context (including session transaction boundaries and injection resistance), independently validate privileges against the actual login, and test API/browser functional parity. The isolated smoke test is policy-behavior evidence only, **not sufficient tenant-security or login-cutover proof**.
 
+## Actual Hub API tenant trust/read behavior — 2026-11-09
+
+Source inspection at PR HEAD confirms two incompatible assumptions requiring a design decision before active DEV RLS migration:
+
+1. `artifacts/api-server/src/middleware/auth.ts` defines `getCompanyId(req)`. Its Super Admin read mode **intentionally returns null** when the request does not provide `?companyId`, allowing the existing `GET /ai-tasks` route in `routes/ai-tasks.ts` to show **all companies**. The proposed strict `company_id = app.company_id` policy would break this documented behavior without a separately authorized, audited cross-company reporting path.
+2. `artifacts/api-server/src/middleware/permissions.ts` contains a distinct `extractAuth` path reading `x-user-role`, `x-company-id` and other headers. This source fact alone does not establish exploitability; its trust/proxy boundaries and usage must be audited before headers can be used for DB RLS context. Such headers must never be assumed equivalent to validated JWT session identity.
+
+The isolated regression on commit `9f925e9` deliberately demonstrates `GUC_SPOOFABLE`: the SQL-capable test role can reassign `app.company_id` and read another tenant's rows. **This is an expected vulnerability demonstration and a live-deployment blocker**, not evidence that tenant isolation is secure.
+
+To close: define trusted authenticated tenant context and an audited Super Admin all-company read plan; bind requests to DB transactions with proper role/privilege separation; deny role/header spoofing; prove cross-company and company-scoped paths plus legacy null-company audit handling in authenticated API and browser E2E. No existing `postgres` login or RLS policy is modified by this analysis.
+
 ## Required deployment gates
 
 1. Classify the 33 raw SQL identifiers and map dynamic queries, SQL functions, triggers, audit trails, service integrations, 90 attached sequences and all mutating operations to database privileges.
