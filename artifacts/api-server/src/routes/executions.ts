@@ -1,3 +1,4 @@
+import { evaluateGpt02ExecutionOutcome } from "../lib/gpt02-execution-outcome";
 import { createSingleFlightGuard } from "../lib/single-flight";
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { Router, type IRouter, type NextFunction, type Request, type Response } from "express";
@@ -1902,11 +1903,34 @@ router.get("/ai-tasks/:id/gpt02-lineage", requireAuth, async (req: Request, res:
            AND r.metadata_json->>'deliveryCode'='DELIVERY_CONFIRMED'
            AND r.metadata_json->>'verifiedAssistantReply'='true'
            AND r.metadata_json->>'browserPairingVerified'='true')
-          AS verified_completed_responses
+          AS verified_completed_responses,
+        COALESCE(j.metadata->>'verificationMode'='chatgpt-attested'
+          AND c.command_type='EXTERNAL_AGENT_WORK' AND c.source='ai-core'
+          AND c.metadata_json->>'source'='authorized-dev-browser-wake'
+          AND c.metadata_json->>'capability'='chatgpt:wake',false) AS direct_wake_route,
+        COALESCE(j.metadata->>'environment'='development'
+          AND j.metadata->>'accountAlias'='GPT02'
+          AND j.external_id='ai-task:' || COALESCE(NULLIF(LEFT(regexp_replace(t.company_id,'[^a-zA-Z0-9_-]','_','g'),100),''),'default') || ':' || t.id::text
+          AND j.metadata->>'remoteCorrelationId'=j.external_id || ':' || j.correlation_id::text
+          AND c.metadata_json->>'correlationId'=j.metadata->>'remoteCorrelationId'
+          AND c.metadata_json->>'devOnly'='true'
+          AND j.worker_id='openclaw-dell-chatgpt-wake-dev'
+          AND c.metadata_json->>'assignedClientId'=j.worker_id
+          AND c.metadata_json->'wakeBinding'->>'workerId'=j.worker_id
+          AND c.metadata_json->'wakeBinding'->>'accountAlias'='GPT02'
+          AND c.metadata_json->'wakeBinding'->>'browserProfile'='gpt02-dell-dev'
+          AND c.metadata_json->'wakeBinding'->>'targetConversationId'=c.metadata_json->>'targetConversationId'
+          AND c.metadata_json->'wakeBinding'->>'bindingFingerprint' ~ '^[a-f0-9]{64}$'
+          AND c.metadata_json->>'eventId' ~ '^[a-f0-9]{64}$'
+          AND c.metadata_json->>'assistantAttestationChallenge' ~ '^[a-f0-9]{64}$',false) AS transport_context_matched,
+        receipt_proof.total_count AS completed_response_count,
+        receipt_proof.exact_count AS exact_native_response_count,
+        receipt_proof.response_id AS completion_response_id,
+        receipt_proof.acknowledged_at AS completion_acknowledged_at
       FROM public.ai_tasks t
       LEFT JOIN LATERAL (
         SELECT id,task_id,company_id,source,status,command_id,correlation_id,
-          callback_verified,attestation_verified,final_ack_verified
+          callback_verified,attestation_verified,final_ack_verified,metadata,external_id,worker_id
         FROM public.ai_execution_jobs
         WHERE task_id=t.id AND company_id=t.company_id
           AND source='AI_TASK' AND metadata->>'environment'='development'
@@ -1916,6 +1940,40 @@ router.get("/ai-tasks/:id/gpt02-lineage", requireAuth, async (req: Request, res:
         ON pic.id=t.assigned_to_id AND pic.company_id=t.company_id
        AND pic.name=t.assigned_to AND pic.is_active IS TRUE
       LEFT JOIN ai_platform.ai_coding_bridge_commands c ON c.id=j.command_id
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*)::integer AS total_count,
+          COUNT(*) FILTER(WHERE exact_match)::integer AS exact_count,
+          MAX(receipt.id::text) FILTER(WHERE exact_match) AS response_id,
+          (MAX(receipt.acknowledged_at) FILTER(WHERE exact_match))::text AS acknowledged_at
+        FROM (
+          SELECT r.id,r.acknowledged_at,
+            COALESCE(r.acknowledged_at IS NOT NULL
+              AND r.metadata_json->>'e2eCode'='E2E_VERIFIED'
+              AND r.metadata_json->>'deliveryCode'='DELIVERY_CONFIRMED'
+              AND r.metadata_json->>'verifiedAssistantReply'='true'
+              AND r.metadata_json->>'browserPairingVerified'='true'
+              AND r.metadata_json->>'workerId'=c.metadata_json->>'assignedClientId'
+              AND r.metadata_json->>'eventId'=c.metadata_json->>'eventId'
+              AND r.metadata_json->>'challenge'=c.metadata_json->>'assistantAttestationChallenge'
+              AND r.metadata_json->>'bindingFingerprint'=c.metadata_json->'wakeBinding'->>'bindingFingerprint'
+              AND r.metadata_json->>'browserProfile'=c.metadata_json->'wakeBinding'->>'browserProfile'
+              AND r.metadata_json->>'conversationId'=c.metadata_json->>'targetConversationId'
+              AND r.metadata_json->'attestation'->>'version'='2'
+              AND r.metadata_json->'attestation'->>'algorithm'='Ed25519'
+              AND r.metadata_json->'attestation'->>'workerId'=c.metadata_json->>'assignedClientId'
+              AND r.metadata_json->'attestation'->>'eventId'=c.metadata_json->>'eventId'
+              AND r.metadata_json->'attestation'->>'challenge'=c.metadata_json->>'assistantAttestationChallenge'
+              AND r.metadata_json->'attestation'->>'bindingFingerprint'=c.metadata_json->'wakeBinding'->>'bindingFingerprint'
+              AND r.metadata_json->'attestation'->>'browserProfile'=c.metadata_json->'wakeBinding'->>'browserProfile'
+              AND r.metadata_json->'attestation'->>'conversationId'=c.metadata_json->>'targetConversationId'
+              AND r.message=r.metadata_json->>'assistantResponseText'
+              AND r.message=r.metadata_json->'attestation'->>'assistantResponseText'
+              AND r.metadata_json->'attestation'->>'assistantResponseHash' ~ '^[a-f0-9]{64}$'
+              AND length(r.metadata_json->'attestation'->>'signature')>0,false) AS exact_match
+          FROM ai_platform.ai_coding_bridge_responses r
+          WHERE r.command_id=c.id AND r.kind='COMPLETED'
+        ) receipt
+      ) receipt_proof ON true
       LEFT JOIN ai_platform.ai_coding_tasks ct ON ct.id=c.task_id
       LEFT JOIN ai_platform.dev_gpt02_task_attempt_binding_claims bc
         ON bc.tenant_id=t.company_id AND bc.hub_ai_task_id=t.id
@@ -1936,7 +1994,8 @@ router.get("/ai-tasks/:id/gpt02-lineage", requireAuth, async (req: Request, res:
         dispatchPermitted: false }); return;
     }
     res.setHeader("Cache-Control", "no-store");
-    res.json(evaluateGpt02LineageEvidence(result.rows[0] as never));
+    res.json({ ...evaluateGpt02LineageEvidence(result.rows[0] as never),
+      executionOutcome: evaluateGpt02ExecutionOutcome(result.rows[0] as never) });
   } catch (err) {
     logger.warn({ err, taskId }, "DEV GPT02 exact lineage diagnostic unavailable");
     res.status(503).json({ error: "GPT02_LINEAGE_DIAGNOSTIC_UNAVAILABLE",

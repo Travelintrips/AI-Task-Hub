@@ -586,6 +586,7 @@ export default function AiTaskDetail() {
       coreCommandMatched:boolean; coreTaskIdPresent:boolean;
       attestationVerified:boolean; finalAckVerified:boolean;
       bindingSchemaReady:boolean; diagnosticReasons:string[];
+      executionOutcome?: { verified:boolean; status:string; route:string; responseId:string|null; acknowledgedAt:string|null; grantsAuthority:false; readOnly:true };
       nativeLineageAttested:false; dispatchPermitted:false; resumePermitted:false;
       completionPermitted:false; readOnly:true;
     }>({
@@ -1120,8 +1121,10 @@ export default function AiTaskDetail() {
                 <p className="break-all">Command: {gpt02Lineage.commandId ?? "Belum ada"}</p>
                 <p>Core command cocok: {gpt02Lineage.coreCommandMatched ? "Ya" : "Tidak"} · Core Task ID: {gpt02Lineage.coreTaskIdPresent ? "Ada" : "Belum ada"}</p>
                 <p>Binding schema: {gpt02Lineage.bindingSchemaReady ? "Ada" : "Belum tersedia"} · Attestation: {gpt02Lineage.attestationVerified ? "Tercatat" : "Belum"} · Final ACK: {gpt02Lineage.finalAckVerified ? "Tercatat" : "Belum"}</p>
-                <p className="font-medium text-amber-800">NO-GO: {gpt02Lineage.diagnosticReasons.length ? gpt02Lineage.diagnosticReasons.join(", ") : "Verifikasi native independen tetap diperlukan"}</p>
-                <p>Hasil ini bukan persetujuan operator, izin resume, atau bukti final native.</p>
+                <p className="font-medium">Hasil eksekusi: {gpt02Lineage.executionOutcome?.verified === true ? "Selesai — respons native dan ACK akhir cocok dengan command ini." : "Bukti lengkap hasil eksekusi belum terverifikasi."}</p>
+                {gpt02Lineage.executionOutcome?.route === "direct_chatgpt_command" && !gpt02Lineage.coreTaskIdPresent && <p>Jalur uji ini membuat command ChatGPT langsung, bukan Core coding task. Pencatatan lifecycle tetap belum lengkap.</p>}
+                <p className="font-medium text-amber-800">Pencatatan lifecycle — NO-GO: {gpt02Lineage.diagnosticReasons.length ? gpt02Lineage.diagnosticReasons.join(", ") : "Verifikasi native independen tetap diperlukan"}</p>
+                <p>Hasil eksekusi dan kelengkapan lifecycle dinilai terpisah. Pemeriksaan ini bukan persetujuan operator, izin resume, atau penutupan bisnis; tidak memberi izin menjalankan ulang.</p>
               </div>
             )}
           </div>
