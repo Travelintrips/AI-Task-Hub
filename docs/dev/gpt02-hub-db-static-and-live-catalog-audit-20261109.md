@@ -1,3 +1,9 @@
+## New GPT02 operator approval signature preview — 2026-11-09
+
+Source-only (not deployed) `scripts/dev/gpt02-signed-operator-approval-preview.cjs` supplies a bounded Ed25519 cryptographic **verification preview** for one uniquely identified NEW DEV task and command. Claims include DEV audience, task ID distinct from 135, unique UUID command/attempt IDs, nonce, Super Admin ID, company, issue/expiry timestamps (max five-minute window). Signature verification is over canonical field order and rejects modified task/command/company/nonce, wrong key, malformed claims, wrong environment, or expiry. Six locally executed tests pass; CI now requires the tests.
+
+**Not a grant, not an approval:** Even a cryptographically valid preview unconditionally returns `operatorApprovalRecorded=false`, `issuerPermitted=false`, `dispatchPermitted=false` and `NO_GO`. Neither a test-generated signing key nor a user-provided claim can make these operational. Real approval requires a trusted private-key holder backed by fresh independent Super Admin identity, durable append-only recorded approval and atomic nonce consumption (with a database identity that cannot bypass RLS), signed native origin/attestor, grant and worker lease fencing. There is no running signature-validation endpoint and no signing key or operational task created by this preview. No source has been deployed in this step.
+
 ## DEV rollout readback — 2026-11-09 (supersedes earlier "not deployed" notes)
 
 The user authorized DEV deployment and requested OC help if needed. DELL OpenClaw CLI was consulted: the `gpt02-dev` agent failed an auth-store prerequisite and the `main` agent returned a gateway timeout. Neither attempt authorized or performed an app mutation. We therefore deployed directly through authorized VPS with a bounded rollback script and no native GPT02 dispatch.
