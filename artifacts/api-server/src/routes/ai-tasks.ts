@@ -371,7 +371,8 @@ router.patch("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): 
       const [member] = await db
         .select()
         .from(teamMembersTable)
-        .where(eq(teamMembersTable.name, assignedTo as string))
+        .where(and(eq(teamMembersTable.name, assignedTo as string),
+          eq(teamMembersTable.companyId, eventCompanyId)))
         .limit(1);
 
       if (!member) {
@@ -391,12 +392,27 @@ router.patch("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): 
   }
 });
 
+// Tenant-aware parent existence guard for child resources (comments/messages).
+// This check must happen before touching task-linked rows: child tables may not
+// carry company_id, and a globally unique task ID alone is not authorization.
+async function accessibleTaskId(req: Request, taskId: number): Promise<boolean> {
+  const companyId = getCompanyId(req);
+  const conditions: SQL[] = [eq(aiTasksTable.id, taskId)];
+  if (companyId) conditions.push(eq(aiTasksTable.companyId, companyId));
+  const [task] = await db.select({ id: aiTasksTable.id })
+    .from(aiTasksTable).where(and(...conditions)).limit(1);
+  return Boolean(task);
+}
+
 // ─── POST /ai-tasks/:id/comments ───────────────────────────────────────────────
 
 router.post("/ai-tasks/:id/comments", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const taskId = Number(req.params.id);
-    if (Number.isNaN(taskId)) { res.status(400).json({ error: "Invalid id" }); return; }
+    if (!Number.isSafeInteger(taskId) || taskId <= 0) { res.status(400).json({ error: "Invalid id" }); return; }
+    if (!(await accessibleTaskId(req, taskId))) {
+      res.status(404).json({ error: "AI task not found" }); return;
+    }
 
     const { comment, senderName } = req.body as { comment: string; senderName?: string };
     if (!comment?.trim()) { res.status(400).json({ error: "comment diperlukan" }); return; }
@@ -421,7 +437,10 @@ router.post("/ai-tasks/:id/comments", requireAuth, async (req: Request, res: Res
 router.get("/ai-tasks/:id/messages", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const id = Number(req.params.id as string);
-    if (Number.isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+    if (!Number.isSafeInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid id" }); return; }
+    if (!(await accessibleTaskId(req, id))) {
+      res.status(404).json({ error: "AI task not found" }); return;
+    }
 
     const rows = await db
       .select()
