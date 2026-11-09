@@ -38,6 +38,8 @@ jobs:
         run: node --test artifacts/api-server/tests/bridge-ledger-readback.test.mjs artifacts/api-server/tests/bridge-ledger-event-summary.test.mjs artifacts/api-server/tests/bridge-ledger-source-progress.test.mjs
       - name: Verify read-only DEV deployment preflight fails closed
         run: node --test scripts/dev/bridge-ledger-readback-runtime-preflight.test.mjs
+      - name: Fail closed on privileged AI Task DEV database login cutover
+        run: node --test scripts/dev/gpt02-hub-db-login-cutover-readonly.test.cjs
       - name: Typecheck
         run: pnpm run typecheck
       - name: Build
