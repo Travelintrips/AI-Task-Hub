@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+NAME="gpt02-core-preparation-$PPID-$$"
+WORK="$(mktemp -d)"
+SOCKET="gpt02-core-prep-socket-$PPID-$$"
+cleanup(){ docker rm -f "$NAME" >/dev/null 2>&1 || true; docker volume rm "$SOCKET" >/dev/null 2>&1 || true; rm -rf "$WORK"; }
+trap cleanup EXIT
+# Isolated PostgreSQL, no published ports, no network, no CST credential.
+docker volume create "$SOCKET" >/dev/null
+docker run -d --name "$NAME" --network none --mount "type=volume,src=$SOCKET,dst=/var/run/postgresql" -e POSTGRES_PASSWORD=synthetic-only postgres:16-alpine -c unix_socket_directories=/var/run/postgresql >/dev/null
+ready=false
+for i in $(seq 1 45); do
+ if docker logs "$NAME" 2>&1 | grep -Fq 'PostgreSQL init process complete' &&
+    docker exec "$NAME" psql -X -U postgres -Atqc 'SELECT 1' >/dev/null 2>&1; then ready=true;break;fi
+ sleep 1
+done
+[[ "$ready" == true ]] || { echo ISOLATED_PG_NOT_READY >&2; exit 3; }
+docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U postgres -c 'CREATE DATABASE gpt02_core_preparation_isolated' >/dev/null
+docker exec -i "$NAME" psql -X -v ON_ERROR_STOP=1 -U postgres -d gpt02_core_preparation_isolated -q < "$ROOT/scripts/dev/gpt02-core-task-preparation-isolated.sql" >"$WORK/init.log" 2>&1 || { tail -18 "$WORK/init.log"; exit 3; }
+psqlAs(){ local user="$1"; shift; docker exec -i "$NAME" psql -X -v ON_ERROR_STOP=1 -At -U "$user" -d gpt02_core_preparation_isolated "$@"; }
+project='GPT02 DEV coding lifecycle';repo='Travelintrips/Core-AI-Foundation';branch='develop';instruction='PREPARE ONLY, never issue a command.'
+q(){ local task="$1"; shift; printf "SELECT core_task_id::text,command_candidate_id::text,attempt_id::text,created,dispatch_permitted FROM gpt02_stage.prepare_core_task('default',%s,'%s','%s','%s','%s');\n" "$task" "$project" "$repo" "$branch" "${1:-$instruction}"; }
+expectDenied(){ local tag="$1" who="$2" sql="$3" expected="$4"; local out
+ if printf '%s\n' "$sql" | psqlAs "$who" >"$WORK/result.log" 2>&1; then echo "FAIL:$tag:unexpected_success" >&2; exit 1;fi
+ grep -Fq "$expected" "$WORK/result.log" || { echo "FAIL:$tag:unexpected_error" >&2; tail -6 "$WORK/result.log";exit 1; }
+ echo "PASS:$tag"
+}
+# Verify that the session authenticates as a dedicated role; never SET ROLE.
+identity="$(psqlAs gpt02_core_prep_login -c "SELECT current_user||':'||session_user||':'||(SELECT rolbypassrls::text FROM pg_roles WHERE rolname=current_user)")"
+[[ "$identity" == gpt02_core_prep_login:gpt02_core_prep_login:false ]] || { echo WRONG_TEST_LOGIN >&2;exit 1; }
+echo PASS:DEDICATED_NONPRIVILEGED_LOGIN
+expectDenied DIRECT_WRITE_FORBIDDEN gpt02_core_prep_login 'INSERT INTO gpt02_stage.core_preparations DEFAULT VALUES' 'permission denied'
+expectDenied CORE_TASK_DIRECT_ACCESS_FORBIDDEN gpt02_core_prep_login 'SELECT id FROM ai_platform.ai_coding_tasks LIMIT 1' 'permission denied'
+expectDenied ROLE_SWITCH_FORBIDDEN gpt02_core_prep_login 'SET ROLE postgres' 'permission denied'
+expectDenied TASK135_FORBIDDEN gpt02_core_prep_login "$(q 135)" PREPARATION_SCOPE_DENIED
+expectDenied OLD_SUCCESSFUL_TASK136_FORBIDDEN gpt02_core_prep_login "$(q 136)" HUB_TASK_ALREADY_EXECUTED_NO_REPREPARE
+expectDenied FOREIGN_TENANT_FORBIDDEN gpt02_core_prep_login "SELECT * FROM gpt02_stage.prepare_core_task('other',138,'$project','$repo','$branch','$instruction')" PREPARATION_SCOPE_DENIED
+expectDenied WRONG_REPOSITORY_FORBIDDEN gpt02_core_prep_login "SELECT * FROM gpt02_stage.prepare_core_task('default',137,'$project','Travelintrips/OtherRepo','$branch','$instruction')" PREPARATION_SCOPE_DENIED
+expectDenied ROLE_IMPERSONATION_FORBIDDEN postgres "SET SESSION AUTHORIZATION postgres; $(q 137)" PREPARATION_SCOPE_DENIED
+# Two concurrently authenticated sessions prepare the SAME future task.
+for n in 1 2; do (q 137 | psqlAs gpt02_core_prep_login >"$WORK/race$n") & done
+wait
+first="$(cat "$WORK/race1")";second="$(cat "$WORK/race2")"
+[[ -n "$first" && -n "$second" ]] || { echo EMPTY_RACE_RESULT >&2;exit 1; }
+IFS='|' read -r a_core a_cmd a_attempt a_created a_dispatch <<< "$first"
+IFS='|' read -r b_core b_cmd b_attempt b_created b_dispatch <<< "$second"
+[[ "$a_core" == "$b_core" && "$a_cmd" == "$b_cmd" && "$a_attempt" == "$b_attempt" ]] || { echo RACE_DIFFERENT_IDENTITIES >&2;exit 1; }
+[[ "$a_created$b_created" == tf || "$a_created$b_created" == ft ]] || { echo RACE_NOT_ONE_CREATION >&2;exit 1; }
+[[ "$a_dispatch$b_dispatch" == ff ]] || { echo RACE_GRANTED_DISPATCH >&2;exit 1; }
+echo PASS:ATOMIC_TWO_PREPARERS_ONE_CORE_TASK_NO_DISPATCH
+replay="$(q 137 | psqlAs gpt02_core_prep_login)"
+IFS='|' read -r c_core c_cmd c_attempt c_created c_dispatch <<< "$replay"
+[[ "$c_core" == "$a_core" && "$c_cmd" == "$a_cmd" && "$c_attempt" == "$a_attempt" && "$c_created" == f && "$c_dispatch" == f ]] || { echo REPLAY_NOT_IDEMPOTENT >&2;exit 1; }
+echo PASS:SAME_REQUEST_IDEMPOTENT_NO_NEW_ATTEMPT
+expectDenied MUTATED_INSTRUCTION_DENIED gpt02_core_prep_login "$(q 137 'different instruction')" PREPARATION_CHANGED_OR_ALREADY_STARTED
+# New audited task 139 can be prepared; a linked Core RUN later blocks reuse.
+q 139 | psqlAs gpt02_core_prep_login >"$WORK/new139"
+core139="$(cut -d'|' -f1 "$WORK/new139")"
+psqlAs postgres -c "INSERT INTO ai_platform.ai_coding_runs(id,task_id,status) VALUES(gen_random_uuid(),'$core139','PENDING')" >/dev/null
+expectDenied STARTED_CORE_TASK_REUSE_DENIED gpt02_core_prep_login "$(q 139)" PREPARATION_CHANGED_OR_ALREADY_STARTED
+# Transaction error after Core task insertion must rollback that task too.
+psqlAs postgres -c "CREATE FUNCTION gpt02_stage.synthetic_fail() RETURNS trigger LANGUAGE plpgsql AS \$\$ BEGIN RAISE EXCEPTION 'synthetic failure'; END \$\$; CREATE TRIGGER synthetic_fail BEFORE INSERT ON gpt02_stage.core_preparations FOR EACH ROW EXECUTE FUNCTION gpt02_stage.synthetic_fail()" >/dev/null
+expectDenied ATOMIC_ROLLBACK_ON_INSERT_FAILURE gpt02_core_prep_login "$(q 141)" 'synthetic failure'
+psqlAs postgres -c 'DROP TRIGGER synthetic_fail ON gpt02_stage.core_preparations; DROP FUNCTION gpt02_stage.synthetic_fail()' >/dev/null
+n="$(psqlAs postgres -c "SELECT count(*) FROM ai_platform.ai_coding_tasks WHERE task_number LIKE 'GPT02DEV-141-%'")"
+[[ "$n" == 0 ]] || { echo CORE_TASK_LEFT_AFTER_ROLLBACK >&2;exit 1; }
+echo PASS:NO_ORPHAN_CODING_TASK_AFTER_ROLLBACK
+q 141 | psqlAs gpt02_core_prep_login >"$WORK/new141"
+[[ "$(cut -d'|' -f4-5 "$WORK/new141")" == t\|f ]] || { echo WRONG_PREPARE_RESULT >&2;exit 1; }
+# Mutate an audit as a fixture admin: it must never reuse a stale preparation.
+psqlAs postgres -c "UPDATE public.audit_logs SET after=jsonb_set(after::jsonb,'{actorIdentity,id}','\"google_fixture_staff\"')::text WHERE entity_id='140'" >/dev/null
+expectDenied ALTERED_OPERATOR_AUDIT_DENIED gpt02_core_prep_login "$(q 140)" ACTIVE_OPERATOR_IDENTITY_REQUIRED
+# All generated Core coding tasks are PENDING, no Core commands or runs except the injected fixture.
+counts="$(psqlAs postgres -c "SELECT (SELECT count(*) FROM gpt02_stage.core_preparations)||':'||(SELECT count(*) FROM ai_platform.ai_coding_tasks)||':'||(SELECT count(*) FROM ai_platform.ai_coding_bridge_commands)||':'||(SELECT count(*) FROM ai_platform.ai_coding_runs)")"
+[[ "$counts" == 3:3:0:1 ]] || { echo "WRONG_CORE_COUNTS:$counts" >&2; exit 1; }
+echo PASS:EXACT_THREE_PREPARATIONS_ZERO_COMMANDS
+# Prepared rows cannot be updated, deleted or truncated even by fixture DB admin.
+expectDenied IMMUTABLE_PREPARED_LEDGER postgres 'UPDATE gpt02_stage.core_preparations SET member_id=6' APPEND_ONLY_PREPARATION
+# A locally available DEV runtime image permits a real Node + PostgreSQL-socket
+# integration probe. GitHub CI runs SQL integration plus Node unit tests; its
+# hosted runner does not contain the private DEV image and must not fetch it.
+NODE_IMAGE="${GPT02_CORE_LOCAL_NODE_IMAGE:-ai-task-hub:dev-lifecycle-held-20261109}"
+if docker image inspect "$NODE_IMAGE" >/dev/null 2>&1; then
+ docker run --rm --network none --entrypoint node \
+  --mount "type=volume,src=$SOCKET,dst=/var/run/postgresql" \
+  --mount "type=bind,src=$ROOT/artifacts/api-server/src/lib/gpt02-core-task-preparation.mjs,dst=/tmp/gpt02-core-task-preparation.mjs,readonly" \
+  --mount "type=bind,src=$ROOT/scripts/dev/gpt02-core-preparation-module-smoke.mjs,dst=/tmp/gpt02-core-preparation-module-smoke.mjs,readonly" \
+  -e GPT02_CORE_FIXTURE_ONLY=1 "$NODE_IMAGE" /tmp/gpt02-core-preparation-module-smoke.mjs
+else
+ echo 'OPTIONAL_NODE_DATABASE_SOCKET_SMOKE_SKIPPED_NO_LOCAL_IMAGE; SQL_AND_NODE_UNIT_TESTS_REQUIRED'
+fi
+# No operational issuer/dispatch API nor grant gets created by this stage.
+echo 'GPT02_CORE_PREPARATION_ISOLATED_PASS: ONLY PENDING CODING TASKS, NO DISPATCH, NO_LIVE_CHANGES'
