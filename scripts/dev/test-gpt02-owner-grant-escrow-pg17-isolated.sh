@@ -10,6 +10,9 @@ trap 'docker rm -f "$NAME" >/dev/null 2>&1 || true; rm -rf "$WORK"' EXIT
 docker run -d --rm --network none --name "$NAME" -e POSTGRES_USER=fixture_root -e POSTGRES_DB=postgres -e POSTGRES_PASSWORD=synthetic-only postgres:17-alpine >/dev/null
 ready=false
 for i in $(seq 1 50); do
+ # The initialization server accepts a connection before Docker finishes its
+ # final restart. Never mistake that temporary socket for readiness.
+ if ! docker logs "$NAME" 2>&1 | grep -q 'PostgreSQL init process complete'; then sleep 1; continue; fi
  if docker exec "$NAME" psql -X -U fixture_root -d postgres -Atqc "SELECT 1" >/dev/null 2>&1; then ready=true; break; fi
  sleep 1
 done
