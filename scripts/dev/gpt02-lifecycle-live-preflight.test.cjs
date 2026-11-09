@@ -82,3 +82,14 @@ test('the signed approval table must enforce only future Task IDs at the DB laye
  assert.ok(!future.blockers.includes('APPROVAL_SCHEMA_STILL_ACCEPTS_HISTORICAL_TASK_IDS'));
  assert.equal(future.releaseDecision,'NO_GO');assert.equal(future.dispatchPermitted,false);
 });
+
+test('dormant no-login preparer shows measurable progress without issuer or dispatch readiness',()=>{
+ const r=evaluate(observedFromRow({database_role:'postgres',is_readonly:true,
+   preparer_role_limited:false,preparer_dormant_staged:true,
+   issuer_role_ready:false,attestor_role_ready:false,
+   preparation_table_exists:false,preparer_function_exists:false},true));
+ assert.equal(r.roleState.dormantPreparerStaged,true);
+ assert.equal(r.roleState.preparerDedicated,false);
+ assert.ok(r.blockers.includes('DEDICATED_PREPARER_LOGIN_MISSING_OR_DISABLED'));
+ assert.equal(r.releaseDecision,'NO_GO');assert.equal(r.dispatchPermitted,false);
+});

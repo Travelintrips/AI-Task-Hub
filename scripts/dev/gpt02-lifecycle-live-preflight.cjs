@@ -35,6 +35,7 @@ function evaluate(observed={}) {
   schemaState:{preparationInstalled:checks.preparationInstalled,approvalFunctionsInstalled:checks.approvalFunctionsInstalled,
     historicalTaskBoundaryEnforced:checks.historicalTaskBoundaryEnforced},
   roleState:{hubRestricted:checks.restrictedHubRole,preparerDedicated:checks.dedicatedPreparerRole,
+    dormantPreparerStaged:observed.dormantPreparerStaged===true,
     issuerReady:checks.issuerRoleReady,attestorReady:checks.attestorRoleReady},
   evidenceCounts:{approved:Number.isSafeInteger(observed.approved)&&observed.approved>=0?observed.approved:null,
     receipts:Number.isSafeInteger(observed.receipts)&&observed.receipts>=0?observed.receipts:null,
@@ -63,6 +64,10 @@ const QUERY=`SELECT now()::text AS checked_at,current_user AS database_role,
  (SELECT rolcanlogin AND NOT(rolsuper OR rolcreaterole OR rolbypassrls OR rolcreatedb OR rolreplication)
     AND NOT EXISTS(SELECT 1 FROM pg_auth_members m WHERE m.member=r.oid)
     FROM pg_roles r WHERE rolname='gpt02_core_prep_login') AS preparer_role_limited,
+ (SELECT NOT(rolcanlogin OR rolinherit OR rolsuper OR rolcreaterole OR rolcreatedb OR rolreplication OR rolbypassrls)
+    AND rolconnlimit=0 AND rolvaliduntil<clock_timestamp()
+    AND NOT EXISTS(SELECT 1 FROM pg_auth_members m WHERE m.member=r.oid)
+    FROM pg_roles r WHERE rolname='gpt02_core_prep_login') AS preparer_dormant_staged,
  (SELECT rolcanlogin AND NOT(rolsuper OR rolcreaterole OR rolbypassrls OR rolcreatedb)
     FROM pg_roles WHERE rolname='dev_gpt02_issuer_evidence') AS issuer_role_ready,
  (SELECT rolcanlogin AND NOT(rolsuper OR rolcreaterole OR rolbypassrls OR rolcreatedb)
@@ -90,6 +95,7 @@ function observedFromRow(row={},pinnedProject=false){
   databaseRole:row.database_role,checkedAt:row.checked_at,
   restrictedHubRole:row.hub_role_restricted===true,
   dedicatedPreparerRole:row.preparer_role_limited===true,
+  dormantPreparerStaged:row.preparer_dormant_staged===true,
   // Read-only catalogs cannot demonstrate a distinct preparer LOGIN's
   // effective privileges. This must be proven via its own authenticated session.
   isolatedPreparerPermissions:false,
