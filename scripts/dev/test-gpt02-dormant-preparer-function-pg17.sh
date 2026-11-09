@@ -35,7 +35,6 @@ CREATE ROLE gpt02_core_prep_owner NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCRE
 CREATE ROLE gpt02_core_prep_login NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS CONNECTION LIMIT 0 PASSWORD NULL VALID UNTIL '2000-01-01';
 GRANT gpt02_core_prep_owner TO supabase_admin WITH ADMIN TRUE;
 CREATE SCHEMA ai_platform;
-CREATE TYPE user_role AS ENUM ('super_admin','staff','ecommerce');
 CREATE TABLE public.ai_execution_jobs(
  id uuid PRIMARY KEY,company_id text,task_id integer,source text,external_id text,
  idempotency_key text,status text,progress integer,command_id uuid,
@@ -144,7 +143,7 @@ CREATE SCHEMA extensions AUTHORIZATION postgres;
 CREATE TABLE public.ai_tasks(id integer,company_id text);
 CREATE TABLE public.team_members(id integer,company_id text,is_active boolean);
 CREATE TABLE public.audit_logs(id integer,company_id text,action text,entity_id text);
-CREATE TABLE public.users(id text,company_id integer,is_active boolean,role user_role);
+CREATE TABLE public.users(id text,company_id integer,is_active boolean,role text);
 CREATE TABLE ai_platform.ai_coding_runs(id uuid,task_id uuid);
 CREATE TABLE ai_platform.ai_coding_bridge_commands(id uuid,task_id uuid);
 ALTER TABLE public.ai_tasks OWNER TO postgres;

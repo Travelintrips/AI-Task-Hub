@@ -7,3 +7,8 @@ The candidate applies minimal **parent permissions to NOLOGIN owner** `gpt02_cor
 The PostgreSQL17 no-network fixture now runs the **same hosted migration source** in an outer transaction. It exercises injected failures after INSERT grants and proves rollback, exactly eight parent SELECT and two parent INSERT on the NOLOGIN owner, zero permissions granted to `gpt02_core_prep_login`, unchanged function ACL and current task/nonce tables, and rejection of a duplicate grant. The fixture also uses the checked-in ten RLS policies rather than a denial-only mock.
 
 **Operational status remains NO-GO:** This is a pre-authorization staging grant to a NOLOGIN function owner, NOT a signed Super Admin approval or a task dispatch. The real preparer LOGIN stays NOLOGIN, `gpt02_stage.prepare_core_task_dormant` has no EXECUTE path, and all issuer/attestor/lease lanes remain OFF. No Task135/136 replay, PROD action, or new command is implied.
+
+
+## Canonical RLS rendering parity
+
+A direct comparison of ten **per-policy SHA256 digests** proved nine synthetic PostgreSQL 17 expressions identical to hosted CST-DEV. The tenth, `gpt02_preparer_operator_read`, differed because the fixture represented `public.users.role` as a fresh synthetic enum, whereas the actual hosted policy catalog renders its comparison against `'super_admin'::text`. To validate the **policy expression fingerprint** without weakening the migration's pinned SHA, the PG17 fixture now uses a text role column solely for policy-expression serialization. This fixture is NOT proof that the entire live `public.users` schema has changed; the separate real hosted catalog/type audit remains authoritative. The actual user's enum column and table are not altered.
