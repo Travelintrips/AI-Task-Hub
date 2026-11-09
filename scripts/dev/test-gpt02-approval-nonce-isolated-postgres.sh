@@ -38,10 +38,10 @@ check ATTESTOR_CANNOT_UPDATE_CLAIM gpt02_test_attestor "SELECT NOT has_table_pri
 check ROLE_CANNOT_SWITCH_TO_ATTESTOR gpt02_test_issuer "SELECT NOT pg_has_role(current_user,'gpt02_test_attestor','MEMBER')" t
 # Validate a true PostgreSQL client connection under distinct restricted logins,
 # not only a superuser SET SESSION AUTHORIZATION simulation.
-direct_issuer="$(docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U gpt02_test_issuer -d postgres -Atqc 'SELECT current_user = session_user AND current_user = ''gpt02_test_issuer''')"
+direct_issuer="$(docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U gpt02_test_issuer -d postgres -Atqc "SELECT current_user = session_user AND current_user = 'gpt02_test_issuer'")"
 [[ "$direct_issuer" == t ]] || { echo "FAIL:DIRECT_ISSUER_LOGIN" >&2; exit 1; }
 echo "PASS:DIRECT_ISSUER_LOGIN"
-direct_attestor="$(docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U gpt02_test_attestor -d postgres -Atqc 'SELECT current_user = session_user AND current_user = ''gpt02_test_attestor''')"
+direct_attestor="$(docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U gpt02_test_attestor -d postgres -Atqc "SELECT current_user = session_user AND current_user = 'gpt02_test_attestor'")"
 [[ "$direct_attestor" == t ]] || { echo "FAIL:DIRECT_ATTESTOR_LOGIN" >&2; exit 1; }
 echo "PASS:DIRECT_ATTESTOR_LOGIN"
 direct_privileges="$(docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U gpt02_test_issuer -d postgres -Atqc "SELECT NOT rolsuper AND NOT rolbypassrls AND NOT rolcreaterole AND NOT rolcreatedb FROM pg_roles WHERE rolname=current_user")"
