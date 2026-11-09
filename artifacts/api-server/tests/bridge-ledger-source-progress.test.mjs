@@ -44,7 +44,9 @@ test('GPT02 assignment guard cannot be bypassed by omitting lifecycleStart',()=>
  const end=source.indexOf('const externalId = buildAiTaskExternalCommandId',start);
  assert.ok(start>0&&end>start);
  const intake=source.slice(start,end);
- assert.match(intake,/accountAlias = typeof body\.accountAlias/);
+ assert.match(intake,/normalizedAccountAlias = typeof body\.accountAlias/);
+ assert.match(intake,/let accountAlias = normalizedAccountAlias;/);
+ assert.match(intake,/body\.lifecycleStart === true && body\.mode === "chatgpt" && normalizedAccountAlias === "GPT02"/);
  assert.match(intake,/AI_TASK_DEFAULT_GPT_ALIAS/);
  assert.match(intake,/if \(mode === "chatgpt" && accountAlias === "GPT02"\)/);
  assert.match(intake,/!task\.assignedToId/);
