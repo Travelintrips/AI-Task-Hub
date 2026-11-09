@@ -17,7 +17,7 @@ docker exec -i "$NAME" psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -q < "
 C="gpt02_approval_test.consume_once"
 cmd='28cbdd95-b19c-45b1-8ec8-ac3b1fef182e'
 nonce='rQCfYm6TDsPvxgf9QEM3m8Rdpqba32Py'
-call_sql="SELECT $C(136,'$cmd','$nonce','default')"
+call_sql="SELECT $C(137,'$cmd','$nonce','default')"
 # Simulated separate restricted session authorization (only superuser test host).
 check(){
  local name="$1" role="$2" sql="$3" expected="$4" actual
@@ -27,11 +27,12 @@ check(){
  echo "PASS:$name"
 }
 check DENY_ATTESTOR_CANNOT_CONSUME gpt02_test_attestor "SELECT NOT has_function_privilege(current_user,'gpt02_approval_test.consume_once(integer,uuid,text,text)','EXECUTE')" t
-check DENY_WRONG_COMPANY gpt02_test_issuer "SELECT $C(136,'$cmd','$nonce','other')" f
-check DENY_WRONG_TASK gpt02_test_issuer "SELECT $C(138,'$cmd','$nonce','default')" f
-check DENY_WRONG_COMMAND gpt02_test_issuer "SELECT $C(136,'817b62e6-b7fa-41ea-a4b3-2d1a6aa129d1','$nonce','default')" f
+check DENY_WRONG_COMPANY gpt02_test_issuer "SELECT $C(137,'$cmd','$nonce','other')" f
+check DENY_WRONG_TASK gpt02_test_issuer "SELECT $C(139,'$cmd','$nonce','default')" f
+check DENY_WRONG_COMMAND gpt02_test_issuer "SELECT $C(137,'817b62e6-b7fa-41ea-a4b3-2d1a6aa129d1','$nonce','default')" f
+check DENY_TASK_136 gpt02_test_issuer "SELECT $C(136,'$cmd','$nonce','default')" f
 check DENY_TASK_135 gpt02_test_issuer "SELECT $C(135,'$cmd','$nonce','default')" f
-check DENY_EXPIRED_APPROVAL gpt02_test_issuer "SELECT $C(137,'817b62e6-b7fa-41ea-a4b3-2d1a6aa129d1','AqZeh5Hx4TLY8CGg6VmHs2e7NpRVcm64','default')" f
+check DENY_EXPIRED_APPROVAL gpt02_test_issuer "SELECT $C(138,'817b62e6-b7fa-41ea-a4b3-2d1a6aa129d1','AqZeh5Hx4TLY8CGg6VmHs2e7NpRVcm64','default')" f
 check ISSUER_CANNOT_INSERT_APPROVAL gpt02_test_issuer "SELECT NOT has_table_privilege(current_user,'gpt02_approval_test.approved_commands','INSERT')" t
 check ISSUER_CANNOT_CHANGE_CLAIM gpt02_test_issuer "SELECT NOT has_table_privilege(current_user,'gpt02_approval_test.nonce_claims','UPDATE')" t
 check ATTESTOR_CANNOT_UPDATE_CLAIM gpt02_test_attestor "SELECT NOT has_table_privilege(current_user,'gpt02_approval_test.nonce_claims','UPDATE')" t
@@ -61,4 +62,4 @@ check DENY_NONCE_REPLAY gpt02_test_issuer "$call_sql" f
 actual="$(docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -Atqc "SELECT count(*) FROM gpt02_approval_test.nonce_claims WHERE command_id='$cmd'")"
 [[ "$actual" == 1 ]] || { echo "FAIL:CLAIM_LEDGER_DUPLICATE" >&2; exit 1; }
 echo "PASS:SINGLE_PERSISTED_CLAIM"
-echo "ISOLATED_NONCE_APPROVAL_16_CHECKS_PASS; LIVE_OPERATOR_APPROVAL_NOT_PROVEN; NATIVE_DISPATCH_NO_GO"
+echo "ISOLATED_NONCE_APPROVAL_17_CHECKS_PASS; LIVE_OPERATOR_APPROVAL_NOT_PROVEN; NATIVE_DISPATCH_NO_GO"

@@ -18,7 +18,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA gpt02_private REVOKE EXECUTE ON FUNCTIONS FRO
 CREATE TABLE gpt02_private.approvals(
  command_id uuid PRIMARY KEY,attempt_id uuid NOT NULL UNIQUE,
  nonce text NOT NULL UNIQUE CHECK(nonce ~ '^[A-Za-z0-9_-]{32,128}$'),
- task_id integer NOT NULL CHECK(task_id>0 AND task_id<>135),
+ task_id integer NOT NULL CHECK(task_id>136),
  company_id text NOT NULL CHECK(company_id ~ '^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$'),
  operator_namespace text NOT NULL CHECK(operator_namespace='ai-task-hub.public.users'),
  approver_id text NOT NULL CHECK(approver_id ~ '^[A-Za-z0-9][A-Za-z0-9_.:@-]{0,127}$'),claims jsonb NOT NULL,
@@ -53,7 +53,7 @@ BEGIN
  p->>'operatorNamespace' IS DISTINCT FROM 'ai-task-hub.public.users' OR
  jsonb_typeof(p->'superAdminId') IS DISTINCT FROM 'string' OR
  (p->>'superAdminId') !~ '^[A-Za-z0-9][A-Za-z0-9_.:@-]{0,127}$' OR p->>'environment'<>'DEV' OR p->>'audience'<>'GPT02_NEW_TASK_SINGLE_COMMAND_APPROVAL' OR
- (p->>'taskId')::integer<=0 OR (p->>'taskId')::integer=135 OR p->>'companyId' IN ('all','*') THEN RETURN false; END IF;
+ (p->>'taskId')::integer<=136 OR p->>'companyId' IN ('all','*') THEN RETURN false; END IF;
  exp:=to_timestamp((p->>'expiresAt')::numeric/1000); issued:=to_timestamp((p->>'issuedAt')::numeric/1000);
  IF exp<=clock_timestamp() OR issued>clock_timestamp()+interval '5 seconds' OR exp<=issued OR exp-issued>interval '5 minutes' THEN RETURN false; END IF;
  INSERT INTO gpt02_private.approvals(command_id,attempt_id,nonce,task_id,company_id,operator_namespace,approver_id,claims,signature,digest,expires_at)
@@ -66,7 +66,7 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $$
 DECLARE a gpt02_private.approvals%ROWTYPE; receipt uuid;
 BEGIN
  IF session_user<>'dev_gpt02_issuer_evidence' THEN RAISE EXCEPTION USING ERRCODE='42501',MESSAGE='DEDICATED_ISSUER_REQUIRED'; END IF;
- IF p IS NULL OR jsonb_typeof(p)<>'object' OR (p->>'taskId')::integer=135 THEN RETURN NULL; END IF;
+ IF p IS NULL OR jsonb_typeof(p)<>'object' OR (p->>'taskId')::integer<=136 THEN RETURN NULL; END IF;
  -- Check real time AFTER waiting for the approval row lock.
  SELECT * INTO a FROM gpt02_private.approvals WHERE command_id=(p->>'commandId')::uuid FOR UPDATE;
  IF NOT FOUND OR a.claims IS DISTINCT FROM p OR a.signature IS DISTINCT FROM s OR a.digest IS DISTINCT FROM d OR a.expires_at<=clock_timestamp() THEN RETURN NULL; END IF;

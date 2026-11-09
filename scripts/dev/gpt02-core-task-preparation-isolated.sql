@@ -47,7 +47,7 @@ GRANT SELECT ON ai_platform.ai_coding_runs,ai_platform.ai_coding_bridge_commands
 SET LOCAL ROLE gpt02_core_prep_owner;
 ALTER DEFAULT PRIVILEGES IN SCHEMA gpt02_stage REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
 CREATE TABLE gpt02_stage.core_preparations(
- company_id text NOT NULL,hub_task_id integer NOT NULL CHECK(hub_task_id>0 AND hub_task_id<>135),
+ company_id text NOT NULL,hub_task_id integer NOT NULL CHECK(hub_task_id>136),
  member_id integer NOT NULL,member_audit_id integer NOT NULL,operator_subject text NOT NULL,
  core_task_id uuid NOT NULL UNIQUE REFERENCES ai_platform.ai_coding_tasks(id),
  hub_execution_id uuid NOT NULL UNIQUE REFERENCES public.ai_execution_jobs(id),
@@ -67,7 +67,7 @@ RETURNS TABLE(core_task_id uuid,command_candidate_id uuid,attempt_id uuid,hub_ex
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
 DECLARE v_task record; v_audit record; v_user record; v_existing record; v_core record; v_job record; v_hash text;v_c uuid;v_cmd uuid;v_attempt uuid;v_hub uuid;
 BEGIN
- IF session_user<>'gpt02_core_prep_login' OR p_task=135 OR p_task<=0 OR
+ IF session_user<>'gpt02_core_prep_login' OR p_task<=136 OR
    p_company IS DISTINCT FROM 'default' OR p_project IS DISTINCT FROM 'GPT02 DEV coding lifecycle' OR
    p_repo IS DISTINCT FROM 'Travelintrips/Core-AI-Foundation' OR p_branch IS DISTINCT FROM 'develop' OR
    p_instruction IS NULL OR length(p_instruction) NOT BETWEEN 1 AND 2000 OR p_instruction ~ '[[:cntrl:]]' THEN

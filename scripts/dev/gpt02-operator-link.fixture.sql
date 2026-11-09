@@ -6,7 +6,7 @@ SET LOCAL ROLE gpt02_store_owner;
 CREATE TABLE gpt02_private.operator_links(
  link_id uuid PRIMARY KEY,command_id uuid NOT NULL UNIQUE REFERENCES gpt02_private.approvals(command_id),
  hub_execution_id uuid NOT NULL UNIQUE,core_task_id uuid NOT NULL,
- hub_task_id integer NOT NULL CHECK(hub_task_id>0 AND hub_task_id<>135),
+ hub_task_id integer NOT NULL CHECK(hub_task_id>136),
  attempt_id uuid NOT NULL UNIQUE,attempt_number integer NOT NULL CHECK(attempt_number=1),
  company_id text NOT NULL CHECK(company_id='default'),
  assignee_id integer NOT NULL CHECK(assignee_id>0),accountable_owner_id text NOT NULL,
@@ -66,7 +66,7 @@ BEGIN
  l->>'companyId'<>'default' OR l->>'hubOperatorNamespace'<>'ai-task-hub.public.users' OR
  l->>'coreOperatorNamespace'<>'ai-core.ai_platform.internal_users' OR l->>'hubRole'<>'super_admin' OR
  l->>'coreRole' NOT IN ('owner','admin') OR l->>'workerId'<>'openclaw-dell-chatgpt-wake-dev' OR
- (l->>'hubTaskId')::integer<=0 OR (l->>'hubTaskId')::integer=135 OR
+ (l->>'hubTaskId')::integer<=136 OR
  (l->>'assigneeId')::integer<=0 OR (l->>'coreOperatorUserId')::integer<=0 OR l->>'attemptNumber'<>'1' OR
  (l->>'hubOperatorId') !~ '^[A-Za-z0-9][A-Za-z0-9_.:@-]{0,127}$' OR
  (l->>'accountableOwnerId') !~ '^[A-Za-z0-9][A-Za-z0-9_.:@-]{0,127}$' OR
@@ -102,7 +102,7 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $$
 DECLARE a gpt02_private.approvals%ROWTYPE; o gpt02_private.operator_links%ROWTYPE; receipt uuid;
 BEGIN
  IF session_user<>'dev_gpt02_issuer_evidence' THEN RAISE EXCEPTION USING ERRCODE='42501',MESSAGE='DEDICATED_ISSUER_REQUIRED'; END IF;
- IF p IS NULL OR jsonb_typeof(p)<>'object' OR p->>'taskId'='135' THEN RETURN NULL; END IF;
+ IF p IS NULL OR jsonb_typeof(p)<>'object' OR (p->>'taskId')::integer<=136 THEN RETURN NULL; END IF;
  SELECT * INTO a FROM gpt02_private.approvals WHERE command_id=(p->>'commandId')::uuid FOR UPDATE;
  IF NOT FOUND OR a.claims IS DISTINCT FROM p OR a.signature IS DISTINCT FROM s OR a.digest IS DISTINCT FROM d OR a.expires_at<=clock_timestamp() THEN RETURN NULL; END IF;
  SELECT * INTO o FROM gpt02_private.operator_links WHERE command_id=a.command_id FOR SHARE;
@@ -125,7 +125,7 @@ LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog,pg_temp AS $$
 DECLARE a gpt02_private.approvals%ROWTYPE; receipt uuid;
 BEGIN
  IF session_user<>'dev_gpt02_issuer_evidence' THEN RAISE EXCEPTION USING ERRCODE='42501',MESSAGE='DEDICATED_ISSUER_REQUIRED'; END IF;
- IF p IS NULL OR jsonb_typeof(p)<>'object' OR (p->>'taskId')::integer=135 THEN RETURN NULL; END IF;
+ IF p IS NULL OR jsonb_typeof(p)<>'object' OR (p->>'taskId')::integer<=136 THEN RETURN NULL; END IF;
  SELECT * INTO a FROM gpt02_private.approvals WHERE command_id=(p->>'commandId')::uuid FOR UPDATE;
  IF NOT FOUND OR a.claims IS DISTINCT FROM p OR a.signature IS DISTINCT FROM s OR a.digest IS DISTINCT FROM d OR a.expires_at<=clock_timestamp() THEN RETURN NULL; END IF;
  IF EXISTS(SELECT 1 FROM gpt02_private.operator_links WHERE command_id=a.command_id) THEN RETURN NULL; END IF;
