@@ -15,7 +15,7 @@ done
 [[ "$ready" == true ]] || { echo POSTGRES_17_NOT_READY >&2; exit 2; }
 q(){ docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U "$1" -d postgres -Atqc "$2"; }
 run(){ docker exec -i "$NAME" psql -X -v ON_ERROR_STOP=1 -U "$1" -d postgres -q; }
-[[ "$(q postgres 'SHOW server_version_num')" == 17* ]] || { echo WRONG_POSTGRES_VERSION >&2; exit 1; }
+[[ "$(q fixture_root 'SHOW server_version_num')" == 17* ]] || { echo WRONG_POSTGRES_VERSION >&2; exit 1; }
 run fixture_root <<'SQL' >/dev/null
 CREATE ROLE postgres LOGIN CREATEROLE BYPASSRLS;
 CREATE ROLE supabase_admin LOGIN CREATEROLE NOSUPERUSER;
