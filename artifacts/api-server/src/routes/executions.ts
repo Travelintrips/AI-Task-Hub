@@ -1460,10 +1460,16 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
     }
 
     const body = req.body as Record<string, unknown>;
+    // Resolve GPT alias ONCE, before all lifecycle policy gates. This must
+    // match the exact canonical alias used for dispatch and persisted records.
+    const normalizedAccountAlias = typeof body.accountAlias === "string" &&
+        /^GPT[0-9]{2,4}$/.test(body.accountAlias.trim().toUpperCase())
+      ? body.accountAlias.trim().toUpperCase()
+      : process.env.AI_TASK_DEFAULT_GPT_ALIAS?.trim().toUpperCase() || "GPT01";
     // Lifecycle-specific guard: never turn a new inquiry into an unowned AI command.
     // Keep the existing idempotent dispatch and reconciliation code below unchanged.
     if (body.lifecycleStart === true &&
-        (body.mode !== "chatgpt" || body.accountAlias !== "GPT02")) {
+        (body.mode !== "chatgpt" || normalizedAccountAlias !== "GPT02")) {
       res.status(409).json({error: "LIFECYCLE_ASSIGNMENT_OR_MODE_NOT_READY", message: "Lifecycle requires GPT02 ChatGPT mode."});
       return;
     }
@@ -1474,7 +1480,7 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
     // exist. None can be supplied as trustworthy request-body flags.
     // Stop BEFORE creating/reusing an execution or submitting a Core command.
     if (process.env.NODE_ENV === "development" && process.env.APP_ENV !== "production" &&
-        body.lifecycleStart === true && body.mode === "chatgpt" && body.accountAlias === "GPT02") {
+        body.lifecycleStart === true && body.mode === "chatgpt" && normalizedAccountAlias === "GPT02") {
       res.setHeader("Cache-Control", "no-store");
       res.status(409).json({
         error: "GPT02_LIFECYCLE_PRE_DISPATCH_PROOF_REQUIRED",
@@ -1488,9 +1494,7 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
       return;
     }
     let mode: "chatgpt" | "worker" = body.mode === "chatgpt" ? "chatgpt" : "worker";
-    let accountAlias = typeof body.accountAlias === "string" && /^GPT[0-9]{2,4}$/.test(body.accountAlias.trim().toUpperCase())
-      ? body.accountAlias.trim().toUpperCase()
-      : process.env.AI_TASK_DEFAULT_GPT_ALIAS?.trim().toUpperCase() || "GPT01";
+    let accountAlias = normalizedAccountAlias;
     // Neither an omitted lifecycleStart flag nor the server default alias may
     // bypass the DEV GPT02 PIC gate. A recorded PIC is not identity attestation.
     if (mode === "chatgpt" && accountAlias === "GPT02") {
@@ -1589,7 +1593,8 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
           environment: "development",
           verificationMode,
           remoteCorrelationId,
-          autoContinue: mode === "chatgpt" && (body.lifecycleStart === true || task.category === "ai_chat"),
+          autoContinue: mode === "chatgpt" && accountAlias !== "GPT02" &&
+            (body.lifecycleStart === true || task.category === "ai_chat"),
           ...(mode === "chatgpt" ? { accountAlias } : {}),
         },
       }).where(and(
@@ -1667,7 +1672,8 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
           environment: "development",
           verificationMode,
           remoteCorrelationId: `${externalId}:${correlationId}`,
-          autoContinue: mode === "chatgpt" && (body.lifecycleStart === true || task.category === "ai_chat"),
+          autoContinue: mode === "chatgpt" && accountAlias !== "GPT02" &&
+            (body.lifecycleStart === true || task.category === "ai_chat"),
           continuationDepth: 0,
           ...(mode === "chatgpt" ? { accountAlias } : {}),
           ...(verifiedPicAuditId !== null ?
@@ -1757,7 +1763,7 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
             verificationMode: "chatgpt-attested",
             reasoningHandoff: true,
             accountAlias,
-            autoContinue: task.category === "ai_chat",
+            autoContinue: accountAlias !== "GPT02" && task.category === "ai_chat",
             remoteCorrelationId,
           };
           // Persist the route before external dispatch. A retry or recovery must

@@ -108,6 +108,8 @@ INSERT INTO ai_tasks VALUES
 (1007,'default','new_inquiry',201,'Synthetic Active PIC'),
 (1008,'default','new_inquiry',null,null);
 ALTER TABLE audit_logs ADD CONSTRAINT reject_test_1006 CHECK (entity_id IS DISTINCT FROM '1006');
+INSERT INTO ai_tasks(id,company_id,status,category,task_number,title)
+ VALUES(1010,'default','new_inquiry','ai_chat','DEV-SYNTH-1010','Synthetic one-shot category check');
 INSERT INTO ai_execution_jobs(task_id,company_id) VALUES(1003,'default');
 INSERT INTO ai_execution_jobs(task_id,company_id,source,external_id,status,metadata)
  VALUES(1007,'default','AI_TASK','ai-task:default:1007','failed','{"accountAlias":"GPT02"}'::jsonb);
@@ -141,6 +143,14 @@ const assert=require('node:assert/strict');
  assert.equal(r.body.dispatchNotStarted,true);assert.equal(r.body.continuationScheduled,false);assert.equal(r.body.blockers.length,5);
  r=await request(1001,{...payload,operatorApprovalGranted:true,nonceVerified:true,issuerPermitted:true,coreTaskId:'caller-fabricated',bindingVerified:true,leaseValid:true});
  assert.equal(r.code,409);assert.equal(r.body.error,'GPT02_LIFECYCLE_PRE_DISPATCH_PROOF_REQUIRED');
+ for(const alias of ['gpt02','  GpT02  ',' GPT02','GPT02 ']){
+   r=await request(1001,{...payload,accountAlias:alias});
+   assert.equal(r.code,409,'alias '+JSON.stringify(alias));
+   assert.equal(r.body.error,'GPT02_LIFECYCLE_PRE_DISPATCH_PROOF_REQUIRED');
+   assert.equal(r.body.dispatchNotStarted,true);
+ }
+ r=await request(1001,{mode:'chatgpt',lifecycleStart:true});
+ assert.equal(r.code,409,'omitted alias cannot start lifecycle');
  r=await request(1001,{mode:'worker',accountAlias:'GPT02',lifecycleStart:true});
  assert.equal(r.code,409);assert.equal(r.body.error,'LIFECYCLE_ASSIGNMENT_OR_MODE_NOT_READY');
  r=await request(1002,payload);
@@ -149,11 +159,28 @@ const assert=require('node:assert/strict');
  const body=await pic.json();assert.equal(pic.status,200);assert.equal(body.memberId,201);
  r=await request(1001,payload);assert.equal(r.code,409);
  assert.equal(r.body.error,'GPT02_LIFECYCLE_PRE_DISPATCH_PROOF_REQUIRED');
- console.log('ISOLATED_GPT02_LIFECYCLE_SERVER_DENIAL_PASS_6_CHECKS');
+ // Exercise the real one-shot ledger branch in an internal-only network.
+ // The remote Core API is intentionally unreachable: no native wake is possible.
+ const pic2=await fetch(base+'1010/gpt02-assign-pic?companyId=default',
+   {method:'POST',headers,body:JSON.stringify({memberId:201})});
+ assert.equal(pic2.status,200,'one-shot ai_chat synthetic PIC assignment');
+ const oneShot=await request(1010,{mode:'chatgpt',accountAlias:'GPT02',lifecycleStart:false,
+   instruction:'Synthetic local-only one-shot regression; do not dispatch externally'});
+ assert.ok([200,201,202,409,503].includes(oneShot.code),'expected bounded route response');
+ console.log('ISOLATED_GPT02_LIFECYCLE_SERVER_DENIAL_PASS_11_CHECKS');
 })().catch(e=>{console.error('ISOLATED_LIFECYCLE_DENIAL_FAIL',e.message);process.exitCode=1});
 JS
-docker exec -i "$PG" psql -X -U test -d testdb -v ON_ERROR_STOP=1 -At <<'SQL'
+readback="$(docker exec -i "$PG" psql -X -U test -d testdb -v ON_ERROR_STOP=1 -At <<'SQL'
 SELECT 'UNAUTHORIZED_EXECUTIONS='||COUNT(*) FROM ai_execution_jobs WHERE task_id=1001;
 SELECT 'UNAUTHORIZED_EXECUTIONS_OTHER_TENANT='||COUNT(*) FROM ai_execution_jobs WHERE task_id=1002;
 SELECT 'AUDITED_SYNTHETIC_PIC='||COUNT(*) FROM audit_logs WHERE entity_id='1001' AND action='gpt02_pic_assigned';
+SELECT 'AI_CHAT_ONESHOT_EXECUTIONS='||COUNT(*) FROM ai_execution_jobs WHERE task_id=1010;
+SELECT 'AI_CHAT_ONESHOT_AUTOCONTINUE='||COALESCE((SELECT metadata->>'autoContinue' FROM ai_execution_jobs WHERE task_id=1010 LIMIT 1),'MISSING');
+SELECT 'AI_CHAT_ONESHOT_ACCOUNT_ALIAS='||COALESCE((SELECT metadata->>'accountAlias' FROM ai_execution_jobs WHERE task_id=1010 LIMIT 1),'MISSING');
 SQL
+)"
+printf '%s\n' "$readback"
+for check in 'UNAUTHORIZED_EXECUTIONS=0' 'UNAUTHORIZED_EXECUTIONS_OTHER_TENANT=0' 'AUDITED_SYNTHETIC_PIC=1' 'AI_CHAT_ONESHOT_EXECUTIONS=1' 'AI_CHAT_ONESHOT_AUTOCONTINUE=false' 'AI_CHAT_ONESHOT_ACCOUNT_ALIAS=GPT02'; do
+ grep -Fx "$check" <<< "$readback" >/dev/null || { echo "FAILED_ISOLATED_READBACK:$check" >&2; exit 1; }
+done
+echo 'ISOLATED_GPT02_CANONICAL_GATE_AND_ONE_SHOT_READBACK_PASS'
