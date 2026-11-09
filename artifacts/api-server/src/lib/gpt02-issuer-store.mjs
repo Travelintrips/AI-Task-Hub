@@ -38,17 +38,18 @@ function verifiedEnvelope(envelope,key,now){
  if(bytes.length!==64||bytes.toString('base64url')!==s||!verify(null,Buffer.from(payload),key,bytes))fail('INVALID_SIGNATURE');
  return {claims:c,payload,signature:s,digest:createHash('sha256').update(payload).digest('hex')};
 }
-/** Hosted evidence must be in a separate Supabase project/branch, not just a new schema. */
+/** User-approved topology: the existing Hub DEV project, with scoped roles and a private schema. */
 export function hostedEvidenceTarget(env){
  const evidence=env.GPT02_EVIDENCE_DEV_PROJECT_REF;
  const hub=env.GPT02_HUB_DEV_PROJECT_REF;
  const prod=env.GPT02_PROD_PROJECT_REF;
  for(const ref of [evidence,hub,prod])
   if(typeof ref!=='string'||!/^[a-z]{20}$/.test(ref))fail('PINNED_SUPABASE_PROJECT_REFS_REQUIRED');
- if(evidence===hub||evidence===prod||hub===prod)fail('EVIDENCE_PROJECT_MUST_BE_INDEPENDENT');
+ if(evidence===prod||hub===prod)fail('EVIDENCE_PRODUCTION_TARGET_FORBIDDEN');
+ if(evidence!==hub)fail('EXISTING_CST_DEV_PROJECT_REQUIRED');
  const host=`db.${evidence}.supabase.co`;
  if(env.GPT02_EVIDENCE_DEV_HOST!==host||env.GPT02_EVIDENCE_DEV_DATABASE!=='postgres')fail('SUPABASE_DIRECT_TARGET_REQUIRED');
- return Object.freeze({projectRef:evidence,host,database:'postgres'});
+ return Object.freeze({projectRef:evidence,host,database:'postgres',topology:'EXISTING_CST_DEV_PRIVATE_SCHEMA'});
 }
 /** Only server deployment configuration, never request fields. */
 export function issuerPoolConfig(env,kind){

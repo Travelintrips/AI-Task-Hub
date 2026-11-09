@@ -35,7 +35,7 @@ test('separate SCRAM connections, signature-pinned store and atomic evidence per
  assert.throws(()=>issuerPoolConfig({NODE_ENV:'development',APP_ENV:'development',SUPABASE_DATABASE_URL_DEV:'postgres://postgres:unused@localhost/app'},'issuer'),e=>e.code==='DEDICATED_DSN_REQUIRED');
  });
  await t.test('factory pins DEV host/database, fixed role, TLS and forbids DSN options',()=>{
- const env={NODE_ENV:'development',APP_ENV:'development',GPT02_EVIDENCE_DEV_PROJECT_REF:'e'.repeat(20),GPT02_HUB_DEV_PROJECT_REF:'h'.repeat(20),GPT02_PROD_PROJECT_REF:'p'.repeat(20),GPT02_EVIDENCE_DEV_HOST:`db.${'e'.repeat(20)}.supabase.co`,GPT02_EVIDENCE_DEV_DATABASE:'postgres',GPT02_ISSUER_DATABASE_URL_DEV:`postgres://dev_gpt02_issuer_evidence:synthetic@db.${'e'.repeat(20)}.supabase.co/postgres`};
+ const env={NODE_ENV:'development',APP_ENV:'development',GPT02_EVIDENCE_DEV_PROJECT_REF:'e'.repeat(20),GPT02_HUB_DEV_PROJECT_REF:'e'.repeat(20),GPT02_PROD_PROJECT_REF:'p'.repeat(20),GPT02_EVIDENCE_DEV_HOST:`db.${'e'.repeat(20)}.supabase.co`,GPT02_EVIDENCE_DEV_DATABASE:'postgres',GPT02_ISSUER_DATABASE_URL_DEV:`postgres://dev_gpt02_issuer_evidence:synthetic@db.${'e'.repeat(20)}.supabase.co/postgres`};
  const cfg=issuerPoolConfig(env,'issuer');assert.equal(cfg.ssl.rejectUnauthorized,true);assert.equal(cfg.max,2);
  for(const m of [{NODE_ENV:'production'},{APP_ENV:'production'},{GPT02_EVIDENCE_DEV_HOST:'prod.example.test'},{GPT02_ISSUER_DATABASE_URL_DEV:'postgres://postgres:synthetic@dev.example.test/evidence'},{GPT02_ISSUER_DATABASE_URL_DEV:env.GPT02_ISSUER_DATABASE_URL_DEV+'?sslmode=disable'}])assert.throws(()=>issuerPoolConfig({...env,...m},'issuer'));
  });
