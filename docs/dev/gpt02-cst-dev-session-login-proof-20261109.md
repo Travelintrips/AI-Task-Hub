@@ -1,3 +1,5 @@
+> **Retired after incident:** the live temporary-credential probe described below must not be rerun. Its cleanup was followed by cached pooler reconnect failures and a CST-DEV IP ban. See `gpt02-text-test-136-and-pooler-incident-20261109.md`; the entry point now refuses execution. Earlier connection-proof results do not imply operational safety of the diagnostic lifecycle.
+
 # CST-DEV: dedicated session-pooler login proof
 
 ## Scope

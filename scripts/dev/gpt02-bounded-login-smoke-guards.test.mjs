@@ -1,16 +1,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
-const s=readFileSync(new URL('./gpt02-cst-dev-bounded-login-smoke.mjs',import.meta.url),'utf8');
-test('operator-only probe pins existing DEV, known roles, host and CA before mutation',()=>{
- for(const token of ["GPT02_BOUNDED_LOGIN_SMOKE!=='1'","NODE_ENV!=='development'","xssrfshdrtdfupgqwfdw","dev-ai-task.cstlogistic.co.id","CA_PIN_VALIDATION_FAILED","CANDIDATE_BASELINE_CHANGED","NOT_EMPTY_INACTIVE_FOUNDATION","CANDIDATE_SESSIONS_ALREADY_EXIST"])assert.ok(s.includes(token),token);
- assert.ok(s.indexOf('CA_PIN_VALIDATION_FAILED')<s.indexOf('armed=true'));
+import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+const script=fileURLToPath(new URL('./gpt02-cst-dev-bounded-login-smoke.mjs',import.meta.url));
+test('retired live probe refuses execution even with the previous enable flag',()=>{
+ const run=spawnSync(process.execPath,[script],{encoding:'utf8',env:{...process.env,GPT02_BOUNDED_LOGIN_SMOKE:'1',NODE_ENV:'development'},timeout:3000});
+ assert.equal(run.status,2);const result=JSON.parse(run.stderr.trim());
+ assert.equal(result.code,'LIVE_CREDENTIAL_ROTATION_SMOKE_RETIRED');
+ assert.equal(result.databaseChanges,false);assert.equal(result.workerDispatch,false);assert.equal(result.networkRequests,false);
 });
-test('temporary credentials expire, no application grants, no evidence writes',()=>{
- assert.match(s,/Date\.now\(\)\+120000/);assert.match(s,/smokeRandomBytes\(32\)/);
- assert.doesNotMatch(s,/query\([`'"]\s*(?:INSERT|UPDATE|DELETE|GRANT|CREATE)\b/i);
- assert.match(s,/BEGIN READ ONLY/);
+test('retired entry point contains no credential, SQL, fetch, or executable import path',()=>{
+ const code=readFileSync(script,'utf8');
+ assert.doesNotMatch(code,/\b(?:ALTER ROLE|PASSWORD NULL|pg_terminate_backend|SUPABASE_DATABASE_URL_DEV|fetch\s*\(|import\s|require\s*\()/);
 });
-test('cleanup removes passwords, closes logins, and terminates only test-role sessions',()=>{
- for(const token of ['finally','NOLOGIN CONNECTION LIMIT 0 PASSWORD NULL','RELOCK_POSTCONDITION_FAILED','backend_start >= $2::timestamptz','usename=ANY($1::text[])','CRITICAL_RELOCK_REVIEW'])assert.ok(s.includes(token),token);
+test('safe fixture replacement is present and does not inherit live connection secrets',()=>{
+ const fixture=readFileSync(new URL('./test-gpt02-issuer-store-isolated.sh',import.meta.url),'utf8');
+ assert.match(fixture,/--network none/);assert.doesNotMatch(fixture,/SUPABASE_DATABASE_URL_DEV/);
 });
