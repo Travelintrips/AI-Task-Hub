@@ -5,7 +5,13 @@ NAME="gpt02-inactive-schema-$$";WORK="$(mktemp -d)"
 cleanup() { docker rm -f "$NAME" >/dev/null 2>&1||true;rm -rf "$WORK";}
 trap cleanup EXIT
 docker run -d --name "$NAME" --network none -e POSTGRES_PASSWORD=fixture-only postgres:16-alpine >/dev/null
-for i in $(seq 1 45);do docker exec "$NAME" psql -X -U postgres -d postgres -Atqc 'SELECT 1' >/dev/null 2>&1&&break;sleep 1;done
+ready=false
+for i in $(seq 1 45);do
+ if ! docker logs "$NAME" 2>&1 | grep -q 'PostgreSQL init process complete';then sleep 1;continue;fi
+ if docker exec "$NAME" psql -X -U postgres -d postgres -Atqc 'SELECT 1' >/dev/null 2>&1;then ready=true;break;fi
+ sleep 1
+done
+[[ "$ready" == true ]] || { echo ISOLATED_POSTGRES_NOT_READY >&2; exit 2; }
 docker exec -i "$NAME" psql -X -U postgres -d postgres -v ON_ERROR_STOP=1 -q < "$ROOT/scripts/dev/gpt02-core-preparer-role-dormant.sql" > "$WORK/role.log" 2>&1
 # Exact minimum UUID relation shape. No user/production rows or network.
 docker exec -i "$NAME" psql -X -U postgres -d postgres -v ON_ERROR_STOP=1 -q <<'SQL'

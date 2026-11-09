@@ -8,6 +8,7 @@ trap cleanup EXIT
 docker run -d --name "$NAME" --network none -e POSTGRES_PASSWORD=synthetic-only postgres:16-alpine >/dev/null
 ready=false
 for n in $(seq 1 45);do
+ if ! docker logs "$NAME" 2>&1 | grep -q 'PostgreSQL init process complete'; then sleep 1;continue;fi
  if docker exec "$NAME" psql -X -U postgres -d postgres -Atqc 'SELECT 1' >/dev/null 2>&1;then ready=true;break;fi
  sleep 1
 done

@@ -7,7 +7,13 @@ trap cleanup EXIT
 NODE_IMAGE="${GPT02_PRIVATE_SCHEMA_TEST_IMAGE:-postgres:16-alpine}"
 [[ "$NODE_IMAGE" == "postgres:16-alpine" || "$NODE_IMAGE" == "postgres:17-alpine" ]] || { echo INVALID_FIXTURE_POSTGRES_IMAGE >&2;exit 2; }
 docker run -d --name "$NAME" --network none -e POSTGRES_PASSWORD=fixture-only "$NODE_IMAGE" >/dev/null
-for i in $(seq 1 45);do docker exec "$NAME" psql -X -U postgres -d postgres -Atqc 'SELECT 1' >/dev/null 2>&1 && break;sleep 1;done
+ready=false
+for i in $(seq 1 45);do
+ if ! docker logs "$NAME" 2>&1 | grep -q 'PostgreSQL init process complete';then sleep 1;continue;fi
+ if docker exec "$NAME" psql -X -U postgres -d postgres -Atqc 'SELECT 1' >/dev/null 2>&1;then ready=true;break;fi
+ sleep 1
+done
+[[ "$ready" == true ]] || { echo ISOLATED_POSTGRES_NOT_READY >&2; exit 2; }
 docker exec -i "$NAME" psql -X -U postgres -d postgres -v ON_ERROR_STOP=1 -q < "$ROOT/scripts/dev/gpt02-core-preparer-role-dormant.sql" > "$WORK/login.log" 2>&1
 docker exec -i "$NAME" psql -X -U postgres -d postgres -v ON_ERROR_STOP=1 -q <<'SQL'
 CREATE ROLE gpt02_fixture_admin LOGIN CREATEROLE NOBYPASSRLS NOSUPERUSER NOINHERIT;
