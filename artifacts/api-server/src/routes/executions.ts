@@ -1467,6 +1467,26 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
       res.status(409).json({error: "LIFECYCLE_ASSIGNMENT_OR_MODE_NOT_READY", message: "Lifecycle requires GPT02 ChatGPT mode."});
       return;
     }
+    // DEV GPT02 full lifecycle is a different contract from the already proven
+    // one-shot text transport (lifecycleStart=false). Its future pre-dispatch
+    // authority must be minted by a separate trusted issuer after a Core task,
+    // immutable attempt claim and independently consumed signed operator nonce
+    // exist. None can be supplied as trustworthy request-body flags.
+    // Stop BEFORE creating/reusing an execution or submitting a Core command.
+    if (process.env.NODE_ENV === "development" && process.env.APP_ENV !== "production" &&
+        body.lifecycleStart === true && body.mode === "chatgpt" && body.accountAlias === "GPT02") {
+      res.setHeader("Cache-Control", "no-store");
+      res.status(409).json({
+        error: "GPT02_LIFECYCLE_PRE_DISPATCH_PROOF_REQUIRED",
+        blockers: ["CORE_TASK_NOT_PREPARED", "SIGNED_OPERATOR_APPROVAL_MISSING",
+          "IMMUTABLE_PRE_DISPATCH_BINDING_MISSING", "OPERATOR_NONCE_NOT_CONSUMED",
+          "ISSUER_LEASE_FENCING_NOT_VERIFIED"],
+        dispatchNotStarted: true,
+        continuationScheduled: false,
+        message: "Lifecycle GPT02 DEV ditahan sampai seluruh bukti sebelum pengiriman tersedia. Uji teks satu kali tidak berubah.",
+      });
+      return;
+    }
     let mode: "chatgpt" | "worker" = body.mode === "chatgpt" ? "chatgpt" : "worker";
     let accountAlias = typeof body.accountAlias === "string" && /^GPT[0-9]{2,4}$/.test(body.accountAlias.trim().toUpperCase())
       ? body.accountAlias.trim().toUpperCase()

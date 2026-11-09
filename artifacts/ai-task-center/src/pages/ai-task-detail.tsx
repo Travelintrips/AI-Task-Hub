@@ -1038,16 +1038,21 @@ export default function AiTaskDetail() {
                 </Button>
                 <Button
                   size="sm"
-                  disabled={!executionData?.bridgeConfigured || !gpt02PicOptions?.assignmentReady || !gpt02PicAudit?.auditMatchesCurrent || startExecutionMutation.isPending || gpt02AssignPicMutation.isPending || ["completed", "cancelled"].includes(task.status)}
-                  onClick={() => { if (window.confirm(`Mulai lifecycle GPT02 untuk task ${task.taskNumber ?? task.id} dengan PIC ${task.assignedTo}? Pengiriman akan menggunakan idempotency key dan harus dibuktikan dengan ACK.`)) startExecutionMutation.mutate("chatgpt"); }}
+                  disabled={true}
+                  aria-label="Lifecycle GPT02 DEV belum aktif karena bukti sebelum pengiriman belum lengkap"
                 >
                   {startExecutionMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Brain className="h-3.5 w-3.5 mr-1" />}
-                  Mulai Lifecycle GPT02
+                  Mulai Lifecycle GPT02 (belum diaktifkan)
                 </Button>
               </>
             )}
           </div>
         </div>
+        {!executionData?.execution && (
+          <p role="status" className="mt-2 text-xs text-amber-700">
+            Mode lifecycle GPT02 DEV belum dapat dijalankan: Core Task, persetujuan bertanda tangan, pengikatan percobaan, nonce dan pengaman lease harus terbukti sebelum pengiriman. Hasil uji teks lama tidak diulang.
+          </p>
+        )}
 
         <div className="mt-4 grid grid-cols-1 gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 md:grid-cols-3">
           <div>

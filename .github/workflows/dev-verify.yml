@@ -76,6 +76,8 @@ jobs:
         run: node --test artifacts/api-server/tests/gpt02-execution-outcome.test.mjs
       - name: Verify exact result joins on isolated PostgreSQL
         run: bash scripts/dev/test-gpt02-execution-outcome-sql.sh
+      - name: Refuse unproven GPT02 lifecycle before command creation
+        run: node --test artifacts/api-server/tests/gpt02-lifecycle-closed-until-admission.test.mjs
       - name: Typecheck
         run: pnpm run typecheck
       - name: Build
