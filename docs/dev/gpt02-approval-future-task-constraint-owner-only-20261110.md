@@ -15,3 +15,12 @@ The existing private approval table has legacy CHECK `task_id>0 AND task_id<>135
 ## Deployment gate
 
 At this stage do not apply the migration to hosted DEV: owner privileges were deliberately revoked in a previous locked-down migration. A separate reviewed and approved owner-authorized maintenance session is required. Do not leave `SET ROLE` grants enabled or update the live Hub application DSN merely to make this check green. Independently read back `pg_constraint.convalidated`, exact expression, roles and zero operational approvals after an approved cutover. Until then `APPROVAL_SCHEMA_STILL_ACCEPTS_HISTORICAL_TASK_IDS` and managed lifecycle remain NO-GO. Task136's original native ACK is historical evidence, not new approval.
+
+
+## PG17 membership-grant rollback proof (offline only)
+
+The live CST-DEV database is PostgreSQL 17.6. Read-only grantor audit returned two grants to the shared `postgres` role for `gpt02_store_owner`: self-grant (ADMIN=false, INHERIT=false, SET=false) and independent `supabase_admin` grant (ADMIN=true, INHERIT=false, SET=false). There is currently no active owner `SET ROLE` capability.
+
+`scripts/dev/test-gpt02-owner-grant-escrow-pg17-isolated.sh` reproduces those exact grantor arrangements using PostgreSQL 17 in a disposable Docker container with no network. It composes the earlier owner-only constraint SQL into an offline single-transaction experiment: temporarily `GRANT ... SET TRUE` only on the self grant, `SET ROLE` to the owner, run the exact original guarded constraint DDL, `RESET ROLE`, `REVOKE SET OPTION`, and check membership and effective permissions are unchanged before committing. An injected failure after the temporary grant must roll back both the grant and the DDL. Idempotence and rejection of historical Task136 are also tested.
+
+**This is not a deployed maintenance operation or Super Admin approval**. The offline wrapper must not be copied onto hosted CST-DEV/PROD without separate review and authorization. Even if it passes, issuer/attestor/preparer roles must remain NOLOGIN, no command can be emitted, and the full managed lifecycle stays NO-GO.

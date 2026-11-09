@@ -58,6 +58,7 @@ jobs:
         run: |
           bash scripts/dev/test-gpt02-inactive-v2-upgrade.sh
           bash scripts/dev/test-gpt02-approval-future-task-constraint-isolated.sh
+          bash scripts/dev/test-gpt02-owner-grant-escrow-pg17-isolated.sh
       - name: Verify bounded CST-DEV connection probe cannot grant dispatch
         run: node --test scripts/dev/gpt02-bounded-login-smoke-guards.test.mjs
       - name: Verify SCRAM issuer and atomic dual-origin Hub/Core identity evidence
