@@ -1526,7 +1526,7 @@ router.get("/ai-tasks/:id/gpt02-lineage", requireAuth, async (req: Request, res:
     const companyId = getCompanyIdForWrite(req);
     // Every subrecord belongs to this exact tenant/task/latest DEV execution.
     // A different GPT02 command's completed ACK never grants completion here.
-    const result = await db.execute(sql\`
+    const result = await db.execute(sql`
       SELECT t.id AS task_id, t.status AS task_status,
         t.assigned_to AS pic_name, t.assigned_to_id,
         pic.id AS verified_pic_id,
@@ -1580,9 +1580,9 @@ router.get("/ai-tasks/:id/gpt02-lineage", requireAuth, async (req: Request, res:
        AND n.evidence_sha256=bc.evidence_sha256
        AND n.operator_user_id=bc.operator_user_id
        AND n.expires_at>clock_timestamp()
-      WHERE t.id=\${taskId} AND t.company_id=\${companyId}
+      WHERE t.id=${taskId} AND t.company_id=${companyId}
       LIMIT 2
-    \`);
+    `);
     if (result.rows.length === 0) { res.sendStatus(404); return; }
     if (result.rows.length !== 1) {
       res.status(409).json({ error: "AMBIGUOUS_GPT02_LINEAGE", readOnly: true,
