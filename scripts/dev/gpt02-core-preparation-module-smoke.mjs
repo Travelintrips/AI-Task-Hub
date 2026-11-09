@@ -11,11 +11,11 @@ try{
  return {async query(sql,params){try{return await c.query(sql,params)}catch(e){console.log('ISOLATED_QUERY_ERROR',e.code||e.name,typeof sql==='string'?sql.slice(0,65):'query');throw e}},release:discard=>c.release(discard)};}};
  const preparer=new Gpt02CoreTaskPreparer({pool:diagnosticPool});
  const r=await preparer.prepare(input);
- assert.equal(r.preparedNew,false);
+ assert.equal(r.preparedNew,false);assert.equal(r.hubExecutionStatus,'prepared');assert.equal(r.commandIssued,false);
  assert.equal(r.dispatchPermitted,false);
  assert.equal(r.lifecycleStartPermitted,false);
  assert.equal(r.operatorApprovalRecorded,false);
- for(const key of ['coreTaskId','commandCandidateId','attemptId'])assert.match(r[key],/^[0-9a-f-]{36}$/);
+ for(const key of ['coreTaskId','commandCandidateId','attemptId','hubExecutionId'])assert.match(r[key],/^[0-9a-f-]{36}$/);
  await assert.rejects(preparer.prepare({...input,instruction:'modified after preparation'}),e=>e.code==='CORE_PREPARATION_TRANSACTION_FAILED');
  await assert.rejects(preparer.prepare({...input,hubTaskId:136}),e=>e.code==='OUT_OF_SCOPE_PREPARATION');
  console.log('GPT02_CORE_PREPARATION_REAL_MODULE_ISOLATED_PASS: replay stable, no dispatch, no legacy task');

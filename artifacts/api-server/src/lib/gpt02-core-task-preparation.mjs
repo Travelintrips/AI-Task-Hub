@@ -69,8 +69,9 @@ export class Gpt02CoreTaskPreparer {
    const direct=(await client.query(`SELECT
      COALESCE((SELECT has_table_privilege(current_user,c.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='ai_platform' AND c.relname='ai_coding_bridge_commands'),true) AS can_dispatch,
      COALESCE((SELECT has_table_privilege(current_user,c.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='ai_platform' AND c.relname='ai_coding_tasks'),true) AS direct_core_write,
-     COALESCE((SELECT has_table_privilege(current_user,c.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='gpt02_stage' AND c.relname='core_preparations'),true) AS direct_preparation_write`)).rows[0];
-   if(!direct||direct.can_dispatch!==false||direct.direct_core_write!==false||direct.direct_preparation_write!==false)
+     COALESCE((SELECT has_table_privilege(current_user,c.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='gpt02_stage' AND c.relname='core_preparations'),true) AS direct_preparation_write,
+     COALESCE((SELECT has_table_privilege(current_user,c.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname='ai_execution_jobs'),true) AS direct_hub_write`)).rows[0];
+   if(!direct||direct.can_dispatch!==false||direct.direct_core_write!==false||direct.direct_preparation_write!==false||direct.direct_hub_write!==false)
      deny('DIRECT_CORE_TABLE_PRIVILEGES_FORBIDDEN');
    // Lock the preparer to the real Hub/Core catalog. Both tenant IDs and numeric
    // company IDs exist in CST-DEV, but they are not interchangeable namespaces.
@@ -88,24 +89,31 @@ export class Gpt02CoreTaskPreparer {
        ('public','users','company_id','integer',false),
        ('public','ai_tasks','company_id','text',true),
        ('public','audit_logs','user_email','text',false),
-       ('ai_platform','ai_coding_tasks','id','uuid',true)
+       ('ai_platform','ai_coding_tasks','id','uuid',true),
+       ('public','ai_execution_jobs','id','uuid',true),
+       ('public','ai_execution_jobs','task_id','integer',false),
+       ('public','ai_execution_jobs','command_id','uuid',false),
+       ('public','ai_execution_jobs','external_id','text',true),
+       ('public','ai_execution_jobs','source','text',true),
+       ('public','ai_execution_jobs','status','text',true),
+       ('public','ai_execution_jobs','metadata','jsonb',true)
      ) AS expected(schema_name,relation_name,column_name,type_name,required_not_null)
      LEFT JOIN pg_catalog.pg_namespace n ON n.nspname=expected.schema_name
      LEFT JOIN pg_catalog.pg_class c ON c.relnamespace=n.oid AND c.relname=expected.relation_name
        AND c.relkind IN ('r','p')
      LEFT JOIN pg_catalog.pg_attribute a ON a.attrelid=c.oid AND a.attname=expected.column_name`)).rows[0];
-   if(!schema||schema.catalog_rows!==5||schema.compatible!==true)
+   if(!schema||schema.catalog_rows!==12||schema.compatible!==true)
      deny('HOSTED_IDENTITY_SCHEMA_MISMATCH');
    const rows=(await client.query(
-    'SELECT core_task_id,command_candidate_id,attempt_id,created,dispatch_permitted FROM gpt02_stage.prepare_core_task($1,$2,$3,$4,$5,$6)',params)).rows;
-   if(rows.length!==1||!rows[0]||![rows[0].core_task_id,rows[0].command_candidate_id,rows[0].attempt_id].every(x=>typeof x==='string'&&UUID.test(x))||
+    'SELECT core_task_id,command_candidate_id,attempt_id,hub_execution_id,created,dispatch_permitted FROM gpt02_stage.prepare_core_task($1,$2,$3,$4,$5,$6)',params)).rows;
+   if(rows.length!==1||!rows[0]||![rows[0].core_task_id,rows[0].command_candidate_id,rows[0].attempt_id,rows[0].hub_execution_id].every(x=>typeof x==='string'&&UUID.test(x))||
       rows[0].created!==true&&rows[0].created!==false||rows[0].dispatch_permitted!==false||
-      new Set([rows[0].core_task_id,rows[0].command_candidate_id,rows[0].attempt_id]).size!==3)
+      new Set([rows[0].core_task_id,rows[0].command_candidate_id,rows[0].attempt_id,rows[0].hub_execution_id]).size!==4)
      deny('PREPARATION_RESULT_NOT_TRUSTWORTHY');
    await client.query('COMMIT');started=false;
    return Object.freeze({coreTaskId:rows[0].core_task_id,
-     commandCandidateId:rows[0].command_candidate_id,attemptId:rows[0].attempt_id,
-     preparedNew:rows[0].created,coreTaskStatus:'PENDING',
+     commandCandidateId:rows[0].command_candidate_id,attemptId:rows[0].attempt_id,hubExecutionId:rows[0].hub_execution_id,
+     preparedNew:rows[0].created,coreTaskStatus:'PENDING',hubExecutionStatus:'prepared',commandIssued:false,
      operatorApprovalRecorded:false,issuerGrantReady:false,dispatchPermitted:false,
      lifecycleStartPermitted:false,readOnly:false,environment:'DEV'});
   }catch(e){
