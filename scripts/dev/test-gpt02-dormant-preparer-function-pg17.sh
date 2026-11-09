@@ -233,6 +233,14 @@ fi
 grep -Fq GPT02_OFFLINE_GRANT_PARENT_BASELINE_CHANGED "$WORK/grants-repeat.log" || { tail -20 "$WORK/grants-repeat.log";exit 1; }
 echo PASS:PG_PARENT_GRANT_REPEAT_FAIL_CLOSED
 
+# The hosted candidate pins the exact PostgreSQL 17 catalog/RLS rendering.
+# PostgreSQL 16 checks the older offline fence above, but must not pretend
+# its pg_policies textual SHA is the PostgreSQL 17 hosted attestation.
+if [[ "$NODE_IMAGE" == 'postgres:16-alpine' ]]; then
+ echo SKIP:HOSTED_RLS_HASH_ONLY_ON_POSTGRESQL_17
+ printf 'GPT02_DORMANT_PREPARER_MINIMAL_GRANTS_OFFLINE_PASS_NO_LOGIN_NO_COMMAND\n'
+ exit 0
+fi
 # Restore owner-only grants to the original empty hosted baseline and exercise
 # the actual CST-DEV migration candidate on the SAME fixture.
 HOSTED="$ROOT/scripts/dev/gpt02-preparer-parent-grants-hosted-dev-staged.sql"
@@ -250,10 +258,10 @@ import sys
 sql=Path(sys.argv[1]).read_text()
 needle='GRANT INSERT ON public.ai_execution_jobs,ai_platform.ai_coding_tasks TO gpt02_core_prep_owner;'
 assert sql.count(needle)==1
-Path(sys.argv[2]).write_text(sql.replace(needle,needle+"\nDO $ BEGIN RAISE EXCEPTION 'synthetic hosted grant rollback'; END $;"))
+Path(sys.argv[2]).write_text(sql.replace(needle,needle+"\nDO $$ BEGIN RAISE EXCEPTION 'synthetic hosted grant rollback'; END $$;"))
 PY
 if run_migration "$WORK/hosted-rollback.sql" >"$WORK/hosted-rollback.log" 2>&1;then echo HOSTED_GRANT_ROLLBACK_BROKEN >&2;exit 1;fi
-grep -Fq 'synthetic hosted grant rollback' "$WORK/hosted-rollback.log" || { tail -20 "$WORK/hosted-rollback.log";exit 1; }
+grep -Fq 'ERROR:  synthetic hosted grant rollback' "$WORK/hosted-rollback.log" || { tail -20 "$WORK/hosted-rollback.log";exit 1; }
 [[ "$(q postgres "SELECT has_table_privilege('gpt02_core_prep_owner','public.ai_execution_jobs','INSERT')")" == f ]] || { echo HOSTED_GRANT_LEAK >&2;exit 1; }
 echo PASS:PG17_HOSTED_GRANT_TRANSACTION_ROLLBACK
 run_migration "$HOSTED" >"$WORK/hosted-success.log" 2>&1 || { tail -25 "$WORK/hosted-success.log";exit 1; }
