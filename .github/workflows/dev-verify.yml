@@ -34,6 +34,8 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: API short-link unit regression
         run: pnpm --filter @workspace/api-server run test:short-links
+      - name: GPT02 exact lineage fail-closed regression
+        run: pnpm --filter @workspace/api-server run test:gpt02-lineage
       - name: Typecheck
         run: pnpm run typecheck
       - name: Build
