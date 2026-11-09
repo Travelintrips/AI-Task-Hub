@@ -31,6 +31,21 @@ A real SQL `BEGIN READ ONLY` transaction using the active Hub DEV database conne
 
 The separate live cutover preflight returns `NO_GO`: `POSTGRES_APP_LOGIN_STILL_IN_USE`, `APP_DB_ROLE_HAS_ADMINISTRATIVE_PRIVILEGES`, `APP_DB_ROLE_HAS_GLOBAL_DATA_PRIVILEGES`, `APP_TENANT_RLS_NOT_VERIFIED`, `APP_AUTHENTICATED_E2E_NOT_VERIFIED` and rollback/approval required. Direct INSERT/UPDATE/DELETE/SET ROLE to GPT02 native binding/nonce evidence is already blocked for both Core DEV and Hub DEV; **the broad DB role is nevertheless not a trusted isolation boundary**.
 
+## Expanded live RLS scope and executable preflight — 2026-11-09
+
+A separate **BEGIN READ ONLY** catalog query from the live Hub DEV container examined **all 828 public tables** (not just the 93 source candidates). **825** have RLS enabled; **776** RLS-enabled tables have no policy; **49** tables have at least one policy. These totals describe the wider shared CST-DEV schema and should not be mistaken for 776 required AI Task Hub migrations.
+
+The four minimum Hub candidate tables in the existing login-cutover preflight are all RLS-enabled with **zero policies** in the current live snapshot:
+
+- `public.ai_tasks`
+- `public.ai_execution_jobs`
+- `public.team_members`
+- `public.audit_logs`
+
+The preflight now reports a read-only `requiredRlsReadback` with exact missing-policy table identifiers and adds `APP_REQUIRED_TABLE_RLS_POLICIES_MISSING` when evidence is absent. It **does not** claim that the presence of policies proves correct tenant semantics, and it never authorizes DB cutover, issuer or native worker dispatch. The new source is not yet deployed to the active Hub DEV image; its unit checks are part of the PR's required DEV Verify workflow.
+
+**Implementation boundary:** first define and independently test tenant predicate semantics for these task/PIC/audit tables on an isolated database, alongside privilege and cross-tenant negative tests. Do not roll out blanket policies over all 828 tables; do not grant `BYPASSRLS`, adopt evidence-owner roles, or switch Hub DEV credentials until authenticated full-module parity and rollback are demonstrated.
+
 ## Required deployment gates
 
 1. Classify the 33 raw SQL identifiers and map dynamic queries, SQL functions, triggers, audit trails, service integrations, 90 attached sequences and all mutating operations to database privileges.
