@@ -6,19 +6,19 @@ SOURCE="$ROOT/scripts/dev/gpt02-cst-dev-approval-future-task-constraint.sql"
 NAME="gpt02-pg17-owner-escrow-$$"
 WORK="$(mktemp -d)"
 trap 'docker rm -f "$NAME" >/dev/null 2>&1 || true; rm -rf "$WORK"' EXIT
-docker run -d --rm --network none --name "$NAME" -e POSTGRES_PASSWORD=synthetic-only postgres:17-alpine >/dev/null
+docker run -d --rm --network none --name "$NAME" -e POSTGRES_USER=fixture_root -e POSTGRES_DB=postgres -e POSTGRES_PASSWORD=synthetic-only postgres:17-alpine >/dev/null
 ready=false
 for i in $(seq 1 50); do
- if docker exec "$NAME" psql -X -U postgres -d postgres -Atqc "SELECT 1" >/dev/null 2>&1; then ready=true; break; fi
+ if docker exec "$NAME" psql -X -U fixture_root -d postgres -Atqc "SELECT 1" >/dev/null 2>&1; then ready=true; break; fi
  sleep 1
 done
 [[ "$ready" == true ]] || { echo POSTGRES_17_NOT_READY >&2; exit 2; }
 q(){ docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U "$1" -d postgres -Atqc "$2"; }
 run(){ docker exec -i "$NAME" psql -X -v ON_ERROR_STOP=1 -U "$1" -d postgres -q; }
 [[ "$(q postgres 'SHOW server_version_num')" == 17* ]] || { echo WRONG_POSTGRES_VERSION >&2; exit 1; }
-run postgres <<'SQL' >/dev/null
+run fixture_root <<'SQL' >/dev/null
+CREATE ROLE postgres LOGIN CREATEROLE BYPASSRLS;
 CREATE ROLE supabase_admin LOGIN CREATEROLE NOSUPERUSER;
-CREATE ROLE fixture_root LOGIN SUPERUSER;
 CREATE ROLE gpt02_store_owner NOLOGIN NOINHERIT;
 CREATE ROLE dev_gpt02_issuer_evidence NOLOGIN NOINHERIT CONNECTION LIMIT 0 VALID UNTIL '1970-01-01';
 CREATE ROLE dev_gpt02_attestor_evidence NOLOGIN NOINHERIT CONNECTION LIMIT 0 VALID UNTIL '1970-01-01';
@@ -35,7 +35,6 @@ ALTER TABLE gpt02_private.approvals ENABLE ROW LEVEL SECURITY;
 ALTER TABLE gpt02_private.approvals FORCE ROW LEVEL SECURITY;
 CREATE POLICY evidence_owner_only ON gpt02_private.approvals USING(true) WITH CHECK(true);
 RESET ROLE;
-ALTER ROLE postgres NOSUPERUSER CREATEROLE BYPASSRLS;
 SQL
 # A non-superuser with delegated ADMIN grants the independent membership,
 # so pg_auth_members.grantor matches the hosted Supabase semantics.
