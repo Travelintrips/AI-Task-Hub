@@ -1,19 +1,24 @@
 'use strict';
-const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs');
+const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
+const PUBLIC_DEV_CA=fs.readFileSync(path.join(__dirname,'fixtures/supabase-root-ca-2021.crt'),'utf8');
 const {evaluate,validateTarget,observedFromRow,QUERY,NEED}=require('./gpt02-lifecycle-live-preflight.cjs');
 const DEV='xssrfshdrtdfupgqwfdw',P='z'.repeat(20);
-const goodEnv={NODE_ENV:'development',APP_ENV:'development',
+const goodEnv={NODE_ENV:'development',APP_ENV:'development',GPT02_CST_DEV_READONLY_CA_PEM:PUBLIC_DEV_CA,
  SUPABASE_DATABASE_URL_DEV:`postgresql://postgres.${DEV}:synthetic@aws-1-ap-southeast-2.pooler.supabase.com:5432/postgres`};
 test('the exact existing CST-DEV project, pooler login, and read-only runtime are pinned',()=>{
  assert.equal(validateTarget(goodEnv),true);
+ assert.equal(validateTarget({...goodEnv,GPT02_CST_DEV_READONLY_CA_PEM:'test'}),false);
  assert.equal(validateTarget({...goodEnv,SUPABASE_DATABASE_URL_DEV:`postgres://postgres:synthetic@db.${DEV}.supabase.co/postgres`}),true);
 });
 test('reject PROD, wrong project, postgres impersonation, disabled TLS or fake host',()=>{
  for(const patch of [{NODE_ENV:'production'},{APP_ENV:'production'},{NODE_TLS_REJECT_UNAUTHORIZED:'0'},
+  {GPT02_CST_DEV_READONLY_CA_PEM:null},{GPT02_CST_DEV_READONLY_CA_PEM:'---BEGIN CERTIFICATE---'},
   {SUPABASE_DATABASE_URL_DEV:goodEnv.SUPABASE_DATABASE_URL_DEV.replace(DEV,P)},
   {SUPABASE_DATABASE_URL_DEV:goodEnv.SUPABASE_DATABASE_URL_DEV.replace('postgres.'+DEV,'postgres')},
   {SUPABASE_DATABASE_URL_DEV:goodEnv.SUPABASE_DATABASE_URL_DEV.replace('pooler.supabase.com','pooler.evil.example')},
   {SUPABASE_DATABASE_URL_DEV:goodEnv.SUPABASE_DATABASE_URL_DEV.replace('5432','1234')},
+  {SUPABASE_DATABASE_URL_DEV:goodEnv.SUPABASE_DATABASE_URL_DEV.replace('5432','6543')},
+  {SUPABASE_DATABASE_URL_DEV:goodEnv.SUPABASE_DATABASE_URL_DEV.replace('postgres.'+DEV,'dev_gpt02_issuer_evidence.'+DEV)},
   {SUPABASE_DATABASE_URL_DEV:goodEnv.SUPABASE_DATABASE_URL_DEV+'?sslmode=disable'},
   {SUPABASE_DATABASE_URL_DEV:'postgresql://postgres@localhost/postgres'},
   {SUPABASE_DATABASE_URL_DEV:''}])assert.equal(validateTarget({...goodEnv,...patch}),false);

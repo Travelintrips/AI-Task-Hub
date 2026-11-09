@@ -1,6 +1,18 @@
 'use strict';
 /** Bounded, read-only CST-DEV admission snapshot. NEVER authorizes GPT02 work. */
 const EXPECTED_DEV_REF='xssrfshdrtdfupgqwfdw';
+const{X509Certificate}=require('node:crypto');
+const PINNED_ROOT_FINGERPRINT='807025ad50d4ed219d2c9c7d299c004f824eb00cf7f65afef607d07b72e6cafa';
+function verifiedRootCa(env={}) {
+ const pem=env.GPT02_CST_DEV_READONLY_CA_PEM;
+ if(typeof pem!=='string'||pem.length>8192||!pem.includes('-----BEGIN CERTIFICATE-----'))return null;
+ try{
+  const cert=new X509Certificate(pem);
+  if(cert.fingerprint256.replaceAll(':','').toLowerCase()!==PINNED_ROOT_FINGERPRINT)return null;
+  return pem;
+ }catch{return null}
+}
+
 const NEED=['connected','readonly','pinnedProject','restrictedHubRole','dedicatedPreparerRole',
  'isolatedPreparerPermissions','preparationInstalled','attestorRoleReady','issuerRoleReady',
  'approvalFunctionsInstalled','verifiedOperatorConsent','leaseIssuerOperational','nativeDispatchGranted'];
@@ -31,7 +43,7 @@ function evaluate(observed={}) {
   existing135136UntouchedByThisCheck:true,releaseDecision:'NO_GO'});
 }
 function validateTarget(env={}) {
- if(env.NODE_ENV!=='development'||env.APP_ENV==='production'||env.NODE_TLS_REJECT_UNAUTHORIZED==='0')return false;
+ if(env.NODE_ENV!=='development'||env.APP_ENV==='production'||env.NODE_TLS_REJECT_UNAUTHORIZED==='0'||!verifiedRootCa(env))return false;
  const raw=env.SUPABASE_DATABASE_URL_DEV;
  if(typeof raw!=='string')return false;
  let u,username;try{u=new URL(raw);username=decodeURIComponent(u.username)}catch{return false}
@@ -39,8 +51,8 @@ function validateTarget(env={}) {
  const pooler=/^aws-[0-9]+-[a-z0-9-]+\.pooler\.supabase\.com$/;
  return ['postgres:','postgresql:'].includes(u.protocol)&&u.password.length>0&&u.pathname==='/postgres'&&
   ((u.hostname===expectedHost&&username==='postgres')||
-   (pooler.test(u.hostname)&&username.endsWith('.'+EXPECTED_DEV_REF)))&&
-  !u.search&&!u.hash&&(!u.port||['5432','6543'].includes(u.port));
+   (pooler.test(u.hostname)&&username==='postgres.'+EXPECTED_DEV_REF))&&
+  !u.search&&!u.hash&&(!u.port||u.port==='5432');
 }
 const QUERY=`SELECT now()::text AS checked_at,current_user AS database_role,
  current_setting('transaction_read_only')='on' AS is_readonly,
@@ -85,7 +97,7 @@ async function main(env=process.env){
  let pg,c,started=false;
  try{
   pg=require('pg');c=new pg.Client({connectionString:env.SUPABASE_DATABASE_URL_DEV,
-    connectionTimeoutMillis:5000,statement_timeout:6000,application_name:'gpt02_lifecycle_activation_preflight_readonly'});
+    ssl:{ca:verifiedRootCa(env),rejectUnauthorized:true},connectionTimeoutMillis:5000,statement_timeout:6000,application_name:'gpt02_lifecycle_activation_preflight_readonly'});
   await c.connect();await c.query('BEGIN READ ONLY');started=true;
   await c.query("SET LOCAL statement_timeout='6s'");
   const result=await c.query(QUERY);
@@ -95,5 +107,5 @@ async function main(env=process.env){
   process.stdout.write(JSON.stringify(evaluate({pinnedProject:true}))+'\n');process.exitCode=2;
  }finally{if(c)await c.end().catch(()=>{})}
 }
-module.exports={evaluate,validateTarget,observedFromRow,QUERY,main,NEED,REASONS};
+module.exports={evaluate,validateTarget,verifiedRootCa,observedFromRow,QUERY,main,NEED,REASONS};
 if(require.main===module)main();
