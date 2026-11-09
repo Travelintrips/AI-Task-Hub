@@ -5,6 +5,7 @@ import {createRequire} from 'node:module';
 import {generateKeyPairSync,randomUUID,randomBytes,sign,createHash} from 'node:crypto';
 import {Gpt02IssuerStore,canonicalApproval,issuerPoolConfig} from '../../artifacts/api-server/src/lib/gpt02-issuer-store.mjs';
 import {canonicalOperatorLink,operatorLinkSigningBytes,createOperatorLinkVerifier} from '../../artifacts/api-server/src/lib/gpt02-operator-link.mjs';
+import {inspectPreparedSignedLink} from '../../artifacts/api-server/src/lib/gpt02-prepared-link.mjs';
 const require=createRequire(import.meta.url),{Pool}=require(process.env.GPT02_TEST_PG_MODULE);
 const auth=JSON.parse(readFileSync('/run/fixture-auth.json','utf8'));
 const ROLE={issuer:'dev_gpt02_issuer_evidence',attestor:'dev_gpt02_attestor_evidence'};
@@ -306,6 +307,57 @@ test('separate SCRAM connections, signature-pinned store and atomic evidence per
  try{await rejection(linkedIssuer.consumeLinkedApproval(x),'EVIDENCE_SCHEMA_VERSION_MISMATCH');}
  finally{await admin.query('ALTER TABLE gpt02_private.core_identity_receipts DROP COLUMN operator_user_id; ALTER TABLE gpt02_private.core_identity_receipts RENAME COLUMN integer_operator_backup TO operator_user_id');}
  assert.equal(await count(x.approval.claims.commandId),0);await linkedIssuer.consumeLinkedApproval(x);assert.equal(await count(x.approval.claims.commandId),1);
+ });
+ await t.test('future prepared Hub/Core IDs match signed dual-origin proof before isolated one-shot nonce',async()=>{
+  // Synthetic trusted DB readbacks, representing a future pending Core task and
+  // an independently prepared Hub execution. No real Hub task is modified.
+  const x=linkedInput(envelope({companyId:'default'}));
+  const a=x.approval.claims,l=x.operatorLink.claims;
+  const preparation={companyId:'default',hubTaskId:a.taskId,memberId:l.assigneeId,memberAuditId:9801,
+   operatorSubject:a.superAdminId,coreTaskId:l.coreTaskId,commandCandidateId:a.commandId,
+   attemptId:a.attemptId,expiresAt:a.expiresAt};
+  const job={companyId:'default',taskId:a.taskId,executionId:l.hubExecutionId,status:'prepared',
+   commandId:null,workerCommandCount:0,attemptNumber:1,dispatchStarted:false,
+   memberId:l.assigneeId,memberAuditId:9801,operatorSubject:a.superAdminId};
+  const core={taskId:l.coreTaskId,commandCandidateId:a.commandId,attemptId:a.attemptId,status:'PENDING',
+   commandCount:0,runCount:0,workerId:l.workerId,operatorUserId:l.coreOperatorUserId,
+   operatorRole:l.coreRole,operatorActive:true,passwordChanged:true};
+  const hubOperator={subject:a.superAdminId,role:'super_admin',active:true,memberId:l.assigneeId,
+   accountableOwnerId:l.accountableOwnerId};
+  const context={prepared:preparation,job,core,hubOperator,proof:x,
+   publicKeys:{approvalPublicKeyPem:pem,...operatorAttestationKeys},now:Date.now()};
+  const good=inspectPreparedSignedLink(context);
+  assert.equal(good.matched,true);assert.equal(good.dispatchPermitted,false);
+  assert.equal(good.approvalRecorded,false);assert.equal(good.nonceConsumed,false);
+  for(const [field,patch] of [
+   ['prepared',{coreTaskId:randomUUID()}],['job',{executionId:randomUUID()}],
+   ['core',{operatorUserId:78}],['hubOperator',{memberId:l.assigneeId+1}]]) {
+   const mismatch=inspectPreparedSignedLink({...context,[field]:{...context[field],...patch}});
+   assert.equal(mismatch.matched,false);assert.equal(mismatch.dispatchPermitted,false);
+  }
+  // The existing attestor and issuer are separate genuine SCRAM connections,
+  // with append-only SQL uniqueness and atomic nonce consumption.
+  const recorded=await linkedAttestor.recordLinkedApproval(x);
+  assert.equal(recorded.approvalEvidenceRecorded,true);assert.equal(recorded.dispatchPermitted,false);
+  const first=await linkedIssuer.consumeLinkedApproval(x);
+  assert.ok(first.receiptId);assert.equal(first.coreLedgerWritten,false);
+  assert.equal(first.authorizationGranted,false);assert.equal(first.dispatchPermitted,false);
+  await rejection(linkedIssuer.consumeLinkedApproval(x),'LINKED_APPROVAL_UNAVAILABLE_OR_REPLAYED');
+  assert.equal(await count(a.commandId),1);
+  const evidence=(await admin.query(`SELECT a.task_id,p.core_task_id,p.hub_execution_id,p.assignee_id,
+    r.command_id,
+    c.core_ledger_written,c.may_dispatch_worker,c.may_issue_grant
+    FROM gpt02_private.approvals a JOIN gpt02_private.operator_links p ON p.command_id=a.command_id
+    JOIN gpt02_private.receipts r ON r.command_id=a.command_id
+    JOIN gpt02_private.core_identity_receipts c ON c.receipt_id=r.id
+    WHERE a.command_id=$1`,[a.commandId])).rows[0];
+  assert.equal(evidence.task_id,a.taskId);
+  assert.equal(evidence.core_task_id,l.coreTaskId);
+  assert.equal(evidence.hub_execution_id,l.hubExecutionId);
+  assert.equal(evidence.assignee_id,l.assigneeId);
+  assert.equal(evidence.core_ledger_written,false);
+  assert.equal(evidence.may_dispatch_worker,false);
+  assert.equal(evidence.may_issue_grant,false);
  });
  await t.test('accidental link table access is rejected before issuing any identity receipt',async()=>{
  const x=linkedInput();await linkedAttestor.recordLinkedApproval(x);await admin.query(`GRANT SELECT ON gpt02_private.operator_links TO ${ROLE.issuer}`);
