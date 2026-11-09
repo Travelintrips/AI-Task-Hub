@@ -14,6 +14,18 @@ const FORBIDDEN = Object.freeze([
   "ai_platform.dev_gpt02_task_attempt_binding_claims",
   "ai_platform.dev_gpt02_binding_attestation_nonces",
 ]);
+function summarizeRequiredRls(rows=[]) {
+ const expected=new Set(REQUIRED.map(x=>x.table));
+ const found=new Map();
+ for(const row of rows) if(expected.has(row.resource)&&!found.has(row.resource))
+  found.set(row.resource,{resource:row.resource,rlsEnabled:row.rls_enabled===true,
+   forceRls:row.force_rls===true,policyCount:Number(row.policy_count)||0});
+ const tables=[...expected].map(resource=>found.get(resource)??{resource,rlsEnabled:false,forceRls:false,policyCount:0,missing:true});
+ return {requiredTables:expected.size,checkedTables:found.size,
+  tablesWithoutPolicy:tables.filter(x=>x.policyCount===0).map(x=>x.resource),
+  incomplete:tables.filter(x=>!x.rlsEnabled||x.policyCount===0||x.missing).map(x=>x.resource),
+  policySemanticsVerified:false};
+}
 function evaluate(input={}) {
  const reasons=[];
  const deny=(pass,reason)=>{if(pass!==true)reasons.push(reason)};
@@ -26,12 +38,14 @@ function evaluate(input={}) {
  deny(input.noEvidenceDml,"APP_DB_ROLE_CAN_MUTATE_NATIVE_EVIDENCE");
  deny(input.requiredPrivileges,"REQUIRED_APP_TABLE_PERMISSIONS_MISSING");
  deny(input.rlsChecked,"APP_TENANT_RLS_NOT_VERIFIED");
+ if(input.requiredRls?.incomplete?.length)reasons.push("APP_REQUIRED_TABLE_RLS_POLICIES_MISSING");
  deny(input.applicationReadWriteE2E,"APP_AUTHENTICATED_E2E_NOT_VERIFIED");
  reasons.push("CUTOVER_REQUIRES_SEPARATE_APPROVAL_AND_ROLLBACK");
  return {environment:"DEV",readOnly:true,roleName:
   typeof input.roleName==="string"?input.roleName:null,
   tableCoverage:{minimumTables:REQUIRED.length,notExhaustive:true},
   permissionReadback:input.tableReadback??null,
+  requiredRlsReadback:input.requiredRls??null,
   reasons,dbLoginCutoverPermitted:false,issuerPermitted:false,
   nativeDispatchPermitted:false,releaseDecision:"NO_GO"};
 }
@@ -76,6 +90,17 @@ async function main(){
       ELSE false END AS mutable
    FROM unnest($1::text[]) AS x(resource)
   `,[FORBIDDEN])).rows;
+  const rlsRows=(await client.query(`
+   SELECT (n.nspname || '.' || c.relname) AS resource,
+    c.relrowsecurity AS rls_enabled,c.relforcerowsecurity AS force_rls,
+    count(p.polname)::int AS policy_count
+   FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+   LEFT JOIN pg_policy p ON p.polrelid=c.oid
+   WHERE (n.nspname || '.' || c.relname) = ANY($1::text[])
+     AND c.relkind IN ('r','p')
+   GROUP BY n.nspname,c.relname,c.relrowsecurity,c.relforcerowsecurity
+  `,[REQUIRED.map(x=>x.table)])).rows;
+  const requiredRls=summarizeRequiredRls(rlsRows);
   await client.query("ROLLBACK");
   Object.assign(snapshot,{databaseConnected:true,roleName:row.login_role,
     roleDistinctFromPostgres:row.login_role!=="postgres",
@@ -84,6 +109,7 @@ async function main(){
     noEvidenceMembership:row.writer_set===false&&row.owner_set===false,
     noEvidenceDml:forbidden.every(x=>x.exists===true&&x.mutable===false),
     requiredPrivileges:required.every(x=>x.exists===true&&x.allowed===true),
+    requiredRls,
     tableReadback:{requiredPairs:required.length,
       allowedPairs:required.filter(x=>x.exists===true&&x.allowed===true).length,
       nativeEvidenceWriteExposed:forbidden.some(x=>x.mutable===true)}
@@ -93,5 +119,5 @@ async function main(){
  }finally{await client.end().catch(()=>{})}
  console.log(JSON.stringify(evaluate(snapshot)));
 }
-module.exports={evaluate,REQUIRED,FORBIDDEN,main};
+module.exports={evaluate,summarizeRequiredRls,REQUIRED,FORBIDDEN,main};
 if(require.main===module)main().catch(()=>{console.log(JSON.stringify(evaluate()));process.exitCode=2});
