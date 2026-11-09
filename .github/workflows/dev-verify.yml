@@ -54,6 +54,8 @@ jobs:
         run: node --test scripts/dev/gpt02-dev-admin-login-hardening.test.cjs
       - name: Verify Google-backed GPT02 operator preflight cannot authorize commands
         run: node --test scripts/dev/gpt02-operator-identity-preflight.test.cjs
+      - name: Verify signed GPT02 operator proof is task-bound and non-authorizing
+        run: node --test scripts/dev/gpt02-signed-operator-approval-preview.test.cjs
       - name: Typecheck
         run: pnpm run typecheck
       - name: Build
