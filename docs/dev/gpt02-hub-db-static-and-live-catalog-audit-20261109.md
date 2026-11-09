@@ -8,6 +8,7 @@ Scope: CST-DEV only. Read-only inspection from the active `ai-task-development` 
 
 - 44 schema source files, 171 API source files and 99 `pgTable` export definitions scanned.
 - 93 distinct referenced `public.*` table candidates; 33 raw schema-qualified SQL identifiers requiring manual classification.
+- Additional CST-DEV catalog inspection resolved the 33 raw schema identifiers into **25 existing relations** and **8 non-relation identifiers**. The eight non-relations are `fleet.document`, `fleet.driver`, `fleet.fuel`, `fleet.maintenance`, `fleet.tire`, `fleet.unit`, `fleet.utilization`, and `sport_center.payment_status`. Some may refer to types or code symbols; they must not be granted as tables. Existing relations include cross-schema `ai_platform` and `sport_center` objects requiring separate operation-level privilege analysis. Merely seeing a raw identifier does not imply it is accessed at runtime.
 - 230 `select`, 166 `insert`, 101 `update`, 23 `delete`, 156 `execute`, 5 `transaction` source-pattern occurrences. These counts are **regex indicators**, not distinct runtime operations or proven coverage.
 - Dynamic SQL, routines, triggers, attached sequences, tenant/RLS behavior and authenticated end-to-end remain **not verified** by source parsing; script always reports `NO_GO`.
 
