@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 SOURCE="$ROOT/scripts/dev/gpt02-cst-dev-approval-future-task-constraint.sql"
 MIGRATION="$ROOT/scripts/dev/gpt02-cst-dev-approval-owner-escrow-maintenance.sql"
+if grep -q '^SQL$' "$MIGRATION"; then echo LITERAL_HEREDOC_MARKER_IN_MIGRATION >&2; exit 3; fi
 NAME="gpt02-pg17-owner-escrow-$$"
 WORK="$(mktemp -d)"
 trap 'docker rm -f "$NAME" >/dev/null 2>&1 || true; rm -rf "$WORK"' EXIT
