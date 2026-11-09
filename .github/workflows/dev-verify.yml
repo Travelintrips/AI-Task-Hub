@@ -35,7 +35,9 @@ jobs:
       - name: API short-link unit regression
         run: pnpm --filter @workspace/api-server run test:short-links
       - name: Verify read-only bridge GET cannot mutate lifecycle
-        run: node --test artifacts/api-server/tests/bridge-ledger-readback.test.mjs artifacts/api-server/tests/bridge-ledger-event-summary.test.mjs artifacts/api-server/tests/bridge-ledger-source-progress.test.mjs
+        run: |
+          node --test artifacts/api-server/tests/bridge-ledger-readback.test.mjs artifacts/api-server/tests/bridge-ledger-event-summary.test.mjs artifacts/api-server/tests/bridge-ledger-source-progress.test.mjs artifacts/api-server/tests/gpt02-prepared-read-inert.test.mjs
+          node --check scripts/dev/build-gpt02-prepared-read-inert-overlay.cjs
       - name: Verify read-only DEV deployment preflight fails closed
         run: node --test scripts/dev/bridge-ledger-readback-runtime-preflight.test.mjs
       - name: Fail closed on privileged AI Task DEV database login cutover
@@ -71,7 +73,7 @@ jobs:
       - name: GPT02 exact lineage fail-closed regression
         run: pnpm --filter @workspace/api-server run test:gpt02-lineage
       - name: Verify signed GPT02 operator proof is task-bound and non-authorizing
-        run: node --test scripts/dev/gpt02-signed-operator-approval-preview.test.cjs
+        run: node --test scripts/dev/gpt02-signed-operator-approval-preview.test.cjs scripts/dev/gpt02-nondispatch-fence.contract.test.mjs
       - name: Separate exact native delivery result from lifecycle approval
         run: node --test artifacts/api-server/tests/gpt02-execution-outcome.test.mjs
       - name: Verify exact result joins on isolated PostgreSQL
@@ -86,12 +88,6 @@ jobs:
         run: node --test artifacts/api-server/tests/gpt02-prepared-link.test.mjs
       - name: Deny prepared Hub/Core reservations before legacy tracking or dispatch
         run: node --test artifacts/api-server/tests/gpt02-prepared-execution-denied.test.mjs
-      - name: Keep prepared reservations inert during GET and background polling
-        run: |
-          node --test artifacts/api-server/tests/gpt02-prepared-read-inert.test.mjs
-          node --check scripts/dev/build-gpt02-prepared-read-inert-overlay.cjs
-      - name: Verify post-nonce single non-authorizing fence invariants
-        run: node --test scripts/dev/gpt02-nondispatch-fence.contract.test.mjs
       - name: Typecheck
         run: pnpm run typecheck
       - name: Build
