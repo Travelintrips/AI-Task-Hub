@@ -87,6 +87,14 @@ Live read-only inventory in Hub DEV confirmed application SQL role is still priv
 
 **Decision:** preparatory implementation allowed; creation/admission/dispatch remain fail closed. Database DEV/PROD and Task #135 unchanged.
 
+## Active DEV passwordless administrator-login exposure — 2026-11-09
+
+A **read-only** configuration check of container `ai-task-development` returned `NODE_ENV=development`, `DEV_PASSWORDLESS_LOGIN=true`, expected DEV base URL, and `SESSION_SECRET` present (no secrets read or displayed). In the original `artifacts/api-server/src/routes/auth.ts`, the email-only passwordless branch applied to all roles including `super_admin`. Because that code could mint a JWT without proof of the operator's identity, a privileged JWT alone is **not sufficient evidence of an accountable Super Admin approval**. Any such token already issued remains subject to its original lifetime until a separate revocation mechanism is applied.
+
+PR #155 now changes the **source only**: passwordless login is explicitly disallowed in production and privileged DEV roles (`super_admin`, `company_admin`, `owner`, `supervisor`) must supply a valid password even when legacy DEV passwordless mode is enabled. The low-privilege historical mode remains unchanged to minimize unrelated behavior changes. Four regression tests check the privileged branch and JWT signing order. **No code deployment or live configuration change has yet occurred**, so the active runtime exposure remains until a verified DEV rollout and reauthentication plan.
+
+Gate implications: do not mark a JWT-derived Super Admin session as an independent cryptographic approval until fresh trusted reauthentication, account-current-active verification, replay-safe audit, signer ownership, and legacy token invalidation/revocation have been proven. Password reauthentication by itself is not the required Ed25519 operator attestation. Avoid enabling dispatch or creating the new test task on the strength of chat consent or a potentially passwordless JWT. Hub DB app role is still privileged `postgres`.
+
 ## Required deployment gates
 
 1. Classify the 33 raw SQL identifiers and map dynamic queries, SQL functions, triggers, audit trails, service integrations, 90 attached sequences and all mutating operations to database privileges.
