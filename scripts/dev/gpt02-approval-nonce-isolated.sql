@@ -2,8 +2,8 @@
 -- This proves atomic one-time claims, NOT operational signatures or approval.
 BEGIN;
 CREATE SCHEMA gpt02_approval_test;
-CREATE ROLE gpt02_test_attestor NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB;
-CREATE ROLE gpt02_test_issuer NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB;
+CREATE ROLE gpt02_test_attestor LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB;
+CREATE ROLE gpt02_test_issuer LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB;
 CREATE TABLE gpt02_approval_test.approved_commands(
  task_id integer NOT NULL CHECK (task_id > 0 AND task_id <> 135),
  command_id uuid PRIMARY KEY,
