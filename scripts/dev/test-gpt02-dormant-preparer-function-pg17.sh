@@ -125,3 +125,106 @@ if run postgres <<<"SELECT * FROM gpt02_stage.prepare_core_task_dormant('default
 [[ "$(snapshot)" == "$initial" ]]|| { echo ROLE_CHANGED_AFTER_DENIAL >&2; exit 1; }
 echo PASS:PG17_POSTGRES_CANNOT_CALL_DORMANT_FUNCTION
 printf 'GPT02_DORMANT_PREPARER_PG17_PASS: NO_DISPATCH_NO_LOGIN_NO_RUNTIME_DML\n'
+
+# Additional gate: prove the narrow future parent grants do not activate either
+# the preparer login or the unreachable SECURITY DEFINER function. Synthetic DB only.
+CANDIDATE="$ROOT/scripts/dev/gpt02-preparer-parent-grants-offline-candidate.sql"
+run fixture_root <<'SQL' >/dev/null
+CREATE ROLE dev_gpt02_issuer_evidence NOLOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS NOCREATEROLE CONNECTION LIMIT 0;
+CREATE ROLE dev_gpt02_attestor_evidence NOLOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS NOCREATEROLE CONNECTION LIMIT 0;
+ALTER SCHEMA ai_platform OWNER TO postgres;
+CREATE SCHEMA extensions AUTHORIZATION postgres;
+CREATE TABLE public.ai_tasks(id integer);
+CREATE TABLE public.team_members(id integer);
+CREATE TABLE public.audit_logs(id integer);
+CREATE TABLE public.users(id text);
+CREATE TABLE ai_platform.ai_coding_runs(id uuid);
+CREATE TABLE ai_platform.ai_coding_bridge_commands(id uuid);
+ALTER TABLE public.ai_tasks OWNER TO postgres;
+ALTER TABLE public.team_members OWNER TO postgres;
+ALTER TABLE public.audit_logs OWNER TO postgres;
+ALTER TABLE public.users OWNER TO postgres;
+ALTER TABLE ai_platform.ai_coding_runs OWNER TO postgres;
+ALTER TABLE ai_platform.ai_coding_bridge_commands OWNER TO postgres;
+ALTER TABLE public.ai_tasks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.team_members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.audit_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.ai_execution_jobs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ai_platform.ai_coding_tasks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ai_platform.ai_coding_runs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ai_platform.ai_coding_bridge_commands ENABLE ROW LEVEL SECURITY;
+CREATE POLICY gpt02_preparer_hub_task_read ON public.ai_tasks FOR SELECT TO gpt02_core_prep_owner USING(false);
+CREATE POLICY gpt02_preparer_pic_read ON public.team_members FOR SELECT TO gpt02_core_prep_owner USING(false);
+CREATE POLICY gpt02_preparer_pic_audit_read ON public.audit_logs FOR SELECT TO gpt02_core_prep_owner USING(false);
+CREATE POLICY gpt02_preparer_operator_read ON public.users FOR SELECT TO gpt02_core_prep_owner USING(false);
+CREATE POLICY gpt02_preparer_hub_execution_read ON public.ai_execution_jobs FOR SELECT TO gpt02_core_prep_owner USING(false);
+CREATE POLICY gpt02_preparer_hub_execution_insert ON public.ai_execution_jobs FOR INSERT TO gpt02_core_prep_owner WITH CHECK(false);
+CREATE POLICY gpt02_preparer_core_task_read ON ai_platform.ai_coding_tasks FOR SELECT TO gpt02_core_prep_owner USING(false);
+CREATE POLICY gpt02_preparer_core_task_insert ON ai_platform.ai_coding_tasks FOR INSERT TO gpt02_core_prep_owner WITH CHECK(false);
+CREATE POLICY gpt02_preparer_core_runs_read ON ai_platform.ai_coding_runs FOR SELECT TO gpt02_core_prep_owner USING(false);
+CREATE POLICY gpt02_preparer_core_commands_read ON ai_platform.ai_coding_bridge_commands FOR SELECT TO gpt02_core_prep_owner USING(false);
+SQL
+# A real PostgreSQL transaction failure AFTER all GRANT statements must roll back
+# schema and relation grants, leaving the role graph and function ACL unchanged.
+if { printf 'BEGIN;\nSET LOCAL gpt02.offline_grant_fixture = yes;\n'; cat "$CANDIDATE";
+     cat <<'SQL'
+DO $$ BEGIN RAISE EXCEPTION 'injected grant rollback'; END $$;
+COMMIT;
+SQL
+     } \
+    | run postgres >"$WORK/grants-rollback.log" 2>&1; then
+ echo FAILED_TO_ROLLBACK_CANDIDATE_GRANTS >&2; exit 1
+fi
+grep -Fq 'injected grant rollback' "$WORK/grants-rollback.log" || { tail -20 "$WORK/grants-rollback.log"; exit 1; }
+[[ "$(q postgres "SELECT has_table_privilege('gpt02_core_prep_owner','public.ai_execution_jobs','INSERT')")" == f ]] || { echo GRANT_LEAK_AFTER_ROLLBACK >&2; exit 1; }
+[[ "$(q postgres "SELECT has_schema_privilege('gpt02_core_prep_owner','ai_platform','USAGE')")" == f ]] || { echo SCHEMA_GRANT_LEAK_AFTER_ROLLBACK >&2; exit 1; }
+echo PASS:PG_PARENT_GRANT_ATOMIC_ROLLBACK_WITHOUT_ESCALATION
+# A stale/missing offline-only marker is rejected BEFORE any GRANT.
+if { printf 'BEGIN;\n'; cat "$CANDIDATE"; printf '\nCOMMIT;\n'; } | run postgres >"$WORK/grants-target-denied.log" 2>&1;then
+ echo UNSCOPED_GRANT_SCRIPT_ACCEPTED >&2;exit 1
+fi
+grep -Fq GPT02_OFFLINE_GRANT_TARGET_DENIED "$WORK/grants-target-denied.log" || { tail -20 "$WORK/grants-target-denied.log";exit 1; }
+echo PASS:PG_PARENT_GRANTS_REJECT_NON_FIXTURE_CONTEXT
+# Removing RLS from even one parent must reject the grant without partial DML.
+run fixture_root <<<"ALTER TABLE public.ai_tasks DISABLE ROW LEVEL SECURITY;" >/dev/null
+if { printf 'BEGIN;\nSET LOCAL gpt02.offline_grant_fixture = yes;\n'; cat "$CANDIDATE"; printf '\nCOMMIT;\n'; } | run postgres >"$WORK/grants-no-rls.log" 2>&1;then
+ echo GRANT_WITH_DISABLED_PARENT_RLS >&2;exit 1
+fi
+grep -Fq GPT02_OFFLINE_GRANT_PARENT_BASELINE_CHANGED "$WORK/grants-no-rls.log" || { tail -20 "$WORK/grants-no-rls.log";exit 1; }
+run fixture_root <<<"ALTER TABLE public.ai_tasks ENABLE ROW LEVEL SECURITY;" >/dev/null
+[[ "$(q postgres "SELECT has_table_privilege('gpt02_core_prep_owner','ai_platform.ai_coding_tasks','INSERT')")" == f ]] || { echo GRANT_LEAK_AFTER_RLS_DENIAL >&2;exit 1; }
+echo PASS:PG_PARENT_GRANTS_REJECT_DISABLED_RLS
+# A future approval already present changes the baseline, so don't allow GRANT.
+run fixture_root <<<"INSERT INTO gpt02_private.approvals(task_id) VALUES(137);" >/dev/null
+if { printf 'BEGIN;\nSET LOCAL gpt02.offline_grant_fixture = yes;\n'; cat "$CANDIDATE"; printf '\nCOMMIT;\n'; } | run postgres >"$WORK/grants-nonempty.log" 2>&1;then
+ echo GRANT_WITH_NONEMPTY_APPROVALS >&2;exit 1
+fi
+grep -Fq GPT02_OFFLINE_GRANT_SECURITY_BASELINE_CHANGED "$WORK/grants-nonempty.log" || { tail -20 "$WORK/grants-nonempty.log";exit 1; }
+run fixture_root <<<"DELETE FROM gpt02_private.approvals;" >/dev/null
+echo PASS:PG_PARENT_GRANTS_REJECT_EXISTING_APPROVAL
+{ printf 'BEGIN;\nSET LOCAL gpt02.offline_grant_fixture = yes;\n'; cat "$CANDIDATE"; printf '\nCOMMIT;\n'; } \
+ | run postgres >"$WORK/grants-positive.log" 2>&1 || { tail -25 "$WORK/grants-positive.log";exit 1; }
+[[ "$(q postgres "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+WHERE ((n.nspname='public' AND c.relname IN ('ai_tasks','team_members','audit_logs','users','ai_execution_jobs'))
+OR (n.nspname='ai_platform' AND c.relname IN ('ai_coding_tasks','ai_coding_runs','ai_coding_bridge_commands')))
+AND has_table_privilege('gpt02_core_prep_owner',c.oid,'SELECT')")" == 8 ]] || { echo OWNER_MINIMUM_PARENT_READ_INCOMPLETE >&2; exit 1; }
+[[ "$(q postgres "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+WHERE ((n.nspname='public' AND c.relname IN ('ai_tasks','team_members','audit_logs','users','ai_execution_jobs'))
+OR (n.nspname='ai_platform' AND c.relname IN ('ai_coding_tasks','ai_coding_runs','ai_coding_bridge_commands')))
+AND has_table_privilege('gpt02_core_prep_owner',c.oid,'INSERT')")" == 2 ]] || { echo OWNER_INSERT_SCOPE_TOO_WIDE >&2; exit 1; }
+[[ "$(q postgres "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+WHERE ((n.nspname='public' AND c.relname IN ('ai_tasks','team_members','audit_logs','users','ai_execution_jobs'))
+OR (n.nspname='ai_platform' AND c.relname IN ('ai_coding_tasks','ai_coding_runs','ai_coding_bridge_commands')))
+AND has_table_privilege('gpt02_core_prep_owner',c.oid,'UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')")" == 0 ]] || { echo OWNER_UNNECESSARY_WRITE_ESCALATION >&2; exit 1; }
+[[ "$(q postgres "SELECT (SELECT count(*) FROM gpt02_stage.core_preparations)||':'||(SELECT count(*) FROM public.ai_execution_jobs)||':'||(SELECT count(*) FROM ai_platform.ai_coding_tasks)||':'||(SELECT count(*) FROM gpt02_private.approvals)||':'||(SELECT count(*) FROM gpt02_private.receipts)")" == '0:0:0:0:0' ]] || { echo GRANTS_CREATED_UNEXPECTED_DATA >&2; exit 1; }
+[[ "$(q postgres "SELECT rolcanlogin::text||':'||has_function_privilege('gpt02_core_prep_login','gpt02_stage.prepare_core_task_dormant(text,integer,text,text,text,text)','EXECUTE')::text||':'||has_schema_privilege('gpt02_core_prep_login','gpt02_stage','USAGE')::text FROM pg_roles WHERE rolname='gpt02_core_prep_login'")" == 'false:false:false' ]] || { echo RUNTIME_LOGIN_ENABLED_BY_GRANT >&2; exit 1; }
+[[ "$(snapshot)" == "$initial" ]] || { echo OWNER_MEMBERSHIP_DRIFT_AFTER_GRANTS >&2; exit 1; }
+echo PASS:PG_PARENT_GRANTS_EXACT_8_SELECT_2_INSERT_ZERO_RUNTIME_AUTHORITY
+# Re-applying a grant candidate must fail, not silently widen permissions.
+if { printf 'BEGIN;\nSET LOCAL gpt02.offline_grant_fixture = yes;\n'; cat "$CANDIDATE";printf '\nCOMMIT;\n'; } | run postgres >"$WORK/grants-repeat.log" 2>&1;then
+ echo REAPPLIED_PARENT_GRANTS_WITHOUT_REVIEW >&2;exit 1
+fi
+grep -Fq GPT02_OFFLINE_GRANT_PARENT_BASELINE_CHANGED "$WORK/grants-repeat.log" || { tail -20 "$WORK/grants-repeat.log";exit 1; }
+echo PASS:PG_PARENT_GRANT_REPEAT_FAIL_CLOSED
+printf 'GPT02_DORMANT_PREPARER_MINIMAL_GRANTS_OFFLINE_PASS_NO_LOGIN_NO_COMMAND\n'
