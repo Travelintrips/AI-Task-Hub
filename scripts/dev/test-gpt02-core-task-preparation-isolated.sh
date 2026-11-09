@@ -10,9 +10,15 @@ trap cleanup EXIT
 docker volume create "$SOCKET" >/dev/null
 docker run -d --name "$NAME" --network none --mount "type=volume,src=$SOCKET,dst=/var/run/postgresql" -e POSTGRES_PASSWORD=synthetic-only postgres:16-alpine -c unix_socket_directories=/var/run/postgresql >/dev/null
 ready=false
-for i in $(seq 1 45); do
- if docker logs "$NAME" 2>&1 | grep -Fq 'PostgreSQL init process complete' &&
-    docker exec "$NAME" psql -X -U postgres -Atqc 'SELECT 1' >/dev/null 2>&1; then ready=true;break;fi
+for i in $(seq 1 60); do
+ # PostgreSQL's temporary init server also answers SELECT 1, then exits and
+ # drops its socket. Require a ready-to-accept message AFTER the init phase.
+ logs="$(docker logs "$NAME" 2>&1 || true)"
+ if [[ "$logs" == *'PostgreSQL init process complete'* ]] &&
+    [[ "${logs#*PostgreSQL init process complete}" == *'database system is ready to accept connections'* ]] &&
+    docker exec "$NAME" psql -X -U postgres -Atqc 'SELECT 1' >/dev/null 2>&1; then
+   ready=true;break
+ fi
  sleep 1
 done
 [[ "$ready" == true ]] || { echo ISOLATED_PG_NOT_READY >&2; exit 3; }
