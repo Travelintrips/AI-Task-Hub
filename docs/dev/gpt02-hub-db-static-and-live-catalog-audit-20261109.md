@@ -1,3 +1,17 @@
+## DEV rollout readback — 2026-11-09 (supersedes earlier "not deployed" notes)
+
+The user authorized DEV deployment and requested OC help if needed. DELL OpenClaw CLI was consulted: the `gpt02-dev` agent failed an auth-store prerequisite and the `main` agent returned a gateway timeout. Neither attempt authorized or performed an app mutation. We therefore deployed directly through authorized VPS with a bounded rollback script and no native GPT02 dispatch.
+
+- Source PR #155 checked at `02567f9caa5a80c6b1b39e0714e84d0d778c4d61`; GitHub Actions #42605059313 SUCCESS.
+- Preserved existing **passwordless dashboard login** and built only new API output; existing UI layers retained.
+- Prepared overlay image `ai-task-hub:dev-auth-preflight-02567f9c`, based on existing healthy image `ai-task-hub:dev-pr155-lineage-20261109`. Built bundle worker path was corrected to `/app/artifacts/api-server/dist` for its runtime; an initial offline canary revealed this path bug before any service replacement.
+- The corrected no-network, dummy-database canary ran and returned `GET /api/healthz = 200`, with startup DDL migrations disabled and no real DB connection.
+- Confirmed Docker Compose resolved configuration identical **apart from the single app image** (other services, environment, networks, volumes unchanged). Existing image digest `sha256:32986865e1161326ab4c5617b54077a98161af74a35d4b68fcc2320e5b59f7f8` retained.
+- Controlled cutover script `/tmp/gpt02-dev-auth-controlled-cutover-20261109.py` switched only Compose app. New image digest `sha256:0f12c689e5dc682c76b2f628af9855e8613636309d8f0ee514f29eac9194f298`. Deployment exit 0, healthy. Private/public DEV `/api/healthz`: HTTP 200. Unauthenticated POST `/api/auth/gpt02/operator-identity-preflight`: HTTP 401 as expected. PROD container IDs unchanged.
+- The stage deploy is **not evidence of user-specific Google token verification or command-bound signed approval**; those still require authenticated operator E2E. Hub DB login remains `postgres` until separately safe cutover. No new GPT02 test task, no new command, no Task #135 retry or PROD changes.
+
+**Decision:** DEV authentication preflight endpoint rollout PASS (health + unauthenticated denial), **GPT02 native E2E NO_GO**. Earlier in this document, statements of no rollout describe the prior stage only.
+
 # AI Task Hub DEV — restricted DB login prerequisite audit (2026-11-09)
 
 Scope: CST-DEV only. Read-only inspection from the active `ai-task-development` API container and source of AI Task Hub PR #155. **No database LOGIN, RLS policy, GRANT, credential or deployment was changed.** No Task #135 action.
