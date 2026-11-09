@@ -13,6 +13,7 @@ import { emitSseEvent } from "../lib/sse";
 import { safeSourceTimelineMetadata } from "../lib/safe-source-timeline-metadata";
 import { isAttestedCheckpointResponse, verifiedContinuation } from "../lib/verified-continuation";
 import { hasVerifiedSourceFinalAck } from "../lib/verified-source-final-ack";
+import { evaluateGpt02LineageEvidence } from "../lib/gpt02-lineage-gate";
 import { hasExplicitSopFailure } from "../lib/verified-sop-outcome";
 import { logger } from "../lib/logger";
 import { formatAiJobWhatsApp, jobWaConfig, notifyAiJobTransition } from "../lib/ai-job-whatsapp";
@@ -1504,6 +1505,95 @@ router.get("/executions/active-map", requireAuth, async (req: Request, res: Resp
   } catch (err) {
     logger.error({ err }, "GET executions active-map failed");
     res.status(500).json({ error: "Failed to load execution map" });
+  }
+});
+
+
+// DEV-only, exact task/execution/Core/claim/nonce/final-ACK readback.
+// A diagnostic is NEVER a permit to dispatch, resume, or complete work.
+router.get("/ai-tasks/:id/gpt02-lineage", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  if (process.env.NODE_ENV !== "development" || process.env.APP_ENV === "production") {
+    res.sendStatus(404); return;
+  }
+  if (req.user?.role !== "super_admin") {
+    res.status(403).json({ error: "SUPER_ADMIN_REQUIRED" }); return;
+  }
+  const taskId = Number(req.params.id);
+  if (!Number.isSafeInteger(taskId) || taskId <= 0) {
+    res.status(400).json({ error: "INVALID_TASK_ID" }); return;
+  }
+  try {
+    const companyId = getCompanyIdForWrite(req);
+    // Every subrecord belongs to this exact tenant/task/latest DEV execution.
+    // A different GPT02 command's completed ACK never grants completion here.
+    const result = await db.execute(sql\`
+      SELECT t.id AS task_id, t.status AS task_status,
+        t.assigned_to AS pic_name, t.assigned_to_id,
+        pic.id AS verified_pic_id,
+        j.id::text AS execution_id, j.status AS execution_status,
+        j.command_id::text AS command_id, j.correlation_id::text AS correlation_id,
+        COALESCE(j.callback_verified,false) AS callback_verified,
+        COALESCE(j.attestation_verified,false) AS attestation_verified,
+        COALESCE(j.final_ack_verified,false) AS final_ack_verified,
+        (c.id IS NOT NULL) AS core_command_found,
+        c.task_id::text AS core_task_id, (ct.id IS NOT NULL) AS core_task_found,
+        c.status AS core_status,
+        bc.id::text AS claim_id, bc.binding_verified,
+        bc.attempt_id::text AS claim_attempt_id,
+        bc.core_coding_task_id::text AS claim_core_task_id,
+        bc.assignee_id AS claim_assignee_id,
+        bc.operator_user_id AS claim_operator_id,
+        n.nonce::text AS nonce, n.may_issue_grant AS nonce_grant_allowed,
+        n.may_dispatch_worker AS nonce_dispatch_allowed,
+        bc.may_dispatch_worker AS claim_dispatch_allowed,
+        bc.may_close_job AS claim_close_allowed,
+        (SELECT COUNT(*)::integer
+         FROM ai_platform.ai_coding_bridge_responses r
+         WHERE r.command_id=j.command_id AND r.kind='COMPLETED'
+           AND r.acknowledged_at IS NOT NULL
+           AND r.metadata_json->>'e2eCode'='E2E_VERIFIED'
+           AND r.metadata_json->>'deliveryCode'='DELIVERY_CONFIRMED'
+           AND r.metadata_json->>'verifiedAssistantReply'='true'
+           AND r.metadata_json->>'browserPairingVerified'='true')
+          AS verified_completed_responses
+      FROM public.ai_tasks t
+      LEFT JOIN LATERAL (
+        SELECT id,task_id,company_id,source,status,command_id,correlation_id,
+          callback_verified,attestation_verified,final_ack_verified
+        FROM public.ai_execution_jobs
+        WHERE task_id=t.id AND company_id=t.company_id
+          AND source='AI_TASK' AND metadata->>'environment'='development'
+        ORDER BY created_at DESC,id DESC LIMIT 1
+      ) j ON true
+      LEFT JOIN public.team_members pic
+        ON pic.id=t.assigned_to_id AND pic.company_id=t.company_id
+       AND pic.name=t.assigned_to AND pic.is_active IS TRUE
+      LEFT JOIN ai_platform.ai_coding_bridge_commands c ON c.id=j.command_id
+      LEFT JOIN ai_platform.ai_coding_tasks ct ON ct.id=c.task_id
+      LEFT JOIN ai_platform.dev_gpt02_task_attempt_binding_claims bc
+        ON bc.tenant_id=t.company_id AND bc.hub_ai_task_id=t.id
+       AND bc.hub_execution_job_id=j.id AND bc.core_command_id=c.id
+       AND bc.core_coding_task_id=c.task_id AND bc.assignee_id=pic.id
+      LEFT JOIN ai_platform.dev_gpt02_binding_attestation_nonces n
+        ON n.tenant_id=t.company_id AND n.hub_execution_job_id=j.id
+       AND n.core_command_id=c.id AND n.attempt_id=bc.attempt_id
+       AND n.evidence_sha256=bc.evidence_sha256
+       AND n.operator_user_id=bc.operator_user_id
+       AND n.expires_at>clock_timestamp()
+      WHERE t.id=\${taskId} AND t.company_id=\${companyId}
+      LIMIT 2
+    \`);
+    if (result.rows.length === 0) { res.sendStatus(404); return; }
+    if (result.rows.length !== 1) {
+      res.status(409).json({ error: "AMBIGUOUS_GPT02_LINEAGE", readOnly: true,
+        dispatchPermitted: false }); return;
+    }
+    res.setHeader("Cache-Control", "no-store");
+    res.json(evaluateGpt02LineageEvidence(result.rows[0] as never));
+  } catch (err) {
+    logger.warn({ err, taskId }, "DEV GPT02 exact lineage diagnostic unavailable");
+    res.status(503).json({ error: "GPT02_LINEAGE_DIAGNOSTIC_UNAVAILABLE",
+      dispatchPermitted: false, completionPermitted: false });
   }
 });
 
