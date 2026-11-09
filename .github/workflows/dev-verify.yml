@@ -52,6 +52,8 @@ jobs:
         run: node --test scripts/dev/gpt02-hosted-evidence-target.test.mjs
       - name: Verify inactive existing CST-DEV schema and locked candidate roles
         run: bash scripts/dev/test-gpt02-cst-dev-evidence-preparation.sh
+      - name: Verify bounded CST-DEV connection probe cannot grant dispatch
+        run: node --test scripts/dev/gpt02-bounded-login-smoke-guards.test.mjs
       - name: Verify actual SCRAM issuer connections and atomic evidence persistence
         run: bash scripts/dev/test-gpt02-issuer-store-isolated.sh
       - name: Verify authenticated tenant admission stays non-authorizing

@@ -47,9 +47,12 @@ export function hostedEvidenceTarget(env){
   if(typeof ref!=='string'||!/^[a-z]{20}$/.test(ref))fail('PINNED_SUPABASE_PROJECT_REFS_REQUIRED');
  if(evidence===prod||hub===prod)fail('EVIDENCE_PRODUCTION_TARGET_FORBIDDEN');
  if(evidence!==hub)fail('EXISTING_CST_DEV_PROJECT_REQUIRED');
- const host=`db.${evidence}.supabase.co`;
+ const mode=env.GPT02_EVIDENCE_DEV_CONNECTION_MODE??'direct';
+ if(!['direct','session_pooler'].includes(mode))fail('UNSUPPORTED_CONNECTION_MODE');
+ const host=mode==='direct'?`db.${evidence}.supabase.co`:env.GPT02_EVIDENCE_DEV_POOLER_HOST;
+ if(mode==='session_pooler'&&(typeof host!=='string'||!/^aws-[0-9]+-[a-z0-9-]+\.pooler\.supabase\.com$/.test(host)))fail('PINNED_SESSION_POOLER_REQUIRED');
  if(env.GPT02_EVIDENCE_DEV_HOST!==host||env.GPT02_EVIDENCE_DEV_DATABASE!=='postgres')fail('SUPABASE_DIRECT_TARGET_REQUIRED');
- return Object.freeze({projectRef:evidence,host,database:'postgres',topology:'EXISTING_CST_DEV_PRIVATE_SCHEMA'});
+ return Object.freeze({projectRef:evidence,host,mode,database:'postgres',topology:'EXISTING_CST_DEV_PRIVATE_SCHEMA'});
 }
 /** Only server deployment configuration, never request fields. */
 export function issuerPoolConfig(env,kind){
@@ -58,11 +61,14 @@ export function issuerPoolConfig(env,kind){
  const raw=env[kind==='issuer'?'GPT02_ISSUER_DATABASE_URL_DEV':'GPT02_ATTESTOR_DATABASE_URL_DEV'];
  if(typeof raw!=='string'||!raw.trim())fail('DEDICATED_DSN_REQUIRED');
  const target=hostedEvidenceTarget(env);
+ const expectedLogin=target.mode==='session_pooler'?`${ROLES[kind]}.${target.projectRef}`:ROLES[kind];
  let u;try{u=new URL(raw);}catch{fail('INVALID_DEDICATED_DSN');}
  let login,db;try{login=decodeURIComponent(u.username);db=decodeURIComponent(u.pathname.slice(1));}catch{fail('INVALID_DEDICATED_DSN');}
- if(!['postgres:','postgresql:'].includes(u.protocol)||!u.password||u.search||u.hash||login!==ROLES[kind]||
+ if(!['postgres:','postgresql:'].includes(u.protocol)||!u.password||u.search||u.hash||login!==expectedLogin||
  u.hostname!==target.host||db!==target.database||(u.port!==''&&u.port!=='5432'))
  fail('DEDICATED_DSN_SCOPE_MISMATCH');
+ if(env.NODE_TLS_REJECT_UNAUTHORIZED==='0')fail('TLS_VERIFICATION_REQUIRED');
+ if(target.mode==='session_pooler'&&(typeof env.GPT02_EVIDENCE_DEV_CA!=='string'||!env.GPT02_EVIDENCE_DEV_CA.includes('-----BEGIN CERTIFICATE-----')))fail('SESSION_POOLER_CA_REQUIRED');
  const ssl={rejectUnauthorized:true};if(env.GPT02_EVIDENCE_DEV_CA)ssl.ca=env.GPT02_EVIDENCE_DEV_CA;
  return {connectionString:raw,ssl,max:2,connectionTimeoutMillis:5000,idleTimeoutMillis:10000,statement_timeout:5000,application_name:`gpt02-${kind}-evidence-dev`};
 }
