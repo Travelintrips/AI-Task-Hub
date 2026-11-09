@@ -300,8 +300,7 @@ router.post("/auth/google", async (req: Request, res: Response): Promise<void> =
 router.post("/auth/gpt02/operator-identity-preflight", requireAuth,
   async (req: Request, res: Response): Promise<void> => {
     res.setHeader("Cache-Control", "no-store");
-    if (isProduction || process.env.PUBLIC_APP_BASE_URL?.replace(/\\/+$/, "") !==
-        "https://dev-ai-task.cstlogistic.co.id") {
+    if (isProduction || !devPasswordlessLoginEnabled) {
       res.status(404).json({ error: "Not available" });
       return;
     }
