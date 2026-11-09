@@ -26,7 +26,7 @@ check(){
  if [[ "$actual" != "$expected" ]]; then echo "FAIL:$name actual=$actual" >&2; exit 1; fi
  echo "PASS:$name"
 }
-check DENY_ATTESTOR_CANNOT_CONSUME gpt02_test_attestor "$call_sql" f
+check DENY_ATTESTOR_CANNOT_CONSUME gpt02_test_attestor "SELECT NOT has_function_privilege(current_user,'gpt02_approval_test.consume_once(integer,uuid,text,text)','EXECUTE')" t
 check DENY_WRONG_COMPANY gpt02_test_issuer "SELECT $C(136,'$cmd','$nonce','other')" f
 check DENY_WRONG_TASK gpt02_test_issuer "SELECT $C(138,'$cmd','$nonce','default')" f
 check DENY_WRONG_COMMAND gpt02_test_issuer "SELECT $C(136,'817b62e6-b7fa-41ea-a4b3-2d1a6aa129d1','$nonce','default')" f
