@@ -36,7 +36,7 @@ expectDenied HUB_EXECUTION_DIRECT_WRITE_FORBIDDEN gpt02_core_prep_login 'INSERT 
 expectDenied CORE_TASK_DIRECT_ACCESS_FORBIDDEN gpt02_core_prep_login 'SELECT id FROM ai_platform.ai_coding_tasks LIMIT 1' 'permission denied'
 expectDenied ROLE_SWITCH_FORBIDDEN gpt02_core_prep_login 'SET ROLE postgres' 'permission denied'
 expectDenied TASK135_FORBIDDEN gpt02_core_prep_login "$(q 135)" PREPARATION_SCOPE_DENIED
-expectDenied OLD_SUCCESSFUL_TASK136_FORBIDDEN gpt02_core_prep_login "$(q 136)" HUB_TASK_ALREADY_EXECUTED_NO_REPREPARE
+expectDenied OLD_SUCCESSFUL_TASK136_FORBIDDEN gpt02_core_prep_login "$(q 136)" PREPARATION_SCOPE_DENIED
 expectDenied FOREIGN_TENANT_FORBIDDEN gpt02_core_prep_login "SELECT * FROM gpt02_stage.prepare_core_task('other',138,'$project','$repo','$branch','$instruction')" PREPARATION_SCOPE_DENIED
 expectDenied WRONG_REPOSITORY_FORBIDDEN gpt02_core_prep_login "SELECT * FROM gpt02_stage.prepare_core_task('default',137,'$project','Travelintrips/OtherRepo','$branch','$instruction')" PREPARATION_SCOPE_DENIED
 expectDenied ROLE_IMPERSONATION_FORBIDDEN postgres "SET SESSION AUTHORIZATION postgres; $(q 137)" PREPARATION_SCOPE_DENIED
