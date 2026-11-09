@@ -71,6 +71,12 @@ An additional **network-isolated** PostgreSQL 16 prototype in `scripts/dev/gpt02
 
 This is an **offline behavior prototype, not an operational role-routing design or live migration**. Its test harness uses privileged `SET SESSION AUTHORIZATION` to simulate distinct identities; the Hub application must never possess such a capability. Before deployment, independently authenticate the web session, bind each authorized request to a database credential whose role cannot be switched to another tenant, preserve session-pool isolation, and design properly audited cross-company reads plus safe writes. Do not grant a generic Hub login membership in tenant/admin roles or treat forged header claims as auth. Multi-tenant provisioning, API/browser regression, actual DB login privilege inventory and full-table policy coverage remain incomplete. Native GPT02 is still NO-GO.
 
+## Verified principal tenant admission contract — 2026-11-09
+
+A new pure, fail-closed `scripts/dev/gpt02-verified-tenant-scope.cjs` candidate accepts only a caller-asserted **server-verified** principal with numeric user ID, role and bounded company ID. It rejects tenant switching for regular staff and requires explicit Super Admin intent for cross-company reads. It **never supplies a database credential role, grants permission, starts GPT02, or dispatches a worker**. Five adversarial/positive tests passed locally; the mandatory DEV CI now includes them.
+
+**Critical integration gap:** this helper is NOT wired to the operational AI Task routes or the database pool. Merely passing a JavaScript object to it is not identity verification. Production-safe behavior requires live session/JWT validation against current account revocation and membership, server-side tenant resolution, safe role/connection routing and cross-company audit. The existing `permissions.ts` HTTP-header extraction is not assumed trusted, and no elevated DB credential can be chosen by client-supplied data.
+
 ## Required deployment gates
 
 1. Classify the 33 raw SQL identifiers and map dynamic queries, SQL functions, triggers, audit trails, service integrations, 90 attached sequences and all mutating operations to database privileges.
