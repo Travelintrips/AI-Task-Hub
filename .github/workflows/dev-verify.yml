@@ -86,6 +86,8 @@ jobs:
         run: node --test artifacts/api-server/tests/gpt02-prepared-link.test.mjs
       - name: Deny prepared Hub/Core reservations before legacy tracking or dispatch
         run: node --test artifacts/api-server/tests/gpt02-prepared-execution-denied.test.mjs
+      - name: Verify post-nonce single non-authorizing fence invariants
+        run: node --test scripts/dev/gpt02-nondispatch-fence.contract.test.mjs
       - name: Typecheck
         run: pnpm run typecheck
       - name: Build

@@ -173,7 +173,7 @@ test('separate SCRAM connections, signature-pinned store and atomic evidence per
  });
  await t.test('append-only triggers stop UPDATE/DELETE even with owner privileges',async()=>{
  for(const q of ["UPDATE gpt02_private.approvals SET company_id='changed'",'DELETE FROM gpt02_private.receipts','TRUNCATE gpt02_private.receipts CASCADE'])await rejection(admin.query(q),'55000');
- const rs=await admin.query("SELECT c.relrowsecurity,c.relforcerowsecurity,pg_get_userbyid(c.relowner) AS owner FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='gpt02_private' AND c.relkind='r'");assert.equal(rs.rowCount,4);for(const r of rs.rows){assert.equal(r.relrowsecurity,true);assert.equal(r.relforcerowsecurity,true);assert.equal(r.owner,'gpt02_store_owner');}
+ const rs=await admin.query("SELECT c.relrowsecurity,c.relforcerowsecurity,pg_get_userbyid(c.relowner) AS owner FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='gpt02_private' AND c.relkind='r'");assert.equal(rs.rowCount,5);for(const r of rs.rows){assert.equal(r.relrowsecurity,true);assert.equal(r.relforcerowsecurity,true);assert.equal(r.owner,'gpt02_store_owner');}
  });
  await t.test('dual identity proof needs independently pinned Hub and Core keys',async()=>{
  assert.throws(()=>createOperatorLinkVerifier(),e=>e.code==='PINNED_OPERATOR_KEYS_REQUIRED');
@@ -285,7 +285,7 @@ test('separate SCRAM connections, signature-pinned store and atomic evidence per
  const r=await pending;assert.equal(r.error?.code,'LINKED_APPROVAL_UNAVAILABLE_OR_REPLAYED');assert.equal(await count(x.approval.claims.commandId),0);
  });
  await t.test('linked receipt and identity proof cannot be edited or deleted even through owner DML',async()=>{
- for(const q of ["UPDATE gpt02_private.operator_links SET core_operator_user_id=88",'DELETE FROM gpt02_private.operator_links','TRUNCATE gpt02_private.operator_links CASCADE',"UPDATE gpt02_private.core_identity_receipts SET operator_user_id=88",'DELETE FROM gpt02_private.core_identity_receipts','TRUNCATE gpt02_private.core_identity_receipts'])await rejection(admin.query(q),'55000');
+ for(const q of ["UPDATE gpt02_private.operator_links SET core_operator_user_id=88",'DELETE FROM gpt02_private.operator_links','TRUNCATE gpt02_private.operator_links CASCADE',"UPDATE gpt02_private.core_identity_receipts SET operator_user_id=88",'DELETE FROM gpt02_private.core_identity_receipts','TRUNCATE gpt02_private.core_identity_receipts CASCADE'])await rejection(admin.query(q),'55000');
  });
  await t.test('foreign keys reject plain truncation and immutable triggers reject cascading truncation',async()=>{
  for(const table of ['receipts','operator_links']){
@@ -358,6 +358,110 @@ test('separate SCRAM connections, signature-pinned store and atomic evidence per
   assert.equal(evidence.core_ledger_written,false);
   assert.equal(evidence.may_dispatch_worker,false);
   assert.equal(evidence.may_issue_grant,false);
+ });
+ await t.test('non-dispatch fence cannot precede dual-origin nonce consumption',async()=>{
+  const x=linkedInput();await linkedAttestor.recordLinkedApproval(x);
+  await rejection(linkedIssuer.reserveNonDispatchFence({...x,receiptId:randomUUID()}),'FENCE_UNAVAILABLE_OR_ALREADY_RESERVED');
+  const receipt=await linkedIssuer.consumeLinkedApproval(x);
+  const f=await linkedIssuer.reserveNonDispatchFence({...x,receiptId:receipt.receiptId});
+  assert.ok(f.fenceId);assert.equal(f.leaseEpoch,1);
+  assert.equal(f.dispatchPermitted,false);assert.equal(f.issuerLeaseGranted,false);
+ });
+ await t.test('eight concurrent issuer fence claims create exactly one immutable non-authorizing row',async()=>{
+  const x=linkedInput();await linkedAttestor.recordLinkedApproval(x);
+  const consumed=await linkedIssuer.consumeLinkedApproval(x),input={...x,receiptId:consumed.receiptId};
+  const results=await Promise.allSettled(Array.from({length:8},()=>linkedIssuer.reserveNonDispatchFence(input)));
+  const ok=results.filter(r=>r.status==='fulfilled');assert.equal(ok.length,1);
+  assert.equal(results.filter(r=>r.status==='rejected').length,7);
+  const first=ok[0].value;
+  for(const k of ['issuerLeaseGranted','coreLedgerWritten','operatorApprovalGranted','dispatchPermitted'])assert.equal(first[k],false);
+  assert.equal(first.leaseEpoch,1);
+  const r=(await admin.query(`SELECT f.*,extract(epoch FROM f.lease_expires_at-f.lease_started_at) AS ttl_seconds
+   FROM gpt02_private.post_consumption_fences f WHERE f.command_id=$1`,[x.approval.claims.commandId])).rows;
+  assert.equal(r.length,1);assert.equal(r[0].fence_id,first.fenceId);
+  assert.equal(r[0].receipt_id,consumed.receiptId);
+  assert.equal(r[0].link_id,x.operatorLink.claims.linkId);
+  assert.equal(r[0].hub_execution_id,x.operatorLink.claims.hubExecutionId);
+  assert.equal(r[0].core_task_id,x.operatorLink.claims.coreTaskId);
+  assert.equal(r[0].attempt_id,x.operatorLink.claims.attemptId);
+  assert.equal(r[0].worker_id,'openclaw-dell-chatgpt-wake-dev');
+  assert.equal(Number(r[0].lease_epoch),1);
+  assert.ok(Number(r[0].ttl_seconds)>0&&Number(r[0].ttl_seconds)<=15);
+  assert.equal(r[0].dispatch_allowed,false);assert.equal(r[0].core_ledger_written,false);
+  await rejection(linkedIssuer.reserveNonDispatchFence(input),'FENCE_UNAVAILABLE_OR_ALREADY_RESERVED');
+ });
+ await t.test('legacy receipt and mismatched worker/command/link cannot allocate a fence',async()=>{
+  const e=envelope({companyId:'default'});await attestor.recordApproval(e);
+  const legacy=await issuer.consumeApproval(e),fake=linkedInput(e);
+  await rejection(linkedIssuer.reserveNonDispatchFence({...fake,receiptId:legacy.receiptId}),'FENCE_UNAVAILABLE_OR_ALREADY_RESERVED');
+  const x=linkedInput();await linkedAttestor.recordLinkedApproval(x);const consumed=await linkedIssuer.consumeLinkedApproval(x);
+  for(const params of [[consumed.receiptId,x.approval.claims.commandId,randomUUID(),'openclaw-dell-chatgpt-wake-dev'],
+   [consumed.receiptId,randomUUID(),x.operatorLink.claims.linkId,'openclaw-dell-chatgpt-wake-dev'],
+   [consumed.receiptId,x.approval.claims.commandId,x.operatorLink.claims.linkId,'openclaw-pchp-dev']]) {
+   const got=(await ip.query('SELECT gpt02_private.reserve_post_consumption_fence($1,$2,$3,$4) AS id',params)).rows[0];
+   assert.equal(got.id,null);
+  }
+  const valid=await linkedIssuer.reserveNonDispatchFence({...x,receiptId:consumed.receiptId});assert.ok(valid.fenceId);
+ });
+ await t.test('dedicated issuer only: direct writes and attestor/unknown execution are denied',async()=>{
+  for(const p of [ip,ap,untrusted])for(const q of [
+   'SELECT * FROM gpt02_private.post_consumption_fences',
+   "INSERT INTO gpt02_private.post_consumption_fences DEFAULT VALUES",
+   'UPDATE gpt02_private.post_consumption_fences SET lease_epoch=2',
+   'DELETE FROM gpt02_private.post_consumption_fences',
+   'TRUNCATE gpt02_private.post_consumption_fences'])await rejection(p.query(q),'42501');
+  await rejection(ap.query('SELECT gpt02_private.reserve_post_consumption_fence($1,$2,$3,$4)',
+   [randomUUID(),randomUUID(),randomUUID(),'openclaw-dell-chatgpt-wake-dev']),'42501');
+ });
+ await t.test('post-lock approval expiry stops a fence without a durable row',async()=>{
+  const x=linkedInput(undefined,{expiresAt:Date.now()+1500});await linkedAttestor.recordLinkedApproval(x);
+  const consumed=await linkedIssuer.consumeLinkedApproval(x),lock=await admin.connect();let pending,observed=false;
+  try{
+   await lock.query('BEGIN');
+   await lock.query('SELECT id FROM gpt02_private.receipts WHERE id=$1 FOR UPDATE',[consumed.receiptId]);
+   pending=linkedIssuer.reserveNonDispatchFence({...x,receiptId:consumed.receiptId}).then(v=>({v}),error=>({error}));
+   for(let i=0;i<30;i++){
+    const r=await admin.query("SELECT count(*) AS n FROM pg_stat_activity WHERE usename=$1 AND wait_event_type='Lock'",[ROLE.issuer]);
+    if(Number(r.rows[0].n)>0){observed=true;break;}await wait(20);
+   }
+   assert.equal(observed,true);
+   await wait(Math.max(0,x.operatorLink.claims.expiresAt-Date.now()+75));await lock.query('COMMIT');
+  }finally{try{await lock.query('ROLLBACK')}catch{}lock.release(true);}
+  const result=await pending;assert.equal(result.error?.code,'FENCE_UNAVAILABLE_OR_ALREADY_RESERVED');
+  const total=(await admin.query('SELECT count(*)::int AS n FROM gpt02_private.post_consumption_fences WHERE command_id=$1',[x.approval.claims.commandId])).rows[0];
+  assert.equal(total.n,0);
+ });
+ await t.test('fence insert failure rolls back and does not consume another lease',async()=>{
+  const x=linkedInput();await linkedAttestor.recordLinkedApproval(x);const r=await linkedIssuer.consumeLinkedApproval(x);
+  const input={...x,receiptId:r.receiptId};
+  await admin.query(`CREATE FUNCTION gpt02_private.synthetic_fence_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic private detail'; END $$;
+   CREATE TRIGGER synthetic_fence_failure BEFORE INSERT ON gpt02_private.post_consumption_fences FOR EACH ROW EXECUTE FUNCTION gpt02_private.synthetic_fence_failure()`);
+  try{await rejection(linkedIssuer.reserveNonDispatchFence(input),'EVIDENCE_TRANSACTION_FAILED')}
+  finally{await admin.query('DROP TRIGGER synthetic_fence_failure ON gpt02_private.post_consumption_fences;DROP FUNCTION gpt02_private.synthetic_fence_failure()')}
+  const before=(await admin.query('SELECT count(*)::int AS n FROM gpt02_private.post_consumption_fences WHERE command_id=$1',[x.approval.claims.commandId])).rows[0];
+  assert.equal(before.n,0);
+  const first=await linkedIssuer.reserveNonDispatchFence(input);assert.ok(first.fenceId);
+  await rejection(linkedIssuer.reserveNonDispatchFence(input),'FENCE_UNAVAILABLE_OR_ALREADY_RESERVED');
+ });
+ await t.test('grant or schema drift refuses a fence before any insertion',async()=>{
+  const x=linkedInput();await linkedAttestor.recordLinkedApproval(x);const r=await linkedIssuer.consumeLinkedApproval(x),input={...x,receiptId:r.receiptId};
+  await admin.query(`GRANT SELECT ON gpt02_private.post_consumption_fences TO ${ROLE.issuer}`);
+  try{await rejection(linkedIssuer.reserveNonDispatchFence(input),'DIRECT_EVIDENCE_ACCESS_OR_SCHEMA_MISSING')}
+  finally{await admin.query(`REVOKE SELECT ON gpt02_private.post_consumption_fences FROM ${ROLE.issuer}`)}
+  await admin.query('ALTER TABLE gpt02_private.post_consumption_fences RENAME COLUMN lease_epoch TO legacy_lease_epoch');
+  try{await rejection(linkedIssuer.reserveNonDispatchFence(input),'EVIDENCE_SCHEMA_VERSION_MISMATCH')}
+  finally{await admin.query('ALTER TABLE gpt02_private.post_consumption_fences RENAME COLUMN legacy_lease_epoch TO lease_epoch')}
+  const first=await linkedIssuer.reserveNonDispatchFence(input);assert.ok(first.fenceId);
+ });
+ await t.test('fence cannot be reserved by an unsignable or caller-key-injected input',async()=>{
+  let hits=0;const spy={connect(){hits++;throw Error('MUST_NOT_CONNECT')}};
+  const guard=new Gpt02IssuerStore({pool:spy,kind:'issuer',trustedPublicKeyPem:pem,operatorAttestationKeys});
+  const x=linkedInput();
+  await rejection(guard.reserveNonDispatchFence({...x,receiptId:'incorrect'}),'INVALID_FENCE_INPUT');
+  await rejection(guard.reserveNonDispatchFence({...x,receiptId:randomUUID(),publicKeyPem:pem}),'INVALID_FENCE_INPUT');
+  await rejection(guard.reserveNonDispatchFence({...x,receiptId:randomUUID(),approval:{...x.approval,signatureBase64url:'A'.repeat(86)}}),'INVALID_SIGNATURE');
+  await rejection(guard.reserveNonDispatchFence({...x,receiptId:randomUUID(),operatorLink:{...x.operatorLink,hubSignatureBase64url:'A'.repeat(86)}}),'OPERATOR_LINK_SIGNATURE_NOT_VERIFIED');
+  assert.equal(hits,0);
  });
  await t.test('accidental link table access is rejected before issuing any identity receipt',async()=>{
  const x=linkedInput();await linkedAttestor.recordLinkedApproval(x);await admin.query(`GRANT SELECT ON gpt02_private.operator_links TO ${ROLE.issuer}`);
