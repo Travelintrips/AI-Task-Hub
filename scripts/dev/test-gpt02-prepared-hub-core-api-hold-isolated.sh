@@ -91,6 +91,14 @@ ALTER TABLE ai_execution_jobs ADD COLUMN started_at timestamptz;
 ALTER TABLE ai_execution_jobs ADD COLUMN completed_at timestamptz;
 ALTER TABLE ai_execution_jobs ADD COLUMN created_at timestamptz;
 ALTER TABLE ai_execution_jobs ADD COLUMN updated_at timestamptz;
+-- The detail-page GET always loads event records: model the hosted read table.
+CREATE TABLE ai_execution_events (
+ id uuid PRIMARY KEY DEFAULT gen_random_uuid(),execution_id uuid NOT NULL,
+ task_id integer,company_id text NOT NULL DEFAULT 'default',event_id text NOT NULL,
+ event_type text NOT NULL,phase text,status text,message text,worker_id text,
+ signature_verified boolean NOT NULL DEFAULT false,payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+ created_at timestamptz NOT NULL DEFAULT now()
+);
 CREATE SCHEMA ai_platform;
 CREATE TABLE ai_platform.ai_coding_bridge_commands (id uuid PRIMARY KEY, task_id text, status text);
 INSERT INTO ai_platform.ai_coding_bridge_commands VALUES ('83db99f5-cbda-4e60-be71-3090fb411bbb',NULL,'FAILED');
@@ -144,6 +152,10 @@ async function post(id,body,h=auth,company='default'){
  const r=await fetch(base+id+'/execution?companyId='+company,{method:'POST',headers:h,body:JSON.stringify(body),signal:AbortSignal.timeout(6000)});
  return {http:r.status,result:await r.json().catch(()=>({}))};
 }
+async function get(id,h=auth,company='default'){
+ const r=await fetch(base+id+'/execution?companyId='+company,{method:'GET',headers:h,signal:AbortSignal.timeout(6000)});
+ return {http:r.status,result:await r.json().catch(()=>({}))};
+}
 const g={instruction:'SHOULD NOT SEND',mode:'chatgpt',accountAlias:'GPT02',lifecycleStart:false};
 (async()=>{
  let r=await post(1005,g,{'Content-Type':'application/json'});
@@ -160,11 +172,27 @@ const g={instruction:'SHOULD NOT SEND',mode:'chatgpt',accountAlias:'GPT02',lifec
  r=await post(1005,{...g,dispatchPermitted:true,nonceConsumed:true,issuerPermitted:true});
  assert.equal(r.http,409);assert.equal(r.result.error,'GPT02_PREPARED_HUB_CORE_REQUIRES_AUTHORIZED_ISSUER');
  r=await post(1002,g,auth,'default');assert.equal(r.http,404);
- console.log('ISOLATED_REAL_PREPARED_HUB_CORE_API_DENIAL_PASS 7/7 NO DISPATCH');
+ // Repeated dashboard reads must not start an in-flight execution sync or
+ // change a dormant, unauthorized Hub/Core pre-dispatch reservation.
+ for(let i=0;i<3;i++){
+  r=await get(1005);assert.equal(r.http,200);
+  assert.equal(r.result.execution?.status,'prepared');
+  assert.equal(r.result.execution?.commandId,null);
+  assert.equal(r.result.execution?.workerId,null);
+  assert.equal(r.result.execution?.metadata?.autoContinue,false);
+ }
+ r=await get(1002,auth,'default');assert.equal(r.http,200);
+ assert.equal(r.result.execution,null);
+ console.log('ISOLATED_REAL_PREPARED_HUB_CORE_API_DENIAL_PASS 7 POST + 4 READ, NO DISPATCH');
 })().catch(e=>{console.error('ISOLATED_PREPARED_HOLD_FAILED',e.message);process.exitCode=1});
 JS
 
+# A prepared row must remain unchanged even after the previous GET's
+# asynchronous 1-second tracking window; no Core request should be scheduled.
+sleep 2
 docker exec -i "$PG" psql -X -U test -d testdb -v ON_ERROR_STOP=1 -At <<'SQL'
 SELECT 'UNTOUCHED_PREPARED='||count(*) FROM ai_execution_jobs WHERE task_id=1005 AND status='prepared' AND command_id IS NULL AND worker_id IS NULL AND metadata->>'dispatchState'='prepared_no_authority';
 SELECT 'SINGLE_RESERVATION='||count(*) FROM ai_execution_jobs WHERE task_id=1005;
+SELECT 'ZERO_EVENTS='||count(*) FROM ai_execution_events WHERE task_id=1005;
+SELECT 'NO_COMMAND_OR_WORKER='||count(*) FROM ai_execution_jobs WHERE task_id=1005 AND command_id IS NULL AND worker_id IS NULL AND status='prepared';
 SQL

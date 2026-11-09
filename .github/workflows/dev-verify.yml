@@ -86,6 +86,10 @@ jobs:
         run: node --test artifacts/api-server/tests/gpt02-prepared-link.test.mjs
       - name: Deny prepared Hub/Core reservations before legacy tracking or dispatch
         run: node --test artifacts/api-server/tests/gpt02-prepared-execution-denied.test.mjs
+      - name: Keep prepared reservations inert during GET and background polling
+        run: |
+          node --test artifacts/api-server/tests/gpt02-prepared-read-inert.test.mjs
+          node --check scripts/dev/build-gpt02-prepared-read-inert-overlay.cjs
       - name: Typecheck
         run: pnpm run typecheck
       - name: Build

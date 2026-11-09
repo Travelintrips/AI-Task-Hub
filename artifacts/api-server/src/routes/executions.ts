@@ -77,6 +77,10 @@ function textValue(...sources: Array<Record<string, unknown>>): (names: string[]
 }
 
 async function syncExecution(execution: typeof aiExecutionJobsTable.$inferSelect) {
+  // This is a pre-dispatch reservation, NOT an in-flight Core command. Even a
+  // stale or tampered verificationMode must not associate an unrelated generic
+  // command timeline with a prepared Hub/Core job.
+  if (execution.status === "prepared") return execution;
   if (!aiCoreBridgeConfigured() || !execution.externalId.startsWith("ai-task:")) return execution;
   const executionMetadata = asRecord(execution.metadata);
   const verificationMode = executionMetadata["verificationMode"] === "chatgpt-attested"
@@ -644,7 +648,9 @@ function scheduleExecutionTracking(executionId: string, delayMs = 1_000): void {
     const [current] = await db.select().from(aiExecutionJobsTable)
       .where(eq(aiExecutionJobsTable.id, executionId)).limit(1);
 
-    if (!current || TERMINAL_EXECUTION_STATUSES.has(current.status)) {
+    if (!current || TERMINAL_EXECUTION_STATUSES.has(current.status) || current.status === "prepared") {
+      // A dormant pre-dispatch row is not an unfinished worker command.
+      // Stop an old timer rather than polling forever or syncing by external ID.
       stopExecutionTracking(executionId);
       return;
     }
@@ -1051,7 +1057,9 @@ router.get("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Res
       .where(and(...conditions)).orderBy(desc(aiExecutionJobsTable.createdAt)).limit(1);
     if (!execution) { res.json({ execution: null, events: [], bridgeConfigured: aiCoreBridgeConfigured() }); return; }
 
-    if (!TERMINAL_EXECUTION_STATUSES.has(execution.status)) {
+    if (!TERMINAL_EXECUTION_STATUSES.has(execution.status) && execution.status !== "prepared") {
+      // A GET from the dashboard must never schedule background polling or
+      // change the reserved, still-unauthorized Hub/Core execution.
       if (execution.status === "waiting_for_session" && !execution.commandId) {
         scheduleChatGptDispatchRetry(execution.id);
       } else {
