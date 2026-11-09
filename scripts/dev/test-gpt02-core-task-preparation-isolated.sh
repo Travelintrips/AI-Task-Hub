@@ -29,11 +29,11 @@ awk -v policies="$ROOT/scripts/dev/gpt02-core-preparer-rls-candidate.sql" '
  $0=="-- GPT02_PREPARER_RLS_POLICY_INJECTION_POINT" { while ((getline line < policies)>0) print line; close(policies); next }
  { print }
 ' "$ROOT/scripts/dev/gpt02-core-task-preparation-isolated.sql" | docker exec -i "$NAME" psql -X -v ON_ERROR_STOP=1 -U postgres -d gpt02_core_preparation_isolated -q >"$WORK/init.log" 2>&1 || { tail -25 "$WORK/init.log"; exit 3; }
-# RLS is tested with true restricted caller context, never the postgres superuser.
+# Inspect the RLS census after the dedicated test query helper is defined.
+psqlAs(){ local user="$1"; shift; docker exec -i "$NAME" psql -X -v ON_ERROR_STOP=1 -At -U "$user" -d gpt02_core_preparation_isolated "$@"; }
 policy_count="$(psqlAs postgres -c "SELECT COUNT(*) FROM pg_policies WHERE policyname LIKE 'gpt02_preparer_%'")"
 [[ "$policy_count" == 10 ]] || { echo RLS_POLICY_COUNT_DRIFT >&2;exit 3; }
 echo PASS:RESTRICTED_OWNER_RLS_TEN_POLICY_FIXTURE
-psqlAs(){ local user="$1"; shift; docker exec -i "$NAME" psql -X -v ON_ERROR_STOP=1 -At -U "$user" -d gpt02_core_preparation_isolated "$@"; }
 project='GPT02 DEV coding lifecycle';repo='Travelintrips/Core-AI-Foundation';branch='develop';instruction='PREPARE ONLY, never issue a command.'
 q(){ local task="$1"; shift; printf "SELECT core_task_id::text,command_candidate_id::text,attempt_id::text,hub_execution_id::text,created,dispatch_permitted FROM gpt02_stage.prepare_core_task('default',%s,'%s','%s','%s','%s');\n" "$task" "$project" "$repo" "$branch" "${1:-$instruction}"; }
 expectDenied(){ local tag="$1" who="$2" sql="$3" expected="$4"; local out
