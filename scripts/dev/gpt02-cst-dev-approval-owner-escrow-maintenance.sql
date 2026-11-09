@@ -19,7 +19,6 @@ BEGIN
 END $pre$;
 GRANT gpt02_store_owner TO postgres WITH SET TRUE GRANTED BY postgres;
 SET ROLE gpt02_store_owner;
-SQL
 -- CST-DEV Supabase xssrfshdrtdfupgqwfdw ONLY. Reviewed migration candidate.
 -- Enforce Task >136 without deleting old history or activating issuer/attestor.
 -- Must be run by an independently authorized owner session, never by
