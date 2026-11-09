@@ -7,6 +7,12 @@ trap 'docker rm -f "$NAME" >/dev/null 2>&1 || true' EXIT
 docker run -d --rm --name "$NAME" --network none -e POSTGRES_PASSWORD=isolated-only postgres:16-alpine >/dev/null
 ready=false
 for i in $(seq 1 60); do
+ # The official image starts a temporary initdb server, stops it, then starts
+ # the final server. Waiting on SELECT 1 alone races that temporary shutdown.
+ if ! docker logs "$NAME" 2>&1 | grep -q 'PostgreSQL init process complete'; then
+  sleep 1
+  continue
+ fi
  if docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -Atqc 'SELECT 1' 2>/dev/null | grep -qx 1; then
   ready=true
   break
