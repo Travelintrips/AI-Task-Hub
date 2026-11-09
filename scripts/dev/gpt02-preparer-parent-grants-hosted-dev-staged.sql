@@ -24,8 +24,8 @@ BEGIN
     (SELECT count(*) FROM pg_roles WHERE rolname IN
       ('gpt02_core_prep_owner','gpt02_core_prep_login','dev_gpt02_issuer_evidence','dev_gpt02_attestor_evidence')
       AND NOT rolcanlogin AND NOT rolsuper AND NOT rolcreaterole AND NOT rolbypassrls AND rolconnlimit=0)<>4 OR
-    EXISTS(SELECT 1 FROM pg_auth_members m JOIN pg_roles r ON r.oid=m.member
-      WHERE r.rolname IN('gpt02_core_prep_login','dev_gpt02_issuer_evidence','dev_gpt02_attestor_evidence')) OR
+    EXISTS(SELECT 1 FROM pg_auth_members m JOIN pg_roles login_role ON login_role.oid=m.member
+      WHERE login_role.rolname IN('gpt02_core_prep_login','dev_gpt02_issuer_evidence','dev_gpt02_attestor_evidence')) OR
     (SELECT count(*) FROM pg_policies p WHERE p.policyname LIKE 'gpt02_preparer_%')<>10 OR
     NOT EXISTS(SELECT 1 FROM pg_policies p WHERE p.policyname LIKE 'gpt02_preparer_%'
       HAVING count(*) FILTER (WHERE p.roles='{gpt02_core_prep_owner}'::name[])=10
