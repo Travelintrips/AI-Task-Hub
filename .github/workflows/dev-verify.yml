@@ -42,6 +42,8 @@ jobs:
         run: node --test scripts/dev/gpt02-hub-db-login-cutover-readonly.test.cjs
       - name: Inventory DEV application database surface conservatively
         run: node --test scripts/dev/gpt02-hub-db-static-access-inventory.test.cjs
+      - name: Verify isolated PostgreSQL 16 tenant RLS policy boundaries
+        run: bash scripts/dev/test-gpt02-hub-rls-isolated-postgres.sh
       - name: Typecheck
         run: pnpm run typecheck
       - name: Build
