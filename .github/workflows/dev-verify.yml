@@ -48,7 +48,9 @@ jobs:
         run: node --test scripts/dev/gpt02-dedicated-issuer-cutover-readonly.test.cjs
       - name: Verify isolated PostgreSQL atomic GPT02 approval nonce consumption
         run: bash scripts/dev/test-gpt02-approval-nonce-isolated-postgres.sh
-      - name: Verify actual SCRAM issuer connections and atomic evidence persistence
+      - name: Refuse shared Hub or production project for hosted issuer evidence
+        run: node --test scripts/dev/gpt02-hosted-evidence-target.test.mjs
+      - name: Verify SCRAM issuer and atomic dual-origin Hub/Core identity evidence
         run: bash scripts/dev/test-gpt02-issuer-store-isolated.sh
       - name: Verify authenticated tenant admission stays non-authorizing
         run: node --test scripts/dev/gpt02-verified-tenant-scope.test.cjs

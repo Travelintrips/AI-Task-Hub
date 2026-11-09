@@ -1,5 +1,6 @@
 /** DEV candidate, not mounted by HTTP. Never imports the Hub pool or falls back to its DSN. */
 import { createHash, createPublicKey, verify } from 'node:crypto';
+import { createOperatorLinkVerifier } from './gpt02-operator-link.mjs';
 const FIELDS=Object.freeze(['v','environment','audience','taskId','commandId','attemptId','nonce','operatorNamespace','superAdminId','companyId','issuedAt','expiresAt']);
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 // v2 pins the account namespace and preserves the exact TEXT primary key.
@@ -8,6 +9,7 @@ const OPERATOR_NAMESPACE='ai-task-hub.public.users';
 const ACCOUNT_ID=/^[A-Za-z0-9][A-Za-z0-9_.:@-]{0,127}$/;
 const ROLES=Object.freeze({attestor:'dev_gpt02_attestor_evidence',issuer:'dev_gpt02_issuer_evidence'});
 const TABLES=['gpt02_private.approvals','gpt02_private.receipts'];
+const LINK_TABLES=['gpt02_private.operator_links','gpt02_private.core_identity_receipts'];
 const PERMISSIONS='SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER';
 const IDENTITY_SQL=`SELECT current_user AS active_role,session_user AS login_role,
  r.rolsuper OR r.rolbypassrls OR r.rolcreaterole OR r.rolcreatedb OR r.rolreplication AS elevated,
@@ -42,30 +44,44 @@ function verifiedEnvelope(envelope,key,now){
  if(bytes.length!==64||bytes.toString('base64url')!==s||!verify(null,Buffer.from(payload),key,bytes))fail('INVALID_SIGNATURE');
  return {claims:c,payload,signature:s,digest:createHash('sha256').update(payload).digest('hex')};
 }
+/** Hosted evidence must be in a separate Supabase project/branch, not just a new schema. */
+export function hostedEvidenceTarget(env){
+ const evidence=env.GPT02_EVIDENCE_DEV_PROJECT_REF;
+ const hub=env.GPT02_HUB_DEV_PROJECT_REF;
+ const prod=env.GPT02_PROD_PROJECT_REF;
+ for(const ref of [evidence,hub,prod])
+  if(typeof ref!=='string'||!/^[a-z]{20}$/.test(ref))fail('PINNED_SUPABASE_PROJECT_REFS_REQUIRED');
+ if(evidence===hub||evidence===prod||hub===prod)fail('EVIDENCE_PROJECT_MUST_BE_INDEPENDENT');
+ const host=`db.${evidence}.supabase.co`;
+ if(env.GPT02_EVIDENCE_DEV_HOST!==host||env.GPT02_EVIDENCE_DEV_DATABASE!=='postgres')fail('SUPABASE_DIRECT_TARGET_REQUIRED');
+ return Object.freeze({projectRef:evidence,host,database:'postgres'});
+}
 /** Only server deployment configuration, never request fields. */
 export function issuerPoolConfig(env,kind){
  if(env.NODE_ENV!=='development'||env.APP_ENV!=='development')fail('NOT_EXPLICIT_DEV');
  if(!Object.hasOwn(ROLES,kind))fail('INVALID_CONNECTION_KIND');
  const raw=env[kind==='issuer'?'GPT02_ISSUER_DATABASE_URL_DEV':'GPT02_ATTESTOR_DATABASE_URL_DEV'];
  if(typeof raw!=='string'||!raw.trim())fail('DEDICATED_DSN_REQUIRED');
+ const target=hostedEvidenceTarget(env);
  let u;try{u=new URL(raw);}catch{fail('INVALID_DEDICATED_DSN');}
  let login,db;try{login=decodeURIComponent(u.username);db=decodeURIComponent(u.pathname.slice(1));}catch{fail('INVALID_DEDICATED_DSN');}
  if(!['postgres:','postgresql:'].includes(u.protocol)||!u.password||u.search||u.hash||login!==ROLES[kind]||
- !env.GPT02_EVIDENCE_DEV_HOST||!env.GPT02_EVIDENCE_DEV_DATABASE||u.hostname!==env.GPT02_EVIDENCE_DEV_HOST||db!==env.GPT02_EVIDENCE_DEV_DATABASE)
+ u.hostname!==target.host||db!==target.database||(u.port!==''&&u.port!=='5432'))
  fail('DEDICATED_DSN_SCOPE_MISMATCH');
  const ssl={rejectUnauthorized:true};if(env.GPT02_EVIDENCE_DEV_CA)ssl.ca=env.GPT02_EVIDENCE_DEV_CA;
  return {connectionString:raw,ssl,max:2,connectionTimeoutMillis:5000,idleTimeoutMillis:10000,statement_timeout:5000,application_name:`gpt02-${kind}-evidence-dev`};
 }
 export class Gpt02IssuerStore {
- #pool;#kind;#key;#clock;
- constructor({pool,kind,trustedPublicKeyPem,clock=Date.now}){
+ #pool;#kind;#key;#clock;#verifyLink;
+ constructor({pool,kind,trustedPublicKeyPem,operatorAttestationKeys,clock=Date.now}){
  if(!pool||typeof pool.connect!=='function'||!Object.hasOwn(ROLES,kind))fail('INVALID_CONNECTION');
  if(typeof trustedPublicKeyPem!=='string'||trustedPublicKeyPem.length>2000||!trustedPublicKeyPem.includes('BEGIN PUBLIC KEY'))fail('TRUSTED_PUBLIC_KEY_REQUIRED');
  try{this.#key=createPublicKey(trustedPublicKeyPem);}catch{fail('TRUSTED_PUBLIC_KEY_REQUIRED');}
  if(this.#key.asymmetricKeyType!=='ed25519')fail('ED25519_KEY_REQUIRED');
+ this.#verifyLink=operatorAttestationKeys ? createOperatorLinkVerifier(operatorAttestationKeys) : null;
  this.#pool=pool;this.#kind=kind;this.#clock=clock;
  }
- async #transaction(fn){
+ async #transaction(fn,extraTables=[]){
  let c,started=false;
  try{
  c=await this.#pool.connect();await c.query('BEGIN');started=true;
@@ -73,8 +89,9 @@ export class Gpt02IssuerStore {
  const r=(await c.query(IDENTITY_SQL)).rows[0];
  if(!r||r.active_role!==ROLES[this.#kind]||r.login_role!==ROLES[this.#kind]||r.elevated!==false||r.membership!==false||
  r.global_data!==false||r.db_create!==false||r.schema_create!==false)fail('UNSAFE_DATABASE_IDENTITY');
- const acl=(await c.query(ACL_SQL,[TABLES,PERMISSIONS])).rows;
- if(acl.length!==TABLES.length||acl.some(x=>x.present!==true||x.direct_access!==false))fail('DIRECT_EVIDENCE_ACCESS_OR_SCHEMA_MISSING');
+ const tables=[...TABLES,...extraTables];
+ const acl=(await c.query(ACL_SQL,[tables,PERMISSIONS])).rows;
+ if(acl.length!==tables.length||acl.some(x=>x.present!==true||x.direct_access!==false))fail('DIRECT_EVIDENCE_ACCESS_OR_SCHEMA_MISSING');
  const result=await fn(c);await c.query('COMMIT');started=false;return result;
  }catch(e){
  if(c&&started)try{await c.query('ROLLBACK');}catch{}
@@ -85,6 +102,33 @@ export class Gpt02IssuerStore {
  // Destroy sessions so transaction/GUC state cannot leak into later requests.
  if(c)c.release(true);
  }
+ }
+ #verifiedLinkedInput(input){
+ if(!this.#verifyLink)fail('PINNED_OPERATOR_KEYS_REQUIRED');
+ if(!object(input)||Object.keys(input).sort().join(',')!=='approval,operatorLink')fail('INVALID_LINKED_APPROVAL_INPUT');
+ const now=this.#clock(),e=verifiedEnvelope(input.approval,this.#key,now);
+ const link=this.#verifyLink(input.operatorLink,e.claims,e.digest,now);
+ return {e,link,params:[e.payload,e.signature,e.digest,link.payload,link.hubSignature,link.coreSignature,link.digest]};
+ }
+ async recordLinkedApproval(input){
+ if(this.#kind!=='attestor')fail('ATTESTOR_CONNECTION_REQUIRED');
+ const {params}=this.#verifiedLinkedInput(input);
+ return this.#transaction(async c=>{
+ const r=(await c.query('SELECT gpt02_private.record_linked_approval($1::jsonb,$2,$3,$4::jsonb,$5,$6,$7) AS recorded',params)).rows[0];
+ if(r?.recorded!==true)fail('LINKED_APPROVAL_NOT_RECORDED');
+ return Object.freeze({approvalEvidenceRecorded:true,dualIdentityEvidenceRecorded:true,authorizationGranted:false,dispatchPermitted:false});
+ },LINK_TABLES);
+ }
+ async consumeLinkedApproval(input){
+ if(this.#kind!=='issuer')fail('ISSUER_CONNECTION_REQUIRED');
+ const {params,link}=this.#verifiedLinkedInput(input);
+ return this.#transaction(async c=>{
+ const r=(await c.query('SELECT gpt02_private.consume_linked_approval($1::jsonb,$2,$3,$4::jsonb,$5,$6,$7) AS receipt_id',params)).rows[0];
+ if(typeof r?.receipt_id!=='string'||!UUID.test(r.receipt_id))fail('LINKED_APPROVAL_UNAVAILABLE_OR_REPLAYED');
+ return Object.freeze({receiptId:r.receipt_id,linkId:link.linkId,coreOperatorUserId:link.coreOperatorUserId,
+ recordedBy:link.recordedBy,evidenceConsumed:true,coreLedgerWritten:false,
+ authorizationGranted:false,dispatchPermitted:false});
+ },LINK_TABLES);
  }
  async recordApproval(envelope){
  if(this.#kind!=='attestor')fail('ATTESTOR_CONNECTION_REQUIRED');
@@ -105,8 +149,8 @@ export class Gpt02IssuerStore {
  });
  }
 }
-export function createIssuerStore({env,kind,PoolClass,trustedPublicKeyPem}){
+export function createIssuerStore({env,kind,PoolClass,trustedPublicKeyPem,operatorAttestationKeys}){
  const pool=new PoolClass(issuerPoolConfig(env,kind));pool.on('error',()=>{});
- try{return {store:new Gpt02IssuerStore({pool,kind,trustedPublicKeyPem}),close:()=>pool.end()};}
+ try{return {store:new Gpt02IssuerStore({pool,kind,trustedPublicKeyPem,operatorAttestationKeys}),close:()=>pool.end()};}
  catch(e){void pool.end();throw e;}
 }

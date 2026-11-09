@@ -28,7 +28,7 @@ for _ in $(seq 1 60); do
  sleep 1
 done
 [[ "$ready" == true ]] || { echo ISOLATED_POSTGRES_NOT_READY >&2; exit 2; }
-{ cat "$ROOT/scripts/dev/gpt02-issuer-store.fixture.sql"; cat "$WORK/passwords.sql"; } |
+{ cat "$ROOT/scripts/dev/gpt02-issuer-store.fixture.sql"; cat "$ROOT/scripts/dev/gpt02-operator-link.fixture.sql"; cat "$WORK/passwords.sql"; } |
  docker exec -i "$CID" sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -w -h /var/run/postgresql -U postgres -d gpt02_issuer_isolated -v ON_ERROR_STOP=1 -q' >"$WORK/setup.log" 2>&1 || { echo ISOLATED_SCHEMA_SETUP_FAILED >&2; exit 2; }
 docker run --rm --network none --user 0:0 --entrypoint node \
  --mount "type=volume,src=$SOCKET,dst=/var/run/postgresql" \
