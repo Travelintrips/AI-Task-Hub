@@ -50,7 +50,7 @@ jobs:
         run: node --test artifacts/api-server/tests/ai-task-child-tenant-scope.test.mjs
       - name: GPT02 new authorized DEV test must stay non-dispatching until signed gates
         run: node --test scripts/dev/gpt02-new-test-admission-readonly.test.cjs
-      - name: Prevent passwordless DEV Super Admin session issuance
+      - name: Preserve DEV passwordless dashboard and isolate GPT02 admission
         run: node --test scripts/dev/gpt02-dev-admin-login-hardening.test.cjs
       - name: Typecheck
         run: pnpm run typecheck
