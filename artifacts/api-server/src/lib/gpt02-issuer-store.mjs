@@ -38,16 +38,29 @@ function verifiedEnvelope(envelope,key,now){
  if(bytes.length!==64||bytes.toString('base64url')!==s||!verify(null,Buffer.from(payload),key,bytes))fail('INVALID_SIGNATURE');
  return {claims:c,payload,signature:s,digest:createHash('sha256').update(payload).digest('hex')};
 }
+/** Hosted evidence must be in a separate Supabase project/branch, not just a new schema. */
+export function hostedEvidenceTarget(env){
+ const evidence=env.GPT02_EVIDENCE_DEV_PROJECT_REF;
+ const hub=env.GPT02_HUB_DEV_PROJECT_REF;
+ const prod=env.GPT02_PROD_PROJECT_REF;
+ for(const ref of [evidence,hub,prod])
+  if(typeof ref!=='string'||!/^[a-z]{20}$/.test(ref))fail('PINNED_SUPABASE_PROJECT_REFS_REQUIRED');
+ if(evidence===hub||evidence===prod||hub===prod)fail('EVIDENCE_PROJECT_MUST_BE_INDEPENDENT');
+ const host=`db.${evidence}.supabase.co`;
+ if(env.GPT02_EVIDENCE_DEV_HOST!==host||env.GPT02_EVIDENCE_DEV_DATABASE!=='postgres')fail('SUPABASE_DIRECT_TARGET_REQUIRED');
+ return Object.freeze({projectRef:evidence,host,database:'postgres'});
+}
 /** Only server deployment configuration, never request fields. */
 export function issuerPoolConfig(env,kind){
  if(env.NODE_ENV!=='development'||env.APP_ENV!=='development')fail('NOT_EXPLICIT_DEV');
  if(!Object.hasOwn(ROLES,kind))fail('INVALID_CONNECTION_KIND');
  const raw=env[kind==='issuer'?'GPT02_ISSUER_DATABASE_URL_DEV':'GPT02_ATTESTOR_DATABASE_URL_DEV'];
  if(typeof raw!=='string'||!raw.trim())fail('DEDICATED_DSN_REQUIRED');
+ const target=hostedEvidenceTarget(env);
  let u;try{u=new URL(raw);}catch{fail('INVALID_DEDICATED_DSN');}
  let login,db;try{login=decodeURIComponent(u.username);db=decodeURIComponent(u.pathname.slice(1));}catch{fail('INVALID_DEDICATED_DSN');}
  if(!['postgres:','postgresql:'].includes(u.protocol)||!u.password||u.search||u.hash||login!==ROLES[kind]||
- !env.GPT02_EVIDENCE_DEV_HOST||!env.GPT02_EVIDENCE_DEV_DATABASE||u.hostname!==env.GPT02_EVIDENCE_DEV_HOST||db!==env.GPT02_EVIDENCE_DEV_DATABASE)
+ u.hostname!==target.host||db!==target.database||(u.port!==''&&u.port!=='5432'))
  fail('DEDICATED_DSN_SCOPE_MISMATCH');
  const ssl={rejectUnauthorized:true};if(env.GPT02_EVIDENCE_DEV_CA)ssl.ca=env.GPT02_EVIDENCE_DEV_CA;
  return {connectionString:raw,ssl,max:2,connectionTimeoutMillis:5000,idleTimeoutMillis:10000,statement_timeout:5000,application_name:`gpt02-${kind}-evidence-dev`};
