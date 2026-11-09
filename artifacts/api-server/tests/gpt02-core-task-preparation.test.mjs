@@ -78,20 +78,30 @@ test('database errors are sanitized, transaction is rolled back and connection d
  await assert.rejects(h.preparer.prepare(request),e=>e.code==='CORE_PREPARATION_TRANSACTION_FAILED'&&!e.message.includes('secret'));
  assert.equal(h.statements.at(-1).sql,'ROLLBACK');assert.equal(h.isDestroyed(),true);
 });
-const ref='e'.repeat(20),other='p'.repeat(20);
+const ref='xssrfshdrtdfupgqwfdw',other='p'.repeat(20);
+const pinnedCa=readFileSync(new URL('../../../scripts/dev/fixtures/supabase-root-ca-2021.crt',import.meta.url),'utf8');
 const env={NODE_ENV:'development',APP_ENV:'development',GPT02_CORE_PREP_DEV_PROJECT_REF:ref,GPT02_HUB_DEV_PROJECT_REF:ref,
  GPT02_PROD_PROJECT_REF:other,GPT02_CORE_PREP_DEV_POOLER_HOST:'aws-1-ap-southeast-2.pooler.supabase.com',
- GPT02_CORE_PREP_DEV_CA:'-----BEGIN CERTIFICATE-----\nsynthetic fixture only\n-----END CERTIFICATE-----',
+ GPT02_CORE_PREP_DEV_CA:pinnedCa,
  GPT02_CORE_PREP_DATABASE_URL_DEV:`postgresql://gpt02_core_prep_login.${ref}:synthetic@aws-1-ap-southeast-2.pooler.supabase.com:5432/postgres`};
 test('candidate connector pins CST-DEV, dedicated identity, session-port and TLS',()=>{
  const config=corePreparationPoolConfig(env);
  assert.equal(config.max,2);assert.equal(config.ssl.rejectUnauthorized,true);
+ assert.equal(config.ssl.ca,pinnedCa);
  assert.ok(config.connectionString.includes(`gpt02_core_prep_login.${ref}`));
 });
 test('configuration refuses PROD, unapproved project, insecure transport and pooler fallback',()=>{
  for(const patch of [{NODE_ENV:'production'},{APP_ENV:'production'},{NODE_TLS_REJECT_UNAUTHORIZED:'0'},
-  {GPT02_CORE_PREP_DEV_PROJECT_REF:other},{GPT02_HUB_DEV_PROJECT_REF:other},{GPT02_PROD_PROJECT_REF:ref},
-  {GPT02_CORE_PREP_DEV_CA:'none'},{GPT02_CORE_PREP_DEV_POOLER_HOST:'127.0.0.1'},
+  {GPT02_CORE_PREP_DEV_PROJECT_REF:other},{GPT02_HUB_DEV_PROJECT_REF:other},
+  {GPT02_CORE_PREP_DEV_PROJECT_REF:other,GPT02_HUB_DEV_PROJECT_REF:other},
+  {GPT02_PROD_PROJECT_REF:ref},{GPT02_PROD_PROJECT_REF:null},
+  {GPT02_CORE_PREP_DEV_CA:'none'},
+  {GPT02_CORE_PREP_DEV_CA:'-----BEGIN CERTIFICATE-----\nsynthetic fixture only\n-----END CERTIFICATE-----'},
+  {GPT02_CORE_PREP_DEV_CA:pinnedCa+pinnedCa},
+  {GPT02_CORE_PREP_DEV_CA:pinnedCa+'\n-----BEGIN CERTIFICATE-----\nmalicious\n-----END CERTIFICATE-----'},
+  {GPT02_CORE_PREP_DEV_CA:pinnedCa.replace('BEGIN CERTIFICATE','BEGIN OTHER')},
+  {GPT02_CORE_PREP_DEV_CA:pinnedCa+'unexpected trailing characters'},
+  {GPT02_CORE_PREP_DEV_POOLER_HOST:'127.0.0.1'},
   {GPT02_CORE_PREP_DATABASE_URL_DEV:env.GPT02_CORE_PREP_DATABASE_URL_DEV.replace('gpt02_core_prep_login','postgres')},
   {GPT02_CORE_PREP_DATABASE_URL_DEV:env.GPT02_CORE_PREP_DATABASE_URL_DEV.replace(':5432',':6543')},
   {GPT02_CORE_PREP_DATABASE_URL_DEV:env.GPT02_CORE_PREP_DATABASE_URL_DEV+'?sslmode=disable'}])
@@ -108,4 +118,25 @@ test('module is not imported by any live HTTP route or worker',()=>{
  assert.equal(routes.includes('gpt02-core-task-preparation'),false);
  assert.equal(routes.includes('gpt02_stage.prepare_core_task'),false);
  assert.match(routes,/GPT02_LIFECYCLE_PRE_DISPATCH_PROOF_REQUIRED/);
+});
+
+test('preparer certificate is a single pinned Supabase root and cannot be replaced by a second root',()=>{
+ const good=corePreparationPoolConfig(env);
+ assert.equal(good.ssl.rejectUnauthorized,true);
+ for(const wrong of [
+  pinnedCa+pinnedCa,
+  '\\n'+pinnedCa,
+  pinnedCa+'-----BEGIN CERTIFICATE-----\\nATTACKER\\n-----END CERTIFICATE-----',
+  pinnedCa.replace('END CERTIFICATE','END OTHER'),
+  '-----BEGIN CERTIFICATE-----\\ninvalid\\n-----END CERTIFICATE-----'
+ ]) assert.throws(()=>corePreparationPoolConfig({...env,GPT02_CORE_PREP_DEV_CA:wrong}),
+  e=>e.code==='PINNED_PREPARER_CA_REQUIRED');
+});
+test('a matching but foreign project is never treated as CST-DEV and cannot create a PostgreSQL pool',()=>{
+ let built=0;
+ class Pool{constructor(){built++}}
+ const alternate={...env,GPT02_CORE_PREP_DEV_PROJECT_REF:other,GPT02_HUB_DEV_PROJECT_REF:other,
+  GPT02_CORE_PREP_DATABASE_URL_DEV:env.GPT02_CORE_PREP_DATABASE_URL_DEV.replaceAll(ref,other)};
+ assert.throws(()=>createCoreTaskPreparer({env:alternate,PoolClass:Pool}),e=>e.code==='PINNED_CST_DEV_PROJECT_REQUIRED');
+ assert.equal(built,0);
 });

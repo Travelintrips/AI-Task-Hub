@@ -3,6 +3,9 @@
  * NOT mounted by any route or worker. Requires an independently authenticated,
  * scoped Core preparer LOGIN and live schema migration before activation.
  */
+import { X509Certificate } from 'node:crypto';
+const EXPECTED_DEV_REF='xssrfshdrtdfupgqwfdw';
+const PINNED_ROOT_FINGERPRINT='807025ad50d4ed219d2c9c7d299c004f824eb00cf7f65afef607d07b72e6cafa';
 const ROLE='gpt02_core_prep_login';
 const COMPANY='default';
 const PROJECT='GPT02 DEV coding lifecycle';
@@ -13,6 +16,22 @@ const KEYS=['companyId','hubTaskId','projectName','repository','branch','instruc
 class CorePreparationError extends Error {constructor(code){super(code);this.code=code;this.name='CorePreparationError';}}
 const deny=code=>{throw new CorePreparationError(code);};
 const literal=x=>x!=null&&typeof x==='object'&&!Array.isArray(x);
+function pinnedPreparerCa(pem){
+ // Exactly ONE PEM CA; a second appended certificate would silently expand
+ // the TLS trust store even when the first certificate has the pinned hash.
+ if(typeof pem!=='string'||pem.length>8192||
+    !/^-----BEGIN CERTIFICATE-----\r?\n(?:[A-Za-z0-9+/=]+\r?\n)+-----END CERTIFICATE-----\r?\n?$/.test(pem))
+   deny('PINNED_PREPARER_CA_REQUIRED');
+ try{
+  const certificate=new X509Certificate(pem);
+  if(certificate.fingerprint256.replaceAll(':','').toLowerCase()!==PINNED_ROOT_FINGERPRINT)
+    deny('PINNED_PREPARER_CA_REQUIRED');
+ }catch(e){
+  if(e instanceof CorePreparationError)throw e;
+  deny('PINNED_PREPARER_CA_REQUIRED');
+ }
+ return pem;
+}
 export function validateCorePreparationInput(input){
  if(!literal(input)||Object.keys(input).sort().join(',')!==[...KEYS].sort().join(','))deny('UNTRUSTED_PREPARATION_INPUT');
  const {companyId,hubTaskId,projectName,repository,branch,instruction}=input;
@@ -26,17 +45,18 @@ export function validateCorePreparationInput(input){
 export function corePreparationPoolConfig(env){
  if(env.NODE_ENV!=='development'||env.APP_ENV!=='development'||env.NODE_TLS_REJECT_UNAUTHORIZED==='0')deny('EXPLICIT_SECURE_DEV_REQUIRED');
  const project=env.GPT02_CORE_PREP_DEV_PROJECT_REF,hub=env.GPT02_HUB_DEV_PROJECT_REF,prod=env.GPT02_PROD_PROJECT_REF;
- if(typeof project!=='string'||!/^[a-z]{20}$/.test(project)||project!==hub||project===prod)deny('PINNED_CST_DEV_PROJECT_REQUIRED');
+ if(project!==EXPECTED_DEV_REF||hub!==EXPECTED_DEV_REF||typeof prod!=='string'||!/^[a-z]{20}$/.test(prod)||prod===EXPECTED_DEV_REF)
+   deny('PINNED_CST_DEV_PROJECT_REQUIRED');
  const host=env.GPT02_CORE_PREP_DEV_POOLER_HOST,raw=env.GPT02_CORE_PREP_DATABASE_URL_DEV,ca=env.GPT02_CORE_PREP_DEV_CA;
  if(typeof host!=='string'||!/^aws-[0-9]+-[a-z0-9-]+\.pooler\.supabase\.com$/.test(host)||
-   typeof ca!=='string'||!ca.includes('-----BEGIN CERTIFICATE-----')||
    typeof raw!=='string')deny('SEPARATE_CERTIFIED_DATABASE_TARGET_REQUIRED');
+ const pinnedCa=pinnedPreparerCa(ca);
  let url;try{url=new URL(raw);}catch{deny('INVALID_PREPARER_DSN')}
  let user;try{user=decodeURIComponent(url.username)}catch{deny('INVALID_PREPARER_DSN')}
  if(!['postgresql:','postgres:'].includes(url.protocol)||url.hostname!==host||url.port!=='5432'||
    url.pathname!=='/postgres'||user!==`${ROLE}.${project}`||!url.password||url.search||url.hash)
    deny('PREPARER_DSN_SCOPE_MISMATCH');
- return {connectionString:raw,ssl:{ca,rejectUnauthorized:true},max:2,
+ return {connectionString:raw,ssl:{ca:pinnedCa,rejectUnauthorized:true},max:2,
    connectionTimeoutMillis:5000,statement_timeout:5000,idleTimeoutMillis:10000,
    application_name:'gpt02-core-preparation-DEV-only'};
 }
