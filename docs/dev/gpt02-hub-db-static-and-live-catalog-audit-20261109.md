@@ -77,6 +77,16 @@ A new pure, fail-closed `scripts/dev/gpt02-verified-tenant-scope.cjs` candidate 
 
 **Critical integration gap:** this helper is NOT wired to the operational AI Task routes or the database pool. Merely passing a JavaScript object to it is not identity verification. Production-safe behavior requires live session/JWT validation against current account revocation and membership, server-side tenant resolution, safe role/connection routing and cross-company audit. The existing `permissions.ts` HTTP-header extraction is not assumed trusted, and no elevated DB credential can be chosen by client-supplied data.
 
+## Operator-authorized NEW GPT02 DEV test preparation — 2026-11-09
+
+The operator authorized **preparation of exactly one NEW DEV task with Super Admin as approver**, explicitly conditioned on completing security gates before any native dispatch. This conversational preparation consent **does not constitute** a logged-in Super Admin session, a signed reviewer approval, an issuer capability, or permission to retry forensic Task #135.
+
+New fail-closed `scripts/dev/gpt02-new-test-admission-readonly.cjs` and unit test implement a non-mutating gate checklist. It requires: DEV scope, verified Super Admin session and cryptographic approval, new task ID distinct from 135, a same-company active PIC with durable audit, nonprivileged Hub login and authenticated tenant/RLS E2E, immutable claim/nonce, independently provisioned issuer, lease/fencing, trusted attestor, and tested rollback. The script always returns NO_GO and **never** creates tasks, issues commands, changes PROD, or authorizes dispatch even if all check flags are fabricated. Only native independent proof and a separate operational implementation may eventually release an explicitly authorized new attempt.
+
+Live read-only inventory in Hub DEV confirmed application SQL role is still privileged `postgres`. The `public.users` catalog contained Super Admin role rows and `public.team_members` had active default-company member rows; these are not proof of an authenticated Super Admin principal, a particular PIC appointment, or signed admission. No new task identifier, cryptographic operator signature, immutable native command or final ACK has been created. The existing 7/18 acceptance census for forensic Task #135 is **not** the outcome for a new test.
+
+**Decision:** preparatory implementation allowed; creation/admission/dispatch remain fail closed. Database DEV/PROD and Task #135 unchanged.
+
 ## Required deployment gates
 
 1. Classify the 33 raw SQL identifiers and map dynamic queries, SQL functions, triggers, audit trails, service integrations, 90 attached sequences and all mutating operations to database privileges.
