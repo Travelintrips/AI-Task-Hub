@@ -47,11 +47,12 @@ SELECT 'GUC_SPOOFABLE', (SELECT count(*) FROM gpt02_rls_test.ai_tasks WHERE id=2
 ROLLBACK;
 RESET ROLE;
 SQL
+ cat "$ROOT/scripts/dev/gpt02-hub-identity-rls-isolated.sql"
 } | docker exec -i "$NAME" psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -At > /tmp/gpt02-rls-result-"$$".txt
 result="$(cat /tmp/gpt02-rls-result-"$$".txt)"
 rm -f /tmp/gpt02-rls-result-"$$".txt
-for name in NO_CONTEXT TENANT_A CROSS_TENANT_UNSEEN TENANT_B GUC_SPOOFABLE; do
+for name in NO_CONTEXT TENANT_A CROSS_TENANT_UNSEEN TENANT_B GUC_SPOOFABLE TENANT_A_ROLE_FENCED TENANT_A_GUC_CANNOT_ESCALATE TENANT_A_NO_ADMIN_MEMBERSHIP TENANT_B_ROLE_FENCED ADMIN_READ_TWO_TENANTS ADMIN_AUDIT_NULL_LEGACY ADMIN_NO_INSERT_PRIVILEGE; do
  grep -Fqx "$name|t" <<< "$result" || { echo "FAILED:$name"; exit 1; }
 done
-echo "ISOLATED_RLS_4_OF_4_PASS"
+echo "ISOLATED_RLS_BASELINE_4_OF_4_PASS; ROLE_IDENTITY_7_OF_7_PASS"
 echo "BLOCKER_GUC_SPOOFABLE_CONFIRMED; tenant RLS is NOT live-migration-ready"
