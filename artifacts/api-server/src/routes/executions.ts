@@ -1549,6 +1549,24 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
     let execution: typeof aiExecutionJobsTable.$inferSelect;
     let reused = false;
 
+    // A new Hub/Core lifecycle reservation is inert until a separate trusted
+    // issuer signs, stores and consumes the command-specific grant. A caller
+    // must not reach the normal tracking/worker path by omitting lifecycleStart,
+    // switching to worker mode, or substituting GPT01 for the persisted GPT02.
+    // This is a permanent no-dispatch gate for the `prepared` phase, separate
+    // from the user-authorized one-shot text path already proven by Task136.
+    if (existing?.status === "prepared") {
+      res.setHeader("Cache-Control", "no-store");
+      res.status(409).json({
+        error: "GPT02_PREPARED_HUB_CORE_REQUIRES_AUTHORIZED_ISSUER",
+        reservedExecutionId: existing.id,
+        dispatchNotStarted: true,
+        continuationScheduled: false,
+        message: "Reservasi Hub/Core belum memiliki persetujuan dan nonce sah; tidak ada command dikirim.",
+      });
+      return;
+    }
+
     if (existing && !["failed", "blocked", "cancelled"].includes(existing.status)) {
       scheduleExecutionTracking(existing.id);
       const events = await db.select().from(aiExecutionEventsTable)
