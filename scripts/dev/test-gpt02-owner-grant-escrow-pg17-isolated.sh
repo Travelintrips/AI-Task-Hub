@@ -91,7 +91,7 @@ COMMIT;
 SQL
 check_restore(){ [[ "$(member_state)" == "$baseline" ]] || { echo "ROLE_GRANTS_CHANGED:$(member_state)" >&2; exit 1; }
  [[ "$(q postgres "SELECT pg_has_role('postgres','gpt02_store_owner','SET')")" == f ]] || { echo RESIDUAL_SET_OPTION >&2; exit 1; }; }
-future_count(){ q postgres "SELECT count(*) FROM pg_constraint c WHERE c.conrelid='gpt02_private.approvals'::regclass AND c.conname='gpt02_approvals_future_task_only' AND c.convalidated"; }
+future_count(){ q postgres "SELECT count(*) FROM pg_constraint c JOIN pg_class cl ON cl.oid=c.conrelid JOIN pg_namespace n ON n.oid=cl.relnamespace WHERE n.nspname='gpt02_private' AND cl.relname='approvals' AND c.conname='gpt02_approvals_future_task_only' AND c.convalidated"; }
 run supabase_admin <<'SQL' >/dev/null
 INSERT INTO gpt02_private.approvals(task_id) VALUES (137);
 SQL
