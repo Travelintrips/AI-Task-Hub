@@ -44,6 +44,8 @@ jobs:
         run: node --test scripts/dev/gpt02-hub-db-static-access-inventory.test.cjs
       - name: Verify isolated PostgreSQL 16 tenant RLS policy boundaries
         run: bash scripts/dev/test-gpt02-hub-rls-isolated-postgres.sh
+      - name: Verify isolated PostgreSQL atomic GPT02 approval nonce consumption
+        run: bash scripts/dev/test-gpt02-approval-nonce-isolated-postgres.sh
       - name: Verify authenticated tenant admission stays non-authorizing
         run: node --test scripts/dev/gpt02-verified-tenant-scope.test.cjs
       - name: Verify AI Task child resources cannot cross tenant boundaries
