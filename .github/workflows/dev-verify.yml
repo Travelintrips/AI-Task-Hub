@@ -46,6 +46,8 @@ jobs:
         run: bash scripts/dev/test-gpt02-hub-rls-isolated-postgres.sh
       - name: Verify authenticated tenant admission stays non-authorizing
         run: node --test scripts/dev/gpt02-verified-tenant-scope.test.cjs
+      - name: Verify AI Task child resources cannot cross tenant boundaries
+        run: node --test artifacts/api-server/tests/ai-task-child-tenant-scope.test.mjs
       - name: Typecheck
         run: pnpm run typecheck
       - name: Build
