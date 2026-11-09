@@ -46,6 +46,14 @@ The preflight now reports a read-only `requiredRlsReadback` with exact missing-p
 
 **Implementation boundary:** first define and independently test tenant predicate semantics for these task/PIC/audit tables on an isolated database, alongside privilege and cross-tenant negative tests. Do not roll out blanket policies over all 828 tables; do not grant `BYPASSRLS`, adopt evidence-owner roles, or switch Hub DEV credentials until authenticated full-module parity and rollback are demonstrated.
 
+## Four-table RLS isolated prototype — 2026-11-09
+
+A disposable, **network-disconnected PostgreSQL 16** instance tested `scripts/dev/gpt02-hub-rls-isolated-prototype.sql` with a no-login non-BYPASSRLS role. Observed four expected outcomes (`NO_CONTEXT|t`, `TENANT_A|t`, `CROSS_TENANT_UNSEEN|t`, `TENANT_B|t`), test exit 0. These checks are now reproducible through `scripts/dev/test-gpt02-hub-rls-isolated-postgres.sh`, wired to the DEV CI workflow.
+
+The proposed SQL is deliberately **not** a live migration and uses small synthetic tables within `gpt02_rls_test`. It does not edit or copy CST-DEV data. `audit_logs.company_id` is nullable in the real schema: null-company audit rows are excluded rather than shared across tenants.
+
+**Crucial trust limitation:** PostgreSQL's custom setting `app.company_id` can be set by a connected SQL-capable app role. These RLS policies alone cannot prevent a compromised or injection-vulnerable application connection from impersonating another tenant by changing the setting. Before deploying any policy to live DEV, implement a defensible trusted-tenant context (including session transaction boundaries and injection resistance), independently validate privileges against the actual login, and test API/browser functional parity. The isolated smoke test is policy-behavior evidence only, **not sufficient tenant-security or login-cutover proof**.
+
 ## Required deployment gates
 
 1. Classify the 33 raw SQL identifiers and map dynamic queries, SQL functions, triggers, audit trails, service integrations, 90 attached sequences and all mutating operations to database privileges.
