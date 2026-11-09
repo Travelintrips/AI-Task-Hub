@@ -168,6 +168,8 @@ SQL
 run postgres <"$ROOT/scripts/dev/gpt02-core-preparer-rls-candidate.sql" >"$WORK/policies.log" 2>&1 || { tail -30 "$WORK/policies.log";exit 1; }
 [[ "$(q postgres "SELECT count(*) FROM pg_policies WHERE policyname LIKE 'gpt02_preparer_%'")" == 10 ]] || { echo RLS_MISMATCH >&2;exit 1; }
 echo PASS:PG17_EXACT_STAGED_RLS_POLICIES
+# Non-sensitive canonical policy digests aid fixture-vs-hosted RLS parity checks.
+q postgres "SELECT p.policyname||':'||encode(sha256(convert_to(format('%s|%s|%s|%s|%s|%s|%s|%s',p.schemaname,p.tablename,p.policyname,p.permissive,p.roles::text,p.cmd,coalesce(p.qual,'<NULL>'),coalesce(p.with_check,'<NULL>')),'UTF8')),'hex') FROM pg_policies p WHERE p.policyname LIKE 'gpt02_preparer_%' ORDER BY p.schemaname,p.tablename,p.policyname" | sed 's/^/PG17_FIXTURE_RLS_POLICY_DIGEST:/'
 # A real PostgreSQL transaction failure AFTER all GRANT statements must roll back
 # schema and relation grants, leaving the role graph and function ACL unchanged.
 if { printf 'BEGIN;\nSET LOCAL gpt02.offline_grant_fixture = yes;\n'; cat "$CANDIDATE";
