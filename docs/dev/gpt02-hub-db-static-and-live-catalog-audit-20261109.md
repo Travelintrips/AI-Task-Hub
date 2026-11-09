@@ -95,6 +95,14 @@ PR #155 now changes the **source only**: passwordless login is explicitly disall
 
 Gate implications: do not mark a JWT-derived Super Admin session as an independent cryptographic approval until fresh trusted reauthentication, account-current-active verification, replay-safe audit, signer ownership, and legacy token invalidation/revocation have been proven. Password reauthentication by itself is not the required Ed25519 operator attestation. Avoid enabling dispatch or creating the new test task on the strength of chat consent or a potentially passwordless JWT. Hub DB app role is still privileged `postgres`.
 
+## 2026-11-09 revised user-approved policy: passwordless DEV dashboard + separate GPT02 identity gate
+
+**The user clarified and reaffirmed DEV dashboard logins are intentionally passwordless, including Super Admin.** Do not break this working workflow. The previous admin-password requirement described above is superseded and has been reverted in PR #155: `/auth/login` retains the configured `DEV_PASSWORDLESS_LOGIN=true` behavior, with production excluded by the DEV flag and base URL guard. Dashboard JWTs, especially email-only issued JWTs, remain **insufficient for GPT02 command approval**.
+
+A separate, DEV-only `POST /auth/gpt02/operator-identity-preflight` now requires an existing JWT Super Admin session **plus a separately supplied Google OAuth access token**, verified through `supabase.auth.getUser`. It checks the Google account has confirmed email and Google provider, and that the matching Hub database account is active, has the Super Admin role, and matches the JWT ID/email/company. It is a **non-mutating identity readiness check**: `operatorApprovalRecorded=false`, `issuerPermitted=false`, `dispatchPermitted=false`. The endpoint does not store the OAuth token, sign approvals, create a task, or modify the DB. A valid Google session alone is not proof of command-specific fresh consent. Signed nonce-bound approval, replay protection, auditable persistence and issuer isolation are still required.
+
+Source-level tests for dashboard compatibility and separate identity readiness must pass before staging. No endpoint deployment has occurred; live DEV retains its existing passwordless behavior. This does not cure the privileged Hub PostgreSQL `postgres` login, grant/lease gaps or native ACK gap. **NO_GO** until those independent gates have operational proof.
+
 ## Required deployment gates
 
 1. Classify the 33 raw SQL identifiers and map dynamic queries, SQL functions, triggers, audit trails, service integrations, 90 attached sequences and all mutating operations to database privileges.
