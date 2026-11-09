@@ -13,7 +13,7 @@ const candidate={v:1,environment:"DEV",audience:"GPT02_NEW_TASK_SINGLE_COMMAND_A
  nonce:"rQCfYm6TDsPvxgf9QEM3m8Rdpqba32Py",
  superAdminId:10,companyId:"default",issuedAt:now-1000,expiresAt:now+60000};
 function payload(x=candidate){return sign(null,Buffer.from(canonicalPayload(x)),privateKey).toString("base64url")}
-function checked(x=candidate,opts={}){return inspect({claims:x,signatureBase64url:opts.signature??payload(x),
+function checked(x=candidate,opts={}){return inspect({claims:x,signatureBase64url:opts.signature??(canonicalPayload(x)?payload(x):payload()),
  publicKeyPem:opts.pem??pem,now:opts.now??now})}
 test("valid signed DEV new-task preview never grants approval, issuer or dispatch",()=>{
  const r=checked();assert.equal(r.signatureValid,true);assert.equal(r.claimsValid,true);
