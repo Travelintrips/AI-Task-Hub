@@ -102,22 +102,13 @@ router.post("/auth/login", async (req: Request, res: Response): Promise<void> =>
       .where(eq(usersTable.email, email.toLowerCase().trim()))
       .limit(1);
 
-    // DEV-only passwordless login is a legacy convenience for low-privilege
-    // accounts. Never mint an administrator JWT from an email string alone.
-    // Existing JWTs are NOT evidence of privileged reauthentication.
-    const privilegedRole = user != null &&
-      ["super_admin", "company_admin", "owner", "supervisor"].includes(user.role);
-    const requirePassword = !devPasswordlessLoginEnabled || privilegedRole;
-    if (!user || !user.isActive || (requirePassword && !user.passwordHash)) {
+    if (!user || !user.isActive || (!devPasswordlessLoginEnabled && !user.passwordHash)) {
       res.status(401).json({ error: "Invalid credentials" });
       return;
     }
-    if (requirePassword) {
-      if (!password) {
-        res.status(401).json({ error: "Password required for this account" });
-        return;
-      }
-      const valid = await bcrypt.compare(password, user.passwordHash);
+
+    if (!devPasswordlessLoginEnabled) {
+      const valid = await bcrypt.compare(password!, user.passwordHash);
       if (!valid) {
         res.status(401).json({ error: "Invalid credentials" });
         return;
