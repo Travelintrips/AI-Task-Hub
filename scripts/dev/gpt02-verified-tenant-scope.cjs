@@ -7,12 +7,13 @@
  * The real DB identity binding is intentionally NOT implemented here.
  */
 const COMPANY=/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/;
+const ROLES=new Set(["super_admin","company_admin","owner","supervisor","staff","vendor","customer"]);
 function scopeFromVerifiedPrincipal(principal, requestedCompanyId, {crossCompanyRead=false}={}) {
  const deny=(reason)=>({allowed:false,reason,dbCredentialRole:null,issuerPermitted:false,dispatchPermitted:false});
  if(!principal||!Number.isSafeInteger(principal.id)||principal.id<=0||
     typeof principal.companyId!=="string"||!COMPANY.test(principal.companyId))
   return deny("VERIFIED_PRINCIPAL_REQUIRED");
- if(typeof principal.role!=="string")return deny("VERIFIED_ROLE_REQUIRED");
+ if(!ROLES.has(principal.role))return deny("VERIFIED_ROLE_REQUIRED");
  if(requestedCompanyId!==undefined && requestedCompanyId!==null &&
     (typeof requestedCompanyId!=="string"||!COMPANY.test(requestedCompanyId)))
   return deny("INVALID_COMPANY_SELECTOR");
