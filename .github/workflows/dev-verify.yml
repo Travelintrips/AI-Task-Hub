@@ -68,6 +68,8 @@ jobs:
         run: node --test scripts/dev/gpt02-operator-identity-preflight.test.cjs
       - name: Verify signed GPT02 operator proof is task-bound and non-authorizing
         run: node --test scripts/dev/gpt02-signed-operator-approval-preview.test.cjs
+      - name: Verify Google PIC actor is preserved without integer coercion
+        run: node --test artifacts/api-server/tests/gpt02-pic-audit-actor.test.mjs
       - name: Typecheck
         run: pnpm run typecheck
       - name: Build
