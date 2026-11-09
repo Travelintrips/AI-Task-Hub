@@ -38,6 +38,12 @@ expectDenied OLD_SUCCESSFUL_TASK136_FORBIDDEN gpt02_core_prep_login "$(q 136)" H
 expectDenied FOREIGN_TENANT_FORBIDDEN gpt02_core_prep_login "SELECT * FROM gpt02_stage.prepare_core_task('other',138,'$project','$repo','$branch','$instruction')" PREPARATION_SCOPE_DENIED
 expectDenied WRONG_REPOSITORY_FORBIDDEN gpt02_core_prep_login "SELECT * FROM gpt02_stage.prepare_core_task('default',137,'$project','Travelintrips/OtherRepo','$branch','$instruction')" PREPARATION_SCOPE_DENIED
 expectDenied ROLE_IMPERSONATION_FORBIDDEN postgres "SET SESSION AUTHORIZATION postgres; $(q 137)" PREPARATION_SCOPE_DENIED
+# Hosted Supabase puts pgcrypto.digest in extensions, not public. A preparer
+# must use the explicit qualified function and have scoped USAGE, not PUBLIC fallback.
+[[ "$(psqlAs postgres -c "SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='extensions' AND p.proname='digest'")" == 2 ]] || { echo PGCRYPTO_HOSTED_SCHEMA_MISMATCH >&2; exit 1; }
+psqlAs postgres -c 'REVOKE USAGE ON SCHEMA extensions FROM gpt02_core_prep_owner' >/dev/null
+expectDenied EXTENSION_SCHEMA_GRANT_REQUIRED gpt02_core_prep_login "$(q 137)" 'permission denied for schema extensions'
+psqlAs postgres -c 'GRANT USAGE ON SCHEMA extensions TO gpt02_core_prep_owner' >/dev/null
 # Two concurrently authenticated sessions prepare the SAME future task.
 for n in 1 2; do (q 137 | psqlAs gpt02_core_prep_login >"$WORK/race$n") & done
 wait
