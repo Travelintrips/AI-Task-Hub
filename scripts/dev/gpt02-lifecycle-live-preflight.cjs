@@ -32,7 +32,9 @@ function evaluate(observed={}) {
  return Object.freeze({environment:'CST-DEV',mode:'READ_ONLY_ACTIVATION_READINESS',
   checkedAt:typeof observed.checkedAt==='string'?observed.checkedAt:null,
   databaseRole:typeof observed.databaseRole==='string'?observed.databaseRole:null,
-  schemaState:{preparationInstalled:checks.preparationInstalled,approvalFunctionsInstalled:checks.approvalFunctionsInstalled,
+  schemaState:{preparationInstalled:checks.preparationInstalled,
+    dormantPreparationTableStaged:observed.dormantPreparationTableStaged===true,
+    approvalFunctionsInstalled:checks.approvalFunctionsInstalled,
     historicalTaskBoundaryEnforced:checks.historicalTaskBoundaryEnforced},
   roleState:{hubRestricted:checks.restrictedHubRole,preparerDedicated:checks.dedicatedPreparerRole,
     dormantPreparerStaged:observed.dormantPreparerStaged===true,
@@ -73,6 +75,11 @@ const QUERY=`SELECT now()::text AS checked_at,current_user AS database_role,
  (SELECT rolcanlogin AND NOT(rolsuper OR rolcreaterole OR rolbypassrls OR rolcreatedb)
     FROM pg_roles WHERE rolname='dev_gpt02_attestor_evidence') AS attestor_role_ready,
  to_regclass('gpt02_stage.core_preparations') IS NOT NULL AS preparation_table_exists,
+ (SELECT c.relrowsecurity AND c.relforcerowsecurity AND
+    pg_get_userbyid(c.relowner)='gpt02_core_prep_owner' AND
+    NOT has_table_privilege('gpt02_core_prep_login',c.oid,'SELECT,INSERT,UPDATE,DELETE')
+    FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='gpt02_stage' AND c.relname='core_preparations') AS dormant_table_locked,
  EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
    WHERE n.nspname='gpt02_stage' AND p.proname='prepare_core_task') AS preparer_function_exists,
  EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
@@ -100,6 +107,7 @@ function observedFromRow(row={},pinnedProject=false){
   // effective privileges. This must be proven via its own authenticated session.
   isolatedPreparerPermissions:false,
   preparationInstalled:row.preparation_table_exists===true&&row.preparer_function_exists===true,
+  dormantPreparationTableStaged:row.dormant_table_locked===true&&row.preparer_function_exists===false,
   attestorRoleReady:row.attestor_role_ready===true,issuerRoleReady:row.issuer_role_ready===true,
   approvalFunctionsInstalled:row.attestor_function_exists===true&&row.issuer_function_exists===true,
   historicalTaskBoundaryEnforced:row.historical_task_boundary_enforced===true,

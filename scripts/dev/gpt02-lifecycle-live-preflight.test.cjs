@@ -56,7 +56,7 @@ test('live query reads catalog and aggregate readiness only, no sensitive record
  assert.match(QUERY,/historical_task_boundary_enforced/);
  assert.match(QUERY,/co\.convalidated IS TRUE/);
  assert.match(QUERY,/task_id>136/);
- assert.doesNotMatch(QUERY,/\b(?:INSERT|UPDATE|DELETE|TRUNCATE|ALTER|CREATE|GRANT|REVOKE|CALL|COPY)\b/i);
+ assert.doesNotMatch(QUERY.replace(/'(?:''|[^'])*'/g,"''"),/\b(?:INSERT|UPDATE|DELETE|TRUNCATE|ALTER|CREATE|GRANT|REVOKE|CALL|COPY)\b/i);
  assert.doesNotMatch(QUERY,/password_hash|email|access_token|auth\.users|private_key/i);
  const source=fs.readFileSync(require.resolve('./gpt02-lifecycle-live-preflight.cjs'),'utf8');
  assert.match(source,/BEGIN READ ONLY/);assert.match(source,/ROLLBACK/);
@@ -92,4 +92,12 @@ test('dormant no-login preparer shows measurable progress without issuer or disp
  assert.equal(r.roleState.preparerDedicated,false);
  assert.ok(r.blockers.includes('DEDICATED_PREPARER_LOGIN_MISSING_OR_DISABLED'));
  assert.equal(r.releaseDecision,'NO_GO');assert.equal(r.dispatchPermitted,false);
+});
+
+test('staged empty private table is visible separately from active Core preparation',()=>{
+ const v=evaluate(observedFromRow({preparation_table_exists:true,dormant_table_locked:true,preparer_function_exists:false},true));
+ assert.equal(v.schemaState.dormantPreparationTableStaged,true);
+ assert.equal(v.schemaState.preparationInstalled,false);
+ assert.ok(v.blockers.includes('HUB_CORE_PREPARATION_NOT_DEPLOYED'));
+ assert.equal(v.releaseDecision,'NO_GO');assert.equal(v.dispatchPermitted,false);
 });
