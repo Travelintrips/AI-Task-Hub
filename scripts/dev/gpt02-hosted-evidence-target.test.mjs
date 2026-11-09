@@ -40,3 +40,23 @@ test('configuration rejection does not expose the credential',()=>{
  try{issuerPoolConfig({...env,GPT02_ISSUER_DATABASE_URL_DEV:`postgresql://postgres:${secret}@db.${evidence}.supabase.co/postgres`},'issuer');assert.fail('should deny');}
  catch(e){assert.equal(e.code,'DEDICATED_DSN_SCOPE_MISMATCH');assert.equal(e.message.includes(secret),false);}
 });
+
+const pooled={...env,GPT02_EVIDENCE_DEV_CONNECTION_MODE:'session_pooler',GPT02_EVIDENCE_DEV_POOLER_HOST:'aws-1-ap-southeast-2.pooler.supabase.com',GPT02_EVIDENCE_DEV_HOST:'aws-1-ap-southeast-2.pooler.supabase.com',GPT02_EVIDENCE_DEV_CA:'-----BEGIN CERTIFICATE-----\nTEST ONLY; parsed by the real TLS driver during connection\n-----END CERTIFICATE-----',GPT02_ISSUER_DATABASE_URL_DEV:`postgresql://dev_gpt02_issuer_evidence:synthetic@db.${evidence}.supabase.co/postgres`};
+pooled.GPT02_ISSUER_DATABASE_URL_DEV=`postgresql://dev_gpt02_issuer_evidence.${evidence}:synthetic@${pooled.GPT02_EVIDENCE_DEV_HOST}:5432/postgres`;
+pooled.GPT02_ATTESTOR_DATABASE_URL_DEV=`postgresql://dev_gpt02_attestor_evidence.${evidence}:synthetic@${pooled.GPT02_EVIDENCE_DEV_HOST}:5432/postgres`;
+test('explicit session pooler binds project-scoped logins, fixed host and verified TLS',()=>{
+ for(const kind of ['issuer','attestor']){const cfg=issuerPoolConfig(pooled,kind);assert.equal(cfg.ssl.rejectUnauthorized,true);assert.equal(cfg.ssl.ca,pooled.GPT02_EVIDENCE_DEV_CA);}
+ assert.equal(hostedEvidenceTarget(pooled).mode,'session_pooler');
+});
+test('session mode requires configured CA and never disables TLS',()=>{
+ for(const ca of [undefined,'','not a certificate'])assert.throws(()=>issuerPoolConfig({...pooled,GPT02_EVIDENCE_DEV_CA:ca},'issuer'),e=>e.code==='SESSION_POOLER_CA_REQUIRED');
+ assert.throws(()=>issuerPoolConfig({...pooled,NODE_TLS_REJECT_UNAUTHORIZED:'0'},'issuer'),e=>e.code==='TLS_VERIFICATION_REQUIRED');
+});
+test('wrong role, project suffix, host, and transaction port are blocked',()=>{
+ for(const url of [pooled.GPT02_ISSUER_DATABASE_URL_DEV.replace(evidence,prod),pooled.GPT02_ISSUER_DATABASE_URL_DEV.replace(`.${evidence}:`,':'),pooled.GPT02_ISSUER_DATABASE_URL_DEV.replace('dev_gpt02_issuer_evidence','postgres'),pooled.GPT02_ISSUER_DATABASE_URL_DEV.replace(':5432',':6543'),pooled.GPT02_ISSUER_DATABASE_URL_DEV.replace('aws-1','aws-0'),pooled.GPT02_ISSUER_DATABASE_URL_DEV+'?sslmode=disable'])assert.throws(()=>issuerPoolConfig({...pooled,GPT02_ISSUER_DATABASE_URL_DEV:url},'issuer'),e=>e.code==='DEDICATED_DSN_SCOPE_MISMATCH');
+});
+test('no automatic pooler fallback, unsupported mode or lookalike host',()=>{
+ assert.throws(()=>issuerPoolConfig({...pooled,GPT02_EVIDENCE_DEV_CONNECTION_MODE:undefined},'issuer'));
+ assert.throws(()=>issuerPoolConfig({...pooled,GPT02_EVIDENCE_DEV_CONNECTION_MODE:'transaction_pooler'},'issuer'),e=>e.code==='UNSUPPORTED_CONNECTION_MODE');
+ for(const host of ['localhost','aws-1-ap-southeast-2.pooler.supabase.com.evil.test',''])assert.throws(()=>issuerPoolConfig({...pooled,GPT02_EVIDENCE_DEV_POOLER_HOST:host,GPT02_EVIDENCE_DEV_HOST:host},'issuer'),e=>e.code==='PINNED_SESSION_POOLER_REQUIRED');
+});
