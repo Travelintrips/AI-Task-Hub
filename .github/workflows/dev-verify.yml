@@ -78,6 +78,10 @@ jobs:
         run: bash scripts/dev/test-gpt02-execution-outcome-sql.sh
       - name: Refuse unproven GPT02 lifecycle before command creation
         run: node --test artifacts/api-server/tests/gpt02-lifecycle-closed-until-admission.test.mjs
+      - name: Verify idempotent Core coding task preparation without command dispatch
+        run: bash scripts/dev/test-gpt02-core-task-preparation-isolated.sh
+      - name: Verify dedicated Core preparation connector and fail-closed identity
+        run: node --test artifacts/api-server/tests/gpt02-core-task-preparation.test.mjs
       - name: Typecheck
         run: pnpm run typecheck
       - name: Build
