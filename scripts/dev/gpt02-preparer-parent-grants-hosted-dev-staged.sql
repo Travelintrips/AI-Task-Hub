@@ -28,7 +28,7 @@ BEGIN
       WHERE r.rolname IN('gpt02_core_prep_login','dev_gpt02_issuer_evidence','dev_gpt02_attestor_evidence')) OR
     (SELECT count(*) FROM pg_policies p WHERE p.policyname LIKE 'gpt02_preparer_%')<>10 OR
     NOT EXISTS(SELECT 1 FROM pg_policies p WHERE p.policyname LIKE 'gpt02_preparer_%'
-      GROUP BY true HAVING count(*) FILTER (WHERE p.roles='{gpt02_core_prep_owner}'::name[])=10
+      HAVING count(*) FILTER (WHERE p.roles='{gpt02_core_prep_owner}'::name[])=10
                          AND count(*) FILTER (WHERE p.cmd='INSERT')=2
        AND encode(sha256(convert_to(string_agg(
          format('%s|%s|%s|%s|%s|%s|%s|%s',p.schemaname,p.tablename,p.policyname,p.permissive,p.roles::text,p.cmd,
