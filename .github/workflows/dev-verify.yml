@@ -60,7 +60,8 @@ jobs:
           bash scripts/dev/test-gpt02-approval-future-task-constraint-isolated.sh
           bash scripts/dev/test-gpt02-owner-grant-escrow-pg17-isolated.sh
           bash scripts/dev/test-gpt02-private-operator-sidecars-inert-pg17.sh
-          node --test scripts/dev/gpt02-private-operator-sidecars-inert.contract.test.mjs
+          bash scripts/dev/test-gpt02-post-consumption-fence-hosted-inert-pg17.sh
+          node --test scripts/dev/gpt02-private-operator-sidecars-inert.contract.test.mjs scripts/dev/gpt02-hosted-inert-fence.contract.test.mjs
       - name: Verify bounded CST-DEV connection probe cannot grant dispatch
         run: node --test scripts/dev/gpt02-bounded-login-smoke-guards.test.mjs
       - name: Verify SCRAM issuer and atomic dual-origin Hub/Core identity evidence
