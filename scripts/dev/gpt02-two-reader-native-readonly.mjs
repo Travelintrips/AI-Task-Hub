@@ -11,6 +11,11 @@ const CORE='gpt02_core_evidence_reader';
 
 export const IDENTITY_QUERY=`SELECT current_database() AS db,current_user AS login,
  session_user AS session,current_setting('transaction_read_only')='on' AS in_readonly_tx,
+ current_setting('default_transaction_read_only')='on' AS default_readonly,
+ current_setting('search_path')='pg_catalog' AS search_path_locked,
+ current_setting('statement_timeout')='5s' AS statement_timeout_locked,
+ current_setting('lock_timeout')='1s' AS lock_timeout_locked,
+ current_setting('idle_in_transaction_session_timeout')='10s' AS idle_tx_timeout_locked,
  pg_backend_pid() AS backend_pid,
  EXISTS(SELECT 1 FROM pg_stat_ssl s WHERE s.pid=pg_backend_pid() AND s.ssl) AS tls_verified,
  r.rolcanlogin AND NOT(r.rolsuper OR r.rolcreaterole OR r.rolcreatedb OR r.rolbypassrls
@@ -42,7 +47,9 @@ const report=(reason,extra={})=>Object.freeze({...BASE,...extra,reason,
 
 function ok(row,role){
  return row?.db==='postgres'&&row.login===role&&row.session===role&&
-  row.in_readonly_tx===true&&Number.isInteger(row.backend_pid)&&row.backend_pid>0&&
+  row.in_readonly_tx===true&&row.default_readonly===true&&row.search_path_locked===true&&
+  row.statement_timeout_locked===true&&row.lock_timeout_locked===true&&
+  row.idle_tx_timeout_locked===true&&Number.isInteger(row.backend_pid)&&row.backend_pid>0&&
   row.tls_verified===true&&row.bounded_role===true&&row.no_memberships===true&&
   row.no_global_read===true&&row.no_global_write===true&&row.no_database_create===true&&
   row.no_callable_mutating_routines===true;
