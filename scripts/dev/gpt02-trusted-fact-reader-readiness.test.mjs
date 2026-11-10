@@ -10,9 +10,12 @@ const ready=Object.freeze({
  required_columns:20,matching_columns:20,missing_columns:[],
  reader_roles:[{role:'gpt02_hub_evidence_reader',exists:true},
   {role:'gpt02_core_evidence_reader',exists:true}],
- binding_fields:[{field:'worker_id',exists:true},
-  {field:'accountable_owner_id',exists:true},{field:'core_operator_user_id',exists:true}],
- prepared_rows:1
+ binding_fields:[
+  {field:'claims',exists:true},{field:'accountable_owner_id',exists:true},
+  {field:'core_operator_user_id',exists:true},{field:'hub_signature',exists:true},
+  {field:'core_signature',exists:true},{field:'link_digest',exists:true}
+ ],
+ signed_link_rows:1,prepared_rows:1
 });
 function invariant(result){
  assert.equal(result.releaseDecision,'NO_GO');
@@ -29,7 +32,9 @@ test('even a fully green *catalog* cannot authorize an independently signed comm
  assert.equal(result.sourceSchemaMatching,true);
  assert.equal(result.hubReaderProvisioned,true);
  assert.equal(result.coreReaderProvisioned,true);
- assert.equal(result.immutableWorkerOwnerBinding,true);
+ assert.equal(result.signedSidecarSchemaReady,true);
+ assert.equal(result.immutableWorkerOwnerBinding,false,'catalogue cannot prove signed worker');
+ assert.equal(result.signedLinkRowsPresent,true);
  assert.equal(result.preparedRowsPresent,true);
  assert.equal(result.blockers.at(-1),'INDEPENDENT_SESSIONS_AND_REAL_SIGNER_NOT_ATTESTED');
  invariant(result);
@@ -42,11 +47,13 @@ test('actual hosted-style baseline detects missing login roles, worker binding a
  assert.equal(x.sourceSchemaMatching,true);
  assert.equal(x.hubReaderProvisioned,false);
  assert.equal(x.coreReaderProvisioned,false);
+ assert.equal(x.signedSidecarSchemaReady,false);
  assert.equal(x.immutableWorkerOwnerBinding,false);
+ assert.equal(x.signedLinkRowsPresent,true);
  assert.equal(x.preparedRowsPresent,false);
  assert.deepEqual(x.blockers,[
   'TWO_RESTRICTED_READER_LOGINS_MISSING',
-  'IMMUTABLE_WORKER_OWNER_CORE_OPERATOR_BINDING_MISSING',
+  'SIGNED_OPERATOR_LINK_SIDECAR_SCHEMA_MISSING',
   'NO_NEW_PREPARED_HUB_CORE_PAIR',
   'INDEPENDENT_SESSIONS_AND_REAL_SIGNER_NOT_ATTESTED'
  ]);
@@ -71,7 +78,7 @@ test('fabricated login, excess field and unsigned row cannot produce operational
   {reader_roles:[{role:'gpt02_hub_evidence_reader',exists:'true'},
    {role:'gpt02_core_evidence_reader',exists:true}]},
   {binding_fields:[...ready.binding_fields,{field:'unverified_signer',exists:true}]},
-  {binding_fields:[{field:'worker_id',exists:true},{field:'accountable_owner_id',exists:true}]},
+  {binding_fields:[{field:'claims',exists:true},{field:'accountable_owner_id',exists:true}]},
   {prepared_rows:-1}
  ]){
   const r=assessTrustedFactReaderReadiness({...ready,...mutation});
@@ -128,7 +135,10 @@ test('catalog probe contains no business values, no commands or mutations',()=>{
  assert.match(QUERY,/current_setting\('transaction_read_only'\)/);
  assert.match(QUERY,/gpt02_hub_evidence_reader/);
  assert.match(QUERY,/gpt02_core_evidence_reader/);
- assert.match(QUERY,/worker_id/);
+ assert.match(QUERY,/gpt02_private/);
+ assert.match(QUERY,/hub_signature/);
+ assert.match(QUERY,/core_signature/);
+ assert.match(QUERY,/signed_link_rows/);
  assert.match(QUERY,/accountable_owner_id/);
  const sanitized=QUERY.replace(/'(?:''|[^'])*'/g,"''");
  assert.doesNotMatch(sanitized,/\b(?:INSERT|UPDATE|DELETE|TRUNCATE|ALTER|CREATE|GRANT|REVOKE|CALL|COPY)\b/i);
