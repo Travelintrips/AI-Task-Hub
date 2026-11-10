@@ -8,7 +8,7 @@ const good={
  database_name:'postgres',transaction_read_only:'on',
  expected_column_grants:EXPECTED_COLUMN_GRANTS,
  actual_column_grants:EXPECTED_COLUMN_GRANTS,
- difference_count:0,differences:[]
+ difference_count:0,mutating_relation_privilege_count:0,differences:[]
 };
 
 test('exact 86 column grants pass inventory only, never authority',()=>{
@@ -19,6 +19,14 @@ test('exact 86 column grants pass inventory only, never authority',()=>{
  assert.equal(r.reason,'EXACT_READER_COLUMN_GRANTS_PASS_NO_AUTHORITY');
  assert.equal(r.dispatchPermitted,false);
  assert.equal(r.issuerLeaseGranted,false);
+ assert.equal(r.releaseDecision,'NO_GO');
+});
+
+test('any mutating relation privilege fails closed even with exact SELECT columns',()=>{
+ const r=assessReaderColumnGrants({...good,mutating_relation_privilege_count:1});
+ assert.equal(r.exactColumnGrants,false);
+ assert.equal(r.mutatingRelationPrivilegeCount,1);
+ assert.equal(r.reason,'READER_COLUMN_GRANTS_DRIFT');
  assert.equal(r.releaseDecision,'NO_GO');
 });
 
@@ -64,6 +72,9 @@ test('query is catalog-only and cannot read task/evidence rows or mutate',()=>{
  assert.match(QUERY,/pg_attribute/);
  assert.match(QUERY,/c\.relkind IN \('r','p','f','v','m'\)/);
  assert.match(QUERY,/has_column_privilege/);
+ assert.match(QUERY,/mutating_relation_privilege_count/);
+ assert.match(QUERY,/MAINTAIN/);
+ assert.match(QUERY,/has_table_privilege/);
  assert.match(QUERY,/difference_count/);
  assert.match(QUERY,/gpt02_hub_evidence_reader/);
  assert.match(QUERY,/gpt02_core_evidence_reader/);
