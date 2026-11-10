@@ -6,7 +6,8 @@ import {
 
 const good={
  database_name:'postgres',transaction_read_only:'on',reader_count:2,
- locked_roles:true,no_memberships:true,no_active_sessions:true,exact_role_config:true
+ locked_roles:true,no_memberships:true,exact_management_membership:true,
+ no_active_sessions:true,exact_role_config:true
 };
 
 test('exact inert reader settings pass inventory only, never authority',()=>{
@@ -16,6 +17,7 @@ test('exact inert reader settings pass inventory only, never authority',()=>{
  assert.equal(r.readerCount,2);
  assert.equal(r.lockedRoles,true);
  assert.equal(r.noMemberships,true);
+ assert.equal(r.exactManagementMembership,true);
  assert.equal(r.noActiveSessions,true);
  assert.equal(r.exactRoleConfig,true);
  assert.equal(r.reason,'EXACT_INERT_READER_ROLE_SETTINGS_PASS_NO_AUTHORITY');
@@ -28,6 +30,7 @@ test('login activation, membership, session or config drift fails closed',()=>{
  for(const row of [
   {...good,locked_roles:false},
   {...good,no_memberships:false},
+  {...good,exact_management_membership:false},
   {...good,no_active_sessions:false},
   {...good,exact_role_config:false},
   {...good,reader_count:1}
@@ -66,6 +69,9 @@ test('audit uses one read-only transaction and rolls back',async()=>{
 test('query is catalog-only and exact config is pinned',()=>{
  assert.match(QUERY,/pg_db_role_setting/);
  assert.match(QUERY,/pg_auth_members/);
+ assert.match(QUERY,/exact_management_membership/);
+ assert.match(QUERY,/m\.set_option/);
+ assert.match(QUERY,/supabase_admin/);
  assert.match(QUERY,/pg_stat_activity/);
  for(const setting of EXPECTED_CONFIG)assert.ok(QUERY.includes(setting));
  assert.doesNotMatch(QUERY,/FROMs+(?:public.ai_tasks|gpt02_private.approvals|gpt02_stage.core_preparations)/i);
