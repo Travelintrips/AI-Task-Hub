@@ -152,7 +152,8 @@ for(const change of [
  {lock_timeout_locked:false},{idle_tx_timeout_locked:false},{backend_pid:0},
  {tls_verified:false},{restricted:false},{no_memberships:false},
  {exact_management_member:false},{no_global_read:false},
- {no_global_write:false},{no_db_create:false},{no_owned_objects:false},{no_special_admin_roles:false},
+ {no_global_write:false},{no_db_create:false},{no_schema_create:false},
+ {no_owned_objects:false},{no_special_admin_roles:false},
  {no_sequence_privileges:false},
  {no_callable_security_definer_routines:false},{exact_callable_routines:false},
  {no_callable_mutating_routines:false},{db:'production'}
