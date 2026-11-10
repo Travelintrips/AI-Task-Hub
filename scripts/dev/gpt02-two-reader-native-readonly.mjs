@@ -73,6 +73,21 @@ export const IDENTITY_QUERY=`SELECT current_database() AS db,current_user AS log
     AND has_table_privilege(current_user,c.oid,'SELECT')
  ) AS no_view_select,
  NOT EXISTS(
+  SELECT 1 FROM pg_class c
+  JOIN pg_namespace n ON n.oid=c.relnamespace
+  WHERE n.nspname !~ '^pg_' AND n.nspname<>'information_schema'
+    AND c.relkind IN ('r','p','f','v','m')
+    AND (
+      has_table_privilege(current_user,c.oid,'INSERT') OR
+      has_table_privilege(current_user,c.oid,'UPDATE') OR
+      has_table_privilege(current_user,c.oid,'DELETE') OR
+      has_table_privilege(current_user,c.oid,'TRUNCATE') OR
+      has_table_privilege(current_user,c.oid,'REFERENCES') OR
+      has_table_privilege(current_user,c.oid,'TRIGGER') OR
+      has_table_privilege(current_user,c.oid,'MAINTAIN')
+    )
+ ) AS no_mutating_relation_privileges,
+ NOT EXISTS(
   SELECT 1 FROM pg_proc p
   JOIN pg_namespace n ON n.oid=p.pronamespace
   WHERE n.nspname IN ('public','gpt02_stage','gpt02_private','ai_platform')
@@ -126,7 +141,8 @@ function ok(row,role){
   row.no_owned_objects===true&&
   row.no_special_admin_roles===true&&row.no_sequence_privileges===true&&
   row.no_foreign_server_usage===true&&row.no_foreign_table_select===true&&
-  row.no_view_select===true&&row.no_callable_security_definer_routines===true&&row.exact_callable_routines===true&&
+  row.no_view_select===true&&row.no_mutating_relation_privileges===true&&
+  row.no_callable_security_definer_routines===true&&row.exact_callable_routines===true&&
   row.no_callable_mutating_routines===true;
 }
 function resolvePool(){
