@@ -19,7 +19,7 @@ const row=(role,backendPid)=>({
  lock_timeout_locked:true,idle_tx_timeout_locked:true,
  backend_pid:backendPid,tls_verified:true,bounded_role:true,
  no_memberships:true,exact_management_member:true,
- no_global_read:true,no_global_write:true,no_database_create:true,
+ no_global_read:true,no_global_write:true,no_database_create:true,no_owned_objects:true,
  no_special_admin_roles:true,no_sequence_privileges:true,no_callable_security_definer_routines:true,
  no_callable_mutating_routines:true
 });
