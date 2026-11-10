@@ -145,4 +145,8 @@ if run_migration "$FILE" >"$WORK/duplicate.log" 2>&1;then echo DUPLICATE_NOT_REJ
 grep -Fq GPT02_INERT_FENCE_ALREADY_EXISTS "$WORK/duplicate.log" || { tail -20 "$WORK/duplicate.log";exit 1; }
 [[ "$(membership)" == "$initial" ]] || { echo RETRY_GRANTED_SET_ROLE;exit 1; }
 echo PASS:REPEATED_MIGRATION_FAIL_CLOSED
-echo GPT02_HOSTED_INERT_FENCE_PG17_PASS
+if [[ "$IMAGE" == 'postgres:16-alpine' ]];then
+ echo GPT02_HOSTED_INERT_FENCE_PG16_LOCAL_PASS
+else
+ echo GPT02_HOSTED_INERT_FENCE_PG17_PASS
+fi
