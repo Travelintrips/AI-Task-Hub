@@ -76,7 +76,7 @@ if ! timeout --foreground --kill-after=30s 12m docker compose \
   "${COMPOSE_FILES[@]}" \
   build; then
   echo "Docker build failed or exceeded 12 minutes; keeping the current container untouched." >&2
-  docker compose --env-file "$COMPOSE_ENV" -f deploy/hostinger/docker-compose.yml ps >&2 || true
+  docker compose --env-file "$COMPOSE_ENV" "${COMPOSE_FILES[@]}" ps >&2 || true
   exit 1
 fi
 
@@ -122,12 +122,12 @@ for attempt in $(seq 1 45); do
           });
       '; then
         echo "Production database readiness check failed" >&2
-        docker compose --env-file "$COMPOSE_ENV" -f deploy/hostinger/docker-compose.yml logs --tail=120 app >&2
+        docker compose --env-file "$COMPOSE_ENV" "${COMPOSE_FILES[@]}" logs --tail=120 app >&2
         exit 1
       fi
     fi
     echo "AI Task Hub $TARGET is healthy on 127.0.0.1:$HOST_PORT"
-    docker compose --env-file "$COMPOSE_ENV" -f deploy/hostinger/docker-compose.yml ps
+    docker compose --env-file "$COMPOSE_ENV" "${COMPOSE_FILES[@]}" ps
     exit 0
   fi
   if [ "$status" = "unhealthy" ] || [ "$status" = "exited" ]; then
@@ -137,5 +137,5 @@ for attempt in $(seq 1 45); do
 done
 
 echo "Health check failed for $TARGET" >&2
-docker compose --env-file "$COMPOSE_ENV" -f deploy/hostinger/docker-compose.yml logs --tail=200 app >&2
+docker compose --env-file "$COMPOSE_ENV" "${COMPOSE_FILES[@]}" logs --tail=200 app >&2
 exit 1
