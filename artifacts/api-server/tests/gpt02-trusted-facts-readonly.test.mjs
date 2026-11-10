@@ -90,8 +90,12 @@ function instance({hub,core,lookup}=fixture(),patch={}){
       throw Error('synthetic_database_secret');
     if(sql.includes("current_setting('transaction_read_only')")){
      return {rows:[{db:'postgres',login:role,session:role,read_only:'on',
+       default_readonly:true,search_path_locked:true,statement_timeout_locked:true,
+       lock_timeout_locked:true,idle_tx_timeout_locked:true,
+       backend_pid:which==='hub'?42001:42002,tls_verified:true,
        restricted:true,no_memberships:true,no_global_read:true,
-       no_global_write:true,no_db_create:true,
+       no_global_write:true,no_db_create:true,no_sequence_privileges:true,
+       no_callable_security_definer_routines:true,no_callable_mutating_routines:true,
        ...(patch.identity?.[which]||{})}]};
     }
     if(sql===HUB_SQL)return {rows:patch.hubRows??[hub]};
@@ -141,8 +145,12 @@ test('reject historical Tasks135/136, wrong tenant, caller-supplied fields and i
 });
 for(const change of [
  {login:'postgres'},{session:'postgres'},{read_only:'off'},
- {restricted:false},{no_memberships:false},{no_global_read:false},
- {no_global_write:false},{no_db_create:false},{db:'production'}
+ {default_readonly:false},{search_path_locked:false},{statement_timeout_locked:false},
+ {lock_timeout_locked:false},{idle_tx_timeout_locked:false},{backend_pid:0},
+ {tls_verified:false},{restricted:false},{no_memberships:false},{no_global_read:false},
+ {no_global_write:false},{no_db_create:false},{no_sequence_privileges:false},
+ {no_callable_security_definer_routines:false},{no_callable_mutating_routines:false},
+ {db:'production'}
 ])test('deny forged or privileged Hub DB identity '+JSON.stringify(change),async()=>{
  const x=instance(fixture(),{identity:{hub:change}});
  await assert.rejects(x.reader(x.lookup),e=>e.code==='TWO_INDEPENDENT_RESTRICTED_DB_LOGINS_REQUIRED');
@@ -151,6 +159,11 @@ for(const change of [
 test('two distinct pools cannot masquerade as one backend connection',async()=>{
  const x=instance(fixture(),{sameSession:true});
  await assert.rejects(x.reader(x.lookup),e=>e.code==='SEPARATE_DB_SESSIONS_REQUIRED');
+});
+test('two client objects backed by one PostgreSQL backend PID are rejected',async()=>{
+ const x=instance(fixture(),{identity:{core:{backend_pid:42001}}});
+ await assert.rejects(x.reader(x.lookup),e=>e.code==='TWO_INDEPENDENT_RESTRICTED_DB_LOGINS_REQUIRED');
+ assert.equal(x.calls.some(c=>c.sql===HUB_SQL),false);
 });
 test('absence, duplicate signed Hub sidecar and missing Core operator fail closed',async()=>{
  for(const opts of [{hubRows:[]},{hubRows:[fixture().hub,fixture().hub]},{coreRows:[]}]){
