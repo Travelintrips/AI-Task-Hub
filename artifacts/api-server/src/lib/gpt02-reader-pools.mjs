@@ -52,6 +52,8 @@ export function createGpt02ReaderPools({
   idleTimeoutMillis:10000,
   connectionTimeoutMillis:5000,
   ssl:{rejectUnauthorized:true},
+  // Fail closed from PostgreSQL startup, before any application query.
+  options:'-c default_transaction_read_only=on -c search_path=pg_catalog -c statement_timeout=5000 -c lock_timeout=1000 -c idle_in_transaction_session_timeout=10000',
   allowExitOnIdle:true
  };
  const hubPool=new Pool({...common,connectionString:hub.connectionString,
