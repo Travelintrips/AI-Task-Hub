@@ -172,12 +172,12 @@ export function validRequestedIdentity(q){
   new Set([q.commandCandidateId,q.attemptId,q.linkId]).size===3&&
   [q.linkDigest,q.approvalDigest].every(x=>typeof x==='string'&&/^[a-f0-9]{64}$/.test(x));
 }
-function verifyDbIdentity(row,expected){
+function verifyDbIdentity(row,expected,clientTlsVerified){
  return row?.db==='postgres'&&row.login===expected&&row.session===expected&&
   row.read_only==='on'&&row.default_readonly===true&&row.search_path_locked===true&&
   row.statement_timeout_locked===true&&row.lock_timeout_locked===true&&
   row.idle_tx_timeout_locked===true&&Number.isInteger(row.backend_pid)&&row.backend_pid>0&&
-  row.tls_verified===true&&row.restricted===true&&row.no_memberships===true&&
+  clientTlsVerified===true&&row.restricted===true&&row.no_memberships===true&&
   row.exact_management_member===true&&row.no_global_read===true&&
   row.no_global_write===true&&row.no_db_create===true&&row.no_schema_create===true&&
   row.no_owned_objects===true&&
@@ -344,14 +344,19 @@ export function createGpt02TrustedFactReader({hubPool,corePool,clock=Date.now}={
    hub=await hubPool.connect();
    core=await corePool.connect();
    if(!hub||!core||hub===core)denied('SEPARATE_DB_SESSIONS_REQUIRED');
+   const hubStream=hub?.connection?.stream,coreStream=core?.connection?.stream;
+   const hubTlsVerified=hubStream?.encrypted===true&&hubStream?.authorized===true&&
+     (hubStream.authorizationError===undefined||hubStream.authorizationError===null);
+   const coreTlsVerified=coreStream?.encrypted===true&&coreStream?.authorized===true&&
+     (coreStream.authorizationError===undefined||coreStream.authorizationError===null);
    await hub.query('BEGIN READ ONLY');hubTx=true;
    await core.query('BEGIN READ ONLY');coreTx=true;
    await hub.query("SET LOCAL statement_timeout='5s'");
    await core.query("SET LOCAL statement_timeout='5s'");
    const [hi,ci]=await Promise.all([hub.query(IDENTITY_SQL),core.query(IDENTITY_SQL)]);
    if(hi.rows?.length!==1||ci.rows?.length!==1||
-     !verifyDbIdentity(hi.rows[0],ROLE_HUB)||
-     !verifyDbIdentity(ci.rows[0],ROLE_CORE)||
+     !verifyDbIdentity(hi.rows[0],ROLE_HUB,hubTlsVerified)||
+     !verifyDbIdentity(ci.rows[0],ROLE_CORE,coreTlsVerified)||
      hi.rows[0].backend_pid===ci.rows[0].backend_pid)
     denied('TWO_INDEPENDENT_RESTRICTED_DB_LOGINS_REQUIRED');
    const hs=await hub.query(HUB_SQL,[query.companyId,query.hubTaskId,
