@@ -281,6 +281,52 @@ run_migration "$HOSTED" >"$WORK/hosted-success.log" 2>&1 || { tail -25 "$WORK/ho
 [[ "$(q postgres "SELECT has_function_privilege('gpt02_core_prep_login','gpt02_stage.prepare_core_task_dormant(text,integer,text,text,text,text)','EXECUTE')::text||':'||has_schema_privilege('gpt02_core_prep_login','gpt02_stage','USAGE')::text")" == 'false:false' ]] || { echo HOSTED_GRANT_LOOSENED_LOGIN >&2;exit 1; }
 [[ "$(q postgres "SELECT (SELECT count(*) FROM gpt02_stage.core_preparations)||':'||(SELECT count(*) FROM public.ai_execution_jobs)||':'||(SELECT count(*) FROM ai_platform.ai_coding_tasks)||':'||(SELECT count(*) FROM gpt02_private.approvals)")" == '0:0:0:0' ]] || { echo HOSTED_GRANT_CHANGED_TASKS >&2;exit 1; }
 echo PASS:PG17_HOSTED_OWNER_GRANTS_EIGHT_SELECT_TWO_INSERT_NO_RUNTIME
+# Exercise the exact read-only runtime catalog query, not a second synthetic
+# approximation of its predicates. This can only run AFTER hosted-shape grants.
+# The local session is still a network-isolated disposable PostgreSQL17 fixture.
+run fixture_root <<'SQL' >/dev/null
+CREATE TABLE ai_platform.internal_users(
+ role text NOT NULL,status text NOT NULL,must_change_password boolean NOT NULL
+);
+ALTER TABLE ai_platform.internal_users OWNER TO postgres;
+SQL
+node - "$ROOT/scripts/dev/gpt02-lifecycle-live-preflight.cjs" >"$WORK/preflight-readback.sql" <<'JS'
+const {QUERY}=require(process.argv[2]);
+if(!/^SELECT /i.test(QUERY) || !QUERY.includes('owner_parent_grants_exact'))throw new Error('READONLY_PREFLIGHT_QUERY_CHANGED');
+process.stdout.write('BEGIN READ ONLY;\nSELECT row_to_json(probe) FROM ('+QUERY+') probe;\nROLLBACK;\n');
+JS
+check_readback(){
+ local expected="$1"
+ docker exec -i "$NAME" psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -Atq  <"$WORK/preflight-readback.sql" >"$WORK/preflight-output.log" 2>&1 || {
+  tail -25 "$WORK/preflight-output.log";exit 1;
+ }
+ node - "$WORK/preflight-output.log" "$expected" <<'JS'
+const fs=require('node:fs');
+const rows=fs.readFileSync(process.argv[2],'utf8').split('\n')
+ .map(x=>x.trim()).filter(x=>x.startsWith('{'));
+if(rows.length!==1)throw Error('READONLY_PREFLIGHT_SINGLE_ROW_REQUIRED');
+const row=JSON.parse(rows[0]),expected=process.argv[3]==='true';
+for(const [k,v] of Object.entries({
+ is_readonly:true,dormant_function_locked:true,
+ owner_parent_grants_exact:expected,scoped_preparer_rls_exact:true,
+ preparer_function_exists:false,dormant_table_locked:true,
+ preparer_dormant_staged:true,preparer_role_limited:false,
+ historical_task_boundary_enforced:true,approved_count:0,
+ receipt_count:0,prepared_count:0}))
+ if(row[k]!==v)throw Error('READONLY_PREFLIGHT_MISMATCH:'+k+':'+String(row[k]));
+JS
+}
+check_readback true
+echo PASS:PG17_LIVE_QUERY_AFTER_INERT_OWNER_GRANTS_IN_READONLY_SESSION
+# Both removal and widening of one privilege must be detected as drift.
+run postgres <<<"REVOKE SELECT ON public.ai_tasks FROM gpt02_core_prep_owner;" >/dev/null
+check_readback false
+run postgres <<<"GRANT SELECT ON public.ai_tasks TO gpt02_core_prep_owner;" >/dev/null
+run postgres <<<"GRANT UPDATE ON public.ai_execution_jobs TO gpt02_core_prep_owner;" >/dev/null
+check_readback false
+run postgres <<<"REVOKE UPDATE ON public.ai_execution_jobs FROM gpt02_core_prep_owner;" >/dev/null
+check_readback true
+echo PASS:PG17_LIVE_QUERY_REFUSES_MISSING_OR_EXCESS_OWNER_PRIVILEGES
 if run_migration "$HOSTED" >"$WORK/hosted-retry.log" 2>&1;then echo HOSTED_GRANT_REPLAY_ACCEPTED >&2;exit 1;fi
 grep -Fq GPT02_DEV_OWNER_PARENT_GRANT_PARENT_DRIFT "$WORK/hosted-retry.log" || { tail -14 "$WORK/hosted-retry.log";exit 1; }
 echo PASS:PG17_HOSTED_GRANT_RETRY_FAIL_CLOSED

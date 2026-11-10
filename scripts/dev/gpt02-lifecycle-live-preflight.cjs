@@ -35,6 +35,7 @@ function evaluate(observed={}) {
   schemaState:{preparationInstalled:checks.preparationInstalled,
     dormantPreparationTableStaged:observed.dormantPreparationTableStaged===true,
     dormantPreparerFunctionVerified:observed.dormantPreparerFunctionVerified===true,
+    ownerParentGrantsVerified:observed.ownerParentGrantsVerified===true,
     scopedPreparerRlsVerified:observed.scopedPreparerRlsVerified===true,
     approvalFunctionsInstalled:checks.approvalFunctionsInstalled,
     historicalTaskBoundaryEnforced:checks.historicalTaskBoundaryEnforced},
@@ -94,12 +95,31 @@ const QUERY=`SELECT now()::text AS checked_at,current_user AS database_role,
    AND NOT has_function_privilege('authenticated',p.oid,'EXECUTE')
    AND NOT has_function_privilege('service_role',p.oid,'EXECUTE')
    AND NOT has_schema_privilege('gpt02_core_prep_login','gpt02_stage','USAGE')
-   AND NOT has_table_privilege('gpt02_core_prep_owner','public.ai_execution_jobs','SELECT,INSERT,UPDATE,DELETE,REFERENCES')
-   AND NOT has_table_privilege('gpt02_core_prep_owner','ai_platform.ai_coding_tasks','SELECT,INSERT,UPDATE,DELETE,REFERENCES')
+   AND NOT has_table_privilege('gpt02_core_prep_owner','public.ai_execution_jobs','UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+   AND NOT has_table_privilege('gpt02_core_prep_owner','ai_platform.ai_coding_tasks','UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
    AND EXISTS(SELECT 1 FROM pg_roles r WHERE r.rolname='gpt02_core_prep_owner' AND NOT r.rolcanlogin
      AND NOT r.rolsuper AND NOT r.rolbypassrls AND r.rolconnlimit=0))
    FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
    WHERE n.nspname='gpt02_stage' AND p.proname='prepare_core_task_dormant') AS dormant_function_locked,
+ (SELECT count(*)=8
+    AND count(*) FILTER(WHERE has_table_privilege('gpt02_core_prep_owner',c.oid,'SELECT'))=8
+    AND count(*) FILTER(WHERE has_table_privilege('gpt02_core_prep_owner',c.oid,'INSERT')
+      AND c.relname IN ('ai_execution_jobs','ai_coding_tasks'))=2
+    AND count(*) FILTER(WHERE has_table_privilege('gpt02_core_prep_owner',c.oid,'INSERT')
+      AND c.relname NOT IN ('ai_execution_jobs','ai_coding_tasks'))=0
+    AND count(*) FILTER(WHERE has_table_privilege('gpt02_core_prep_owner',c.oid,
+      'UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'))=0
+    AND count(*) FILTER(WHERE has_table_privilege('gpt02_core_prep_login',c.oid,
+      'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'))=0
+    AND bool_and(c.relrowsecurity AND pg_get_userbyid(c.relowner)='postgres')
+    AND has_schema_privilege('gpt02_core_prep_owner','ai_platform','USAGE')
+    AND has_schema_privilege('gpt02_core_prep_owner','extensions','USAGE')
+    AND NOT has_schema_privilege('gpt02_core_prep_login','gpt02_stage','USAGE')
+  FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+  WHERE (n.nspname='public' AND c.relname IN
+    ('ai_tasks','team_members','audit_logs','users','ai_execution_jobs'))
+    OR (n.nspname='ai_platform' AND c.relname IN
+    ('ai_coding_tasks','ai_coding_runs','ai_coding_bridge_commands'))) AS owner_parent_grants_exact,
  (SELECT count(*)=10 AND
    count(*) FILTER (WHERE p.roles='{gpt02_core_prep_owner}'::name[])=10 AND
    count(*) FILTER (WHERE p.cmd='INSERT')=2 AND
@@ -135,7 +155,8 @@ function observedFromRow(row={},pinnedProject=false){
   isolatedPreparerPermissions:false,
   preparationInstalled:row.preparation_table_exists===true&&row.preparer_function_exists===true,
   dormantPreparationTableStaged:row.dormant_table_locked===true&&row.preparer_function_exists===false,
-  dormantPreparerFunctionVerified:row.dormant_function_locked===true&&row.dormant_table_locked===true&&row.preparer_function_exists===false,
+  dormantPreparerFunctionVerified:row.dormant_function_locked===true&&row.owner_parent_grants_exact===true&&row.dormant_table_locked===true&&row.preparer_function_exists===false,
+  ownerParentGrantsVerified:row.owner_parent_grants_exact===true,
   scopedPreparerRlsVerified:row.scoped_preparer_rls_exact===true,
   attestorRoleReady:row.attestor_role_ready===true,issuerRoleReady:row.issuer_role_ready===true,
   approvalFunctionsInstalled:row.attestor_function_exists===true&&row.issuer_function_exists===true,
