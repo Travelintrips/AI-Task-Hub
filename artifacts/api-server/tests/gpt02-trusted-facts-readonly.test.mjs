@@ -98,6 +98,7 @@ function instance({hub,core,lookup}=fixture(),patch={}){
        no_global_write:true,no_db_create:true,no_schema_create:true,
        no_owned_objects:true,no_special_admin_roles:true,
        no_sequence_privileges:true,no_foreign_server_usage:true,no_foreign_table_select:true,
+       no_view_select:true,
        no_callable_security_definer_routines:true,exact_callable_routines:true,
        no_callable_mutating_routines:true,
        ...(patch.identity?.[which]||{})}]};
@@ -156,7 +157,7 @@ for(const change of [
  {no_global_write:false},{no_db_create:false},{no_schema_create:false},
  {no_owned_objects:false},{no_special_admin_roles:false},
  {no_sequence_privileges:false},{no_foreign_server_usage:false},
- {no_foreign_table_select:false},
+ {no_foreign_table_select:false},{no_view_select:false},
  {no_callable_security_definer_routines:false},{exact_callable_routines:false},
  {no_callable_mutating_routines:false},{db:'production'}
 ])test('deny forged or privileged Hub DB identity '+JSON.stringify(change),async()=>{
