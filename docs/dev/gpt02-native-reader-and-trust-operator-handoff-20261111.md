@@ -77,7 +77,7 @@ PASS hanya jika:
 - current_user = session_user tepat untuk masing-masing role;
 - transaction_read_only=on;
 - dua pg_backend_pid berbeda;
-- pg_stat_ssl.ssl=true;
+- client Node TLSSocket ke Supabase pooler harus `encrypted=true` dan `authorized=true` dengan CA pinned; `pg_stat_ssl` pada backend di belakang session pooler hanya informational dan bukan authority TLS;
 - connection limit bounded;
 - outbound membership 0 dan exact management member tetap sesuai baseline;
 - no global read/write;
@@ -93,6 +93,21 @@ PASS hanya jika:
 - exact callable routine identity + source hash tetap cocok;
 - no callable mutating/SECURITY DEFINER routine;
 - kelima role defaults di atas tetap aktif.
+
+### Bukti native aktual 11 Nov 2026
+
+One-shot proof sudah dijalankan nyata dengan credential ephemeral yang dibuat lokal dan tidak disimpan:
+- Hub authenticated: true
+- Core authenticated: true
+- dua backend PID berbeda: true
+- semua privilege gate: true
+- client-to-pooler TLS pinned/authorized: true
+- `reason=TWO_NATIVE_READERS_PASS_NO_AUTHORITY`
+- `dispatchPermitted=false`
+- `issuerLeaseGranted=false`
+- `releaseDecision=NO_GO`
+
+Setelah proof, kedua role langsung dikembalikan ke `NOLOGIN` / connection limit 0, semua backend reader diterminasi, active session 0/0, file secret temporary 0, dan credential proof tidak ditulis ke `/etc/ai-task/development.env`.
 
 Bahkan pada PASS, output harus tetap:
 - `dispatchPermitted=false`
