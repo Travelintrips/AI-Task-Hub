@@ -80,6 +80,7 @@ test('wrong identity, membership or elevated privilege fails closed',async()=>{
   ['hub',{no_memberships:false}],['hub',{exact_management_member:false}],
   ['hub',{no_global_read:false}],
   ['core',{no_global_write:false}],['core',{no_database_create:false}],
+  ['hub',{no_owned_objects:false}],
   ['core',{bounded_role:false}],['core',{in_readonly_tx:false}],
   ['hub',{no_special_admin_roles:false}],['hub',{no_owned_objects:false}],
   ['hub',{default_readonly:false}],['hub',{search_path_locked:false}],
@@ -145,6 +146,8 @@ test('identity query is catalogue-only and cannot mutate or read task rows',()=>
  assert.match(IDENTITY_QUERY,/exact_management_member/);
  assert.match(IDENTITY_QUERY,/m\.set_option/);
  assert.match(IDENTITY_QUERY,/supabase_admin/);
+ assert.match(IDENTITY_QUERY,/no_owned_objects/);
+ assert.match(IDENTITY_QUERY,/pg_shdepend/);
  assert.match(IDENTITY_QUERY,/no_special_admin_roles/);
  assert.match(IDENTITY_QUERY,/pg_execute_server_program/);
  assert.match(IDENTITY_QUERY,/pg_read_server_files/);
