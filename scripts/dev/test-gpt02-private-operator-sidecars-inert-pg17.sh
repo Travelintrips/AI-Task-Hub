@@ -89,8 +89,16 @@ echo PASS:POST_GRANT_TRANSACTION_ROLLBACK
 run fixture_root <<<"INSERT INTO gpt02_private.approvals VALUES ('8cc32c08-f9c2-4312-b1ad-a65fd4f14e2e',137);" >/dev/null
 if run_migration "$FILE" >"$WORK/history.log" 2>&1;then echo NONEMPTY_APPROVAL_ACCEPTED >&2;exit 1;fi
 grep -Fq GPT02_INERT_EVIDENCE_HISTORY_NOT_EMPTY "$WORK/history.log"||{ tail -15 "$WORK/history.log";exit 1; }
-run fixture_root <<<"DELETE FROM gpt02_private.approvals;" >/dev/null
-echo PASS:NONEMPTY_APPROVAL_REJECTED
+# Disposable fixture only: the append-only trigger correctly rejects DELETE.
+# Reset the test seed as the synthetic bootstrap superuser, restore the trigger,
+# and independently read back that it is enabled before any positive migration.
+run fixture_root <<'SQL' >/dev/null
+ALTER TABLE gpt02_private.approvals DISABLE TRIGGER USER;
+DELETE FROM gpt02_private.approvals;
+ALTER TABLE gpt02_private.approvals ENABLE TRIGGER USER;
+SQL
+[[ "$(q fixture_root "SELECT count(*) FROM pg_trigger WHERE tgrelid='gpt02_private.approvals'::regclass AND tgname='immutable_approvals' AND tgenabled='O'")" == 1 ]] || { echo IMMUTABLE_TRIGGER_NOT_RESTORED >&2;exit 1; }
+echo PASS:NONEMPTY_APPROVAL_REJECTED_AND_IMMUTABILITY_RESTORED
 run_migration "$FILE" >"$WORK/staged.log" 2>&1||{ tail -40 "$WORK/staged.log";exit 1; }
 [[ "$(membership)" == "$initial" ]]||{ echo ROLE_GRAPH_DRIFT >&2;exit 1; }
 [[ "$(q postgres "SELECT pg_has_role('postgres','gpt02_store_owner','SET')")" == f ]]||{ echo OWNER_ROLE_USABLE >&2;exit 1; }
