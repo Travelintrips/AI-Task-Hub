@@ -56,7 +56,7 @@ export const HUB_SQL=[
  " l.core_operator_user_id,l.claims AS signed_link_claims,",
  " l.approval_digest,l.link_digest,l.hub_signature,l.core_signature,",
  " a0.claims AS stored_approval_claims,a0.signature AS stored_approval_signature,",
- " a0.digest AS stored_approval_digest,",
+ " a0.digest AS stored_approval_digest",
  " FROM gpt02_stage.core_preparations p",
  " JOIN public.ai_tasks t ON t.id=p.hub_task_id AND t.company_id=p.company_id",
  " JOIN public.team_members m ON m.id=p.member_id AND m.company_id=p.company_id",
