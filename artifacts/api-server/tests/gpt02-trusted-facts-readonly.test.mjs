@@ -162,6 +162,15 @@ for(const [where,change] of [
  const x=instance(v);
  await assert.rejects(x.reader(x.lookup));
 });
+test('canonical numeric/string audit identifiers both match preparer SQL semantics',async()=>{
+ const v=fixture();
+ v.hub.audit_payload={...v.hub.audit_payload,taskId:'137',memberId:'5',
+  actorIdentity:{...v.hub.audit_payload.actorIdentity,version:'1'}};
+ const x=instance(v);
+ const result=await x.reader(x.lookup);
+ assert.equal(result.prepared.hubTaskId,137);
+ assert.equal(result.hubOperator.role,'super_admin');
+});
 test('a newer Super Admin PIC audit blocks a stale signed preparation',async()=>{
  const v=fixture();v.hub.latest_pic_audit_id=4569;
  const x=instance(v);
