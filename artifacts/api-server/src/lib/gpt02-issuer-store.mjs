@@ -66,15 +66,20 @@ export function canonicalApproval(claims){
  if(!object(claims)||Object.keys(claims).length!==FIELDS.length||FIELDS.some(k=>!Object.hasOwn(claims,k)))fail('INVALID_CLAIM_FIELDS');
  return JSON.stringify(Object.fromEntries(FIELDS.map(k=>[k,claims[k]])));
 }
-function verifiedEnvelope(envelope,key,now){
- if(!object(envelope)||Object.keys(envelope).sort().join(',')!=='claims,signatureBase64url')fail('INVALID_ENVELOPE');
- const {claims:c,signatureBase64url:s}=envelope,payload=canonicalApproval(c);
+export function validateApprovalClaims(c,now){
+ canonicalApproval(c);
  if(!Number.isSafeInteger(now)||now<0||c.v!==2||c.environment!=='DEV'||c.audience!=='GPT02_NEW_TASK_SINGLE_COMMAND_APPROVAL'||
  !Number.isSafeInteger(c.taskId)||c.taskId<=136||c.operatorNamespace!==OPERATOR_NAMESPACE||typeof c.superAdminId!=='string'||!ACCOUNT_ID.test(c.superAdminId)||
  typeof c.commandId!=='string'||!UUID.test(c.commandId)||typeof c.attemptId!=='string'||!UUID.test(c.attemptId)||c.commandId===c.attemptId||
  typeof c.nonce!=='string'||!/^[A-Za-z0-9_-]{32,128}$/.test(c.nonce)||typeof c.companyId!=='string'||!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(c.companyId)||
  ['all','*'].includes(c.companyId)||!Number.isSafeInteger(c.issuedAt)||!Number.isSafeInteger(c.expiresAt)||c.issuedAt<0||
  c.issuedAt>now+5000||c.expiresAt<=now||c.expiresAt<=c.issuedAt||c.expiresAt-c.issuedAt>300000)fail('INVALID_OR_EXPIRED_CLAIMS');
+ return true;
+}
+function verifiedEnvelope(envelope,key,now){
+ if(!object(envelope)||Object.keys(envelope).sort().join(',')!=='claims,signatureBase64url')fail('INVALID_ENVELOPE');
+ const {claims:c,signatureBase64url:s}=envelope,payload=canonicalApproval(c);
+ validateApprovalClaims(c,now);
  if(typeof s!=='string'||!/^[A-Za-z0-9_-]{86}$/.test(s))fail('INVALID_SIGNATURE');
  const bytes=Buffer.from(s,'base64url');
  if(bytes.length!==64||bytes.toString('base64url')!==s||!verify(null,Buffer.from(payload),key,bytes))fail('INVALID_SIGNATURE');
