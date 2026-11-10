@@ -77,6 +77,12 @@ test('role bootstrap is inert and owner grants are separately fenced',async()=>{
  ])assert.equal(roleSrc.includes(forbidden),false,forbidden);
  for(const required of [
   "current_user <> 'gpt02_store_owner'","GPT02_STORE_OWNER_SESSION_REQUIRED",
+  "GRANT gpt02_store_owner TO postgres WITH SET TRUE GRANTED BY postgres",
+  "SET LOCAL ROLE gpt02_store_owner",
+  "REVOKE SET OPTION FOR gpt02_store_owner FROM postgres GRANTED BY postgres RESTRICT",
+  "g.rolname='supabase_admin'","member.rolname='postgres'",
+  "m.admin_option AND NOT m.inherit_option AND NOT m.set_option",
+  'GPT02_STORE_OWNER_ESCROW_NOT_RESTORED',
   'GRANT USAGE ON SCHEMA gpt02_private',
   'GRANT SELECT (id,command_id,nonce,digest,consumed_at)',
   'issuer_evidence_reader_select',
