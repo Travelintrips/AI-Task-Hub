@@ -130,14 +130,14 @@ const report=(reason,extra={})=>Object.freeze({...BASE,...extra,reason,
  dispatchPermitted:false,issuerLeaseGranted:false,taskCreated:false,
  commandCreated:false,releaseDecision:'NO_GO'});
 
-function failedChecks(row,role){
+function failedChecks(row,role,clientTls){
  const checks=[
   ['database',row?.db==='postgres'],
   ['session_identity',row?.login===role&&row?.session===role],
   ['readonly_defaults',row?.in_readonly_tx===true&&row?.default_readonly===true&&
     row?.search_path_locked===true&&row?.statement_timeout_locked===true&&
     row?.lock_timeout_locked===true&&row?.idle_tx_timeout_locked===true],
-  ['backend_tls',Number.isInteger(row?.backend_pid)&&row.backend_pid>0&&row?.tls_verified===true],
+  ['backend_tls',Number.isInteger(row?.backend_pid)&&row.backend_pid>0&&clientTls===true],
   ['bounded_role',row?.bounded_role===true],
   ['memberships',row?.no_memberships===true&&row?.exact_management_member===true],
   ['global_privileges',row?.no_global_read===true&&row?.no_global_write===true],
@@ -152,7 +152,7 @@ function failedChecks(row,role){
  ];
  return checks.filter(([,pass])=>!pass).map(([name])=>name);
 }
-function ok(row,role){return failedChecks(row,role).length===0;}
+function ok(row,role,clientTls){return failedChecks(row,role,clientTls).length===0;}
 
 function resolvePool(){
  const apiRequire=createRequire(new URL('../../artifacts/api-server/package.json',import.meta.url));
@@ -167,7 +167,10 @@ async function inspect(pool){
   const r=await client.query(IDENTITY_QUERY);
   await client.query('ROLLBACK');tx=false;
   if(!r||!Array.isArray(r.rows)||r.rows.length!==1)throw Error('bad rows');
-  return {row:r.rows[0],client};
+  const stream=client?.connection?.stream;
+  const clientTlsVerified=stream?.encrypted===true&&stream?.authorized===true&&
+    (stream.authorizationError===undefined||stream.authorizationError===null);
+  return {row:r.rows[0],client,clientTlsVerified};
  }catch(e){
   if(client&&tx)try{await client.query('ROLLBACK')}catch{}
   if(client)try{client.release(true)}catch{}
@@ -188,14 +191,15 @@ export async function probe(env=process.env,deps={}){
   const separate=Number.isInteger(h.row?.backend_pid)&&Number.isInteger(c.row?.backend_pid)&&
    h.row.backend_pid!==c.row.backend_pid;
   if(!separate)return report('SEPARATE_NATIVE_BACKENDS_REQUIRED');
-  const hubGood=ok(h.row,HUB),coreGood=ok(c.row,CORE);
+  const hubGood=ok(h.row,HUB,h.clientTlsVerified),
+        coreGood=ok(c.row,CORE,c.clientTlsVerified);
   return report(hubGood&&coreGood?'TWO_NATIVE_READERS_PASS_NO_AUTHORITY':
    'NATIVE_READER_PRIVILEGE_MISMATCH',{
     hubAuthenticated:hubGood,coreAuthenticated:coreGood,
     twoSessionsVerified:separate,
     permissionsVerified:hubGood&&coreGood,
-    hubFailedChecks:hubGood?[]:failedChecks(h.row,HUB),
-    coreFailedChecks:coreGood?[]:failedChecks(c.row,CORE)
+    hubFailedChecks:hubGood?[]:failedChecks(h.row,HUB,h.clientTlsVerified),
+    coreFailedChecks:coreGood?[]:failedChecks(c.row,CORE,c.clientTlsVerified)
   });
  }catch{return report('NATIVE_READER_LOGIN_OR_CATALOG_PROBE_FAILED');}
  finally{
