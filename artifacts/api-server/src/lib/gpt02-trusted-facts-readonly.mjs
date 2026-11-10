@@ -20,12 +20,37 @@ const integer=v=>Number.isSafeInteger(v)&&v>0;
 const IDENTITY_SQL=[
  "SELECT current_database() AS db,current_user AS login,session_user AS session,",
  " current_setting('transaction_read_only') AS read_only,",
- " r.rolcanlogin AND NOT (r.rolsuper OR r.rolcreaterole OR r.rolcreatedb OR",
+ " current_setting('default_transaction_read_only')='on' AS default_readonly,",
+ " current_setting('search_path')='pg_catalog' AS search_path_locked,",
+ " current_setting('statement_timeout')='5s' AS statement_timeout_locked,",
+ " current_setting('lock_timeout')='1s' AS lock_timeout_locked,",
+ " current_setting('idle_in_transaction_session_timeout')='10s' AS idle_tx_timeout_locked,",
+ " pg_backend_pid() AS backend_pid,",
+ " EXISTS(SELECT 1 FROM pg_stat_ssl s WHERE s.pid=pg_backend_pid() AND s.ssl) AS tls_verified,",
+ " r.rolcanlogin AND r.rolconnlimit=1 AND NOT (r.rolsuper OR r.rolcreaterole OR r.rolcreatedb OR",
  " r.rolbypassrls OR r.rolreplication OR r.rolinherit) AS restricted,",
  " NOT EXISTS(SELECT 1 FROM pg_auth_members m WHERE m.member=r.oid) AS no_memberships,",
  " NOT pg_has_role(current_user,'pg_read_all_data','USAGE') AS no_global_read,",
  " NOT pg_has_role(current_user,'pg_write_all_data','USAGE') AS no_global_write,",
- " NOT has_database_privilege(current_user,current_database(),'CREATE') AS no_db_create",
+ " NOT has_database_privilege(current_user,current_database(),'CREATE') AS no_db_create,",
+ " NOT EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace",
+ "   WHERE c.relkind='S' AND n.nspname !~ '^pg_' AND n.nspname<>'information_schema'",
+ "   AND (has_sequence_privilege(current_user,c.oid,'USAGE')",
+ "     OR has_sequence_privilege(current_user,c.oid,'SELECT')",
+ "     OR has_sequence_privilege(current_user,c.oid,'UPDATE'))) AS no_sequence_privileges,",
+ " NOT EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace",
+ "   WHERE n.nspname !~ '^pg_' AND n.nspname<>'information_schema'",
+ "     AND has_schema_privilege(current_user,n.oid,'USAGE')",
+ "     AND p.prokind IN ('f','p') AND pg_get_function_result(p.oid)<>'trigger'",
+ "     AND p.prosecdef AND has_function_privilege(current_user,p.oid,'EXECUTE'))",
+ "   AS no_callable_security_definer_routines,",
+ " NOT EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace",
+ "   WHERE n.nspname !~ '^pg_' AND n.nspname<>'information_schema'",
+ "     AND has_schema_privilege(current_user,n.oid,'USAGE')",
+ "     AND p.prokind IN ('f','p') AND pg_get_function_result(p.oid)<>'trigger'",
+ "     AND has_function_privilege(current_user,p.oid,'EXECUTE')",
+ "     AND pg_get_functiondef(p.oid) ~* '\\m(INSERT|UPDATE|DELETE|TRUNCATE|MERGE|CALL|ALTER|GRANT|REVOKE)\\M')",
+ "   AS no_callable_mutating_routines",
  " FROM pg_roles r WHERE r.rolname=current_user"
 ].join(' ');
 export const HUB_SQL=[
@@ -100,8 +125,13 @@ export function validRequestedIdentity(q){
 }
 function verifyDbIdentity(row,expected){
  return row?.db==='postgres'&&row.login===expected&&row.session===expected&&
-  row.read_only==='on'&&row.restricted===true&&row.no_memberships===true&&
-  row.no_global_read===true&&row.no_global_write===true&&row.no_db_create===true;
+  row.read_only==='on'&&row.default_readonly===true&&row.search_path_locked===true&&
+  row.statement_timeout_locked===true&&row.lock_timeout_locked===true&&
+  row.idle_tx_timeout_locked===true&&Number.isInteger(row.backend_pid)&&row.backend_pid>0&&
+  row.tls_verified===true&&row.restricted===true&&row.no_memberships===true&&
+  row.no_global_read===true&&row.no_global_write===true&&row.no_db_create===true&&
+  row.no_sequence_privileges===true&&row.no_callable_security_definer_routines===true&&
+  row.no_callable_mutating_routines===true;
 }
 function mapFacts(h,c,query){
  if(!object(h)||!object(c)||!object(h.job_metadata)||!object(h.signed_link_claims))
@@ -267,7 +297,9 @@ export function createGpt02TrustedFactReader({hubPool,corePool,clock=Date.now}={
    const [hi,ci]=await Promise.all([hub.query(IDENTITY_SQL),core.query(IDENTITY_SQL)]);
    if(hi.rows?.length!==1||ci.rows?.length!==1||
      !verifyDbIdentity(hi.rows[0],ROLE_HUB)||
-     !verifyDbIdentity(ci.rows[0],ROLE_CORE))denied('TWO_INDEPENDENT_RESTRICTED_DB_LOGINS_REQUIRED');
+     !verifyDbIdentity(ci.rows[0],ROLE_CORE)||
+     hi.rows[0].backend_pid===ci.rows[0].backend_pid)
+    denied('TWO_INDEPENDENT_RESTRICTED_DB_LOGINS_REQUIRED');
    const hs=await hub.query(HUB_SQL,[query.companyId,query.hubTaskId,
     query.commandCandidateId,query.attemptId,query.linkId,
     query.linkDigest,query.approvalDigest]);
