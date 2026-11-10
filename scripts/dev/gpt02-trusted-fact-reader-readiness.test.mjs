@@ -21,10 +21,11 @@ function invariant(result){
  assert.equal(result.issuerLeaseGranted,false);
  assert.equal(result.dispatchPermitted,false);
  assert.equal(result.taskCreated,false);
- assert.equal(result.readOnly,true);
+ assert.equal(typeof result.readOnly,'boolean');
 }
 test('even a fully green *catalog* cannot authorize an independently signed command',()=>{
  const result=assessTrustedFactReaderReadiness(ready);
+ assert.equal(result.readOnly,true);
  assert.equal(result.sourceSchemaMatching,true);
  assert.equal(result.hubReaderProvisioned,true);
  assert.equal(result.coreReaderProvisioned,true);
@@ -83,6 +84,7 @@ test('wrong DB, transaction outside READ ONLY and malformed response are rejecte
   {...ready,transaction_read_only:'off'}, {...ready,transaction_read_only:true}]){
   const r=assessTrustedFactReaderReadiness(row);
   assert.equal(r.reason,'TRUSTED_CATALOG_READONLY_NOT_PROVEN');
+  assert.equal(r.readOnly,false);
   invariant(r);
  }
 });
@@ -98,12 +100,15 @@ function mock(rows=[ready],options={}){
 test('reader starts exact READ ONLY transaction, queries catalog only and ROLLBACKs',async()=>{
  const m=mock();
  const result=await auditTrustedFactReaderReadiness({client:m.client});
+ assert.equal(result.readOnly,true);
  assert.deepEqual(m.calls,['BEGIN READ ONLY',"SET LOCAL statement_timeout='5s'",QUERY,'ROLLBACK']);
  assert.equal(result.sourceSchemaMatching,true);
  invariant(result);
 });
 test('reader refuses absent client or multiple catalog rows',async()=>{
- invariant(await auditTrustedFactReaderReadiness());
+ const absent=await auditTrustedFactReaderReadiness();
+ assert.equal(absent.readOnly,false);
+ invariant(absent);
  const m=mock([ready,ready]);
  const r=await auditTrustedFactReaderReadiness({client:m.client});
  assert.equal(r.reason,'CATALOG_CARDINALITY_UNSAFE');
@@ -113,6 +118,7 @@ test('query failure is sanitized and transaction rolled back',async()=>{
  const m=mock([ready],{fail:true});
  const r=await auditTrustedFactReaderReadiness({client:m.client});
  assert.equal(r.reason,'CATALOG_QUERY_FAILED_CLOSED');
+ assert.equal(r.readOnly,false);
  assert.equal(m.calls.at(-1),'ROLLBACK');
  assert.equal(JSON.stringify(r).includes('private-secret'),false);
  invariant(r);
