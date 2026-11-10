@@ -44,6 +44,21 @@ SELECT current_database() AS database_name,
  (SELECT count(*)::int FROM expected) AS expected_column_grants,
  (SELECT count(*)::int FROM actual) AS actual_column_grants,
  (SELECT count(*)::int FROM diff) AS difference_count,
+ (SELECT count(*)::int
+  FROM pg_roles r CROSS JOIN pg_class c
+  JOIN pg_namespace n ON n.oid=c.relnamespace
+  WHERE r.rolname IN ('gpt02_hub_evidence_reader','gpt02_core_evidence_reader')
+    AND n.nspname !~ '^pg_' AND n.nspname<>'information_schema'
+    AND c.relkind IN ('r','p','f','v','m')
+    AND (
+      has_table_privilege(r.rolname,c.oid,'INSERT') OR
+      has_table_privilege(r.rolname,c.oid,'UPDATE') OR
+      has_table_privilege(r.rolname,c.oid,'DELETE') OR
+      has_table_privilege(r.rolname,c.oid,'TRUNCATE') OR
+      has_table_privilege(r.rolname,c.oid,'REFERENCES') OR
+      has_table_privilege(r.rolname,c.oid,'TRIGGER') OR
+      has_table_privilege(r.rolname,c.oid,'MAINTAIN')
+    )) AS mutating_relation_privilege_count,
  (SELECT coalesce(jsonb_agg(jsonb_build_object(
    'issue',issue,'role',grantee,'schema',schema_name,'table',table_name,'column',column_name)
    ORDER BY issue,grantee,schema_name,table_name,column_name),'[]'::jsonb) FROM diff) AS differences`;
@@ -51,7 +66,7 @@ SELECT current_database() AS database_name,
 const BASE=Object.freeze({
  environment:'CST-DEV',readOnly:false,exactColumnGrants:false,
  expectedColumnGrants:EXPECTED_COLUMN_GRANTS,actualColumnGrants:0,
- dispatchPermitted:false,issuerLeaseGranted:false,releaseDecision:'NO_GO'
+ mutatingRelationPrivilegeCount:0,dispatchPermitted:false,issuerLeaseGranted:false,releaseDecision:'NO_GO'
 });
 export function assessReaderColumnGrants(row){
  if(!row||row.database_name!=='postgres'||row.transaction_read_only!=='on')
@@ -61,9 +76,12 @@ export function assessReaderColumnGrants(row){
  const exact=differencesValid&&
   row.expected_column_grants===EXPECTED_COLUMN_GRANTS&&
   row.actual_column_grants===EXPECTED_COLUMN_GRANTS&&
-  row.difference_count===0&&differences.length===0;
+  row.difference_count===0&&differences.length===0&&
+  row.mutating_relation_privilege_count===0;
  return Object.freeze({...BASE,readOnly:true,exactColumnGrants:exact,
   actualColumnGrants:Number.isSafeInteger(row.actual_column_grants)?row.actual_column_grants:0,
+  mutatingRelationPrivilegeCount:Number.isSafeInteger(row.mutating_relation_privilege_count)?
+   row.mutating_relation_privilege_count:0,
   reason:exact?'EXACT_READER_COLUMN_GRANTS_PASS_NO_AUTHORITY':'READER_COLUMN_GRANTS_DRIFT'});
 }
 export async function auditReaderColumnGrants({client}={}){
