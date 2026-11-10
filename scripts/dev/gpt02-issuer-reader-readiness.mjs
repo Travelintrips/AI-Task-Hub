@@ -53,6 +53,10 @@ export const QUERY=
  " r.rolcreatedb,r.rolinherit,r.rolreplication,r.rolbypassrls,r.rolconfig,"+
  " (SELECT count(*)::int FROM pg_auth_members m WHERE m.member=r.oid) memberships,"+
  " (SELECT count(*)::int FROM pg_auth_members m WHERE m.roleid=r.oid) members_of_role,"+
+ " (SELECT count(*)=1 AND bool_and(member.rolname='postgres' AND grantor.rolname='supabase_admin'"+
+ "   AND m.admin_option AND NOT m.inherit_option AND NOT m.set_option)"+
+ "  FROM pg_auth_members m JOIN pg_roles member ON member.oid=m.member"+
+ "  JOIN pg_roles grantor ON grantor.oid=m.grantor WHERE m.roleid=r.oid) exact_management_member,"+
  " (SELECT count(*)::int FROM pg_stat_activity a WHERE a.usename=r.rolname) active_sessions,"+
  " pg_has_role(r.rolname,'pg_read_all_data','USAGE') global_read,"+
  " pg_has_role(r.rolname,'pg_write_all_data','USAGE') global_write,"+
@@ -98,7 +102,8 @@ export function verifyIssuerReaderReadiness(row){
   row.rolsuper===false&&row.rolcreaterole===false&&row.rolcreatedb===false&&
   row.rolinherit===false&&row.rolreplication===false&&row.rolbypassrls===false&&
   JSON.stringify(config)===JSON.stringify(EXACT_CONFIG)&&
-  row.memberships===0&&row.members_of_role===0&&row.active_sessions===0&&
+  row.memberships===0&&row.members_of_role===1&&row.exact_management_member===true&&
+  row.active_sessions===0&&
   row.global_read===false&&row.global_write===false&&row.db_create===false&&
   row.private_usage===true&&row.private_create===false&&row.owned_objects===0&&
   row.special_admin===false&&row.sequence_privileges===0&&
