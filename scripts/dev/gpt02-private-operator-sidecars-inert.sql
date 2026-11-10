@@ -10,7 +10,9 @@ BEGIN
  current_setting('transaction_read_only')<>'off' OR
  NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='postgres' AND NOT rolsuper AND rolcreaterole AND rolbypassrls) OR
  pg_has_role('postgres','gpt02_store_owner','SET') OR
- pg_has_role('postgres','gpt02_store_owner','USAGE') THEN
+ pg_has_role('postgres','gpt02_store_owner','USAGE') OR
+ NOT pg_has_role('postgres','pg_read_all_data','USAGE') OR
+ pg_has_role('postgres','pg_write_all_data','USAGE') THEN
   RAISE EXCEPTION 'GPT02_INERT_EVIDENCE_SCOPE_DENIED';
  END IF;
  IF (SELECT count(*) FROM pg_auth_members WHERE roleid='gpt02_store_owner'::regrole AND member='postgres'::regrole)<>2 OR
@@ -130,7 +132,7 @@ BEGIN
  END IF;
  FOR v IN SELECT c.oid,c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
  WHERE n.nspname='gpt02_private' AND c.relname IN('operator_links','core_identity_receipts') LOOP
-  IF has_table_privilege('postgres',v.oid,'SELECT,INSERT,UPDATE,DELETE') OR
+  IF has_table_privilege('postgres',v.oid,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER') OR
    has_table_privilege('anon',v.oid,'SELECT,INSERT,UPDATE,DELETE') OR
    has_table_privilege('authenticated',v.oid,'SELECT,INSERT,UPDATE,DELETE') OR
    has_table_privilege('service_role',v.oid,'SELECT,INSERT,UPDATE,DELETE') OR

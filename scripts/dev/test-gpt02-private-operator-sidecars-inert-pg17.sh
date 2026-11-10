@@ -20,6 +20,8 @@ run_migration(){ { printf 'BEGIN;\n';cat "$1";printf '\nCOMMIT;\n'; }|run postgr
 [[ "$(q fixture_root 'SHOW server_version_num')" == 17* ]]||{ echo WRONG_PG_VERSION >&2;exit 2; }
 run fixture_root <<'SQL' >/dev/null
 CREATE ROLE postgres LOGIN NOSUPERUSER CREATEROLE BYPASSRLS;
+-- Match existing hosted CST-DEV: shared postgres has global read, but not write.
+GRANT pg_read_all_data TO postgres;
 CREATE ROLE supabase_admin LOGIN NOSUPERUSER CREATEROLE;
 CREATE ROLE anon NOLOGIN;CREATE ROLE authenticated NOLOGIN;CREATE ROLE service_role NOLOGIN;
 CREATE ROLE gpt02_store_owner NOLOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS NOCREATEROLE CONNECTION LIMIT 0;
@@ -104,10 +106,12 @@ run_migration "$FILE" >"$WORK/staged.log" 2>&1||{ tail -40 "$WORK/staged.log";ex
 [[ "$(q postgres "SELECT pg_has_role('postgres','gpt02_store_owner','SET')")" == f ]]||{ echo OWNER_ROLE_USABLE >&2;exit 1; }
 [[ "$(q fixture_root "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='gpt02_private' AND c.relname IN('operator_links','core_identity_receipts') AND pg_get_userbyid(c.relowner)='gpt02_store_owner' AND c.relrowsecurity AND c.relforcerowsecurity")" == 2 ]]||{ echo SIDE_CAR_PRIVATE_RLS_DRIFT >&2;exit 1; }
 [[ "$(q fixture_root "SELECT count(*) FROM pg_constraint c WHERE c.conrelid='gpt02_private.receipts'::regclass AND c.conname='receipt_identity_tuple' AND c.contype='u'")" == 1 ]]||{ echo RECEIPT_UNIQUENESS_MISSING >&2;exit 1; }
-[[ "$(q fixture_root "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='gpt02_private' AND c.relname IN('operator_links','core_identity_receipts') AND has_table_privilege('postgres',c.oid,'SELECT,INSERT,UPDATE,DELETE')")" == 0 ]]||{ echo PRIVILEGED_APP_SEES_PRIVATE_SIDECAR >&2;exit 1; }
+[[ "$(q fixture_root "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='gpt02_private' AND c.relname IN('operator_links','core_identity_receipts') AND has_table_privilege('postgres',c.oid,'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')")" == 0 ]]||{ echo PRIVILEGED_APP_SEES_PRIVATE_SIDECAR >&2;exit 1; }
 [[ "$(q fixture_root "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='gpt02_private' AND c.relname IN('operator_links','core_identity_receipts') AND has_table_privilege('dev_gpt02_issuer_evidence',c.oid,'SELECT,INSERT,UPDATE,DELETE')")" == 0 ]]||{ echo ISSUER_RECEIVED_PRIVATE_DML >&2;exit 1; }
 [[ "$(q fixture_root "SELECT (SELECT count(*) FROM gpt02_private.operator_links)||':'||(SELECT count(*) FROM gpt02_private.core_identity_receipts)||':'||(SELECT count(*) FROM gpt02_private.approvals)||':'||(SELECT count(*) FROM gpt02_private.receipts)")" == 0:0:0:0 ]]||{ echo EVIDENCE_MUTATED >&2;exit 1; }
-echo PASS:EXACT_PRIVATE_LINK_FK_RLS_ACL_NO_DATA
+[[ "$(q fixture_root "SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='gpt02_private' AND c.relname IN('operator_links','core_identity_receipts') AND has_table_privilege('postgres',c.oid,'SELECT')")" == 2 ]] || { echo HOSTED_GLOBAL_READ_EXCEPTION_NOT_REPRODUCED >&2;exit 1; }
+[[ "$(q postgres "SELECT pg_has_role('postgres','pg_read_all_data','USAGE')::text||':'||pg_has_role('postgres','pg_write_all_data','USAGE')::text")" == 'true:false' ]] || { echo HOSTED_GLOBAL_ROLE_BOUNDARY_DRIFT >&2;exit 1; }
+echo PASS:EXACT_PRIVATE_LINK_FK_RLS_ACL_NO_NEW_WRITES_GLOBAL_READ_DISCLOSED
 if run fixture_root <<<"UPDATE gpt02_private.operator_links SET company_id='other';" >"$WORK/update.log" 2>&1;then echo IMMUTABILITY_UPDATE_BYPASSED >&2;exit 1;fi
 grep -Fq APPEND_ONLY_EVIDENCE "$WORK/update.log"||{ tail -10 "$WORK/update.log";exit 1; }
 if run fixture_root <<<"TRUNCATE gpt02_private.core_identity_receipts CASCADE;" >"$WORK/truncate.log" 2>&1;then echo IMMUTABILITY_TRUNCATE_BYPASSED >&2;exit 1;fi
