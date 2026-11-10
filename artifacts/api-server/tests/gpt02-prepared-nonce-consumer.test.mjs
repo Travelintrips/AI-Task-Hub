@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {randomUUID,randomBytes,generateKeyPairSync,sign,createHash} from 'node:crypto';
 import {readFileSync} from 'node:fs';
+import {spawnSync} from 'node:child_process';
 import {canonicalIssuerLeaseEvidence} from '../src/lib/gpt02-issuer-lease-evidence.mjs';
 import {canonicalApproval} from '../src/lib/gpt02-issuer-store.mjs';
 import {canonicalOperatorLink,operatorLinkSigningBytes} from '../src/lib/gpt02-operator-link.mjs';
@@ -192,4 +193,37 @@ test('module has no live HTTP/worker integration and never returns dispatch auth
  const route=readFileSync(new URL('../src/routes/executions.ts',import.meta.url),'utf8');
  assert.equal(route.includes('gpt02-prepared-nonce-consumer'),false);
  assert.match(route,/GPT02_LIFECYCLE_PRE_DISPATCH_PROOF_REQUIRED/);
+});
+
+test('operational DEV rejects injected caller signer keys before opening a DB session',()=>{
+ const moduleUrl=new URL('../src/lib/gpt02-prepared-nonce-consumer.mjs',import.meta.url).href;
+ const subprocess=`
+ import {createPreparedNonceConsumer} from ${JSON.stringify(moduleUrl)};
+ let used=false;
+ try {
+  createPreparedNonceConsumer({readTrustedFacts:async()=>{used=true;},issuerStore:{consumeLinkedApproval:async()=>{used=true;}},
+   publicKeys:{approvalPublicKeyPem:'untrusted'}});
+  process.stdout.write('UNEXPECTED_PASS');
+ }catch(e){process.stdout.write(e.message+' used='+used);}
+ `;
+ const out=spawnSync(process.execPath,['--input-type=module','-e',subprocess],
+  {encoding:'utf8',env:{...process.env,NODE_ENV:'development',APP_ENV:'development'},timeout:5000});
+ assert.equal(out.status,0,out.stderr);
+ assert.equal(out.stdout,'GPT02_CALLER_SIGNER_KEYS_FORBIDDEN used=false');
+});
+test('operational DEV without four independently pinned public files refuses admission',()=>{
+ const moduleUrl=new URL('../src/lib/gpt02-prepared-nonce-consumer.mjs',import.meta.url).href;
+ const subprocess=`
+ import {createPreparedNonceConsumer} from ${JSON.stringify(moduleUrl)};
+ let used=false;
+ try{
+  createPreparedNonceConsumer({readTrustedFacts:async()=>{used=true;},issuerStore:{consumeLinkedApproval:async()=>{used=true;}},
+   expectedFingerprints:{approval:'a'.repeat(64),hub:'b'.repeat(64),core:'c'.repeat(64),issuer:'d'.repeat(64)}});
+  process.stdout.write('UNEXPECTED_PASS');
+ }catch(e){process.stdout.write((e.code||e.message)+' used='+used);}
+ `;
+ const out=spawnSync(process.execPath,['--input-type=module','-e',subprocess],
+  {encoding:'utf8',env:{...process.env,NODE_ENV:'development',APP_ENV:'development'},timeout:5000});
+ assert.equal(out.status,0,out.stderr);
+ assert.equal(out.stdout,'TRUST_STORE_DIRECTORY_NOT_FOUND used=false');
 });
