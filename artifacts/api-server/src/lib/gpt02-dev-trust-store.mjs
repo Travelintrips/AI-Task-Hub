@@ -11,6 +11,7 @@ import {
 } from 'node:fs';
 import {join} from 'node:path';
 import {createHash,createPublicKey} from 'node:crypto';
+import {loadGpt02DevTrustManifest} from './gpt02-dev-trust-manifest.mjs';
 
 const ROOT='/run/credentials/gpt02-dev';
 const LABELS=Object.freeze({
@@ -59,13 +60,19 @@ function restrictedPublicKey(path,uid){
  }finally{closeSync(fd)}
 }
 /** No public key can be learned from a caller-supplied approval envelope. */
-export function loadGpt02DevTrustStore({expectedFingerprints,root=ROOT}={}){
+export function loadGpt02DevTrustStore({pins,root=ROOT}={}){
+ const synthetic=process.env.NODE_ENV==='test'&&process.env.APP_ENV!=='production';
  if(typeof root!=='string'||!root.startsWith('/')||
-   (root!==ROOT&&process.env.NODE_ENV!=='test'))deny('GPT02_FIXED_DEV_TRUST_ROOT_REQUIRED');
- if(!exact(expectedFingerprints,expectedLabels)||
-  expectedLabels.some(n=>typeof expectedFingerprints[n]!=='string'||
-   !FINGERPRINT.test(expectedFingerprints[n]))||
-  new Set(Object.values(expectedFingerprints)).size!==4)
+   (root!==ROOT&&!synthetic))deny('GPT02_FIXED_DEV_TRUST_ROOT_REQUIRED');
+ if(!synthetic&&pins!==undefined)
+   deny('GPT02_CALLER_TRUST_MANIFEST_FORBIDDEN');
+ const pins=synthetic&&pins!==undefined
+   ? pins
+   : loadGpt02DevTrustManifest().fingerprints;
+ if(!exact(pins,expectedLabels)||
+  expectedLabels.some(n=>typeof pins[n]!=='string'||
+   !FINGERPRINT.test(pins[n]))||
+  new Set(Object.values(pins)).size!==4)
    deny('TRUST_FINGERPRINT_MANIFEST_INVALID');
  const uid=typeof process.getuid==='function'?process.getuid():null;
  if(!Number.isInteger(uid))deny('POSIX_TRUST_STORE_REQUIRED');
@@ -73,14 +80,14 @@ export function loadGpt02DevTrustStore({expectedFingerprints,root=ROOT}={}){
  const keys={},hashes=[];
  for(const name of expectedLabels){
   const x=restrictedPublicKey(join(root,LABELS[name]),uid);
-  if(x.fingerprint!==expectedFingerprints[name])deny('TRUST_FINGERPRINT_MISMATCH');
+  if(x.fingerprint!==pins[name])deny('TRUST_FINGERPRINT_MISMATCH');
   hashes.push(x.fingerprint);
   keys[OUTPUT[name]]=x.pem;
  }
  if(new Set(hashes).size!==4)deny('FOUR_INDEPENDENT_KEYS_REQUIRED');
  return Object.freeze({
   ...keys,
-  metadata:Object.freeze({environment:'DEV',fingerprints:Object.freeze({...expectedFingerprints})}),
+  metadata:Object.freeze({environment:'DEV',fingerprints:Object.freeze({...pins})}),
   issuerLeaseGranted:false,dispatchPermitted:false
  });
 }
