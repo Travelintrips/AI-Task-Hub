@@ -30,9 +30,14 @@ function fixture(){
   memberName:'Synthetic PIC',actorIdentity:{
    version:1,role:'super_admin',id:link.hubOperatorId,email:'admin@example.invalid'
   }};
+ const config_sha256=createHash('sha256').update([
+  'default','137','5','4567',link.hubOperatorId,
+  'GPT02 DEV coding lifecycle','Travelintrips/Core-AI-Foundation',
+  'develop','Synthetic instruction'
+ ].join('\x1f')).digest('hex');
  const hub={
   company_id:'default',hub_task_id:137,member_id:5,member_audit_id:4567,
-  operator_subject:link.hubOperatorId,core_task_id:coreTaskId,
+  operator_subject:link.hubOperatorId,config_sha256,core_task_id:coreTaskId,
   hub_execution_id:executionId,command_candidate_id:commandId,attempt_id:attemptId,
   expires_ms:now+60000,assigned_to_id:5,assigned_to:'Synthetic PIC',
   task_status:'open',task_title:'Synthetic new task',
@@ -57,7 +62,8 @@ function fixture(){
   link_digest:createHash('sha256').update(canonicalOperatorLink(link)).digest('hex'),
   hub_signature:'A'.repeat(86),core_signature:'B'.repeat(86)};
  const core={core_task_id:coreTaskId,core_status:'PENDING',
-  core_task_number:'GPT02DEV-137-abcdef',core_repository:'Travelintrips/Core-AI-Foundation',
+  core_task_number:'GPT02DEV-137-abcdef',core_project:'GPT02 DEV coding lifecycle',
+  core_repository:'Travelintrips/Core-AI-Foundation',
   core_branch:'develop',core_instruction:'Synthetic instruction',
   core_operator_user_id:77,core_role:'admin',core_operator_status:'active',
   must_change_password:false,run_count:0,command_count:0};
@@ -143,12 +149,13 @@ for(const [where,change] of [
  ['hub',{audit_action:'unrelated'}],['hub',{audit_entity_id:'138'}],
  ['hub',{latest_pic_audit_id:4568}],['hub',{audit_payload:'{}'}],
  ['hub',{hub_company_id:3}],['hub',{hub_email:'different@example.invalid'}],
+ ['hub',{config_sha256:'a'.repeat(64)}],
  ['hub',{job_source:'OTHER'}],['hub',{job_idempotency_key:'replayed'}],
  ['hub',{job_progress:30}],['hub',{callback_verified:true}],
  ['hub',{final_ack_verified:true}],['hub',{hub_execution_count:2}],
  ['hub',{job_external_id:'wrong'}],['hub',{job_instruction:'changed'}],
  ['hub',{job_title:'changed'}],['core',{core_repository:'other/repo'}],
- ['core',{core_branch:'main'}],
+ ['core',{core_branch:'main'}],['core',{core_project:'other'}],
  ['hub',{hub_status:'suspended'}],['hub',{job_status:'running'}],
  ['hub',{job_command_id:U()}],['hub',{task_status:'completed'}],
  ['hub',{assigned_to_id:11}],['hub',{audit_company_id:'another'}],
@@ -186,6 +193,13 @@ test('malformed or forged assignment actor identity blocks future nonce',async()
   const x=instance(v);
   await assert.rejects(x.reader(x.lookup),e=>e.code==='SUPER_ADMIN_ASSIGNMENT_AUDIT_MISMATCH');
  }
+});
+test('changed Hub and Core instruction together cannot bypass immutable configuration hash',async()=>{
+ const x=fixture();
+ x.hub.job_instruction='Unauthorized instruction';
+ x.core.core_instruction='Unauthorized instruction';
+ const reader=instance(x);
+ await assert.rejects(reader.reader(reader.lookup),e=>e.code==='IMMUTABLE_PREPARATION_CONFIGURATION_MISMATCH');
 });
 test('altered signed worker claim fails the canonical digest and cannot become a worker lease',async()=>{
  const v=fixture();
