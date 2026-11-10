@@ -5,8 +5,6 @@
  * No fallback to the shared application pool is allowed. Credentials stay in
  * environment variables and are never returned or logged by this module.
  */
-import pg from 'pg';
-
 const PROJECT_REF='xssrfshdrtdfupgqwfdw';
 const POOLER_HOST='aws-1-ap-southeast-2.pooler.supabase.com';
 const DATABASE='postgres';
@@ -36,7 +34,7 @@ function parseReaderDsn(value,role){
 
 export function createGpt02ReaderPools({
  env=process.env,
- Pool=pg.Pool,
+ Pool,
  nodeEnv=process.env.NODE_ENV,
  appEnv=process.env.APP_ENV
 }={}){
