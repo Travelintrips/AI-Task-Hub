@@ -38,6 +38,9 @@ const IDENTITY_SQL=[
  " NOT pg_has_role(current_user,'pg_read_all_data','USAGE') AS no_global_read,",
  " NOT pg_has_role(current_user,'pg_write_all_data','USAGE') AS no_global_write,",
  " NOT has_database_privilege(current_user,current_database(),'CREATE') AS no_db_create,",
+ " NOT EXISTS(SELECT 1 FROM pg_shdepend s",
+ "   WHERE s.refclassid='pg_authid'::regclass AND s.refobjid=r.oid AND s.deptype='o')",
+ "   AS no_owned_objects,",
  " NOT (pg_has_role(current_user,'pg_read_server_files','USAGE')",
  "   OR pg_has_role(current_user,'pg_write_server_files','USAGE')",
  "   OR pg_has_role(current_user,'pg_execute_server_program','USAGE')",
@@ -152,7 +155,7 @@ function verifyDbIdentity(row,expected){
   row.idle_tx_timeout_locked===true&&Number.isInteger(row.backend_pid)&&row.backend_pid>0&&
   row.tls_verified===true&&row.restricted===true&&row.no_memberships===true&&
   row.exact_management_member===true&&row.no_global_read===true&&
-  row.no_global_write===true&&row.no_db_create===true&&
+  row.no_global_write===true&&row.no_db_create===true&&row.no_owned_objects===true&&
   row.no_special_admin_roles===true&&row.no_sequence_privileges===true&&row.no_callable_security_definer_routines===true&&
   row.exact_callable_routines===true&&row.no_callable_mutating_routines===true;
 }
