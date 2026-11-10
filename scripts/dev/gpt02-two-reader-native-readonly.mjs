@@ -41,6 +41,15 @@ export const IDENTITY_QUERY=`SELECT current_database() AS db,current_user AS log
   WHERE n.nspname IN ('public','gpt02_stage','gpt02_private','ai_platform')
     AND p.prokind IN ('f','p')
     AND pg_get_function_result(p.oid)<>'trigger'
+    AND p.prosecdef
+    AND has_function_privilege(current_user,p.oid,'EXECUTE')
+ ) AS no_callable_security_definer_routines,
+ NOT EXISTS(
+  SELECT 1 FROM pg_proc p
+  JOIN pg_namespace n ON n.oid=p.pronamespace
+  WHERE n.nspname IN ('public','gpt02_stage','gpt02_private','ai_platform')
+    AND p.prokind IN ('f','p')
+    AND pg_get_function_result(p.oid)<>'trigger'
     AND has_function_privilege(current_user,p.oid,'EXECUTE')
     AND pg_get_functiondef(p.oid) ~* '\\m(INSERT|UPDATE|DELETE|TRUNCATE|MERGE|CALL|ALTER|GRANT|REVOKE)\\M'
  ) AS no_callable_mutating_routines
@@ -63,7 +72,8 @@ function ok(row,role){
   row.idle_tx_timeout_locked===true&&Number.isInteger(row.backend_pid)&&row.backend_pid>0&&
   row.tls_verified===true&&row.bounded_role===true&&row.no_memberships===true&&
   row.no_global_read===true&&row.no_global_write===true&&row.no_database_create===true&&
-  row.no_sequence_privileges===true&&row.no_callable_mutating_routines===true;
+  row.no_sequence_privileges===true&&row.no_callable_security_definer_routines===true&&
+  row.no_callable_mutating_routines===true;
 }
 function resolvePool(){
  const apiRequire=createRequire(new URL('../../artifacts/api-server/package.json',import.meta.url));
