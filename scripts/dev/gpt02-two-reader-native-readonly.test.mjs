@@ -1,14 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {IDENTITY_QUERY,probe} from './gpt02-two-reader-native-readonly.mjs';
 
 const ref='xssrfshdrtdfupgqwfdw';
 const host='aws-1-ap-southeast-2.pooler.supabase.com';
+const ca=readFileSync(new URL('./fixtures/supabase-root-ca-2021.crt',import.meta.url),'utf8');
 const dsn=(role,secret)=>`postgresql://${role}.${ref}:${secret}@${host}:5432/postgres`;
 const env=Object.freeze({
  NODE_ENV:'test',APP_ENV:'development',
  GPT02_HUB_READER_DATABASE_URL_DEV:dsn('gpt02_hub_evidence_reader','hub-secret'),
- GPT02_CORE_READER_DATABASE_URL_DEV:dsn('gpt02_core_evidence_reader','core-secret')
+ GPT02_CORE_READER_DATABASE_URL_DEV:dsn('gpt02_core_evidence_reader','core-secret'),
+ GPT02_READER_DEV_CA:ca
 });
 const row=(role,backendPid)=>({
  db:'postgres',login:role,session:role,in_readonly_tx:true,
