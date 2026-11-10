@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {randomUUID,randomBytes,generateKeyPairSync,sign,createHash} from 'node:crypto';
 import {readFileSync} from 'node:fs';
-import {canonicalIssuerLeaseEvidence,inspectIssuerLeaseEvidence as inspect} from '../src/lib/gpt02-issuer-lease-evidence.mjs';
+import {canonicalIssuerLeaseEvidence,createIssuerLeaseEvidenceVerifier} from '../src/lib/gpt02-issuer-lease-evidence.mjs';
 import {canonicalApproval} from '../src/lib/gpt02-issuer-store.mjs';
 import {canonicalOperatorLink,operatorLinkSigningBytes} from '../src/lib/gpt02-operator-link.mjs';
 
@@ -58,6 +58,11 @@ function fixture(taskId=137){
  return {prepared,job,core,hubOperator,proof,publicKeys,nonceReceipt,identityReceipt,fence,lease,
   issuerPublicKeyPem:pub('issuer'),now};
 }
+// Test fixtures model separately pinned server keys and an untrusted evidence object.
+const inspect=x=>{
+ const {publicKeys,issuerPublicKeyPem,...evidence}=x;
+ return createIssuerLeaseEvidenceVerifier({publicKeys,issuerPublicKeyPem})(evidence);
+};
 function patchLease(x,changes){
  const claims={...x.lease.claims,...changes};
  return {...x,lease:{claims,signatureBase64url:signLease(claims)}};
@@ -127,4 +132,14 @@ test('no SQL, network, or dispatch access is imported from issuer evidence verif
   assert.equal(s.includes(bad),false,bad);
  assert.match(s,/issuerLeaseEvidenceVerified:true/);
  assert.match(s,/dispatchPermitted:false/);
+});
+
+test('untrusted request cannot replace independently pinned signer trust store',()=>{
+ const x=fixture();
+ const {publicKeys,issuerPublicKeyPem,...evidence}=x;
+ const trusted=createIssuerLeaseEvidenceVerifier({publicKeys,issuerPublicKeyPem});
+ assert.equal(trusted({...evidence,publicKeys:{...publicKeys}}).matched,false);
+ assert.equal(trusted({...evidence,issuerPublicKeyPem:pub('issuer')}).matched,false);
+ assert.equal(trusted({...evidence,untrustedSigningKey:pub('issuer')}).matched,false);
+ assert.equal(trusted(evidence).matched,true);
 });
