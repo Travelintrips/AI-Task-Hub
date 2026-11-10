@@ -62,6 +62,7 @@ test('audit uses one read-only transaction and rolls back',async()=>{
 
 test('query is catalog-only and cannot read task/evidence rows or mutate',()=>{
  assert.match(QUERY,/pg_attribute/);
+ assert.match(QUERY,/c\.relkind IN \('r','p','f'\)/);
  assert.match(QUERY,/has_column_privilege/);
  assert.match(QUERY,/difference_count/);
  assert.match(QUERY,/gpt02_hub_evidence_reader/);
