@@ -22,23 +22,43 @@ function fixture(){
   nonce:'A'.repeat(44),issuedAt:now-1000,expiresAt:now+45000};
  const meta={commandCandidateId:commandId,coreTaskId,attemptId,
   memberId:5,memberAuditId:4567,operatorSubject:link.hubOperatorId,
-  attemptNumber:1,dispatchStarted:false,autoContinue:false};
+  attemptNumber:1,dispatchStarted:false,autoContinue:false,
+  accountAlias:'GPT02',environment:'development',
+  verificationMode:'chatgpt-attested',productionAllowed:false,
+  executionType:'managed_prepared',lifecycleStart:false};
+ const audit={taskId:137,companyId:'default',memberId:5,
+  memberName:'Synthetic PIC',actorIdentity:{
+   version:1,role:'super_admin',id:link.hubOperatorId,email:'admin@example.invalid'
+  }};
  const hub={
   company_id:'default',hub_task_id:137,member_id:5,member_audit_id:4567,
   operator_subject:link.hubOperatorId,core_task_id:coreTaskId,
   hub_execution_id:executionId,command_candidate_id:commandId,attempt_id:attemptId,
   expires_ms:now+60000,assigned_to_id:5,assigned_to:'Synthetic PIC',
-  task_status:'open',member_name:'Synthetic PIC',member_active:true,
-  hub_role:'super_admin',hub_active:true,hub_status:'active',
+  task_status:'open',task_title:'Synthetic new task',
+  member_name:'Synthetic PIC',member_active:true,
+  hub_user_id:link.hubOperatorId,hub_role:'super_admin',
+  hub_active:true,hub_status:'active',hub_company_id:null,
+  hub_email:'admin@example.invalid',
   audited_member_record:4567,audit_company_id:'default',
+  audit_action:'gpt02_pic_assigned',audit_entity_id:'137',
+  audit_payload:audit,audit_user_email:'admin@example.invalid',
+  latest_pic_audit_id:4567,
   job_company_id:'default',job_task_id:137,job_status:'prepared',
+  job_source:'AI_TASK',job_external_id:'ai-task:default:137',
+  job_idempotency_key:'gpt02-managed-preparation:default:137',
+  job_title:'Synthetic new task',job_instruction:'Synthetic instruction',
+  job_progress:0,callback_verified:false,attestation_verified:false,
+  final_ack_verified:false,hub_execution_count:1,
   job_command_id:null,job_worker_id:null,job_assigned_client_id:null,job_metadata:meta,
   link_id:linkId,accountable_owner_id:link.accountableOwnerId,
   hub_operator_id:link.hubOperatorId,core_operator_user_id:77,
   signed_link_claims:link,approval_digest:link.approvalDigest,
   link_digest:createHash('sha256').update(canonicalOperatorLink(link)).digest('hex'),
   hub_signature:'A'.repeat(86),core_signature:'B'.repeat(86)};
- const core={core_task_id:coreTaskId,core_status:'PENDING',core_task_number:'GPT02DEV-137',
+ const core={core_task_id:coreTaskId,core_status:'PENDING',
+  core_task_number:'GPT02DEV-137-abcdef',core_repository:'Travelintrips/Core-AI-Foundation',
+  core_branch:'develop',core_instruction:'Synthetic instruction',
   core_operator_user_id:77,core_role:'admin',core_operator_status:'active',
   must_change_password:false,run_count:0,command_count:0};
  return {hub,core,lookup:{companyId:'default',hubTaskId:137,
@@ -120,6 +140,15 @@ test('absence, duplicate signed Hub sidecar and missing Core operator fail close
 });
 for(const [where,change] of [
  ['hub',{member_active:false}],['hub',{hub_active:false}],
+ ['hub',{audit_action:'unrelated'}],['hub',{audit_entity_id:'138'}],
+ ['hub',{latest_pic_audit_id:4568}],['hub',{audit_payload:'{}'}],
+ ['hub',{hub_company_id:3}],['hub',{hub_email:'different@example.invalid'}],
+ ['hub',{job_source:'OTHER'}],['hub',{job_idempotency_key:'replayed'}],
+ ['hub',{job_progress:30}],['hub',{callback_verified:true}],
+ ['hub',{final_ack_verified:true}],['hub',{hub_execution_count:2}],
+ ['hub',{job_external_id:'wrong'}],['hub',{job_instruction:'changed'}],
+ ['hub',{job_title:'changed'}],['core',{core_repository:'other/repo'}],
+ ['core',{core_branch:'main'}],
  ['hub',{hub_status:'suspended'}],['hub',{job_status:'running'}],
  ['hub',{job_command_id:U()}],['hub',{task_status:'completed'}],
  ['hub',{assigned_to_id:11}],['hub',{audit_company_id:'another'}],
@@ -132,6 +161,22 @@ for(const [where,change] of [
  const v=fixture();v[where]={...v[where],...change};
  const x=instance(v);
  await assert.rejects(x.reader(x.lookup));
+});
+test('a newer Super Admin PIC audit blocks a stale signed preparation',async()=>{
+ const v=fixture();v.hub.latest_pic_audit_id=4569;
+ const x=instance(v);
+ await assert.rejects(x.reader(x.lookup),e=>e.code==='SUPER_ADMIN_ASSIGNMENT_AUDIT_MISMATCH');
+});
+test('malformed or forged assignment actor identity blocks future nonce',async()=>{
+ for(const patch of [
+  {actorIdentity:{version:1,role:'staff',id:'google_fixture_super_admin',email:'admin@example.invalid'}},
+  {memberId:6},
+  {companyId:'other'}
+ ]){
+  const v=fixture();v.hub.audit_payload={...v.hub.audit_payload,...patch};
+  const x=instance(v);
+  await assert.rejects(x.reader(x.lookup),e=>e.code==='SUPER_ADMIN_ASSIGNMENT_AUDIT_MISMATCH');
+ }
 });
 test('altered signed worker claim fails the canonical digest and cannot become a worker lease',async()=>{
  const v=fixture();
