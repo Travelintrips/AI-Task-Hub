@@ -60,8 +60,13 @@ test('catalog query covers exact column, RLS and effective privilege surfaces',(
 test('migration is inert, column-scoped and has no authority surface',async()=>{
  const src=await readFile(new URL('./gpt02-issuer-evidence-reader-hosted-inert.sql',import.meta.url),'utf8');
  for(const required of [
-  'NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT',
-  'NOREPLICATION NOBYPASSRLS CONNECTION LIMIT 0',
+  'NOLOGIN NOINHERIT CONNECTION LIMIT 0',
+  "r.rolsuper IS FALSE",
+  "r.rolcreatedb IS FALSE",
+  "r.rolcreaterole IS FALSE",
+  "r.rolreplication IS FALSE",
+  "r.rolbypassrls IS FALSE",
+  'GPT02_ISSUER_READER_ROLE_BASELINE_UNSAFE',
   "SET default_transaction_read_only='on'",
   "SET search_path='pg_catalog'",
   'GRANT USAGE ON SCHEMA gpt02_private',
