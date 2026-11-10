@@ -11,6 +11,8 @@ const CORE='gpt02_core_evidence_reader';
 
 export const IDENTITY_QUERY=`SELECT current_database() AS db,current_user AS login,
  session_user AS session,current_setting('transaction_read_only')='on' AS in_readonly_tx,
+ pg_backend_pid() AS backend_pid,
+ EXISTS(SELECT 1 FROM pg_stat_ssl s WHERE s.pid=pg_backend_pid() AND s.ssl) AS tls_verified,
  r.rolcanlogin AND NOT(r.rolsuper OR r.rolcreaterole OR r.rolcreatedb OR r.rolbypassrls
   OR r.rolreplication OR r.rolinherit) AND r.rolconnlimit=1 AS bounded_role,
  NOT EXISTS(SELECT 1 FROM pg_auth_members m WHERE m.member=r.oid) AS no_memberships,
@@ -31,7 +33,8 @@ const report=(reason,extra={})=>Object.freeze({...BASE,...extra,reason,
 
 function ok(row,role){
  return row?.db==='postgres'&&row.login===role&&row.session===role&&
-  row.in_readonly_tx===true&&row.bounded_role===true&&row.no_memberships===true&&
+  row.in_readonly_tx===true&&Number.isInteger(row.backend_pid)&&row.backend_pid>0&&
+  row.tls_verified===true&&row.bounded_role===true&&row.no_memberships===true&&
   row.no_global_read===true&&row.no_global_write===true&&row.no_database_create===true;
 }
 function resolvePool(){
@@ -65,12 +68,14 @@ export async function probe(env=process.env,deps={}){
  try{
   h=await inspect(pools.hubPool);
   c=await inspect(pools.corePool);
-  if(h.client===c.client)return report('SEPARATE_NATIVE_SESSIONS_REQUIRED');
+  const separate=Number.isInteger(h.row?.backend_pid)&&Number.isInteger(c.row?.backend_pid)&&
+   h.row.backend_pid!==c.row.backend_pid;
+  if(!separate)return report('SEPARATE_NATIVE_BACKENDS_REQUIRED');
   const hubGood=ok(h.row,HUB),coreGood=ok(c.row,CORE);
   return report(hubGood&&coreGood?'TWO_NATIVE_READERS_PASS_NO_AUTHORITY':
    'NATIVE_READER_PRIVILEGE_MISMATCH',{
     hubAuthenticated:hubGood,coreAuthenticated:coreGood,
-    twoSessionsVerified:h.client!==c.client,
+    twoSessionsVerified:separate,
     permissionsVerified:hubGood&&coreGood
   });
  }catch{return report('NATIVE_READER_LOGIN_OR_CATALOG_PROBE_FAILED');}
