@@ -5,7 +5,9 @@
  * The injected fact reader MUST perform independently authenticated DB reads;
  * caller cannot supply facts, clock, or pinned public keys.
  */
-import {createPublicKey} from 'node:crypto';
+import {createPublicKey,createHash,verify} from 'node:crypto';
+import {canonicalApproval} from './gpt02-issuer-store.mjs';
+import {canonicalOperatorLink,operatorLinkSigningBytes} from './gpt02-operator-link.mjs';
 import {inspectPreparedSignedLink} from './gpt02-prepared-link.mjs';
 
 const FIELDS=['approval','operatorLink'];
@@ -38,6 +40,30 @@ export function createPreparedNonceConsumer({readTrustedFacts,issuerStore,public
   throw Error('GPT02_AUTHENTICATED_READ_AND_ISSUER_REQUIRED');
  const trustedKeys=pinnedKeys(publicKeys);
  let inflight=false; // Single process guard; DB unique indexes are still the cross-process authority.
+ // This preflight runs before ANY task/identity database read.
+ // The fact reader will never receive an unauthenticated claim as a lookup.
+ const signingKeys=Object.fromEntries(PUBLIC_KEYS.map(field=>[field,createPublicKey(trustedKeys[field])]));
+ function validSignature(value,bytes,signerKey){
+  if(typeof value!=='string'||!/^[A-Za-z0-9_-]{86}$/.test(value))return false;
+  const sig=Buffer.from(value,'base64url');
+  return sig.length===64&&sig.toString('base64url')===value&&verify(null,bytes,signerKey,sig);
+ }
+ function signedBeforeRead(input){
+  try{
+   const a=input.approval.claims,l=input.operatorLink.claims;
+   const ap=canonicalApproval(a),op=canonicalOperatorLink(l);
+   const digest=createHash('sha256').update(ap).digest('hex');
+   if(l.hubTaskId!==a.taskId||l.companyId!==a.companyId||
+      l.coreCommandId!==a.commandId||l.attemptId!==a.attemptId||
+      l.hubOperatorId!==a.superAdminId||l.nonce!==a.nonce||
+      l.approvalDigest!==digest)return false;
+   return validSignature(input.approval.signatureBase64url,Buffer.from(ap),signingKeys.approvalPublicKeyPem)&&
+    validSignature(input.operatorLink.hubSignatureBase64url,
+      operatorLinkSigningBytes(l,'hub'),signingKeys.hubPublicKeyPem)&&
+    validSignature(input.operatorLink.coreSignatureBase64url,
+      operatorLinkSigningBytes(l,'core'),signingKeys.corePublicKeyPem);
+  }catch{return false;}
+ }
  return Object.freeze({
   async consume(input){
    if(!exact(input,FIELDS)||!exact(input.approval,['claims','signatureBase64url'])||
@@ -48,6 +74,7 @@ export function createPreparedNonceConsumer({readTrustedFacts,issuerStore,public
       !Number.isSafeInteger(a.taskId)||a.taskId<=136||
       typeof a.commandId!=='string'||typeof a.attemptId!=='string')
     return denied('OUT_OF_SCOPE_TASK_OR_APPROVAL');
+   if(!signedBeforeRead(input))return denied('SIGNATURE_NOT_VERIFIED_BEFORE_DB_READ');
    if(inflight)return denied('LOCAL_DUPLICATE_CONSUMPTION');
    inflight=true;
    try{
