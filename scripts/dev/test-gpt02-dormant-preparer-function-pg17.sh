@@ -9,7 +9,9 @@ trap cleanup EXIT
 node "$ROOT/scripts/dev/generate-gpt02-dormant-preparer.cjs" --check
 NODE_IMAGE="${GPT02_DORMANT_TEST_IMAGE:-postgres:17-alpine}"
 [[ "$NODE_IMAGE" == "postgres:17-alpine" || "$NODE_IMAGE" == "postgres:16-alpine" ]] || { echo UNSUPPORTED_TEST_IMAGE >&2;exit 2; }
-docker run -d --name "$NAME" --network none -e POSTGRES_USER=fixture_root -e POSTGRES_DB=postgres -e POSTGRES_PASSWORD=synthetic-only "$NODE_IMAGE" >/dev/null
+# Require SCRAM on loopback too; the default initdb localhost trust rules
+# would otherwise allow incorrect passwords despite an appended SCRAM rule.
+docker run -d --name "$NAME" --network none -e POSTGRES_USER=fixture_root -e POSTGRES_DB=postgres -e POSTGRES_PASSWORD=synthetic-only -e POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256 "$NODE_IMAGE" >/dev/null
 ready=false
 for i in $(seq 1 55);do
  log="$(docker logs "$NAME" 2>&1||true)"
