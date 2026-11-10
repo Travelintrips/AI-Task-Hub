@@ -1,9 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {createGpt02ReaderPools} from '../src/lib/gpt02-reader-pools.mjs';
 
 const host='aws-1-ap-southeast-2.pooler.supabase.com';
 const ref='xssrfshdrtdfupgqwfdw';
+const ca=readFileSync(new URL('../../../scripts/dev/fixtures/supabase-root-ca-2021.crt',import.meta.url),'utf8');
 const dsn=(role,password='secret-value')=>
   `postgresql://${role}.${ref}:${password}@${host}:5432/postgres`;
 
@@ -14,6 +16,7 @@ function env(overrides={}){
  return {
   GPT02_HUB_READER_DATABASE_URL_DEV:dsn('gpt02_hub_evidence_reader','hub-secret'),
   GPT02_CORE_READER_DATABASE_URL_DEV:dsn('gpt02_core_evidence_reader','core-secret'),
+  GPT02_READER_DEV_CA:ca,
   ...overrides
  };
 }
@@ -36,6 +39,8 @@ test('builds two distinct max-one DEV reader pools without exposing DSNs',()=>{
  assert.equal(v.corePool.config.application_name,'gpt02-core-evidence-reader');
  assert.equal(v.hubPool.config.ssl.rejectUnauthorized,true);
  assert.equal(v.corePool.config.ssl.rejectUnauthorized,true);
+ assert.equal(v.hubPool.config.ssl.ca,ca);
+ assert.equal(v.corePool.config.ssl.ca,ca);
  for(const p of [v.hubPool.config.options,v.corePool.config.options]){
   assert.match(p,/default_transaction_read_only=on/);
   assert.match(p,/search_path=pg_catalog/);
@@ -53,7 +58,7 @@ test('missing reader DSN fails closed before constructing any pool',()=>{
  let calls=0;
  class CountPool{constructor(){calls++;}}
  assert.throws(()=>createGpt02ReaderPools({
-  env:{GPT02_HUB_READER_DATABASE_URL_DEV:dsn('gpt02_hub_evidence_reader')},
+  env:{GPT02_HUB_READER_DATABASE_URL_DEV:dsn('gpt02_hub_evidence_reader'),GPT02_READER_DEV_CA:ca},
   Pool:CountPool,nodeEnv:'test',appEnv:'development'
  }),e=>e.code==='GPT02_READER_DSN_REQUIRED');
  assert.equal(calls,0);
@@ -83,12 +88,22 @@ for(const [name,patch,code] of [
  assert.throws(()=>make({env:env(patch)}),e=>e.code===code);
 });
 
+test('invalid CA, CA bundle expansion and global TLS disable are rejected',()=>{
+ for(const patch of [
+  {GPT02_READER_DEV_CA:'not-a-ca'},
+  {GPT02_READER_DEV_CA:ca+ca},
+  {NODE_TLS_REJECT_UNAUTHORIZED:'0'}
+ ])assert.throws(()=>make({env:env(patch)}),e=>
+   ['GPT02_READER_PINNED_CA_REQUIRED','GPT02_READER_TLS_DISABLE_FORBIDDEN'].includes(e.code));
+});
+
 test('same full DSN is rejected even in synthetic tests',()=>{
  const same=dsn('gpt02_hub_evidence_reader');
  assert.throws(()=>createGpt02ReaderPools({
   env:{
    GPT02_HUB_READER_DATABASE_URL_DEV:same,
-   GPT02_CORE_READER_DATABASE_URL_DEV:same
+   GPT02_CORE_READER_DATABASE_URL_DEV:same,
+   GPT02_READER_DEV_CA:ca
   },
   Pool:FakePool,nodeEnv:'test',appEnv:'development'
  }),/GPT02_READER_DEDICATED_IDENTITY_REQUIRED|GPT02_READER_DISTINCT_DSNS_REQUIRED/);
