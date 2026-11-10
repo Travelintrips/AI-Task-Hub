@@ -14,15 +14,32 @@ BEGIN
   END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='gpt02_issuer_evidence_reader') THEN
     CREATE ROLE gpt02_issuer_evidence_reader
-      NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT
-      NOREPLICATION NOBYPASSRLS CONNECTION LIMIT 0;
+      NOLOGIN NOINHERIT CONNECTION LIMIT 0;
   END IF;
 END
 $guard$;
 
 ALTER ROLE gpt02_issuer_evidence_reader
-  NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT
-  NOREPLICATION NOBYPASSRLS CONNECTION LIMIT 0;
+  NOLOGIN NOINHERIT CONNECTION LIMIT 0;
+
+DO $role_guard$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_roles r
+    WHERE r.rolname='gpt02_issuer_evidence_reader'
+      AND r.rolcanlogin IS FALSE
+      AND r.rolconnlimit=0
+      AND r.rolsuper IS FALSE
+      AND r.rolcreatedb IS FALSE
+      AND r.rolcreaterole IS FALSE
+      AND r.rolinherit IS FALSE
+      AND r.rolreplication IS FALSE
+      AND r.rolbypassrls IS FALSE
+  ) THEN
+    RAISE EXCEPTION 'GPT02_ISSUER_READER_ROLE_BASELINE_UNSAFE';
+  END IF;
+END
+$role_guard$;
 ALTER ROLE gpt02_issuer_evidence_reader SET default_transaction_read_only='on';
 ALTER ROLE gpt02_issuer_evidence_reader SET search_path='pg_catalog';
 ALTER ROLE gpt02_issuer_evidence_reader SET statement_timeout='5s';
