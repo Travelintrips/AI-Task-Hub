@@ -33,7 +33,7 @@ test('script never persists or prints generated reader passwords',()=>{
     'cat "$SECRET_ENV"','>> /etc/ai-task/development.env',
     '> /etc/ai-task/development.env','tee /etc/ai-task/development.env'
   ]) assert.equal(src.includes(forbidden),false,forbidden);
-  assert.match(src,/rm -f "$SECRET_ENV"/);
+  assert.match(src,/rm -f "\\$SECRET_ENV"/);
   assert.match(src,/unset HUB_PASS CORE_PASS/);
 });
 
