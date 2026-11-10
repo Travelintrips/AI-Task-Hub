@@ -5,7 +5,8 @@ FILE="$ROOT/scripts/dev/gpt02-private-operator-sidecars-inert.sql"
 NAME="gpt02-inert-operator-pg17-$$"
 WORK="$(mktemp -d)"
 trap 'docker rm -f "$NAME" >/dev/null 2>&1 || true; rm -rf "$WORK"' EXIT
-docker run -d --rm --network none --name "$NAME" -e POSTGRES_USER=fixture_root -e POSTGRES_DB=postgres -e POSTGRES_PASSWORD=fixture-only postgres:17-alpine >/dev/null
+IMAGE="${GPT02_FENCE_TEST_IMAGE:-postgres:17-alpine}"
+docker run -d --rm --network none --name "$NAME" -e POSTGRES_USER=fixture_root -e POSTGRES_DB=postgres -e POSTGRES_PASSWORD=fixture-only "$IMAGE" >/dev/null
 ready=false
 for i in $(seq 1 55);do
  logs="$(docker logs "$NAME" 2>&1||true)"
@@ -17,7 +18,14 @@ done
 run(){ docker exec -i "$NAME" psql -X -v ON_ERROR_STOP=1 -U "$1" -d postgres -q; }
 q(){ docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U "$1" -d postgres -Atqc "$2"; }
 run_migration(){ { printf 'BEGIN;\n';cat "$1";printf '\nCOMMIT;\n'; }|run postgres; }
-[[ "$(q fixture_root 'SHOW server_version_num')" == 17* ]]||{ echo WRONG_PG_VERSION >&2;exit 2; }
+ver="$(q fixture_root 'SHOW server_version_num')"
+if [[ "$IMAGE" == 'postgres:16-alpine' ]];then
+ [[ "$ver" == 16* ]]||{ echo WRONG_PG_VERSION >&2;exit 2; }
+ echo 'LOCAL_FALLBACK_PG16_NONAUTHORITATIVE'
+else
+ [[ "$ver" == 17* ]]||{ echo WRONG_PG_VERSION >&2;exit 2; }
+ echo 'AUTHORITATIVE_PG17_FIXTURE'
+fi
 run fixture_root <<'SQL' >/dev/null
 CREATE ROLE postgres LOGIN NOSUPERUSER CREATEROLE BYPASSRLS;
 -- Match existing hosted CST-DEV: shared postgres has global read, but not write.
