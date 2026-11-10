@@ -10,11 +10,12 @@ const env=Object.freeze({
  GPT02_HUB_READER_DATABASE_URL_DEV:dsn('gpt02_hub_evidence_reader','hub-secret'),
  GPT02_CORE_READER_DATABASE_URL_DEV:dsn('gpt02_core_evidence_reader','core-secret')
 });
-const row=role=>({
- db:'postgres',login:role,session:role,in_readonly_tx:true,bounded_role:true,
+const row=(role,backendPid)=>({
+ db:'postgres',login:role,session:role,in_readonly_tx:true,
+ backend_pid:backendPid,tls_verified:true,bounded_role:true,
  no_memberships:true,no_global_read:true,no_global_write:true,no_database_create:true
 });
-function fake({hub=row('gpt02_hub_evidence_reader'),core=row('gpt02_core_evidence_reader'),
+function fake({hub=row('gpt02_hub_evidence_reader',41001),core=row('gpt02_core_evidence_reader',41002),
  sameClient=false,fail=false}={}){
  const created=[],queries=[];
  class Client{
@@ -81,12 +82,27 @@ test('wrong identity, membership or elevated privilege fails closed',async()=>{
  }
 });
 
-test('same backend client cannot masquerade as two independent sessions',async()=>{
- const f=fake({sameClient:true});
+test('same PostgreSQL backend PID cannot masquerade as two independent sessions',async()=>{
+ const f=fake({
+  hub:row('gpt02_hub_evidence_reader',41001),
+  core:row('gpt02_core_evidence_reader',41001)
+ });
  const r=await probe(env,{Pool:f.Pool});
  assert.equal(r.twoSessionsVerified,false);
- assert.equal(r.reason,'SEPARATE_NATIVE_SESSIONS_REQUIRED');
+ assert.equal(r.reason,'SEPARATE_NATIVE_BACKENDS_REQUIRED');
  assert.equal(r.dispatchPermitted,false);
+});
+test('TLS must be verified independently for both native readers',async()=>{
+ for(const which of ['hub','core']){
+  const base=which==='hub'
+   ? row('gpt02_hub_evidence_reader',41001)
+   : row('gpt02_core_evidence_reader',41002);
+  const f=fake({[which]:{...base,tls_verified:false}});
+  const r=await probe(env,{Pool:f.Pool});
+  assert.equal(r.permissionsVerified,false);
+  assert.equal(r.dispatchPermitted,false);
+  assert.equal(r.reason,'NATIVE_READER_PRIVILEGE_MISMATCH');
+ }
 });
 
 test('query error is sanitized and secrets never appear in output',async()=>{
@@ -102,6 +118,8 @@ test('identity query is catalogue-only and cannot mutate or read task rows',()=>
  assert.match(IDENTITY_QUERY,/current_user AS login/);
  assert.match(IDENTITY_QUERY,/session_user AS session/);
  assert.match(IDENTITY_QUERY,/transaction_read_only/);
+ assert.match(IDENTITY_QUERY,/pg_backend_pid/);
+ assert.match(IDENTITY_QUERY,/pg_stat_ssl/);
  assert.match(IDENTITY_QUERY,/pg_auth_members/);
  assert.doesNotMatch(IDENTITY_QUERY,/gpt02_stage|gpt02_private|ai_tasks|ai_coding_tasks/);
  const s=IDENTITY_QUERY.replace(/'(?:''|[^'])*'/g,"''");
