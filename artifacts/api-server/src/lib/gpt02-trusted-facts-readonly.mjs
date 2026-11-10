@@ -8,6 +8,7 @@
  */
 import {createHash} from 'node:crypto';
 import {canonicalOperatorLink} from './gpt02-operator-link.mjs';
+import {canonicalApproval} from './gpt02-issuer-store.mjs';
 const UUID=/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/;
 const ROLE_HUB='gpt02_hub_evidence_reader';
 const ROLE_CORE='gpt02_core_evidence_reader';
@@ -53,7 +54,9 @@ export const HUB_SQL=[
  " j.assigned_client_id AS job_assigned_client_id,j.metadata AS job_metadata,",
  " l.link_id::text AS link_id,l.accountable_owner_id,l.hub_operator_id,",
  " l.core_operator_user_id,l.claims AS signed_link_claims,",
- " l.approval_digest,l.link_digest,l.hub_signature,l.core_signature",
+ " l.approval_digest,l.link_digest,l.hub_signature,l.core_signature,",
+ " a0.claims AS stored_approval_claims,a0.signature AS stored_approval_signature,",
+ " a0.digest AS stored_approval_digest,",
  " FROM gpt02_stage.core_preparations p",
  " JOIN public.ai_tasks t ON t.id=p.hub_task_id AND t.company_id=p.company_id",
  " JOIN public.team_members m ON m.id=p.member_id AND m.company_id=p.company_id",
@@ -67,8 +70,12 @@ export const HUB_SQL=[
  "    AND l.core_task_id=p.core_task_id AND l.hub_task_id=p.hub_task_id",
  "    AND l.company_id=p.company_id AND l.assignee_id=p.member_id",
  "    AND l.hub_operator_id=p.operator_subject",
+ " JOIN gpt02_private.approvals a0 ON a0.command_id=l.command_id",
+ "    AND a0.task_id=p.hub_task_id AND a0.company_id=p.company_id",
+ "    AND a0.approver_id=p.operator_subject AND a0.digest=l.approval_digest",
  " WHERE p.company_id=$1 AND p.hub_task_id=$2 AND",
- " p.command_candidate_id=$3::uuid AND p.attempt_id=$4::uuid"
+ " p.command_candidate_id=$3::uuid AND p.attempt_id=$4::uuid",
+ " AND l.link_id=$5::uuid AND l.link_digest=$6 AND a0.digest=$7"
 ].join(' ');
 export const CORE_SQL=[
  "SELECT t.id::text AS core_task_id,t.status AS core_status,",
@@ -84,10 +91,12 @@ export const CORE_SQL=[
  " WHERE t.id=$1::uuid AND u.id=$2::integer"
 ].join(' ');
 export function validRequestedIdentity(q){
- return exact(q,['companyId','hubTaskId','commandCandidateId','attemptId'])&&
+ return exact(q,['companyId','hubTaskId','commandCandidateId','attemptId',
+    'linkId','linkDigest','approvalDigest'])&&
   q.companyId==='default'&&integer(q.hubTaskId)&&q.hubTaskId>136&&
-  UUID.test(q.commandCandidateId)&&UUID.test(q.attemptId)&&
-  q.commandCandidateId!==q.attemptId;
+  [q.commandCandidateId,q.attemptId,q.linkId].every(x=>typeof x==='string'&&UUID.test(x))&&
+  new Set([q.commandCandidateId,q.attemptId,q.linkId]).size===3&&
+  [q.linkDigest,q.approvalDigest].every(x=>typeof x==='string'&&/^[a-f0-9]{64}$/.test(x));
 }
 function verifyDbIdentity(row,expected){
  return row?.db==='postgres'&&row.login===expected&&row.session===expected&&
@@ -125,8 +134,23 @@ function mapFacts(h,c,query){
  }catch{denied('SIGNATURE_SIDECAR_CANONICAL_INVALID')}
  if(!/^[A-Za-z0-9_-]{86}$/.test(h.hub_signature)||
     !/^[A-Za-z0-9_-]{86}$/.test(h.core_signature)||
-    h.link_digest!==linkDigest||h.approval_digest!==l.approvalDigest)
+    h.link_digest!==linkDigest||h.approval_digest!==l.approvalDigest||
+    h.link_digest!==query.linkDigest||h.link_id!==query.linkId)
   denied('SIGNED_LINK_LEDGER_DIGEST_MISMATCH');
+ let storedApprovalDigest;
+ try{storedApprovalDigest=createHash('sha256')
+   .update(canonicalApproval(h.stored_approval_claims)).digest('hex')}
+ catch{denied('STORED_APPROVAL_CANONICAL_INVALID')}
+ if(h.stored_approval_digest!==storedApprovalDigest||
+    h.stored_approval_digest!==query.approvalDigest||
+    h.approval_digest!==storedApprovalDigest||
+    typeof h.stored_approval_signature!=='string'||
+    !/^[A-Za-z0-9_-]{86}$/.test(h.stored_approval_signature)||
+    h.stored_approval_claims.taskId!==query.hubTaskId||
+    h.stored_approval_claims.companyId!==query.companyId||
+    h.stored_approval_claims.commandId!==query.commandCandidateId||
+    h.stored_approval_claims.attemptId!==query.attemptId)
+  denied('STORED_SIGNED_APPROVAL_NOT_LINKED');
  if(typeof h.task_status!=='string'||!h.task_status||
    ['completed','cancelled','canceled','closed','failed','archived'].includes(h.task_status.toLowerCase()))
   denied('HUB_TASK_NOT_ACTIVE');
@@ -210,7 +234,15 @@ function mapFacts(h,c,query){
     runCount:c.run_count,workerId:l.workerId,operatorUserId:c.core_operator_user_id,
     operatorRole:c.core_role,operatorActive:true,passwordChanged:true},
   hubOperator:{subject:h.operator_subject,role:h.hub_role,active:true,
-    memberId:h.member_id,accountableOwnerId:h.accountable_owner_id}
+    memberId:h.member_id,accountableOwnerId:h.accountable_owner_id},
+  storedEvidence:{
+   approval:{claims:h.stored_approval_claims,
+     signatureBase64url:h.stored_approval_signature,
+     digest:h.stored_approval_digest},
+   operatorLink:{claims:l,linkDigest:h.link_digest,
+     hubSignatureBase64url:h.hub_signature,
+     coreSignatureBase64url:h.core_signature}
+  }
  };
 }
 /**
@@ -237,7 +269,8 @@ export function createGpt02TrustedFactReader({hubPool,corePool,clock=Date.now}={
      !verifyDbIdentity(hi.rows[0],ROLE_HUB)||
      !verifyDbIdentity(ci.rows[0],ROLE_CORE))denied('TWO_INDEPENDENT_RESTRICTED_DB_LOGINS_REQUIRED');
    const hs=await hub.query(HUB_SQL,[query.companyId,query.hubTaskId,
-    query.commandCandidateId,query.attemptId]);
+    query.commandCandidateId,query.attemptId,query.linkId,
+    query.linkDigest,query.approvalDigest]);
    if(hs.rows?.length!==1)denied('TRUSTED_HUB_TASK_SIDECAR_NOT_UNIQUE');
    const h=hs.rows[0];
    if(!UUID.test(h.core_task_id)||!integer(h.core_operator_user_id))
@@ -257,7 +290,9 @@ export function createGpt02TrustedFactReader({hubPool,corePool,clock=Date.now}={
      'TWO_INDEPENDENT_RESTRICTED_DB_LOGINS_REQUIRED',
      'INCOMPLETE_PREPARED_ROWS','HUB_CORE_SIGNED_SIDECAR_MISMATCH',
      'SIGNATURE_SIDECAR_CANONICAL_INVALID','SIGNED_LINK_LEDGER_DIGEST_MISMATCH',
-     'HUB_TASK_NOT_ACTIVE','IMMUTABLE_PREPARATION_HASH_INPUT_INVALID',
+     'HUB_TASK_NOT_ACTIVE','STORED_APPROVAL_CANONICAL_INVALID',
+     'STORED_SIGNED_APPROVAL_NOT_LINKED',
+     'IMMUTABLE_PREPARATION_HASH_INPUT_INVALID',
      'IMMUTABLE_PREPARATION_CONFIGURATION_MISMATCH',
      'UNREADABLE_SUPER_ADMIN_ASSIGNMENT_AUDIT',
      'SUPER_ADMIN_ASSIGNMENT_AUDIT_MISSING',
