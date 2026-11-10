@@ -56,6 +56,7 @@ CREATE TRIGGER immutable_receipts BEFORE UPDATE OR DELETE OR TRUNCATE ON gpt02_p
  FOR EACH STATEMENT EXECUTE FUNCTION gpt02_private.reject_mutation();
 RESET ROLE;
 GRANT SELECT ON gpt02_private.approvals,gpt02_private.receipts TO postgres;
+GRANT SELECT ON public.ai_tasks,public.ai_execution_jobs,ai_platform.ai_coding_tasks TO postgres;
 GRANT gpt02_store_owner TO supabase_admin WITH ADMIN TRUE;
 GRANT gpt02_store_owner TO supabase_admin WITH SET FALSE;
 GRANT gpt02_store_owner TO supabase_admin WITH INHERIT FALSE;
