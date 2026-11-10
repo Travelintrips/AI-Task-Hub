@@ -26,7 +26,7 @@ SQL
  echo GPT02_FIXTURE_LOGIN_PASSWORD_NOT_SCRAM >&2; return 1;
 }
 auth(){
- docker exec -e "PGPASSWORD=$1" "$NAME" psql -X -v ON_ERROR_STOP=1 -Atq -h 127.0.0.1 -p 5432 \
+ docker exec -i -e "PGPASSWORD=$1" "$NAME" psql -X -v ON_ERROR_STOP=1 -Atq -h 127.0.0.1 -p 5432 \
   -U gpt02_core_prep_login -d postgres
 }
 if printf 'SELECT 1;\n' | auth 'intentionally-wrong-synthetic' >"$WORK/login-wrong.log" 2>&1; then
