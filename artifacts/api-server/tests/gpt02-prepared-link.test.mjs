@@ -122,3 +122,29 @@ test('the validator has zero database connectivity or operational dispatch impor
  assert.equal(routes.includes('gpt02-prepared-link'),false);
  assert.ok(routes.includes('GPT02_LIFECYCLE_PRE_DISPATCH_PROOF_REQUIRED'));
 });
+
+function resignFullyConsistentSyntheticProof(x, claimChanges) {
+ const claims={...x.proof.approval.claims,...claimChanges};
+ const digest=createHash('sha256').update(canonicalApproval(claims)).digest('hex');
+ const link={...x.proof.operatorLink.claims,approvalDigest:digest};
+ x.proof={approval:{
+  claims,
+  signatureBase64url:sign(null,Buffer.from(canonicalApproval(claims)),approvalKeys.privateKey).toString('base64url')
+ },operatorLink:{
+  claims:link,
+  hubSignatureBase64url:sign(null,operatorLinkSigningBytes(link,'hub'),hubKeys.privateKey).toString('base64url'),
+  coreSignatureBase64url:sign(null,operatorLinkSigningBytes(link,'core'),coreKeys.privateKey).toString('base64url')
+ }};
+ return x;
+}
+for(const [name,patch] of [
+ ['wrong-audience',{audience:'GPT02_DIFFERENT_WORKFLOW_APPROVAL'}],
+ ['overlong-approval-TTL',{issuedAt:now-600000}]
+])test('regression signed approval '+name+' must fail even with three valid independent signatures',()=>{
+ const x=resignFullyConsistentSyntheticProof(fixture(),patch);
+ const out=inspect(x);
+ assert.equal(out.matched,false,name);
+ assert.equal(out.approvalRecorded,false);
+ assert.equal(out.nonceConsumed,false);
+ assert.equal(out.dispatchPermitted,false);
+});
