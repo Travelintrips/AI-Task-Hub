@@ -1,25 +1,41 @@
 /**
  * CST-DEV only. Verify no PostgreSQL default ACL can auto-grant future objects
- * to GPT02 evidence readers. Catalog-only, read-only, non-authorizing.
+ * to GPT02 evidence readers, directly or through PUBLIC on accessible schemas.
+ * Catalog-only, read-only, non-authorizing.
  */
 export const QUERY=`WITH readers AS (
  SELECT oid,rolname FROM pg_roles
  WHERE rolname IN ('gpt02_hub_evidence_reader','gpt02_core_evidence_reader')
-), leaks AS (
+), accessible(schema_name) AS (
+ VALUES ('public'),('ai_platform'),('gpt02_stage'),('gpt02_private')
+), direct_leaks AS (
  SELECT rr.rolname AS reader,pg_get_userbyid(d.defaclrole) AS owner_role,
         coalesce(n.nspname,'<global>') AS schema_name,d.defaclobjtype,
-        x.privilege_type,x.is_grantable
+        x.privilege_type,x.is_grantable,'DIRECT'::text AS source
  FROM pg_default_acl d
  CROSS JOIN LATERAL aclexplode(d.defaclacl) x
  JOIN readers rr ON rr.oid=x.grantee
  LEFT JOIN pg_namespace n ON n.oid=d.defaclnamespace
+), public_leaks AS (
+ SELECT 'PUBLIC'::text AS reader,pg_get_userbyid(d.defaclrole) AS owner_role,
+        coalesce(n.nspname,'<global>') AS schema_name,d.defaclobjtype,
+        x.privilege_type,x.is_grantable,'PUBLIC'::text AS source
+ FROM pg_default_acl d
+ CROSS JOIN LATERAL aclexplode(d.defaclacl) x
+ LEFT JOIN pg_namespace n ON n.oid=d.defaclnamespace
+ WHERE x.grantee=0
+   AND (d.defaclnamespace=0 OR n.nspname IN (SELECT schema_name FROM accessible))
+), leaks AS (
+ SELECT * FROM direct_leaks
+ UNION ALL
+ SELECT * FROM public_leaks
 )
 SELECT current_database() AS database_name,
  current_setting('transaction_read_only') AS transaction_read_only,
  (SELECT count(*)::int FROM readers) AS reader_count,
  (SELECT count(*)::int FROM leaks) AS default_acl_leak_count,
  (SELECT coalesce(jsonb_agg(to_jsonb(leaks)
-   ORDER BY reader,owner_role,schema_name,defaclobjtype,privilege_type),'[]'::jsonb) FROM leaks) AS leaks`;
+   ORDER BY source,reader,owner_role,schema_name,defaclobjtype,privilege_type),'[]'::jsonb) FROM leaks) AS leaks`;
 
 const BASE=Object.freeze({
  environment:'CST-DEV',readOnly:false,readerCount:0,
