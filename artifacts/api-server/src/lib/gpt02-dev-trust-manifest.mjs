@@ -32,7 +32,7 @@ function readManifestFile(path,ownerUid){
  try{
   const s=fstatSync(fd);
   if(!s.isFile()||s.nlink!==1||s.uid!==ownerUid||(s.mode&0o022)!==0||
-     s.size<280||s.size>4096)
+     s.size<2||s.size>4096)
    deny('TRUST_MANIFEST_FILE_UNSAFE');
   const raw=readFileSync(fd,{encoding:'utf8'});
   let parsed;try{parsed=JSON.parse(raw)}catch{deny('TRUST_MANIFEST_JSON_INVALID')}
