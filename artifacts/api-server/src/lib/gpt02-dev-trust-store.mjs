@@ -60,14 +60,14 @@ function restrictedPublicKey(path,uid){
  }finally{closeSync(fd)}
 }
 /** No public key can be learned from a caller-supplied approval envelope. */
-export function loadGpt02DevTrustStore({pins,root=ROOT}={}){
+export function loadGpt02DevTrustStore({expectedFingerprints,root=ROOT}={}){
  const synthetic=process.env.NODE_ENV==='test'&&process.env.APP_ENV!=='production';
  if(typeof root!=='string'||!root.startsWith('/')||
    (root!==ROOT&&!synthetic))deny('GPT02_FIXED_DEV_TRUST_ROOT_REQUIRED');
- if(!synthetic&&pins!==undefined)
+ if(!synthetic&&expectedFingerprints!==undefined)
    deny('GPT02_CALLER_TRUST_MANIFEST_FORBIDDEN');
- const pins=synthetic&&pins!==undefined
-   ? pins
+ const pins=synthetic&&expectedFingerprints!==undefined
+   ? expectedFingerprints
    : loadGpt02DevTrustManifest().fingerprints;
  if(!exact(pins,expectedLabels)||
   expectedLabels.some(n=>typeof pins[n]!=='string'||
