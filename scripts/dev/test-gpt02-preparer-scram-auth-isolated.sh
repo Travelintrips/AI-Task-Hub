@@ -37,6 +37,17 @@ tcp() {
   docker exec -e "PGPASSWORD=$password" "$NAME" psql -X -v ON_ERROR_STOP=1 \
     -h 127.0.0.1 -p 5432 -U gpt02_core_prep_login -d postgres -Atqc "$1"
 }
+# Isolated PG17 bootstrap may put host loopback TRUST before the SCRAM
+# fallback. Demand the FIRST matching local TCP rule uses SCRAM so the
+# wrong-password negative test cannot succeed through shadowed trust.
+docker exec "$NAME" sh -c 'sed -i "1i host all all 127.0.0.1/32 scram-sha-256" "$PGDATA/pg_hba.conf"'
+rootq 'SELECT pg_reload_conf()' >/dev/null
+sleep 0.2
+first_hba="$(rootq "SELECT auth_method FROM pg_hba_file_rules WHERE type='host'
+ AND address='127.0.0.1' AND netmask='255.255.255.255' AND error IS NULL
+ ORDER BY rule_number LIMIT 1")"
+[[ "$first_hba" == scram-sha-256 ]] || { echo FIRST_MATCH_HOST_RULE_NOT_SCRAM >&2;exit 1; }
+echo PASS:FIRST_MATCH_TCP_REQUIRES_SCRAM
 root <<'SQL' >/dev/null
 SET password_encryption='scram-sha-256';
 REVOKE CONNECT,TEMP,CREATE ON DATABASE postgres FROM PUBLIC;
