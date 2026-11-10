@@ -9,7 +9,8 @@ const row=(patch={})=>({
  rolcreatedb:false,rolinherit:false,rolreplication:false,rolbypassrls:false,
  rolconfig:['default_transaction_read_only=on','search_path=pg_catalog',
   'statement_timeout=5s','lock_timeout=1s','idle_in_transaction_session_timeout=10s'],
- memberships:0,members_of_role:0,active_sessions:0,global_read:false,global_write:false,
+ memberships:0,members_of_role:1,exact_management_member:true,active_sessions:0,
+ global_read:false,global_write:false,
  db_create:false,private_usage:true,private_create:false,owned_objects:0,special_admin:false,
  sequence_privileges:0,column_diff_count:0,select_column_count:32,table_level_grants:0,
  policy_count:3,exact_policy_count:3,callable_security_definer:0,callable_mutating:0,
@@ -32,7 +33,8 @@ test('exact inert issuer reader catalog passes evidence only',()=>{
 test('any privilege, role, grant, RLS or callable drift fails closed',()=>{
  for(const patch of [
   {rolcanlogin:true},{rolconnlimit:1},{rolsuper:true},{rolinherit:true},
-  {memberships:1},{members_of_role:1},{active_sessions:1},{global_read:true},
+  {memberships:1},{members_of_role:0},{members_of_role:2},{exact_management_member:false},
+  {active_sessions:1},{global_read:true},
   {global_write:true},{db_create:true},{private_usage:false},{private_create:true},
   {owned_objects:1},{special_admin:true},{sequence_privileges:1},
   {column_diff_count:1},{select_column_count:31},{table_level_grants:1},
@@ -48,6 +50,8 @@ test('catalog query covers exact column, RLS and effective privilege surfaces',(
  assert.match(QUERY,/pg_policies/);
  assert.match(QUERY,/relforcerowsecurity/);
  assert.match(QUERY,/pg_auth_members/);
+ assert.match(QUERY,/supabase_admin/);
+ assert.match(QUERY,/m\.set_option/);
  assert.match(QUERY,/pg_shdepend/);
  assert.match(QUERY,/pg_read_all_data/);
  assert.match(QUERY,/has_sequence_privilege/);
