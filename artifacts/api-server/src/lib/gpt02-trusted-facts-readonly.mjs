@@ -61,6 +61,10 @@ const IDENTITY_SQL=[
  "   WHERE c.relkind='f' AND n.nspname !~ '^pg_' AND n.nspname<>'information_schema'",
  "     AND has_schema_privilege(current_user,n.oid,'USAGE')",
  "     AND has_table_privilege(current_user,c.oid,'SELECT')) AS no_foreign_table_select,",
+ " NOT EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace",
+ "   WHERE c.relkind IN ('v','m') AND n.nspname !~ '^pg_' AND n.nspname<>'information_schema'",
+ "     AND has_schema_privilege(current_user,n.oid,'USAGE')",
+ "     AND has_table_privilege(current_user,c.oid,'SELECT')) AS no_view_select,",
  " NOT EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace",
  "   WHERE n.nspname !~ '^pg_' AND n.nspname<>'information_schema'",
  "     AND has_schema_privilege(current_user,n.oid,'USAGE')",
@@ -168,7 +172,7 @@ function verifyDbIdentity(row,expected){
   row.no_owned_objects===true&&
   row.no_special_admin_roles===true&&row.no_sequence_privileges===true&&
   row.no_foreign_server_usage===true&&row.no_foreign_table_select===true&&
-  row.no_callable_security_definer_routines===true&&
+  row.no_view_select===true&&row.no_callable_security_definer_routines===true&&
   row.exact_callable_routines===true&&row.no_callable_mutating_routines===true;
 }
 function mapFacts(h,c,query){
