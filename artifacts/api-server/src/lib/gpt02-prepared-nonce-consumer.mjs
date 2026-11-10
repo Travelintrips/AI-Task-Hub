@@ -9,6 +9,7 @@ import {createPublicKey,createHash,verify} from 'node:crypto';
 import {canonicalApproval} from './gpt02-issuer-store.mjs';
 import {canonicalOperatorLink,operatorLinkSigningBytes} from './gpt02-operator-link.mjs';
 import {inspectPreparedSignedLink} from './gpt02-prepared-link.mjs';
+import {loadGpt02DevTrustStore} from './gpt02-dev-trust-store.mjs';
 
 const FIELDS=['approval','operatorLink'];
 const PUBLIC_KEYS=['approvalPublicKeyPem','hubPublicKeyPem','corePublicKeyPem'];
@@ -34,11 +35,29 @@ function pinnedKeys(keys){
  if(new Set(signatures).size!==3)throw Error('GPT02_THREE_INDEPENDENT_KEYS_REQUIRED');
  return Object.freeze(publicKeys);
 }
-export function createPreparedNonceConsumer({readTrustedFacts,issuerStore,publicKeys,clock=Date.now}={}){
+export function createPreparedNonceConsumer({
+ readTrustedFacts,issuerStore,publicKeys,expectedFingerprints,clock=Date.now
+}={}){
  if(typeof readTrustedFacts!=='function'||!issuerStore||
   typeof issuerStore.consumeLinkedApproval!=='function'||typeof clock!=='function')
   throw Error('GPT02_AUTHENTICATED_READ_AND_ISSUER_REQUIRED');
- const trustedKeys=pinnedKeys(publicKeys);
+ // Only synthetic test runners may inject their own ephemeral public keys.
+ // Operational DEV must load independently pinned public keys from the
+ // restricted on-host trust store before any issuer or task reader can run.
+ const synthetic=process.env.NODE_ENV==='test'&&process.env.APP_ENV!=='production';
+ let keyMaterial;
+ if(synthetic){
+  if(expectedFingerprints!==undefined)throw Error('GPT02_TEST_CONFIG_MIXED_WITH_REAL_TRUST');
+  keyMaterial=publicKeys;
+ }else{
+  if(publicKeys!==undefined)throw Error('GPT02_CALLER_SIGNER_KEYS_FORBIDDEN');
+  if(process.env.NODE_ENV!=='development'||process.env.APP_ENV!=='development')
+   throw Error('GPT02_EXPLICIT_CST_DEV_MODE_REQUIRED');
+  const material=loadGpt02DevTrustStore({expectedFingerprints});
+  keyMaterial={approvalPublicKeyPem:material.approvalPublicKeyPem,
+   hubPublicKeyPem:material.hubPublicKeyPem,corePublicKeyPem:material.corePublicKeyPem};
+ }
+ const trustedKeys=pinnedKeys(keyMaterial);
  let inflight=false; // Single process guard; DB unique indexes are still the cross-process authority.
  // This preflight runs before ANY task/identity database read.
  // The fact reader will never receive an unauthenticated claim as a lookup.
