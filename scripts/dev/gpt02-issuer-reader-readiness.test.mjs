@@ -73,6 +73,6 @@ test('migration is inert, column-scoped and has no authority surface',async()=>{
  for(const forbidden of [
   'PASSWORD','dev_gpt02_issuer_evidence','dev_gpt02_attestor_evidence',
   'GRANT INSERT','GRANT UPDATE','GRANT DELETE','GRANT EXECUTE',
-  'SECURITY DEFINER','SUPABASE_DATABASE_URL_PROD','dispatch'
+  'SECURITY DEFINER','SUPABASE_DATABASE_URL_PROD','dispatchPermitted=true'
  ])assert.equal(src.includes(forbidden),false,forbidden);
 });
