@@ -67,12 +67,13 @@ const BASE=Object.freeze({
  immutableWorkerOwnerBinding:false,preparedRowsPresent:false,
  independentlyAuthenticatedReads:false,originalSignerProven:false,
  issuerLeaseGranted:false,dispatchPermitted:false,
- taskCreated:false,readOnly:true,releaseDecision:'NO_GO'
+ taskCreated:false,readOnly:false,releaseDecision:'NO_GO'
 });
 export function assessTrustedFactReaderReadiness(row){
  const result=Object.assign({},BASE);
  if(!row||row.database_name!=='postgres'||row.transaction_read_only!=='on')
   return Object.freeze({...result,reason:'TRUSTED_CATALOG_READONLY_NOT_PROVEN'});
+ result.readOnly=true;
  const columns=Number.isSafeInteger(row.required_columns) && row.required_columns===20 &&
   row.matching_columns===20 && Array.isArray(row.missing_columns) &&
   row.missing_columns.length===0;
