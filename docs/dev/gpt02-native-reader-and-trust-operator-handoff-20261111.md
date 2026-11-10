@@ -43,6 +43,17 @@ Kondisi baseline yang wajib dipertahankan sebelum provisioning:
 
 Dua credential **berbeda**, masing-masing untuk role yang tepat, melalui kanal secret manager / credential mount yang dikelola operator. Jangan kirim password melalui Git, issue, chat, SQL migration, atau environment file yang masuk repository.
 
+### Kanal secret DEV yang sudah resmi dipakai deployment
+
+Audit host membuktikan deployment DEV saat ini memakai jalur berikut:
+
+- `/etc/ai-task/compose.development.env` memilih `APP_ENV_FILE=/etc/ai-task/development.env`;
+- `deploy/hostinger/docker-compose.yml` memuat `env_file: ${APP_ENV_FILE}`;
+- `deploy/hostinger/deploy.sh development` memakai `/etc/ai-task/compose.development.env`;
+- `/etc/ai-task/development.env` saat audit adalah `root:root` mode `0600` dan berada di luar repository.
+
+Karena itu, **kanal credential reader resmi yang sudah ada adalah `/etc/ai-task/development.env`**, bukan membuat file secret ad-hoc baru. Tambahkan hanya melalui proses operator/root yang menjaga owner/mode tersebut. Nilai credential tidak boleh dipindahkan ke `compose.development.env`, GitHub, issue, chat, migration SQL, log, atau dokumentasi.
+
 Runtime nanti hanya boleh menerima:
 - `GPT02_HUB_READER_DATABASE_URL_DEV`
 - `GPT02_CORE_READER_DATABASE_URL_DEV`
@@ -93,6 +104,18 @@ Bahkan pada PASS, output harus tetap:
 Setelah pembuktian, credential dapat kembali di-lock sampai tahap wiring yang secara terpisah disetujui.
 
 ## B. Empat public trust-root signer
+
+### Hasil audit provenance signer existing
+
+Source/runtime existing **tidak boleh dipromosikan otomatis** menjadi empat trust-root hanya karena memakai Ed25519:
+
+- `/opt/ai-coding-standalone-dev/approval_api.py` memverifikasi identitas admin/Super Admin (Supabase AAL2) dan menyimpan audit keputusan, tetapi **tidak menandatangani approval dengan Ed25519**. Ini sumber identity/audit yang berguna, bukan approval trust-root signer dalam bentuk sekarang.
+- Core-AI `devSopCheckpointIssuer.ts` menandatangani domain `ai-core-dev-checkpoint/v1` memakai `AI_CORE_DEV_CHECKPOINT_PRIVATE_KEY_PKCS8_DER_B64`. Domainnya adalah checkpoint receipt dan **bukan** issuer evidence Issue #159.
+- `dev-chatgpt-wake-once.py` dan `register-dev-chatgpt-session.py` memakai Ed25519 untuk domain assistant-attestation / session-registration. Keduanya **bukan** approval, Hub operator, Core operator, atau issuer evidence.
+- `dev_gpt02_recovery_fence.py` secara eksplisit menyatakan pinned server issuer key diperlukan tetapi **issuer/key provisioning/transport belum diimplementasikan**.
+- `gpt02NativeRecoveryFenceProofContract.ts` juga menyatakan bahwa signer server berikutnya masih harus dibuat setelah verifikasi lease/lineage/authorization.
+
+Dengan demikian, empat signer Issue #159 masih memerlukan **provenance dan custody terpisah**. Existing checkpoint/wake/session keys tidak boleh direuse untuk mengisi manifest empat trust-root.
 
 Diperlukan **empat public key Ed25519 SPKI** yang benar-benar berasal dari signer independen:
 
