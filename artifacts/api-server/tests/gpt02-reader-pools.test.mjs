@@ -66,7 +66,10 @@ for(const [name,patch,code] of [
    'GPT02_READER_CST_DEV_TARGET_REQUIRED'],
  ['URL user override',{GPT02_CORE_READER_DATABASE_URL_DEV:
    dsn('gpt02_core_evidence_reader')+'?user=postgres'},
-   'GPT02_READER_DSN_OVERRIDE_FORBIDDEN']
+   'GPT02_READER_DSN_QUERY_FORBIDDEN']
+ ['TLS downgrade query',{GPT02_HUB_READER_DATABASE_URL_DEV:
+   dsn('gpt02_hub_evidence_reader')+'?sslmode=no-verify'},
+   'GPT02_READER_DSN_QUERY_FORBIDDEN']
 ])test('rejects '+name,()=>{
  assert.throws(()=>make({env:env(patch)}),e=>e.code===code);
 });
