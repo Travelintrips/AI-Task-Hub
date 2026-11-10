@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {createHash,randomUUID} from 'node:crypto';
 import {readFileSync} from 'node:fs';
 import {canonicalOperatorLink} from '../src/lib/gpt02-operator-link.mjs';
+import {canonicalApproval} from '../src/lib/gpt02-issuer-store.mjs';
 import {createGpt02TrustedFactReader,HUB_SQL,CORE_SQL,
  validRequestedIdentity} from '../src/lib/gpt02-trusted-facts-readonly.mjs';
 
@@ -10,6 +11,11 @@ const now=Date.now();
 const U=()=>randomUUID();
 function fixture(){
  const coreTaskId=U(),executionId=U(),commandId=U(),attemptId=U(),linkId=U();
+ const approval={v:2,environment:'DEV',audience:'GPT02_NEW_TASK_SINGLE_COMMAND_APPROVAL',
+  taskId:137,commandId,attemptId,nonce:'A'.repeat(44),
+  operatorNamespace:'ai-task-hub.public.users',superAdminId:'google_fixture_super_admin',
+  companyId:'default',issuedAt:now-2000,expiresAt:now+50000};
+ const approvalDigest=createHash('sha256').update(canonicalApproval(approval)).digest('hex');
  const link={v:1,environment:'DEV',audience:'GPT02_DUAL_ACCOUNT_COMMAND_LINK',
   linkId,companyId:'default',hubTaskId:137,hubExecutionId:executionId,
   coreTaskId,coreCommandId:commandId,attemptId,attemptNumber:1,
@@ -18,8 +24,8 @@ function fixture(){
   hubOperatorId:'google_fixture_super_admin',hubRole:'super_admin',hubActive:true,
   coreOperatorNamespace:'ai-core.ai_platform.internal_users',coreOperatorUserId:77,
   coreRole:'admin',coreActive:true,corePasswordChanged:true,
-  workerId:'openclaw-dell-chatgpt-wake-dev',approvalDigest:'e'.repeat(64),
-  nonce:'A'.repeat(44),issuedAt:now-1000,expiresAt:now+45000};
+  workerId:'openclaw-dell-chatgpt-wake-dev',approvalDigest,
+  nonce:approval.nonce,issuedAt:now-1000,expiresAt:now+45000};
  const meta={commandCandidateId:commandId,coreTaskId,attemptId,
   memberId:5,memberAuditId:4567,operatorSubject:link.hubOperatorId,
   attemptNumber:1,dispatchStarted:false,autoContinue:false,
@@ -60,7 +66,9 @@ function fixture(){
   hub_operator_id:link.hubOperatorId,core_operator_user_id:77,
   signed_link_claims:link,approval_digest:link.approvalDigest,
   link_digest:createHash('sha256').update(canonicalOperatorLink(link)).digest('hex'),
-  hub_signature:'A'.repeat(86),core_signature:'B'.repeat(86)};
+  hub_signature:'A'.repeat(86),core_signature:'B'.repeat(86),
+  stored_approval_claims:approval,stored_approval_signature:'C'.repeat(86),
+  stored_approval_digest:approvalDigest};
  const core={core_task_id:coreTaskId,core_status:'PENDING',
   core_task_number:'GPT02DEV-137-abcdef',core_project:'GPT02 DEV coding lifecycle',
   core_repository:'Travelintrips/Core-AI-Foundation',
@@ -68,7 +76,8 @@ function fixture(){
   core_operator_user_id:77,core_role:'admin',core_operator_status:'active',
   must_change_password:false,run_count:0,command_count:0};
  return {hub,core,lookup:{companyId:'default',hubTaskId:137,
-  commandCandidateId:commandId,attemptId}};
+  commandCandidateId:commandId,attemptId,linkId,
+  linkDigest:hub.link_digest,approvalDigest}};
 }
 function instance({hub,core,lookup}=fixture(),patch={}){
  const calls=[],released=[];
@@ -107,6 +116,9 @@ test('two authenticated scoped READ ONLY sessions reconstruct exact signed-sidec
  assert.equal(v.hubOperator.accountableOwnerId,'fixture_owner');
  assert.equal(v.job.status,'prepared');
  assert.equal(v.observedAt,now);
+ assert.equal(v.storedEvidence.approval.digest,x.lookup.approvalDigest);
+ assert.equal(v.storedEvidence.operatorLink.linkDigest,x.lookup.linkDigest);
+ assert.equal(v.storedEvidence.operatorLink.claims.linkId,x.lookup.linkId);
  assert.equal(x.calls.filter(c=>c.sql==='BEGIN READ ONLY').length,2);
  assert.equal(x.calls.filter(c=>c.sql==='ROLLBACK').length,2);
  assert.equal(x.calls.filter(c=>c.sql===HUB_SQL).length,1);
@@ -118,7 +130,9 @@ test('reject historical Tasks135/136, wrong tenant, caller-supplied fields and i
  for(const q of [
   {...x.lookup,hubTaskId:135},{...x.lookup,hubTaskId:136},
   {...x.lookup,companyId:'other'}, {...x.lookup,coreTaskId:U()},
-  {...x.lookup,attemptId:'broken'},{...x.lookup,commandCandidateId:x.lookup.attemptId}
+  {...x.lookup,attemptId:'broken'},{...x.lookup,commandCandidateId:x.lookup.attemptId},
+  {...x.lookup,linkId:'not-a-uuid'},{...x.lookup,linkDigest:'wrong'},
+  {...x.lookup,approvalDigest:'not-a-digest'}
  ]){
   assert.equal(validRequestedIdentity(q),false);
   await assert.rejects(x.reader(q),e=>e.code==='UNTRUSTED_TASK_IDENTITY');
@@ -161,6 +175,10 @@ for(const [where,change] of [
  ['hub',{assigned_to_id:11}],['hub',{audit_company_id:'another'}],
  ['hub',{core_operator_user_id:78}],['hub',{link_digest:'f'.repeat(64)}],
  ['hub',{hub_signature:'invalid'}],
+ ['hub',{stored_approval_signature:'bad'}],
+ ['hub',{stored_approval_digest:'f'.repeat(64)}],
+ ['hub',{stored_approval_claims:{v:2}}],
+ ['hub',{link_id:U()}],
  ['core',{command_count:1}],['core',{run_count:1}],
  ['core',{core_role:'staff'}],['core',{core_operator_status:'suspended'}],
  ['core',{must_change_password:true}],['core',{core_task_id:U()}]
@@ -200,6 +218,14 @@ test('changed Hub and Core instruction together cannot bypass immutable configur
  x.core.core_instruction='Unauthorized instruction';
  const reader=instance(x);
  await assert.rejects(reader.reader(reader.lookup),e=>e.code==='IMMUTABLE_PREPARATION_CONFIGURATION_MISMATCH');
+});
+test('DB sidecar signature formats alone do not prove request-signature equality',async()=>{
+ for(const which of ['hub_signature','core_signature','stored_approval_signature']){
+  const v=fixture();v.hub[which]='Z'.repeat(86);
+  const x=instance(v),out=await x.reader(x.lookup);
+  const key=which==='hub_signature'?'hubSignatureBase64url':which==='core_signature'?'coreSignatureBase64url':'signatureBase64url';
+  assert.equal(out.storedEvidence[which==='stored_approval_signature'?'approval':'operatorLink'][key],'Z'.repeat(86));
+ }
 });
 test('altered signed worker claim fails the canonical digest and cannot become a worker lease',async()=>{
  const v=fixture();
