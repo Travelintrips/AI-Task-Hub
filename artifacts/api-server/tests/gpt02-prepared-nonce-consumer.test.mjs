@@ -114,6 +114,26 @@ test('tampered Ed25519 signature is rejected before issuer write',async()=>{
  const r=await consumer.consume(proof);
  assert.equal(r.evidenceConsumed,false);assert.equal(calls().issued,0);
 });
+test('all three independent signatures must verify BEFORE even a read-only DB task lookup',async()=>{
+ for(const which of ['approval','hub','core']){
+  const x=fixture(),{consumer,calls}=setup(x);
+  const proof={...x.proof,approval:{...x.proof.approval},operatorLink:{...x.proof.operatorLink}};
+  if(which==='approval')proof.approval.signatureBase64url='A'.repeat(86);
+  if(which==='hub')proof.operatorLink.hubSignatureBase64url='A'.repeat(86);
+  if(which==='core')proof.operatorLink.coreSignatureBase64url='A'.repeat(86);
+  const out=await consumer.consume(proof);
+  assert.equal(out.reason,'SIGNATURE_NOT_VERIFIED_BEFORE_DB_READ');
+  assert.deepEqual(calls(),{reads:0,issued:0},which);
+ }
+});
+test('validly signed but altered task metadata cannot cause unscoped identity lookup',async()=>{
+ const x=fixture(),{consumer,calls}=setup(x);
+ const forged={...x.proof,operatorLink:{...x.proof.operatorLink,
+ claims:{...x.proof.operatorLink.claims,companyId:'another'}}};
+ const result=await consumer.consume(forged);
+ assert.equal(result.evidenceConsumed,false);
+ assert.deepEqual(calls(),{reads:0,issued:0});
+});
 test('caller-supplied keys, prepared snapshot or clock cannot bypass independent trust reader',async()=>{
  const x=fixture(),{consumer,calls}=setup(x);
  for(const key of ['publicKeys','issuerStore','prepared','job','clock']){
