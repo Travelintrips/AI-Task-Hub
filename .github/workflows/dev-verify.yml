@@ -113,7 +113,6 @@ jobs:
           node --test scripts/dev/gpt02-reader-sequence-readiness.test.mjs
           node --test scripts/dev/gpt02-reader-default-acl-readiness.test.mjs
           node --test scripts/dev/gpt02-reader-callable-routines-readiness.test.mjs
-          node --test scripts/dev/gpt02-reader-callable-routines-readiness.test.mjs
       - name: Verify independent Hub and Core read-only fact reconstruction
         run: |
           node --test artifacts/api-server/tests/gpt02-trusted-facts-readonly.test.mjs
