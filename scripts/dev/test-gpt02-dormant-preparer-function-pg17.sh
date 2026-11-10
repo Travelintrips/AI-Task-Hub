@@ -334,4 +334,8 @@ grep -Fq GPT02_DEV_OWNER_PARENT_GRANT_PARENT_DRIFT "$WORK/hosted-retry.log" || {
 echo PASS:PG17_HOSTED_GRANT_RETRY_FAIL_CLOSED
 echo GPT02_HOSTED_OWNER_PARENT_GRANTS_ISOLATED_PASS_NO_LOGIN_NO_DISPATCH
 
+# Independent login+read-only catalogue proof against this exact PG17 fixture.
+# The login is temporarily enabled only inside Docker --network none.
+source "$ROOT/scripts/dev/gpt02-preparer-auth-catalog-integrated-fixture.sh"
+
 printf 'GPT02_DORMANT_PREPARER_MINIMAL_GRANTS_OFFLINE_PASS_NO_LOGIN_NO_COMMAND\n'
