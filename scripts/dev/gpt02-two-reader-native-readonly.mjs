@@ -63,6 +63,19 @@ export const IDENTITY_QUERY=`SELECT current_database() AS db,current_user AS log
     AND p.prosecdef
     AND has_function_privilege(current_user,p.oid,'EXECUTE')
  ) AS no_callable_security_definer_routines,
+ (SELECT count(*)=1 AND bool_and(n.nspname='public'
+    AND p.proname='assert_portal_profile_complete'
+    AND pg_get_function_identity_arguments(p.oid)='p_customer_id integer'
+    AND p.prosecdef=false AND pg_get_userbyid(p.proowner)='postgres'
+    AND encode(sha256(convert_to(p.prosrc,'UTF8')),'hex')=
+      '046a0d067d2b632d0e17af5c6f433bea63794d90c67c55a6475e6fe6b34916c8')
+  FROM pg_proc p
+  JOIN pg_namespace n ON n.oid=p.pronamespace
+  WHERE n.nspname IN ('public','gpt02_stage','gpt02_private','ai_platform')
+    AND p.prokind IN ('f','p')
+    AND pg_get_function_result(p.oid)<>'trigger'
+    AND has_function_privilege(current_user,p.oid,'EXECUTE')
+ ) AS exact_callable_routines,
  NOT EXISTS(
   SELECT 1 FROM pg_proc p
   JOIN pg_namespace n ON n.oid=p.pronamespace
@@ -94,7 +107,7 @@ function ok(row,role){
   row.no_global_write===true&&row.no_database_create===true&&row.no_schema_create===true&&
   row.no_owned_objects===true&&
   row.no_special_admin_roles===true&&row.no_sequence_privileges===true&&
-  row.no_callable_security_definer_routines===true&&
+  row.no_callable_security_definer_routines===true&&row.exact_callable_routines===true&&
   row.no_callable_mutating_routines===true;
 }
 function resolvePool(){
