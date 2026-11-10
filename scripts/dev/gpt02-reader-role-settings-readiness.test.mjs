@@ -82,6 +82,6 @@ test('query is catalog-only and exact config is pinned',()=>{
  assert.match(QUERY,/no_owned_objects/);
  assert.match(QUERY,/no_special_admin_roles/);
  for(const setting of EXPECTED_CONFIG)assert.ok(QUERY.includes(setting));
- assert.doesNotMatch(QUERY,/FROMs+(?:public.ai_tasks|gpt02_private.approvals|gpt02_stage.core_preparations)/i);
- assert.doesNotMatch(QUERY,/;s*(?:INSERT|UPDATE|DELETE|TRUNCATE|ALTER|CREATE|GRANT|REVOKE|CALL|COPY)/i);
+ assert.doesNotMatch(QUERY,/\bFROM\s+(?:public\.ai_tasks|gpt02_private\.approvals|gpt02_stage\.core_preparations)\b/i);
+ assert.doesNotMatch(QUERY,/;\s*(?:INSERT|UPDATE|DELETE|TRUNCATE|ALTER|CREATE|GRANT|REVOKE|CALL|COPY)\b/i);
 });
