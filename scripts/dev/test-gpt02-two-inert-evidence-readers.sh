@@ -14,7 +14,7 @@ for i in $(seq 1 40); do
 done
 [[ "$ready" == true ]] || { echo PG_NOT_READY;exit 2; }
 run(){ docker exec -i "$NAME" psql -X -v ON_ERROR_STOP=1 -q -U "$1" -d postgres; }
-q(){ docker exec "$NAME" psql -X -Atqc "$2" -U fixture_root -d postgres; }
+q(){ docker exec "$NAME" psql -X -Atqc "$1" -U fixture_root -d postgres; }
 v="$(q 'SHOW server_version_num')"
 if [[ "$IMAGE" == 'postgres:16-alpine' ]];then [[ "$v" == 16* ]] || exit 2; echo LOCAL_PG16_SMOKE;
 else [[ "$v" == 17* ]] || exit 2; echo CI_PG17_AUTHORITATIVE;fi
