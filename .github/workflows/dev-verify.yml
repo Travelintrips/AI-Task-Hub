@@ -107,6 +107,7 @@ jobs:
         run: |
           node --test scripts/dev/gpt02-trusted-fact-reader-readiness.test.mjs
           node --test scripts/dev/gpt02-reader-column-grants-readiness.test.mjs
+          node --test scripts/dev/gpt02-reader-rls-readiness.test.mjs
       - name: Verify independent Hub and Core read-only fact reconstruction
         run: |
           node --test artifacts/api-server/tests/gpt02-trusted-facts-readonly.test.mjs
