@@ -24,6 +24,14 @@ export const IDENTITY_QUERY=`SELECT current_database() AS db,current_user AS log
  NOT pg_has_role(current_user,'pg_read_all_data','USAGE') AS no_global_read,
  NOT pg_has_role(current_user,'pg_write_all_data','USAGE') AS no_global_write,
  NOT has_database_privilege(current_user,current_database(),'CREATE') AS no_database_create,
+ NOT (
+  pg_has_role(current_user,'pg_read_server_files','USAGE') OR
+  pg_has_role(current_user,'pg_write_server_files','USAGE') OR
+  pg_has_role(current_user,'pg_execute_server_program','USAGE') OR
+  pg_has_role(current_user,'pg_signal_backend','USAGE') OR
+  pg_has_role(current_user,'pg_monitor','USAGE') OR
+  pg_has_role(current_user,'pg_checkpoint','USAGE')
+ ) AS no_special_admin_roles,
  NOT EXISTS(
   SELECT 1 FROM pg_class c
   JOIN pg_namespace n ON n.oid=c.relnamespace
@@ -72,7 +80,8 @@ function ok(row,role){
   row.idle_tx_timeout_locked===true&&Number.isInteger(row.backend_pid)&&row.backend_pid>0&&
   row.tls_verified===true&&row.bounded_role===true&&row.no_memberships===true&&
   row.no_global_read===true&&row.no_global_write===true&&row.no_database_create===true&&
-  row.no_sequence_privileges===true&&row.no_callable_security_definer_routines===true&&
+  row.no_special_admin_roles===true&&row.no_sequence_privileges===true&&
+  row.no_callable_security_definer_routines===true&&
   row.no_callable_mutating_routines===true;
 }
 function resolvePool(){
