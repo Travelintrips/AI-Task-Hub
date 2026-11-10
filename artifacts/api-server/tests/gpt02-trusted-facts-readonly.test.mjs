@@ -83,7 +83,11 @@ function instance({hub,core,lookup}=fixture(),patch={}){
  const calls=[],released=[];
  function client(which){
   const role=which==='hub'?'gpt02_hub_evidence_reader':'gpt02_core_evidence_reader';
+  const tls=patch.tls?.[which]!==false;
   return {
+   connection:{stream:{
+    encrypted:tls,authorized:tls,authorizationError:tls?null:'synthetic'
+   }},
    async query(sql,params){
     calls.push({which,sql,params});
     if(patch.error===which&&sql===(which==='hub'?HUB_SQL:CORE_SQL))
@@ -152,7 +156,7 @@ for(const change of [
  {login:'postgres'},{session:'postgres'},{read_only:'off'},
  {default_readonly:false},{search_path_locked:false},{statement_timeout_locked:false},
  {lock_timeout_locked:false},{idle_tx_timeout_locked:false},{backend_pid:0},
- {tls_verified:false},{restricted:false},{no_memberships:false},
+ {restricted:false},{no_memberships:false},
  {exact_management_member:false},{no_global_read:false},
  {no_global_write:false},{no_db_create:false},{no_schema_create:false},
  {no_owned_objects:false},{no_special_admin_roles:false},
@@ -173,6 +177,14 @@ test('two client objects backed by one PostgreSQL backend PID are rejected',asyn
  const x=instance(fixture(),{identity:{core:{backend_pid:42001}}});
  await assert.rejects(x.reader(x.lookup),e=>e.code==='TWO_INDEPENDENT_RESTRICTED_DB_LOGINS_REQUIRED');
  assert.equal(x.calls.some(c=>c.sql===HUB_SQL),false);
+});
+test('trusted fact reader requires verified client-to-pooler TLS on both sessions',async()=>{
+ for(const which of ['hub','core']){
+  const x=instance(fixture(),{tls:{[which]:false}});
+  await assert.rejects(x.reader(x.lookup),
+    e=>e.code==='TWO_INDEPENDENT_RESTRICTED_DB_LOGINS_REQUIRED');
+  assert.equal(x.calls.some(c=>c.sql===HUB_SQL),false);
+ }
 });
 test('absence, duplicate signed Hub sidecar and missing Core operator fail closed',async()=>{
  for(const opts of [{hubRows:[]},{hubRows:[fixture().hub,fixture().hub]},{coreRows:[]}]){
