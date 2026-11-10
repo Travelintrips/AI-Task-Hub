@@ -28,7 +28,7 @@ export const QUERY=`WITH expected_sets(grantee,schema_name,table_name,cols) AS (
  JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped
  WHERE r.rolname IN ('gpt02_hub_evidence_reader','gpt02_core_evidence_reader')
    AND n.nspname IN ('public','gpt02_stage','gpt02_private','ai_platform')
-   AND c.relkind IN ('r','p','f')
+   AND c.relkind IN ('r','p','f','v','m')
    AND has_column_privilege(r.rolname,c.oid,a.attnum,'SELECT')
 ), diff AS (
  SELECT 'UNEXPECTED'::text issue,a.* FROM actual a
