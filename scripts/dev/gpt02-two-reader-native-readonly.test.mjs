@@ -18,7 +18,8 @@ const row=(role,backendPid)=>({
  default_readonly:true,search_path_locked:true,statement_timeout_locked:true,
  lock_timeout_locked:true,idle_tx_timeout_locked:true,
  backend_pid:backendPid,tls_verified:true,bounded_role:true,
- no_memberships:true,no_global_read:true,no_global_write:true,no_database_create:true,
+ no_memberships:true,exact_management_member:true,
+ no_global_read:true,no_global_write:true,no_database_create:true,
  no_special_admin_roles:true,no_sequence_privileges:true,no_callable_security_definer_routines:true,
  no_callable_mutating_routines:true
 });
@@ -76,7 +77,8 @@ test('missing dedicated credentials fails before any pool is constructed',async(
 test('wrong identity, membership or elevated privilege fails closed',async()=>{
  for(const [which,patch] of [
   ['hub',{login:'postgres'}],['hub',{session:'postgres'}],
-  ['hub',{no_memberships:false}],['hub',{no_global_read:false}],
+  ['hub',{no_memberships:false}],['hub',{exact_management_member:false}],
+  ['hub',{no_global_read:false}],
   ['core',{no_global_write:false}],['core',{no_database_create:false}],
   ['core',{bounded_role:false}],['core',{in_readonly_tx:false}],
   ['hub',{no_special_admin_roles:false}],
@@ -140,6 +142,9 @@ test('identity query is catalogue-only and cannot mutate or read task rows',()=>
  assert.match(IDENTITY_QUERY,/pg_backend_pid/);
  assert.match(IDENTITY_QUERY,/pg_stat_ssl/);
  assert.match(IDENTITY_QUERY,/pg_auth_members/);
+ assert.match(IDENTITY_QUERY,/exact_management_member/);
+ assert.match(IDENTITY_QUERY,/m\.set_option/);
+ assert.match(IDENTITY_QUERY,/supabase_admin/);
  assert.match(IDENTITY_QUERY,/no_special_admin_roles/);
  assert.match(IDENTITY_QUERY,/pg_execute_server_program/);
  assert.match(IDENTITY_QUERY,/pg_read_server_files/);
