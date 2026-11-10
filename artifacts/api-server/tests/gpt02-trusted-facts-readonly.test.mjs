@@ -244,6 +244,15 @@ test('query failure is sanitized and both transactions roll back',async()=>{
  assert.equal(x.calls.filter(c=>c.sql==='ROLLBACK').length,2);
  assert.equal(x.released.length,2);
 });
+test('Hub query binds exact persisted approval and link id/digest, never just a task number',()=>{
+ assert.match(HUB_SQL,/JOIN gpt02_private\.approvals a0/);
+ assert.match(HUB_SQL,/a0\.digest=l\.approval_digest/);
+ assert.match(HUB_SQL,/l\.link_id=\$5::uuid/);
+ assert.match(HUB_SQL,/l\.link_digest=\$6/);
+ assert.match(HUB_SQL,/a0\.digest=\$7/);
+ assert.doesNotMatch(HUB_SQL,/,\s+FROM\b/i);
+ assert.doesNotMatch(CORE_SQL,/,\s+FROM\b/i);
+});
 test('source SQL is strictly parameterized SELECT and contains no dispatch/mutation paths',()=>{
  for(const sql of [HUB_SQL,CORE_SQL]){
   assert.match(sql,/^SELECT /);
