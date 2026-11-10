@@ -1,16 +1,48 @@
--- CST-DEV ONLY. Owner-side least-privilege grants for Issue #159 issuer reader.
--- MUST run as gpt02_store_owner. No LOGIN/password/signer/dispatch authority.
+-- CST-DEV ONLY. Owner-escrow least-privilege grants for Issue #159 issuer reader.
+-- Temporarily enables only the existing postgres self-grant SET option, then
+-- revokes it before COMMIT. No LOGIN/password/signer/dispatch authority.
 BEGIN;
 
-DO $guard$
+DO $pre$
 BEGIN
-  IF current_database() <> 'postgres' THEN
-    RAISE EXCEPTION 'GPT02_ISSUER_READER_POSTGRES_DB_REQUIRED';
+  IF current_database() <> 'postgres'
+     OR current_user <> 'postgres'
+     OR session_user <> 'postgres' THEN
+    RAISE EXCEPTION 'GPT02_ISSUER_READER_POSTGRES_SESSION_REQUIRED';
   END IF;
-  IF current_user <> 'gpt02_store_owner' THEN
-    RAISE EXCEPTION 'GPT02_STORE_OWNER_SESSION_REQUIRED';
+  IF pg_has_role('postgres','gpt02_store_owner','SET')
+     OR pg_has_role('postgres','gpt02_store_owner','USAGE') THEN
+    RAISE EXCEPTION 'GPT02_STORE_OWNER_AUTHORITY_ALREADY_USABLE';
+  END IF;
+  IF (SELECT count(*) FROM pg_auth_members
+      WHERE roleid='gpt02_store_owner'::regrole
+        AND member='postgres'::regrole) <> 2
+     OR NOT EXISTS(
+       SELECT 1 FROM pg_auth_members m JOIN pg_roles g ON g.oid=m.grantor
+       WHERE m.roleid='gpt02_store_owner'::regrole
+         AND m.member='postgres'::regrole
+         AND g.rolname='postgres'
+         AND NOT m.admin_option AND NOT m.inherit_option AND NOT m.set_option)
+     OR NOT EXISTS(
+       SELECT 1 FROM pg_auth_members m JOIN pg_roles g ON g.oid=m.grantor
+       WHERE m.roleid='gpt02_store_owner'::regrole
+         AND m.member='postgres'::regrole
+         AND g.rolname='supabase_admin'
+         AND m.admin_option AND NOT m.inherit_option AND NOT m.set_option) THEN
+    RAISE EXCEPTION 'GPT02_STORE_OWNER_ESCROW_BASELINE_CHANGED';
   END IF;
   IF NOT EXISTS (
+    SELECT 1 FROM pg_roles r
+    WHERE r.rolname='gpt02_store_owner'
+      AND r.rolcanlogin IS FALSE
+      AND r.rolconnlimit=0
+      AND r.rolsuper IS FALSE
+      AND r.rolcreatedb IS FALSE
+      AND r.rolcreaterole IS FALSE
+      AND r.rolinherit IS FALSE
+      AND r.rolreplication IS FALSE
+      AND r.rolbypassrls IS FALSE
+  ) OR NOT EXISTS (
     SELECT 1 FROM pg_roles r
     WHERE r.rolname='gpt02_issuer_evidence_reader'
       AND r.rolcanlogin IS FALSE
@@ -24,8 +56,44 @@ BEGIN
   ) THEN
     RAISE EXCEPTION 'GPT02_ISSUER_READER_ROLE_BASELINE_UNSAFE';
   END IF;
+  IF (SELECT count(*) FROM pg_auth_members m
+      WHERE m.member='gpt02_issuer_evidence_reader'::regrole) <> 0
+     OR (SELECT count(*) FROM pg_auth_members m
+         WHERE m.roleid='gpt02_issuer_evidence_reader'::regrole) <> 1
+     OR NOT EXISTS(
+       SELECT 1 FROM pg_auth_members m
+       JOIN pg_roles member ON member.oid=m.member
+       JOIN pg_roles grantor ON grantor.oid=m.grantor
+       WHERE m.roleid='gpt02_issuer_evidence_reader'::regrole
+         AND member.rolname='postgres'
+         AND grantor.rolname='supabase_admin'
+         AND m.admin_option AND NOT m.inherit_option AND NOT m.set_option)
+     OR EXISTS(SELECT 1 FROM pg_stat_activity
+       WHERE usename='gpt02_issuer_evidence_reader') THEN
+    RAISE EXCEPTION 'GPT02_ISSUER_READER_MANAGEMENT_BASELINE_UNSAFE';
+  END IF;
+  IF (SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+      WHERE n.nspname='gpt02_private'
+        AND c.relname IN ('receipts','core_identity_receipts','post_consumption_fences')
+        AND pg_get_userbyid(c.relowner)='gpt02_store_owner'
+        AND c.relrowsecurity AND c.relforcerowsecurity) <> 3 THEN
+    RAISE EXCEPTION 'GPT02_ISSUER_READER_EVIDENCE_OWNER_OR_RLS_DRIFT';
+  END IF;
 END
-$guard$;
+$pre$;
+
+GRANT gpt02_store_owner TO postgres WITH SET TRUE GRANTED BY postgres;
+SET LOCAL ROLE gpt02_store_owner;
+
+DO $owner$
+BEGIN
+  IF current_user <> 'gpt02_store_owner'
+     OR session_user <> 'postgres'
+     OR pg_has_role(session_user,'gpt02_store_owner','SET') IS DISTINCT FROM true THEN
+    RAISE EXCEPTION 'GPT02_STORE_OWNER_SESSION_REQUIRED';
+  END IF;
+END
+$owner$;
 
 REVOKE ALL ON SCHEMA gpt02_private FROM gpt02_issuer_evidence_reader;
 GRANT USAGE ON SCHEMA gpt02_private TO gpt02_issuer_evidence_reader;
@@ -58,5 +126,56 @@ CREATE POLICY issuer_evidence_reader_select ON gpt02_private.core_identity_recei
 DROP POLICY IF EXISTS issuer_evidence_reader_select ON gpt02_private.post_consumption_fences;
 CREATE POLICY issuer_evidence_reader_select ON gpt02_private.post_consumption_fences
   FOR SELECT TO gpt02_issuer_evidence_reader USING (true);
+
+RESET ROLE;
+REVOKE SET OPTION FOR gpt02_store_owner FROM postgres GRANTED BY postgres RESTRICT;
+
+DO $post$
+BEGIN
+  IF current_user <> 'postgres' OR session_user <> 'postgres'
+     OR pg_has_role('postgres','gpt02_store_owner','SET')
+     OR pg_has_role('postgres','gpt02_store_owner','USAGE')
+     OR (SELECT count(*) FROM pg_auth_members
+         WHERE roleid='gpt02_store_owner'::regrole
+           AND member='postgres'::regrole) <> 2
+     OR NOT EXISTS(
+       SELECT 1 FROM pg_auth_members m JOIN pg_roles g ON g.oid=m.grantor
+       WHERE m.roleid='gpt02_store_owner'::regrole
+         AND m.member='postgres'::regrole
+         AND g.rolname='postgres'
+         AND NOT m.admin_option AND NOT m.inherit_option AND NOT m.set_option)
+     OR NOT EXISTS(
+       SELECT 1 FROM pg_auth_members m JOIN pg_roles g ON g.oid=m.grantor
+       WHERE m.roleid='gpt02_store_owner'::regrole
+         AND m.member='postgres'::regrole
+         AND g.rolname='supabase_admin'
+         AND m.admin_option AND NOT m.inherit_option AND NOT m.set_option) THEN
+    RAISE EXCEPTION 'GPT02_STORE_OWNER_ESCROW_NOT_RESTORED';
+  END IF;
+  IF EXISTS(
+    SELECT 1 FROM pg_roles r
+    WHERE r.rolname='gpt02_issuer_evidence_reader'
+      AND (r.rolcanlogin OR r.rolconnlimit<>0 OR r.rolsuper OR r.rolcreatedb
+        OR r.rolcreaterole OR r.rolinherit OR r.rolreplication OR r.rolbypassrls)
+  ) OR EXISTS(SELECT 1 FROM pg_stat_activity
+       WHERE usename='gpt02_issuer_evidence_reader') THEN
+    RAISE EXCEPTION 'GPT02_ISSUER_READER_ACTIVATED_DURING_GRANT';
+  END IF;
+  IF (SELECT count(*) FROM pg_auth_members m
+      WHERE m.member='gpt02_issuer_evidence_reader'::regrole) <> 0
+     OR (SELECT count(*) FROM pg_auth_members m
+         WHERE m.roleid='gpt02_issuer_evidence_reader'::regrole) <> 1
+     OR NOT EXISTS(
+       SELECT 1 FROM pg_auth_members m
+       JOIN pg_roles member ON member.oid=m.member
+       JOIN pg_roles grantor ON grantor.oid=m.grantor
+       WHERE m.roleid='gpt02_issuer_evidence_reader'::regrole
+         AND member.rolname='postgres'
+         AND grantor.rolname='supabase_admin'
+         AND m.admin_option AND NOT m.inherit_option AND NOT m.set_option) THEN
+    RAISE EXCEPTION 'GPT02_ISSUER_READER_MANAGEMENT_BASELINE_CHANGED';
+  END IF;
+END
+$post$;
 
 COMMIT;
