@@ -57,26 +57,29 @@ test('catalog query covers exact column, RLS and effective privilege surfaces',(
  assert.doesNotMatch(QUERY,/;\s*(INSERT|UPDATE|DELETE|ALTER|CREATE|GRANT|REVOKE|CALL|TRUNCATE)\b/i);
 });
 
-test('migration is inert, column-scoped and has no authority surface',async()=>{
- const src=await readFile(new URL('./gpt02-issuer-evidence-reader-hosted-inert.sql',import.meta.url),'utf8');
+test('role bootstrap is inert and owner grants are separately fenced',async()=>{
+ const roleSrc=await readFile(new URL('./gpt02-issuer-evidence-reader-hosted-inert.sql',import.meta.url),'utf8');
+ const ownerSrc=await readFile(new URL('./gpt02-issuer-evidence-reader-owner-grants.sql',import.meta.url),'utf8');
  for(const required of [
   'NOLOGIN NOINHERIT CONNECTION LIMIT 0',
-  "r.rolsuper IS FALSE",
-  "r.rolcreatedb IS FALSE",
-  "r.rolcreaterole IS FALSE",
-  "r.rolreplication IS FALSE",
-  "r.rolbypassrls IS FALSE",
+  "r.rolsuper IS FALSE","r.rolcreatedb IS FALSE","r.rolcreaterole IS FALSE",
+  "r.rolreplication IS FALSE","r.rolbypassrls IS FALSE",
   'GPT02_ISSUER_READER_ROLE_BASELINE_UNSAFE',
-  "SET default_transaction_read_only='on'",
-  "SET search_path='pg_catalog'",
+  "SET default_transaction_read_only='on'","SET search_path='pg_catalog'"
+ ])assert.ok(roleSrc.includes(required),required);
+ for(const forbidden of [
+  'GRANT USAGE ON SCHEMA','GRANT SELECT','CREATE POLICY','PASSWORD',
+  'dev_gpt02_issuer_evidence','dev_gpt02_attestor_evidence'
+ ])assert.equal(roleSrc.includes(forbidden),false,forbidden);
+ for(const required of [
+  "current_user <> 'gpt02_store_owner'","GPT02_STORE_OWNER_SESSION_REQUIRED",
   'GRANT USAGE ON SCHEMA gpt02_private',
   'GRANT SELECT (id,command_id,nonce,digest,consumed_at)',
   'issuer_evidence_reader_select',
   'FOR SELECT TO gpt02_issuer_evidence_reader USING (true)'
- ])assert.ok(src.includes(required),required);
+ ])assert.ok(ownerSrc.includes(required),required);
  for(const forbidden of [
-  'PASSWORD','dev_gpt02_issuer_evidence','dev_gpt02_attestor_evidence',
-  'GRANT INSERT','GRANT UPDATE','GRANT DELETE','GRANT EXECUTE',
-  'SECURITY DEFINER','SUPABASE_DATABASE_URL_PROD','dispatchPermitted=true'
- ])assert.equal(src.includes(forbidden),false,forbidden);
+  'CREATE ROLE','ALTER ROLE','PASSWORD','GRANT INSERT','GRANT UPDATE','GRANT DELETE',
+  'GRANT EXECUTE','SECURITY DEFINER','SUPABASE_DATABASE_URL_PROD','dispatchPermitted=true'
+ ])assert.equal(ownerSrc.includes(forbidden),false,forbidden);
 });
