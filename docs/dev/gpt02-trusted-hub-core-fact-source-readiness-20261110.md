@@ -27,3 +27,21 @@ Pemeriksaan SELECT aktual dengan akun admin baca katalog `postgres` terhadap pro
 4. Jalankan uji negatif termasuk reader role palsu, sesi yang sama, lintas tenant, worker/owner berubah, data task usang, dan dua worker simultan. Semua harus NO-GO bila tidak ada lease/perintah-spesifik yang sah.
 
 Tidak ada persetujuan Super Admin bertanda tangan untuk task baru dan tidak ada lease issuer operasional saat audit ini. Issue #159 tetap OPEN, PR #161 tetap draft, full managed GPT02 lifecycle **NO-GO**.
+
+## Koreksi audit 10 Nov 2026 — sumber ikatan sudah ada pada operator-link
+
+Pemeriksaan yang sebelumnya hanya mencari kolom `worker_id`, `accountable_owner_id`, dan `core_operator_user_id` di `gpt02_stage.core_preparations` **tidak tepat untuk desain yang terpasang**. Tabel persiapan memang tidak mempunyai tiga kolom tersebut, tetapi tabel yang sudah ada, `gpt02_private.operator_links`, menyimpan `accountable_owner_id`, `core_operator_user_id`, dan `claims` yang mencakup `workerId`. Tabel ini mempunyai signed Hub/Core claims, digest, hubungan ke approval dan pre-dispatch Hub/Core IDs, unique constraints, RLS yang dipaksa serta immutable trigger. **Jangan menambah kolom duplikat ke core_preparations.**
+
+Source readiness sekarang memeriksa **enam kolom sidecar** (`accountable_owner_id`, `core_operator_user_id`, `claims`, `hub_signature`, `core_signature`, `link_digest`) yang terbukti ada di hosted CST-DEV. Secara operasional **signed operator_links rows=0**, sehingga belum ada satu pun binding nyata untuk task baru. Audit katalog tidak membuktikan penandatangan, nonce yang telah dikonsumsi atau worker grant.
+
+### Kandidat pembaca dua sesi PostgreSQL terbatas
+
+`artifacts/api-server/src/lib/gpt02-trusted-facts-readonly.mjs` menyediakan kandidat baca-saja dengan dua **login berbeda dan sesi berbeda**: `gpt02_hub_evidence_reader` dan `gpt02_core_evidence_reader`. Kedua sesi wajib `BEGIN READ ONLY`, pemeriksaan `current_user=session_user` tepat, tanpa superuser/CREATEROLE/CREATEDB/BYPASSRLS/replication/inherit, tanpa membership, tanpa global read/write atau CREATE database. Dua query parameterized SELECT mengambil satu persiapan Hub (task, PIC aktif, audit, Hub job dalam status prepared, dan sidecar signed operator_link yang sudah disimpan) dan satu Core task/operator (status pending, akun aktif, tidak ada run/command). Modul menolak hasil nol/duplikat, role palsu, worker/owner tidak cocok, isi signed sidecar diganti, task expired, atau PIC sudah nonaktif. Semua sesi diakhiri `ROLLBACK` dan `release(true)`; tidak ada import rute HTTP atau worker.
+
+**Uji sumber terisolasi:** 34/34 kasus PASS. Kedua SELECT diuji dengan `EXPLAIN` pada katalog CST-DEV asli tanpa menjalankan query untuk mengambil data bisnis, dan keduanya berhasil dikompilasi oleh PostgreSQL. Ini **belum** bukti login independen karena role pembaca belum terprovisikan.
+
+### Pembatasan pembuatan role oleh PostgreSQL
+
+Uji offline menemukan bahwa `CREATEROLE` non-superuser pada PostgreSQL 16 otomatis mendapat membership ADMIN pada role yang baru dibuat. Dokumentasi PostgreSQL 16/17 menyatakan pemberi grant otomatis adalah bootstrap superuser; pembuat non-superuser **tidak dapat mencabut grant tersebut sendiri**. Demi syarat tanpa membership, kandidat `gpt02-two-inert-evidence-readers.sql` beserta tesnya **dicabut dari PR dan tidak pernah diterapkan di hosted DEV**. Dua role pembaca masih belum ada. Jangan memakai migrator aplikasi `postgres` untuk mencoba pembuatan ulang. Diperlukan provisioning oleh DBA/Supabase administrator dengan hak yang tepat, serta read-back dari `pg_auth_members` sebelum koneksi atau izin SELECT disetujui.
+
+Saat ini jalur pembaca dan signer tetap belum aktif; `post_consumption_fences` inert telah terpasang terpisah, sedangkan approvals, nonce, preparations, operator_links, dan Task>136 tetap 0. **Full lifecycle NO-GO**, Task135/136 tidak diulang, dan PROD/DELL tidak diubah.
