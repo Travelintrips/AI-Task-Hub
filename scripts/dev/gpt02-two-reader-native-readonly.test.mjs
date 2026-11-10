@@ -12,6 +12,8 @@ const env=Object.freeze({
 });
 const row=(role,backendPid)=>({
  db:'postgres',login:role,session:role,in_readonly_tx:true,
+ default_readonly:true,search_path_locked:true,statement_timeout_locked:true,
+ lock_timeout_locked:true,idle_tx_timeout_locked:true,
  backend_pid:backendPid,tls_verified:true,bounded_role:true,
  no_memberships:true,no_global_read:true,no_global_write:true,no_database_create:true,
  no_callable_mutating_routines:true
@@ -73,6 +75,9 @@ test('wrong identity, membership or elevated privilege fails closed',async()=>{
   ['hub',{no_memberships:false}],['hub',{no_global_read:false}],
   ['core',{no_global_write:false}],['core',{no_database_create:false}],
   ['core',{bounded_role:false}],['core',{in_readonly_tx:false}],
+  ['hub',{default_readonly:false}],['hub',{search_path_locked:false}],
+  ['core',{statement_timeout_locked:false}],['core',{lock_timeout_locked:false}],
+  ['core',{idle_tx_timeout_locked:false}],
   ['hub',{no_callable_mutating_routines:false}]
  ]){
   const base=row(which==='hub'?'gpt02_hub_evidence_reader':'gpt02_core_evidence_reader');
@@ -120,6 +125,11 @@ test('identity query is catalogue-only and cannot mutate or read task rows',()=>
  assert.match(IDENTITY_QUERY,/current_user AS login/);
  assert.match(IDENTITY_QUERY,/session_user AS session/);
  assert.match(IDENTITY_QUERY,/transaction_read_only/);
+ assert.match(IDENTITY_QUERY,/default_transaction_read_only/);
+ assert.match(IDENTITY_QUERY,/search_path/);
+ assert.match(IDENTITY_QUERY,/statement_timeout/);
+ assert.match(IDENTITY_QUERY,/lock_timeout/);
+ assert.match(IDENTITY_QUERY,/idle_in_transaction_session_timeout/);
  assert.match(IDENTITY_QUERY,/pg_backend_pid/);
  assert.match(IDENTITY_QUERY,/pg_stat_ssl/);
  assert.match(IDENTITY_QUERY,/pg_auth_members/);
