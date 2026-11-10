@@ -95,7 +95,7 @@ function instance({hub,core,lookup}=fixture(),patch={}){
        backend_pid:which==='hub'?42001:42002,tls_verified:true,
        restricted:true,no_memberships:true,exact_management_member:true,
        no_global_read:true,
-       no_global_write:true,no_db_create:true,no_special_admin_roles:true,
+       no_global_write:true,no_db_create:true,no_owned_objects:true,no_special_admin_roles:true,
        no_sequence_privileges:true,
        no_callable_security_definer_routines:true,exact_callable_routines:true,
        no_callable_mutating_routines:true,
@@ -152,7 +152,7 @@ for(const change of [
  {lock_timeout_locked:false},{idle_tx_timeout_locked:false},{backend_pid:0},
  {tls_verified:false},{restricted:false},{no_memberships:false},
  {exact_management_member:false},{no_global_read:false},
- {no_global_write:false},{no_db_create:false},{no_special_admin_roles:false},
+ {no_global_write:false},{no_db_create:false},{no_owned_objects:false},{no_special_admin_roles:false},
  {no_sequence_privileges:false},
  {no_callable_security_definer_routines:false},{exact_callable_routines:false},
  {no_callable_mutating_routines:false},{db:'production'}
