@@ -97,7 +97,7 @@ function instance({hub,core,lookup}=fixture(),patch={}){
        no_global_read:true,
        no_global_write:true,no_db_create:true,no_schema_create:true,
        no_owned_objects:true,no_special_admin_roles:true,
-       no_sequence_privileges:true,
+       no_sequence_privileges:true,no_foreign_server_usage:true,no_foreign_table_select:true,
        no_callable_security_definer_routines:true,exact_callable_routines:true,
        no_callable_mutating_routines:true,
        ...(patch.identity?.[which]||{})}]};
