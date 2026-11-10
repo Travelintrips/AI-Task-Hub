@@ -19,14 +19,21 @@ Kondisi baseline yang wajib dipertahankan sebelum provisioning:
 - active session 0
 - no global read/write
 - hanya SELECT kolom minimum + RLS policy yang sudah diverifikasi
+- exact column grants: 86/86, no drift
+- exact schema USAGE: 5/5, no drift
+- sequence USAGE/SELECT/UPDATE: 0
+- callable mutating routine: 0
+- callable SECURITY DEFINER routine: 0
+- role defaults: default_transaction_read_only=on, search_path=pg_catalog, statement_timeout=5s, lock_timeout=1s, idle_in_transaction_session_timeout=10s
 
 ### Input yang harus disediakan oleh operator keamanan/DBA
 
 Dua credential **berbeda**, masing-masing untuk role yang tepat, melalui kanal secret manager / credential mount yang dikelola operator. Jangan kirim password melalui Git, issue, chat, SQL migration, atau environment file yang masuk repository.
 
-Runtime nanti hanya boleh menerima dua DSN:
+Runtime nanti hanya boleh menerima:
 - `GPT02_HUB_READER_DATABASE_URL_DEV`
 - `GPT02_CORE_READER_DATABASE_URL_DEV`
+- `GPT02_READER_DEV_CA` — tepat satu PEM CA publik Supabase yang fingerprint SHA-256-nya harus `807025ad50d4ed219d2c9c7d299c004f824eb00cf7f65afef607d07b72e6cafa`. Bundle ganda, CA lain, atau `NODE_TLS_REJECT_UNAUTHORIZED=0` harus ditolak.
 
 Keduanya wajib menunjuk ke:
 - project ref `xssrfshdrtdfupgqwfdw`
@@ -35,7 +42,7 @@ Keduanya wajib menunjuk ke:
 - database `postgres`
 - username sesuai role masing-masing + project suffix
 - tanpa query string / fragment
-- TLS certificate verification aktif
+- TLS certificate verification aktif dengan CA fingerprint yang dipatok
 
 ### Bukti native yang wajib PASS
 
@@ -50,7 +57,10 @@ PASS hanya jika:
 - connection limit bounded;
 - membership 0;
 - no global read/write;
-- no database CREATE.
+- no database CREATE;
+- no sequence privilege;
+- no callable mutating routine;
+- kelima role defaults di atas tetap aktif.
 
 Bahkan pada PASS, output harus tetap:
 - `dispatchPermitted=false`
