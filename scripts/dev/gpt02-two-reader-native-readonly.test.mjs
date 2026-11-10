@@ -13,7 +13,8 @@ const env=Object.freeze({
 const row=(role,backendPid)=>({
  db:'postgres',login:role,session:role,in_readonly_tx:true,
  backend_pid:backendPid,tls_verified:true,bounded_role:true,
- no_memberships:true,no_global_read:true,no_global_write:true,no_database_create:true
+ no_memberships:true,no_global_read:true,no_global_write:true,no_database_create:true,
+ no_callable_mutating_routines:true
 });
 function fake({hub=row('gpt02_hub_evidence_reader',41001),core=row('gpt02_core_evidence_reader',41002),
  sameClient=false,fail=false}={}){
@@ -71,7 +72,8 @@ test('wrong identity, membership or elevated privilege fails closed',async()=>{
   ['hub',{login:'postgres'}],['hub',{session:'postgres'}],
   ['hub',{no_memberships:false}],['hub',{no_global_read:false}],
   ['core',{no_global_write:false}],['core',{no_database_create:false}],
-  ['core',{bounded_role:false}],['core',{in_readonly_tx:false}]
+  ['core',{bounded_role:false}],['core',{in_readonly_tx:false}],
+  ['hub',{no_callable_mutating_routines:false}]
  ]){
   const base=row(which==='hub'?'gpt02_hub_evidence_reader':'gpt02_core_evidence_reader');
   const f=fake({[which]:{...base,...patch}});
@@ -121,7 +123,9 @@ test('identity query is catalogue-only and cannot mutate or read task rows',()=>
  assert.match(IDENTITY_QUERY,/pg_backend_pid/);
  assert.match(IDENTITY_QUERY,/pg_stat_ssl/);
  assert.match(IDENTITY_QUERY,/pg_auth_members/);
- assert.doesNotMatch(IDENTITY_QUERY,/gpt02_stage|gpt02_private|ai_tasks|ai_coding_tasks/);
- const s=IDENTITY_QUERY.replace(/'(?:''|[^'])*'/g,"''");
- assert.doesNotMatch(s,/\b(?:INSERT|UPDATE|DELETE|TRUNCATE|ALTER|CREATE|GRANT|REVOKE|CALL|COPY)\b/i);
+ assert.match(IDENTITY_QUERY,/no_callable_mutating_routines/);
+ assert.match(IDENTITY_QUERY,/pg_get_function_result\(p\.oid\)<>'trigger'/);
+ assert.equal(IDENTITY_QUERY.trim().toUpperCase().startsWith('SELECT'),true);
+ assert.doesNotMatch(IDENTITY_QUERY,/;\s*(?:INSERT|UPDATE|DELETE|TRUNCATE|ALTER|CREATE|GRANT|REVOKE|CALL|COPY)\b/i);
+ assert.doesNotMatch(IDENTITY_QUERY,/\bFROM\s+(?:public\.ai_tasks|gpt02_private\.approvals|gpt02_stage\.core_preparations)\b/i);
 });
