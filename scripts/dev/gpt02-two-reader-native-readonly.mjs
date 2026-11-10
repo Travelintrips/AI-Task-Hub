@@ -21,6 +21,11 @@ export const IDENTITY_QUERY=`SELECT current_database() AS db,current_user AS log
  r.rolcanlogin AND NOT(r.rolsuper OR r.rolcreaterole OR r.rolcreatedb OR r.rolbypassrls
   OR r.rolreplication OR r.rolinherit) AND r.rolconnlimit=1 AS bounded_role,
  NOT EXISTS(SELECT 1 FROM pg_auth_members m WHERE m.member=r.oid) AS no_memberships,
+ (SELECT count(*)=1 AND bool_and(member_role.rolname='postgres'
+   AND m.admin_option AND NOT m.inherit_option AND NOT m.set_option
+   AND pg_get_userbyid(m.grantor)='supabase_admin')
+  FROM pg_auth_members m JOIN pg_roles member_role ON member_role.oid=m.member
+  WHERE m.roleid=r.oid) AS exact_management_member,
  NOT pg_has_role(current_user,'pg_read_all_data','USAGE') AS no_global_read,
  NOT pg_has_role(current_user,'pg_write_all_data','USAGE') AS no_global_write,
  NOT has_database_privilege(current_user,current_database(),'CREATE') AS no_database_create,
@@ -79,7 +84,8 @@ function ok(row,role){
   row.statement_timeout_locked===true&&row.lock_timeout_locked===true&&
   row.idle_tx_timeout_locked===true&&Number.isInteger(row.backend_pid)&&row.backend_pid>0&&
   row.tls_verified===true&&row.bounded_role===true&&row.no_memberships===true&&
-  row.no_global_read===true&&row.no_global_write===true&&row.no_database_create===true&&
+  row.exact_management_member===true&&row.no_global_read===true&&
+  row.no_global_write===true&&row.no_database_create===true&&
   row.no_special_admin_roles===true&&row.no_sequence_privileges===true&&
   row.no_callable_security_definer_routines===true&&
   row.no_callable_mutating_routines===true;
