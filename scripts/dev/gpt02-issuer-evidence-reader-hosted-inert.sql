@@ -66,9 +66,6 @@ GRANT SELECT (
   core_ledger_written,created_at
 ) ON gpt02_private.post_consumption_fences TO gpt02_issuer_evidence_reader;
 
-REVOKE EXECUTE ON FUNCTION gpt02_private.reject_mutation()
-  FROM gpt02_issuer_evidence_reader;
-
 DROP POLICY IF EXISTS issuer_evidence_reader_select ON gpt02_private.receipts;
 CREATE POLICY issuer_evidence_reader_select ON gpt02_private.receipts
   FOR SELECT TO gpt02_issuer_evidence_reader USING (true);
