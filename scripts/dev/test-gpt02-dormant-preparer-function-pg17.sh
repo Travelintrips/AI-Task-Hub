@@ -296,18 +296,19 @@ if(!/^SELECT /i.test(QUERY) || !QUERY.includes('owner_parent_grants_exact'))thro
 process.stdout.write('BEGIN READ ONLY;\nSELECT row_to_json(probe) FROM ('+QUERY+') probe;\nROLLBACK;\n');
 JS
 check_readback(){
- local expected="$1"
+ local expected="$1" expected_function="${2:-true}"
  docker exec -i "$NAME" psql -X -v ON_ERROR_STOP=1 -U postgres -d postgres -Atq  <"$WORK/preflight-readback.sql" >"$WORK/preflight-output.log" 2>&1 || {
   tail -25 "$WORK/preflight-output.log";exit 1;
  }
- node - "$WORK/preflight-output.log" "$expected" <<'JS'
+ node - "$WORK/preflight-output.log" "$expected" "$expected_function" <<'JS'
 const fs=require('node:fs');
 const rows=fs.readFileSync(process.argv[2],'utf8').split('\n')
  .map(x=>x.trim()).filter(x=>x.startsWith('{'));
 if(rows.length!==1)throw Error('READONLY_PREFLIGHT_SINGLE_ROW_REQUIRED');
 const row=JSON.parse(rows[0]),expected=process.argv[3]==='true';
+const expectedFunction=process.argv[4]==='true';
 for(const [k,v] of Object.entries({
- is_readonly:true,dormant_function_locked:true,
+ is_readonly:true,dormant_function_locked:expectedFunction,
  owner_parent_grants_exact:expected,scoped_preparer_rls_exact:true,
  preparer_function_exists:false,dormant_table_locked:true,
  preparer_dormant_staged:true,preparer_role_limited:false,
@@ -323,7 +324,8 @@ run postgres <<<"REVOKE SELECT ON public.ai_tasks FROM gpt02_core_prep_owner;" >
 check_readback false
 run postgres <<<"GRANT SELECT ON public.ai_tasks TO gpt02_core_prep_owner;" >/dev/null
 run postgres <<<"GRANT UPDATE ON public.ai_execution_jobs TO gpt02_core_prep_owner;" >/dev/null
-check_readback false
+# Unsafe UPDATE invalidates both the exact grant set and the locked function.
+check_readback false false
 run postgres <<<"REVOKE UPDATE ON public.ai_execution_jobs FROM gpt02_core_prep_owner;" >/dev/null
 check_readback true
 echo PASS:PG17_LIVE_QUERY_REFUSES_MISSING_OR_EXCESS_OWNER_PRIVILEGES
