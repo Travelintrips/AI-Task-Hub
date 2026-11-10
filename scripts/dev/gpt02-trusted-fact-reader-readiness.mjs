@@ -50,21 +50,30 @@ SELECT current_database() AS database_name,
    ORDER BY name),'[]'::jsonb)
    FROM (VALUES('gpt02_hub_evidence_reader'),('gpt02_core_evidence_reader')) r(name)
  ) AS reader_roles,
- (SELECT coalesce(jsonb_agg(jsonb_build_object('field',name,
+ -- The signed operator link is the existing immutable sidecar.
+ -- WorkerId is within signed JSON claims, never a caller-supplied
+ -- column of core_preparations or an operational dispatch permission.
+ (SELECT coalesce(jsonb_agg(jsonb_build_object('field',r.name,
    'exists',EXISTS(SELECT 1 FROM pg_catalog.pg_attribute a
-     JOIN pg_catalog.pg_class c ON c.oid=a.attrelid
-     JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
-     WHERE n.nspname='gpt02_stage' AND c.relname='core_preparations'
-       AND a.attname=name AND a.attnum>0 AND NOT a.attisdropped))
-   ORDER BY name),'[]'::jsonb)
-   FROM (VALUES('worker_id'),('accountable_owner_id'),('core_operator_user_id')) r(name)
+    JOIN pg_catalog.pg_class c ON c.oid=a.attrelid
+    JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+    WHERE n.nspname='gpt02_private' AND c.relname='operator_links'
+      AND a.attname=r.name AND a.attnum>0 AND NOT a.attisdropped
+      AND pg_catalog.format_type(a.atttypid,a.atttypmod)=r.type_name))
+   ORDER BY r.name),'[]'::jsonb)
+   FROM (VALUES('accountable_owner_id','text'),
+     ('core_operator_user_id','integer'),('claims','jsonb'),
+     ('hub_signature','text'),('core_signature','text'),
+     ('link_digest','text')) r(name,type_name)
  ) AS binding_fields,
+ (SELECT COUNT(*)::int FROM gpt02_private.operator_links) AS signed_link_rows,
  (SELECT COUNT(*)::int FROM gpt02_stage.core_preparations) AS prepared_rows`;
 
 const BASE=Object.freeze({
  environment:'CST-DEV',sourceSchemaMatching:false,
  hubReaderProvisioned:false,coreReaderProvisioned:false,
- immutableWorkerOwnerBinding:false,preparedRowsPresent:false,
+ signedSidecarSchemaReady:false,immutableWorkerOwnerBinding:false,
+ signedLinkRowsPresent:false,preparedRowsPresent:false,
  independentlyAuthenticatedReads:false,originalSignerProven:false,
  issuerLeaseGranted:false,dispatchPermitted:false,
  taskCreated:false,readOnly:false,releaseDecision:'NO_GO'
@@ -80,18 +89,23 @@ export function assessTrustedFactReaderReadiness(row){
  const reader=Array.isArray(row.reader_roles)?row.reader_roles:[];
  const roles=new Map(reader.filter(x=>x&&typeof x.role==='string').map(x=>[x.role,x.exists===true]));
  const bindings=Array.isArray(row.binding_fields)?row.binding_fields:[];
- const exact=['worker_id','accountable_owner_id','core_operator_user_id'];
- const required=exact.every(name=>bindings.some(x=>x&&x.field===name&&x.exists===true)) &&
-   bindings.length===3;
+ const expected=['accountable_owner_id','core_operator_user_id','claims',
+  'hub_signature','core_signature','link_digest'];
+ const required=expected.every(name=>bindings.some(x=>x&&x.field===name&&x.exists===true)) &&
+  bindings.length===6;
  result.sourceSchemaMatching=columns;
  result.hubReaderProvisioned=reader.length===2&&roles.get('gpt02_hub_evidence_reader')===true;
  result.coreReaderProvisioned=reader.length===2&&roles.get('gpt02_core_evidence_reader')===true;
- result.immutableWorkerOwnerBinding=required;
+ result.signedSidecarSchemaReady=required;
+ // A catalogue cannot prove a real signer, immutable worker or owner binding.
+ result.immutableWorkerOwnerBinding=false;
+ result.signedLinkRowsPresent=Number.isSafeInteger(row.signed_link_rows)&&row.signed_link_rows>0;
  result.preparedRowsPresent=Number.isSafeInteger(row.prepared_rows)&&row.prepared_rows>0;
  const blockers=[];
  if(!columns)blockers.push('HOSTED_SOURCE_SCHEMA_MISMATCH');
  if(!result.hubReaderProvisioned||!result.coreReaderProvisioned)blockers.push('TWO_RESTRICTED_READER_LOGINS_MISSING');
- if(!required)blockers.push('IMMUTABLE_WORKER_OWNER_CORE_OPERATOR_BINDING_MISSING');
+ if(!required)blockers.push('SIGNED_OPERATOR_LINK_SIDECAR_SCHEMA_MISSING');
+ if(!result.signedLinkRowsPresent)blockers.push('NO_SIGNED_OPERATOR_LINK_RECORDED');
  if(!result.preparedRowsPresent)blockers.push('NO_NEW_PREPARED_HUB_CORE_PAIR');
  blockers.push('INDEPENDENT_SESSIONS_AND_REAL_SIGNER_NOT_ATTESTED');
  return Object.freeze({...result,reason:'READONLY_CATALOG_INVENTORY_ONLY',
