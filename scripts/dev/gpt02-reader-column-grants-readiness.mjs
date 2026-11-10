@@ -56,8 +56,10 @@ const BASE=Object.freeze({
 export function assessReaderColumnGrants(row){
  if(!row||row.database_name!=='postgres'||row.transaction_read_only!=='on')
   return Object.freeze({...BASE,reason:'READER_COLUMN_GRANT_CATALOG_NOT_READONLY'});
- const differences=Array.isArray(row.differences)?row.differences:[];
- const exact=row.expected_column_grants===EXPECTED_COLUMN_GRANTS&&
+ const differencesValid=Array.isArray(row.differences);
+ const differences=differencesValid?row.differences:[];
+ const exact=differencesValid&&
+  row.expected_column_grants===EXPECTED_COLUMN_GRANTS&&
   row.actual_column_grants===EXPECTED_COLUMN_GRANTS&&
   row.difference_count===0&&differences.length===0;
  return Object.freeze({...BASE,readOnly:true,exactColumnGrants:exact,
