@@ -1,0 +1,92 @@
+/**
+ * GPT02 DEV source candidate: bind a nonce consumption request to fresh,
+ * server-read Hub/Core prepared records and three independent signatures.
+ * Not mounted in HTTP routes/workers, not a signer or a dispatch/lease issuer.
+ * The injected fact reader MUST perform independently authenticated DB reads;
+ * caller cannot supply facts, clock, or pinned public keys.
+ */
+import {createPublicKey} from 'node:crypto';
+import {inspectPreparedSignedLink} from './gpt02-prepared-link.mjs';
+
+const FIELDS=['approval','operatorLink'];
+const PUBLIC_KEYS=['approvalPublicKeyPem','hubPublicKeyPem','corePublicKeyPem'];
+const exact=(value,fields)=>value!==null&&typeof value==='object'&&!Array.isArray(value)&&
+ Object.keys(value).sort().join(',')===[...fields].sort().join(',');
+const denied=reason=>Object.freeze({
+ reason,evidenceConsumed:false,receiptId:null,preparationVerified:false,
+ issuerLeaseGranted:false,dispatchPermitted:false,commandCreated:false,
+ completionPermitted:false,releaseDecision:'NO_GO'
+});
+function pinnedKeys(keys){
+ if(!exact(keys,PUBLIC_KEYS))throw Error('GPT02_PINNED_SIGNER_KEYS_REQUIRED');
+ const publicKeys=Object.fromEntries(PUBLIC_KEYS.map(field=>{
+  const s=keys[field];
+  if(typeof s!=='string'||s.length>2000)throw Error('GPT02_PINNED_SIGNER_KEYS_REQUIRED');
+  let key;
+  try{key=createPublicKey(s)}catch{throw Error('GPT02_PINNED_SIGNER_KEYS_REQUIRED')}
+  if(key.asymmetricKeyType!=='ed25519')throw Error('GPT02_ED25519_SIGNER_REQUIRED');
+  return [field,s];
+ }));
+ const signatures=PUBLIC_KEYS.map(field=>createPublicKey(publicKeys[field])
+  .export({format:'der',type:'spki'}).toString('hex'));
+ if(new Set(signatures).size!==3)throw Error('GPT02_THREE_INDEPENDENT_KEYS_REQUIRED');
+ return Object.freeze(publicKeys);
+}
+export function createPreparedNonceConsumer({readTrustedFacts,issuerStore,publicKeys,clock=Date.now}={}){
+ if(typeof readTrustedFacts!=='function'||!issuerStore||
+  typeof issuerStore.consumeLinkedApproval!=='function'||typeof clock!=='function')
+  throw Error('GPT02_AUTHENTICATED_READ_AND_ISSUER_REQUIRED');
+ const trustedKeys=pinnedKeys(publicKeys);
+ let inflight=false; // Single process guard; DB unique indexes are still the cross-process authority.
+ return Object.freeze({
+  async consume(input){
+   if(!exact(input,FIELDS)||!exact(input.approval,['claims','signatureBase64url'])||
+      !exact(input.operatorLink,['claims','hubSignatureBase64url','coreSignatureBase64url']))
+    return denied('UNTRUSTED_APPROVAL_INPUT');
+   const a=input.approval.claims;
+   if(!a||a.environment!=='DEV'||a.companyId!=='default'||
+      !Number.isSafeInteger(a.taskId)||a.taskId<=136||
+      typeof a.commandId!=='string'||typeof a.attemptId!=='string')
+    return denied('OUT_OF_SCOPE_TASK_OR_APPROVAL');
+   if(inflight)return denied('LOCAL_DUPLICATE_CONSUMPTION');
+   inflight=true;
+   try{
+    // Reader, never a request-body fact, reconstructs immutable reserved IDs
+    // using scoped Hub/Core database connections. No silent fallback.
+    const lookup=Object.freeze({companyId:a.companyId,hubTaskId:a.taskId,
+      commandCandidateId:a.commandId,attemptId:a.attemptId});
+    const facts=await readTrustedFacts(lookup);
+    if(!exact(facts,['prepared','job','core','hubOperator','observedAt']))return denied('INCOMPLETE_TRUSTED_DB_READS');
+    const at=clock();
+    if(!Number.isSafeInteger(at)||!Number.isSafeInteger(facts.observedAt)||
+       facts.observedAt>at||at-facts.observedAt>2000)
+      return denied('STALE_OR_UNTRUSTED_FACT_READ');
+    const inspected=inspectPreparedSignedLink({
+      prepared:facts.prepared,job:facts.job,core:facts.core,
+      hubOperator:facts.hubOperator,proof:input,publicKeys:trustedKeys,now:at
+    });
+    if(inspected.matched!==true||inspected.signatureVerified!==true||
+      inspected.dualOriginVerified!==true||inspected.dispatchPermitted!==false)
+      return denied('SIGNED_PREPARED_BINDING_NOT_VERIFIED');
+    // Never grant authority from these boolean fields: the issuer connection
+    // independently authenticates, verifies signatures and atomically claims
+    // the nonce against hosted immutable DB approval + signed origin rows.
+    if(clock()-facts.observedAt>2000)return denied('FACTS_EXPIRED_BEFORE_CONSUMPTION');
+    const receipt=await issuerStore.consumeLinkedApproval(input);
+    if(!receipt||typeof receipt.receiptId!=='string'||
+       !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(receipt.receiptId)||
+       receipt.evidenceConsumed!==true||receipt.dispatchPermitted!==false||
+       receipt.authorizationGranted!==false||receipt.coreLedgerWritten!==false)
+      return denied('ISSUER_RECEIPT_NOT_TRUSTWORTHY');
+    return Object.freeze({
+      reason:'ATOMIC_NONCE_EVIDENCE_ONLY',evidenceConsumed:true,receiptId:receipt.receiptId,
+      preparationVerified:true,issuerLeaseGranted:false,dispatchPermitted:false,
+      commandCreated:false,completionPermitted:false,releaseDecision:'NO_GO'
+    });
+   }catch{
+    // Do not return signatures, nonce, DSN, SQL or authentication errors.
+    return denied('TRUSTED_READ_OR_ISSUER_TRANSACTION_FAILED');
+   }finally{inflight=false;}
+  }
+ });
+}
