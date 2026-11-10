@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {spawnSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
 
 const root=new URL('../../',import.meta.url);
 const read=async p=>readFile(new URL(p,root),'utf8');
@@ -26,7 +27,7 @@ test('deploy activates trust override only for explicit development opt-in',asyn
  assert.match(sh,/trust-fingerprints\.json/);
  assert.equal(sh.includes('/etc/credstore.encrypted'),false);
  assert.equal(sh.includes('private-key.pkcs8'),false);
- const syntax=spawnSync('bash',['-n',new URL('deploy/hostinger/deploy.sh',root)],{encoding:'utf8'});
+ const syntax=spawnSync('bash',['-n',fileURLToPath(new URL('deploy/hostinger/deploy.sh',root))],{encoding:'utf8'});
  assert.equal(syntax.status,0,syntax.stderr||syntax.stdout);
 });
 
