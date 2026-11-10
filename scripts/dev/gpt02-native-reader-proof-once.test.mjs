@@ -33,12 +33,12 @@ test('script never persists or prints generated reader passwords',()=>{
     'cat "$SECRET_ENV"','>> /etc/ai-task/development.env',
     '> /etc/ai-task/development.env','tee /etc/ai-task/development.env'
   ]) assert.equal(src.includes(forbidden),false,forbidden);
-  assert.match(src,/rm -f "\\$SECRET_ENV"/);
-  assert.match(src,/unset HUB_PASS CORE_PASS/);
+  assert.ok(src.includes('rm -f "$SECRET_ENV"'));
+  assert.ok(src.includes('unset HUB_PASS CORE_PASS'));
 });
 
 test('baseline and final state both require NOLOGIN limit0 zero memberships/sessions',()=>{
   assert.match(src,/EXPECTED="gpt02_core_evidence_reader\|false\|0\|0\|0;gpt02_hub_evidence_reader\|false\|0\|0\|0"/);
-  assert.match(src,/[ "$BASELINE" = "$EXPECTED" ]/);
-  assert.match(src,/[ "$AFTER" = "$EXPECTED" ]/);
+  assert.ok(src.includes('[ "$BASELINE" = "$EXPECTED" ]'));
+  assert.ok(src.includes('[ "$AFTER" = "$EXPECTED" ]'));
 });
