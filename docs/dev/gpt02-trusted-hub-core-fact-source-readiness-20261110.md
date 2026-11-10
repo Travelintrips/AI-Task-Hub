@@ -69,3 +69,24 @@ Perbaikan pada `gpt02-trusted-facts-readonly.mjs`:
 - Uji terisolasi terbaru **89/89 PASS** untuk kedua modul, termasuk bukti tepat-satu-approval dan dual-origin signed link. Ini uji sumber, bukan uji dua sesi login hosted.
 
 **Batas produksi tetap:** dua identitas pembaca independen belum diprovisioning, empat kunci penandatangan real tidak tersedia, persetujuan Super Admin baru belum dikeluarkan, dan issuer/attestor/nonce hosted tetap NO-GO. Jangan menjalankan kembali Task135/136, atau membuka worker, lease dan dispatch dari match bukti saja.
+
+
+## Provisioning live reader inert — 11 November 2026
+
+Audit live CST-DEV setelah penutupan persisted-proof gap menemukan drift pada `gpt02_core_prep_login`: role sempat dikunci pada 17:06:29 UTC lalu dibuka kembali pada 17:08:53 UTC dari sesi `postgres` yang sama melalui Supavisor. Tidak ada sesi aktif dan autentikasi setelah pembukaan terakhir gagal. Role preparer kemudian dikembalikan ke baseline aman dan read-back membuktikan `NOLOGIN`, connection limit 0, credential dinonaktifkan, valid-until 2000-01-01, membership 0, tanpa database CREATE dan tanpa global read/write.
+
+Dua role pembaca kini **sudah diprovisioning secara inert** di hosted CST-DEV:
+- `gpt02_hub_evidence_reader`
+- `gpt02_core_evidence_reader`
+
+Keduanya tetap `NOLOGIN`, connection limit 0, `NOINHERIT`, bukan superuser/CREATEROLE/CREATEDB/BYPASSRLS/replication, membership 0, dan tidak mempunyai INSERT/UPDATE/DELETE/TRUNCATE/REFERENCES/TRIGGER pada surface GPT02 yang diaudit. Hanya schema USAGE, SELECT kolom minimum, dan policy RLS SELECT sempit yang diprovisioning.
+
+Policy Hub membatasi hosted read ke tenant `default`, Task >136, approval/link environment DEV, attempt 1, PIC aktif, Super Admin global aktif, audit `gpt02_pic_assigned`, dan Hub execution `AI_TASK` berstatus `prepared`. Policy Core membatasi task ke project `GPT02 DEV coding lifecycle`, repository `Travelintrips/Core-AI-Foundation`, branch `develop`, task number `GPT02DEV-%`, operator owner/admin aktif dengan password-change selesai, serta run/command yang hanya terkait task Core dalam scope tersebut.
+
+Tiga tabel GPT02 sensitif (`core_preparations`, `approvals`, `operator_links`) tetap FORCE RLS. Pembuatan policy dilakukan melalui owner role yang sah; membership `postgres` ke `gpt02_core_prep_owner` dan `gpt02_store_owner` dikembalikan ke baseline `SET=false` sebelum COMMIT. Tidak ada owner transfer, BYPASSRLS, global read, atau DML grant.
+
+Query aktual `HUB_SQL` dan `CORE_SQL` diuji dengan `EXPLAIN` di bawah masing-masing reader melalui membership sementara yang seluruhnya di-ROLLBACK. Keduanya PASS dan plan menunjukkan filter RLS reader diterapkan. Ini membuktikan privilege-plan query, tetapi **belum** membuktikan dua sesi login native karena kedua role sengaja masih NOLOGIN dan deployment DEV saat ini belum mempunyai slot secret/pool khusus reader.
+
+Security advisor dijalankan setelah DDL. Tidak ada temuan baru yang spesifik terhadap dua reader; temuan advisor lain pada project berada di luar scope Issue #159.
+
+**Status baru:** preparer locked PASS; reader role structure/least-privilege/RLS/EXPLAIN PASS; independent authenticated reader sessions masih NO-GO; empat trust root signer asli masih absent; issuer/attestor tetap tidak dibuka; PR tetap DRAFT; Task135/136 tidak diulang; PROD/DELL tidak disentuh.
