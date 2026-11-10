@@ -61,7 +61,19 @@ function fixture(taskId=137){
   issuerPublicKeyPem:pub('issuer'),now};
 }
 
-const facts=x=>({prepared:x.prepared,job:x.job,core:x.core,hubOperator:x.hubOperator,observedAt:now-100});
+const facts=x=>({
+ prepared:x.prepared,job:x.job,core:x.core,hubOperator:x.hubOperator,
+ observedAt:now-100,
+ storedEvidence:{
+  approval:{claims:x.proof.approval.claims,
+    signatureBase64url:x.proof.approval.signatureBase64url,
+    digest:digest(canonicalApproval(x.proof.approval.claims))},
+  operatorLink:{claims:x.proof.operatorLink.claims,
+    hubSignatureBase64url:x.proof.operatorLink.hubSignatureBase64url,
+    coreSignatureBase64url:x.proof.operatorLink.coreSignatureBase64url,
+    linkDigest:digest(canonicalOperatorLink(x.proof.operatorLink.claims))}
+ }
+});
 const successReceipt=()=>({receiptId:randomUUID(),evidenceConsumed:true,authorizationGranted:false,dispatchPermitted:false,coreLedgerWritten:false});
 function setup(x=fixture(),patchFacts=x=>x,issuerFn=async()=>successReceipt()){
  let reads=0,issued=0;
@@ -71,6 +83,9 @@ function setup(x=fixture(),patchFacts=x=>x,issuerFn=async()=>successReceipt()){
    reads++;
    assert.equal(lookup.hubTaskId,x.proof.approval.claims.taskId);
    assert.equal(lookup.commandCandidateId,x.proof.approval.claims.commandId);
+   assert.equal(lookup.linkId,x.proof.operatorLink.claims.linkId);
+   assert.equal(lookup.approvalDigest,digest(canonicalApproval(x.proof.approval.claims)));
+   assert.match(lookup.linkDigest,/^[a-f0-9]{64}$/);
    return patchFacts(facts(x));
   },
   issuerStore:{async consumeLinkedApproval(proof){issued++;return issuerFn(proof);}}
@@ -108,6 +123,38 @@ for(const [label,patch] of [
  const result=await consumer.consume(x.proof);
  assert.equal(result.evidenceConsumed,false);assert.equal(result.dispatchPermitted,false);
  assert.equal(calls().issued,0);
+});
+test('valid alternate dual-signed operator link on same task cannot consume the original ledger link',async()=>{
+ const x=fixture(),{consumer,calls}=setup(x);
+ const claims={...x.proof.operatorLink.claims,issuedAt:now-100};
+ const other={...x.proof,operatorLink:{
+  claims,
+  hubSignatureBase64url:sign(null,operatorLinkSigningBytes(claims,'hub'),keys.hub.privateKey).toString('base64url'),
+  coreSignatureBase64url:sign(null,operatorLinkSigningBytes(claims,'core'),keys.core.privateKey).toString('base64url')
+ }};
+ const y=await consumer.consume(other);
+ assert.equal(y.reason,'SIGNED_PROOF_DIFFERS_FROM_STORED_LEDGER');
+ assert.equal(y.evidenceConsumed,false);assert.equal(y.dispatchPermitted,false);
+ assert.equal(calls().issued,0);
+});
+test('persisted signature and digest swaps are denied before issuer DB write',async()=>{
+ for(const delta of [
+  {approval:{signatureBase64url:'Z'.repeat(86)}},
+  {approval:{digest:'f'.repeat(64)}},
+  {operatorLink:{hubSignatureBase64url:'Z'.repeat(86)}},
+  {operatorLink:{coreSignatureBase64url:'Z'.repeat(86)}},
+  {operatorLink:{linkDigest:'f'.repeat(64)}},
+  {operatorLink:{claims:{invalid:'altered'}}}
+ ]){
+  const x=fixture(),y=setup(x,raw=>({...raw,storedEvidence:{
+   approval:{...raw.storedEvidence.approval,...delta.approval},
+   operatorLink:{...raw.storedEvidence.operatorLink,...delta.operatorLink}
+  }}));
+  const result=await y.consumer.consume(x.proof);
+  assert.equal(result.evidenceConsumed,false);
+  assert.equal(result.dispatchPermitted,false);
+  assert.equal(y.calls().issued,0);
+ }
 });
 test('tampered Ed25519 signature is rejected before issuer write',async()=>{
  const x=fixture(),{consumer,calls}=setup(x);
