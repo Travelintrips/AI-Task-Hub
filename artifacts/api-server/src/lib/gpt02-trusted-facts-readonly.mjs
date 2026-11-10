@@ -31,7 +31,7 @@ export const HUB_SQL=[
  "SELECT p.company_id,p.hub_task_id,p.member_id,p.member_audit_id,p.operator_subject,",
  " p.core_task_id::text AS core_task_id,p.hub_execution_id::text AS hub_execution_id,",
  " p.command_candidate_id::text AS command_candidate_id,p.attempt_id::text AS attempt_id,",
- " (extract(epoch FROM p.expires_at)*1000)::float8 AS expires_ms,",
+ " floor(extract(epoch FROM p.expires_at)*1000)::float8 AS expires_ms,",
  " t.assigned_to_id,t.assigned_to,t.status AS task_status,t.title AS task_title,",
  " m.name AS member_name,m.is_active AS member_active,",
  " u.id AS hub_user_id,u.role AS hub_role,u.is_active AS hub_active,",
@@ -105,9 +105,11 @@ function mapFacts(h,c,query){
  if(h.audit_action!=='gpt02_pic_assigned'||
     h.audit_entity_id!==String(query.hubTaskId)||
     h.audited_member_record!==h.latest_pic_audit_id||
-    audit.taskId!==query.hubTaskId||audit.companyId!==query.companyId||
-    audit.memberId!==h.member_id||audit.memberName!==h.assigned_to||
-    audit.actorIdentity.version!==1&&audit.actorIdentity.version!=='1'||
+    String(audit.taskId)!==String(query.hubTaskId)||
+    audit.companyId!==query.companyId||
+    String(audit.memberId)!==String(h.member_id)||
+    audit.memberName!==h.assigned_to||
+    ![1,'1'].includes(audit.actorIdentity.version)||
     audit.actorIdentity.role!=='super_admin'||
     audit.actorIdentity.id!==h.hub_user_id||
     email(audit.actorIdentity.email)!==email(h.audit_user_email)||
