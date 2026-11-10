@@ -1,0 +1,82 @@
+/**
+ * CST-DEV ONLY. Native authentication proof for the two GPT02 evidence readers.
+ * Never creates/activates roles, rotates credentials, reads business rows,
+ * consumes nonce, calls issuer, creates tasks, or dispatches work.
+ */
+import {createRequire} from 'node:module';
+import {createGpt02ReaderPools} from '../../artifacts/api-server/src/lib/gpt02-reader-pools.mjs';
+
+const HUB='gpt02_hub_evidence_reader';
+const CORE='gpt02_core_evidence_reader';
+
+export const IDENTITY_QUERY=`SELECT current_database() AS db,current_user AS login,
+ session_user AS session,current_setting('transaction_read_only')='on' AS in_readonly_tx,
+ r.rolcanlogin AND NOT(r.rolsuper OR r.rolcreaterole OR r.rolcreatedb OR r.rolbypassrls
+  OR r.rolreplication OR r.rolinherit) AND r.rolconnlimit=1 AS bounded_role,
+ NOT EXISTS(SELECT 1 FROM pg_auth_members m WHERE m.member=r.oid) AS no_memberships,
+ NOT pg_has_role(current_user,'pg_read_all_data','USAGE') AS no_global_read,
+ NOT pg_has_role(current_user,'pg_write_all_data','USAGE') AS no_global_write,
+ NOT has_database_privilege(current_user,current_database(),'CREATE') AS no_database_create
+ FROM pg_roles r WHERE r.rolname=current_user`;
+
+const BASE=Object.freeze({
+ environment:'CST-DEV',mode:'AUTHENTICATED_TWO_READER_READONLY_EVIDENCE',
+ hubAuthenticated:false,coreAuthenticated:false,twoSessionsVerified:false,
+ permissionsVerified:false,dispatchPermitted:false,issuerLeaseGranted:false,
+ taskCreated:false,commandCreated:false,releaseDecision:'NO_GO'
+});
+const report=(reason,extra={})=>Object.freeze({...BASE,...extra,reason,
+ dispatchPermitted:false,issuerLeaseGranted:false,taskCreated:false,
+ commandCreated:false,releaseDecision:'NO_GO'});
+
+function ok(row,role){
+ return row?.db==='postgres'&&row.login===role&&row.session===role&&
+  row.in_readonly_tx===true&&row.bounded_role===true&&row.no_memberships===true&&
+  row.no_global_read===true&&row.no_global_write===true&&row.no_database_create===true;
+}
+function resolvePool(){
+ const apiRequire=createRequire(new URL('../../artifacts/api-server/package.json',import.meta.url));
+ return apiRequire('pg').Pool;
+}
+async function inspect(pool){
+ let client,tx=false;
+ try{
+  client=await pool.connect();
+  await client.query('BEGIN READ ONLY');tx=true;
+  await client.query("SET LOCAL statement_timeout='5s'");
+  const r=await client.query(IDENTITY_QUERY);
+  await client.query('ROLLBACK');tx=false;
+  if(!r||!Array.isArray(r.rows)||r.rows.length!==1)throw Error('bad rows');
+  return {row:r.rows[0],client};
+ }catch(e){
+  if(client&&tx)try{await client.query('ROLLBACK')}catch{}
+  if(client)try{client.release(true)}catch{}
+  throw e;
+ }
+}
+export async function probe(env=process.env,deps={}){
+ let pools;
+ try{
+  pools=createGpt02ReaderPools({
+   env,Pool:deps.Pool||resolvePool(),nodeEnv:env.NODE_ENV,appEnv:env.APP_ENV
+  });
+ }catch{return report('NO_VERIFIED_TWO_READER_CREDENTIALS_OR_CST_DEV_TLS');}
+ let h,c;
+ try{
+  h=await inspect(pools.hubPool);
+  c=await inspect(pools.corePool);
+  if(h.client===c.client)return report('SEPARATE_NATIVE_SESSIONS_REQUIRED');
+  const hubGood=ok(h.row,HUB),coreGood=ok(c.row,CORE);
+  return report(hubGood&&coreGood?'TWO_NATIVE_READERS_PASS_NO_AUTHORITY':
+   'NATIVE_READER_PRIVILEGE_MISMATCH',{
+    hubAuthenticated:hubGood,coreAuthenticated:coreGood,
+    twoSessionsVerified:h.client!==c.client,
+    permissionsVerified:hubGood&&coreGood
+  });
+ }catch{return report('NATIVE_READER_LOGIN_OR_CATALOG_PROBE_FAILED');}
+ finally{
+  if(h?.client)try{h.client.release(true)}catch{}
+  if(c?.client)try{c.client.release(true)}catch{}
+  for(const p of [pools?.hubPool,pools?.corePool])if(p&&typeof p.end==='function')try{await p.end()}catch{}
+ }
+}
