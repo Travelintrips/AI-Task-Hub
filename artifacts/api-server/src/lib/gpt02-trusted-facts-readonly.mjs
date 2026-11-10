@@ -32,11 +32,22 @@ export const HUB_SQL=[
  " p.core_task_id::text AS core_task_id,p.hub_execution_id::text AS hub_execution_id,",
  " p.command_candidate_id::text AS command_candidate_id,p.attempt_id::text AS attempt_id,",
  " (extract(epoch FROM p.expires_at)*1000)::float8 AS expires_ms,",
- " t.assigned_to_id,t.assigned_to,t.status AS task_status,",
+ " t.assigned_to_id,t.assigned_to,t.status AS task_status,t.title AS task_title,",
  " m.name AS member_name,m.is_active AS member_active,",
- " u.role AS hub_role,u.is_active AS hub_active,u.status AS hub_status,",
+ " u.id AS hub_user_id,u.role AS hub_role,u.is_active AS hub_active,",
+ " u.status AS hub_status,u.company_id AS hub_company_id,u.email AS hub_email,",
  " a.id AS audited_member_record,a.company_id AS audit_company_id,",
+ " a.action AS audit_action,a.entity_id AS audit_entity_id,",
+ " a.after AS audit_payload,a.user_email AS audit_user_email,",
+ " (SELECT MAX(z.id) FROM public.audit_logs z WHERE z.company_id=p.company_id",
+ " AND z.entity_id=p.hub_task_id::text AND z.action='gpt02_pic_assigned') AS latest_pic_audit_id,",
  " j.company_id AS job_company_id,j.task_id AS job_task_id,j.status AS job_status,",
+ " j.source AS job_source,j.external_id AS job_external_id,",
+ " j.idempotency_key AS job_idempotency_key,j.title AS job_title,",
+ " j.instruction AS job_instruction,j.progress AS job_progress,",
+ " j.callback_verified,j.attestation_verified,j.final_ack_verified,",
+ " (SELECT COUNT(*)::int FROM public.ai_execution_jobs e WHERE",
+ " e.task_id=p.hub_task_id AND e.company_id=p.company_id) AS hub_execution_count,",
  " j.command_id::text AS job_command_id,j.worker_id AS job_worker_id,",
  " j.assigned_client_id AS job_assigned_client_id,j.metadata AS job_metadata,",
  " l.link_id::text AS link_id,l.accountable_owner_id,l.hub_operator_id,",
@@ -47,6 +58,7 @@ export const HUB_SQL=[
  " JOIN public.team_members m ON m.id=p.member_id AND m.company_id=p.company_id",
  " JOIN public.users u ON u.id=p.operator_subject",
  " JOIN public.audit_logs a ON a.id=p.member_audit_id AND a.company_id=p.company_id",
+ " AND a.entity_id=p.hub_task_id::text AND a.action='gpt02_pic_assigned'",
  " JOIN public.ai_execution_jobs j ON j.id=p.hub_execution_id",
  "    AND j.task_id=p.hub_task_id AND j.company_id=p.company_id",
  " JOIN gpt02_private.operator_links l ON l.command_id=p.command_candidate_id",
@@ -59,7 +71,8 @@ export const HUB_SQL=[
 ].join(' ');
 export const CORE_SQL=[
  "SELECT t.id::text AS core_task_id,t.status AS core_status,",
- " t.task_number AS core_task_number,",
+ " t.task_number AS core_task_number,t.repository AS core_repository,",
+ " t.branch AS core_branch,t.instruction AS core_instruction,",
  " u.id AS core_operator_user_id,u.role AS core_role,",
  " u.status AS core_operator_status,u.must_change_password,",
  " (SELECT COUNT(*)::int FROM ai_platform.ai_coding_runs r WHERE r.task_id=t.id) AS run_count,",
@@ -83,6 +96,24 @@ function mapFacts(h,c,query){
  if(!object(h)||!object(c)||!object(h.job_metadata)||!object(h.signed_link_claims))
   denied('INCOMPLETE_PREPARED_ROWS');
  const m=h.job_metadata,l=h.signed_link_claims;
+ let audit;
+ try{audit=typeof h.audit_payload==='string'?JSON.parse(h.audit_payload):h.audit_payload}
+ catch{denied('UNREADABLE_SUPER_ADMIN_ASSIGNMENT_AUDIT')}
+ if(!object(audit)||!object(audit.actorIdentity))
+  denied('SUPER_ADMIN_ASSIGNMENT_AUDIT_MISSING');
+ const email=v=>typeof v==='string'?v.trim().toLowerCase():null;
+ if(h.audit_action!=='gpt02_pic_assigned'||
+    h.audit_entity_id!==String(query.hubTaskId)||
+    h.audited_member_record!==h.latest_pic_audit_id||
+    audit.taskId!==query.hubTaskId||audit.companyId!==query.companyId||
+    audit.memberId!==h.member_id||audit.memberName!==h.assigned_to||
+    audit.actorIdentity.version!==1&&audit.actorIdentity.version!=='1'||
+    audit.actorIdentity.role!=='super_admin'||
+    audit.actorIdentity.id!==h.hub_user_id||
+    email(audit.actorIdentity.email)!==email(h.audit_user_email)||
+    email(h.hub_email)!==email(h.audit_user_email)||
+    h.hub_company_id!==null)
+   denied('SUPER_ADMIN_ASSIGNMENT_AUDIT_MISMATCH');
  let canonical,linkDigest;
  try{
   canonical=canonicalOperatorLink(l);
@@ -98,13 +129,25 @@ function mapFacts(h,c,query){
  if(h.company_id!==query.companyId||h.hub_task_id!==query.hubTaskId||
     h.command_candidate_id!==query.commandCandidateId||h.attempt_id!==query.attemptId||
     h.job_company_id!==query.companyId||h.job_task_id!==query.hubTaskId||
-    h.job_status!=='prepared'||h.job_command_id!==null||
+    h.job_status!=='prepared'||
+    h.job_source!=='AI_TASK'||
+    h.job_external_id!=='ai-task:'+query.companyId+':'+query.hubTaskId||
+    h.job_idempotency_key!=='gpt02-managed-preparation:'+query.companyId+':'+query.hubTaskId||
+    h.job_title!==h.task_title||h.job_instruction!==c.core_instruction||
+    h.job_progress!==0||h.callback_verified!==false||
+    h.attestation_verified!==false||h.final_ack_verified!==false||
+    h.hub_execution_count!==1||
+    h.job_command_id!==null||
     h.job_worker_id!==null||h.job_assigned_client_id!==null||
     m.commandCandidateId!==h.command_candidate_id||
     m.coreTaskId!==h.core_task_id||m.attemptId!==h.attempt_id||
     m.memberId!==h.member_id||m.memberAuditId!==h.member_audit_id||
     m.operatorSubject!==h.operator_subject||m.attemptNumber!==1||
     m.dispatchStarted!==false||m.autoContinue!==false||
+    m.accountAlias!=='GPT02'||m.environment!=='development'||
+    m.verificationMode!=='chatgpt-attested'||
+    m.productionAllowed!==false||m.executionType!=='managed_prepared'||
+    m.lifecycleStart!==false||
     h.assigned_to_id!==h.member_id||h.assigned_to!==h.member_name||
     h.member_active!==true||h.hub_role!=='super_admin'||
     h.hub_active!==true||h.hub_status!=='active'||
@@ -125,7 +168,10 @@ function mapFacts(h,c,query){
     l.hubTaskId!==h.hub_task_id||
     l.companyId!==query.companyId||
     c.core_task_id!==h.core_task_id||c.core_operator_user_id!==h.core_operator_user_id||
-    c.core_status!=='PENDING'||!String(c.core_task_number||'').startsWith('GPT02DEV-')||
+    c.core_status!=='PENDING'||
+    !String(c.core_task_number||'').startsWith('GPT02DEV-'+query.hubTaskId+'-')||
+    c.core_repository!=='Travelintrips/Core-AI-Foundation'||
+    c.core_branch!=='develop'||
     !['owner','admin'].includes(c.core_role)||c.core_operator_status!=='active'||
     c.must_change_password!==false||c.run_count!==0||c.command_count!==0)
     denied('HUB_CORE_SIGNED_SIDECAR_MISMATCH');
@@ -192,7 +238,9 @@ export function createGpt02TrustedFactReader({hubPool,corePool,clock=Date.now}={
      'TWO_INDEPENDENT_RESTRICTED_DB_LOGINS_REQUIRED',
      'INCOMPLETE_PREPARED_ROWS','HUB_CORE_SIGNED_SIDECAR_MISMATCH',
      'SIGNATURE_SIDECAR_CANONICAL_INVALID','SIGNED_LINK_LEDGER_DIGEST_MISMATCH',
-     'HUB_TASK_NOT_ACTIVE',
+     'HUB_TASK_NOT_ACTIVE','UNREADABLE_SUPER_ADMIN_ASSIGNMENT_AUDIT',
+     'SUPER_ADMIN_ASSIGNMENT_AUDIT_MISSING',
+     'SUPER_ADMIN_ASSIGNMENT_AUDIT_MISMATCH',
      'INVALID_CORE_LOOKUP_FROM_HUB_LEDGER','SIGNED_PREPARATION_EXPIRED'].includes(e?.code))
     throw e;
    denied('INDEPENDENT_READ_FAILED_CLOSED');
