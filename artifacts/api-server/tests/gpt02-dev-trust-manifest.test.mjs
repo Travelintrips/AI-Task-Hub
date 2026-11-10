@@ -43,7 +43,12 @@ for(const [label,mutate,code] of [
 ])test('rejects '+label,()=>{
  const x=fixture();
  try{
-  writeFileSync(x.path,JSON.stringify(mutate(pins()))+'\n',{mode:0o400});
+  // The fixture is intentionally read-only at verification time. Temporarily
+  // make it owner-writable only to stage malformed test content, then restore
+  // the production-like 0400 mode before invoking the loader.
+  chmodSync(x.path,0o600);
+  writeFileSync(x.path,JSON.stringify(mutate(pins()))+'\n');
+  chmodSync(x.path,0o400);
   assert.throws(()=>loadGpt02DevTrustManifest({path:x.path,ownerUid:uid}),e=>e.code===code);
  }finally{clean(x)}
 });
