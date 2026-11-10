@@ -5,13 +5,31 @@
  * No fallback to the shared application pool is allowed. Credentials stay in
  * environment variables and are never returned or logged by this module.
  */
+import {X509Certificate} from 'node:crypto';
+
 const PROJECT_REF='xssrfshdrtdfupgqwfdw';
 const POOLER_HOST='aws-1-ap-southeast-2.pooler.supabase.com';
 const DATABASE='postgres';
 const HUB_ENV='GPT02_HUB_READER_DATABASE_URL_DEV';
 const CORE_ENV='GPT02_CORE_READER_DATABASE_URL_DEV';
+const CA_ENV='GPT02_READER_DEV_CA';
+const PINNED_ROOT_FINGERPRINT='807025ad50d4ed219d2c9c7d299c004f824eb00cf7f65afef607d07b72e6cafa';
 
 const fail=code=>{const e=new Error(code);e.code=code;throw e;};
+function pinnedReaderCa(pem){
+ if(typeof pem!=='string'||pem.length>8192||
+    !/^-----BEGIN CERTIFICATE-----\r?\n(?:[A-Za-z0-9+/=]+\r?\n)+-----END CERTIFICATE-----\r?\n?$/.test(pem))
+  fail('GPT02_READER_PINNED_CA_REQUIRED');
+ try{
+  const certificate=new X509Certificate(pem);
+  if(certificate.fingerprint256.replaceAll(':','').toLowerCase()!==PINNED_ROOT_FINGERPRINT)
+   fail('GPT02_READER_PINNED_CA_REQUIRED');
+ }catch(e){
+  if(e?.code==='GPT02_READER_PINNED_CA_REQUIRED')throw e;
+  fail('GPT02_READER_PINNED_CA_REQUIRED');
+ }
+ return pem;
+}
 
 function parseReaderDsn(value,role){
  if(typeof value!=='string'||value.length<1||value.length>4096)
@@ -38,10 +56,13 @@ export function createGpt02ReaderPools({
  appEnv=process.env.APP_ENV
 }={}){
  const synthetic=nodeEnv==='test'&&appEnv!=='production';
+ if(env?.NODE_TLS_REJECT_UNAUTHORIZED==='0')
+  fail('GPT02_READER_TLS_DISABLE_FORBIDDEN');
  if(!synthetic&&(nodeEnv!=='development'||appEnv!=='development'))
   fail('GPT02_READER_EXPLICIT_CST_DEV_MODE_REQUIRED');
  if(typeof Pool!=='function')fail('GPT02_READER_POOL_FACTORY_REQUIRED');
 
+ const ca=pinnedReaderCa(env?.[CA_ENV]);
  const hub=parseReaderDsn(env?.[HUB_ENV],'gpt02_hub_evidence_reader');
  const core=parseReaderDsn(env?.[CORE_ENV],'gpt02_core_evidence_reader');
  if(hub.connectionString===core.connectionString)
@@ -51,7 +72,7 @@ export function createGpt02ReaderPools({
   max:1,
   idleTimeoutMillis:10000,
   connectionTimeoutMillis:5000,
-  ssl:{rejectUnauthorized:true},
+  ssl:{ca,rejectUnauthorized:true},
   // Fail closed from PostgreSQL startup, before any application query.
   options:'-c default_transaction_read_only=on -c search_path=pg_catalog -c statement_timeout=5000 -c lock_timeout=1000 -c idle_in_transaction_session_timeout=10000',
   allowExitOnIdle:true
