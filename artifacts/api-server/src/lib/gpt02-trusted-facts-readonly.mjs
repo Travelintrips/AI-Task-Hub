@@ -1,0 +1,191 @@
+/**
+ * GPT02 DEV candidate. Two independently authenticated DB read sessions for
+ * immutable Hub/Core task facts. No HTTP route/worker import, DML, signing,
+ * approval, nonce consumption, grant or dispatch.
+ *
+ * The signed operator_links sidecar already stores Core operator, owner and
+ * signed claims.workerId. Never duplicate these into core_preparations.
+ */
+const UUID=/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/;
+const ROLE_HUB='gpt02_hub_evidence_reader';
+const ROLE_CORE='gpt02_core_evidence_reader';
+const WORKER='openclaw-dell-chatgpt-wake-dev';
+const denied=code=>{const e=new Error(code);e.code=code;throw e;};
+const object=v=>v!==null&&typeof v==='object'&&!Array.isArray(v);
+const exact=(obj,keys)=>object(obj)&&Object.keys(obj).sort().join(',')===[...keys].sort().join(',');
+const integer=v=>Number.isSafeInteger(v)&&v>0;
+const ACTIVE_STATUSES=['new','in_progress','open','pending','active'];
+const IDENTITY_SQL=[
+ "SELECT current_database() AS db,current_user AS login,session_user AS session,",
+ " current_setting('transaction_read_only') AS read_only,",
+ " r.rolcanlogin AND NOT (r.rolsuper OR r.rolcreaterole OR r.rolcreatedb OR",
+ " r.rolbypassrls OR r.rolreplication OR r.rolinherit) AS restricted,",
+ " NOT EXISTS(SELECT 1 FROM pg_auth_members m WHERE m.member=r.oid) AS no_memberships,",
+ " NOT pg_has_role(current_user,'pg_read_all_data','USAGE') AS no_global_read,",
+ " NOT pg_has_role(current_user,'pg_write_all_data','USAGE') AS no_global_write,",
+ " NOT has_database_privilege(current_user,current_database(),'CREATE') AS no_db_create",
+ " FROM pg_roles r WHERE r.rolname=current_user"
+].join(' ');
+export const HUB_SQL=[
+ "SELECT p.company_id,p.hub_task_id,p.member_id,p.member_audit_id,p.operator_subject,",
+ " p.core_task_id::text AS core_task_id,p.hub_execution_id::text AS hub_execution_id,",
+ " p.command_candidate_id::text AS command_candidate_id,p.attempt_id::text AS attempt_id,",
+ " (extract(epoch FROM p.expires_at)*1000)::bigint AS expires_ms,",
+ " t.assigned_to_id,t.assigned_to,t.status AS task_status,",
+ " m.name AS member_name,m.is_active AS member_active,",
+ " u.role AS hub_role,u.is_active AS hub_active,u.status AS hub_status,",
+ " a.id AS audited_member_record,a.company_id AS audit_company_id,",
+ " j.company_id AS job_company_id,j.task_id AS job_task_id,j.status AS job_status,",
+ " j.command_id::text AS job_command_id,j.worker_id AS job_worker_id,",
+ " j.assigned_client_id AS job_assigned_client_id,j.metadata AS job_metadata,",
+ " l.link_id::text AS link_id,l.accountable_owner_id,l.hub_operator_id,",
+ " l.core_operator_user_id,l.claims AS signed_link_claims,",
+ " l.approval_digest,l.link_digest,l.hub_signature,l.core_signature",
+ " FROM gpt02_stage.core_preparations p",
+ " JOIN public.ai_tasks t ON t.id=p.hub_task_id AND t.company_id=p.company_id",
+ " JOIN public.team_members m ON m.id=p.member_id AND m.company_id=p.company_id",
+ " JOIN public.users u ON u.id=p.operator_subject",
+ " JOIN public.audit_logs a ON a.id=p.member_audit_id AND a.company_id=p.company_id",
+ " JOIN public.ai_execution_jobs j ON j.id=p.hub_execution_id",
+ "    AND j.task_id=p.hub_task_id AND j.company_id=p.company_id",
+ " JOIN gpt02_private.operator_links l ON l.command_id=p.command_candidate_id",
+ "    AND l.attempt_id=p.attempt_id AND l.hub_execution_id=p.hub_execution_id",
+ "    AND l.core_task_id=p.core_task_id AND l.hub_task_id=p.hub_task_id",
+ "    AND l.company_id=p.company_id AND l.assignee_id=p.member_id",
+ "    AND l.hub_operator_id=p.operator_subject",
+ " WHERE p.company_id=$1 AND p.hub_task_id=$2 AND",
+ " p.command_candidate_id=$3::uuid AND p.attempt_id=$4::uuid"
+].join(' ');
+export const CORE_SQL=[
+ "SELECT t.id::text AS core_task_id,t.status AS core_status,",
+ " t.task_number AS core_task_number,",
+ " u.id AS core_operator_user_id,u.role AS core_role,",
+ " u.status AS core_operator_status,u.must_change_password,",
+ " (SELECT COUNT(*)::int FROM ai_platform.ai_coding_runs r WHERE r.task_id=t.id) AS run_count,",
+ " (SELECT COUNT(*)::int FROM ai_platform.ai_coding_bridge_commands c",
+ " WHERE c.task_id=t.id) AS command_count",
+ " FROM ai_platform.ai_coding_tasks t CROSS JOIN ai_platform.internal_users u",
+ " WHERE t.id=$1::uuid AND u.id=$2::integer"
+].join(' ');
+export function validRequestedIdentity(q){
+ return exact(q,['companyId','hubTaskId','commandCandidateId','attemptId'])&&
+  q.companyId==='default'&&integer(q.hubTaskId)&&q.hubTaskId>136&&
+  UUID.test(q.commandCandidateId)&&UUID.test(q.attemptId)&&
+  q.commandCandidateId!==q.attemptId;
+}
+function verifyDbIdentity(row,expected){
+ return row?.db==='postgres'&&row.login===expected&&row.session===expected&&
+  row.read_only==='on'&&row.restricted===true&&row.no_memberships===true&&
+  row.no_global_read===true&&row.no_global_write===true&&row.no_db_create===true;
+}
+function mapFacts(h,c,query){
+ if(!object(h)||!object(c)||!object(h.job_metadata)||!object(h.signed_link_claims))
+  denied('INCOMPLETE_PREPARED_ROWS');
+ const m=h.job_metadata,l=h.signed_link_claims;
+ if(h.company_id!==query.companyId||h.hub_task_id!==query.hubTaskId||
+    h.command_candidate_id!==query.commandCandidateId||h.attempt_id!==query.attemptId||
+    h.job_company_id!==query.companyId||h.job_task_id!==query.hubTaskId||
+    h.job_status!=='prepared'||h.job_command_id!==null||
+    h.job_worker_id!==null||h.job_assigned_client_id!==null||
+    m.commandCandidateId!==h.command_candidate_id||
+    m.coreTaskId!==h.core_task_id||m.attemptId!==h.attempt_id||
+    m.memberId!==h.member_id||m.memberAuditId!==h.member_audit_id||
+    m.operatorSubject!==h.operator_subject||m.attemptNumber!==1||
+    m.dispatchStarted!==false||m.autoContinue!==false||
+    h.assigned_to_id!==h.member_id||h.assigned_to!==h.member_name||
+    h.member_active!==true||h.hub_role!=='super_admin'||
+    h.hub_active!==true||h.hub_status!=='active'||
+    h.audit_company_id!==query.companyId||
+    h.audited_member_record!==h.member_audit_id||
+    h.hub_operator_id!==h.operator_subject||
+    !integer(h.member_id)||!integer(h.member_audit_id)||
+    !integer(h.core_operator_user_id)||!integer(h.expires_ms)||
+    !UUID.test(h.core_task_id)||!UUID.test(h.hub_execution_id)||
+    !UUID.test(h.link_id)||!object(l)||l.workerId!==WORKER||
+    l.accountableOwnerId!==h.accountable_owner_id||
+    l.coreOperatorUserId!==h.core_operator_user_id||
+    l.hubOperatorId!==h.hub_operator_id||
+    l.coreTaskId!==h.core_task_id||
+    l.hubExecutionId!==h.hub_execution_id||
+    l.coreCommandId!==h.command_candidate_id||
+    l.attemptId!==h.attempt_id||
+    l.hubTaskId!==h.hub_task_id||
+    l.companyId!==query.companyId||
+    c.core_task_id!==h.core_task_id||c.core_operator_user_id!==h.core_operator_user_id||
+    c.core_status!=='PENDING'||!String(c.core_task_number||'').startsWith('GPT02DEV-')||
+    !['owner','admin'].includes(c.core_role)||c.core_operator_status!=='active'||
+    c.must_change_password!==false||c.run_count!==0||c.command_count!==0)
+    denied('HUB_CORE_SIGNED_SIDECAR_MISMATCH');
+ return {
+  prepared:{companyId:h.company_id,hubTaskId:h.hub_task_id,
+    memberId:h.member_id,memberAuditId:h.member_audit_id,
+    operatorSubject:h.operator_subject,coreTaskId:h.core_task_id,
+    hubExecutionId:h.hub_execution_id,commandCandidateId:h.command_candidate_id,
+    attemptId:h.attempt_id,expiresAt:h.expires_ms},
+  job:{companyId:h.job_company_id,taskId:h.job_task_id,
+    executionId:h.hub_execution_id,status:h.job_status,commandId:null,
+    workerCommandCount:0,attemptNumber:1,dispatchStarted:false,
+    memberId:h.member_id,memberAuditId:h.member_audit_id,
+    operatorSubject:h.operator_subject},
+  core:{taskId:c.core_task_id,commandCandidateId:h.command_candidate_id,
+    attemptId:h.attempt_id,status:c.core_status,commandCount:c.command_count,
+    runCount:c.run_count,workerId:l.workerId,operatorUserId:c.core_operator_user_id,
+    operatorRole:c.core_role,operatorActive:true,passwordChanged:true},
+  hubOperator:{subject:h.operator_subject,role:h.hub_role,active:true,
+    memberId:h.member_id,accountableOwnerId:h.accountable_owner_id}
+ };
+}
+/**
+ * Pools are supplied by a separate reviewed DEV connection factory. This
+ * module will NEVER accept a DSN from a task or fall back to the shared pool.
+ */
+export function createGpt02TrustedFactReader({hubPool,corePool,clock=Date.now}={}){
+ if(!hubPool||typeof hubPool.connect!=='function'||
+  !corePool||typeof corePool.connect!=='function'||hubPool===corePool||
+  typeof clock!=='function')denied('INDEPENDENT_HUB_CORE_POOLS_REQUIRED');
+ return async function readTrustedFacts(query){
+  if(!validRequestedIdentity(query))denied('UNTRUSTED_TASK_IDENTITY');
+  let hub,core,hubTx=false,coreTx=false;
+  try{
+   hub=await hubPool.connect();
+   core=await corePool.connect();
+   if(!hub||!core||hub===core)denied('SEPARATE_DB_SESSIONS_REQUIRED');
+   await hub.query('BEGIN READ ONLY');hubTx=true;
+   await core.query('BEGIN READ ONLY');coreTx=true;
+   await hub.query("SET LOCAL statement_timeout='5s'");
+   await core.query("SET LOCAL statement_timeout='5s'");
+   const [hi,ci]=await Promise.all([hub.query(IDENTITY_SQL),core.query(IDENTITY_SQL)]);
+   if(hi.rows?.length!==1||ci.rows?.length!==1||
+     !verifyDbIdentity(hi.rows[0],ROLE_HUB)||
+     !verifyDbIdentity(ci.rows[0],ROLE_CORE))denied('TWO_INDEPENDENT_RESTRICTED_DB_LOGINS_REQUIRED');
+   const hs=await hub.query(HUB_SQL,[query.companyId,query.hubTaskId,
+    query.commandCandidateId,query.attemptId]);
+   if(hs.rows?.length!==1)denied('TRUSTED_HUB_TASK_SIDECAR_NOT_UNIQUE');
+   const h=hs.rows[0];
+   if(!UUID.test(h.core_task_id)||!integer(h.core_operator_user_id))
+    denied('INVALID_CORE_LOOKUP_FROM_HUB_LEDGER');
+   const cs=await core.query(CORE_SQL,[h.core_task_id,h.core_operator_user_id]);
+   if(cs.rows?.length!==1)denied('TRUSTED_CORE_OPERATOR_NOT_UNIQUE');
+   const mapped=mapFacts(h,cs.rows[0],query);
+   const observedAt=clock();
+   if(!integer(observedAt)||observedAt>=mapped.prepared.expiresAt)
+    denied('SIGNED_PREPARATION_EXPIRED');
+   await hub.query('ROLLBACK');hubTx=false;
+   await core.query('ROLLBACK');coreTx=false;
+   return Object.freeze({...mapped,observedAt});
+  }catch(e){
+   if(e?.code&&String(e.code).startsWith('TRUSTED_'))throw e;
+   if(['UNTRUSTED_TASK_IDENTITY','SEPARATE_DB_SESSIONS_REQUIRED',
+     'TWO_INDEPENDENT_RESTRICTED_DB_LOGINS_REQUIRED',
+     'INCOMPLETE_PREPARED_ROWS','HUB_CORE_SIGNED_SIDECAR_MISMATCH',
+     'INVALID_CORE_LOOKUP_FROM_HUB_LEDGER','SIGNED_PREPARATION_EXPIRED'].includes(e?.code))
+    throw e;
+   denied('INDEPENDENT_READ_FAILED_CLOSED');
+  }finally{
+   if(hub&&hubTx)try{await hub.query('ROLLBACK')}catch{}
+   if(core&&coreTx)try{await core.query('ROLLBACK')}catch{}
+   if(hub)try{hub.release(true)}catch{}
+   if(core)try{core.release(true)}catch{}
+  }
+ };
+}
