@@ -116,6 +116,7 @@ jobs:
           node --test scripts/dev/gpt02-runtime-unmounted-contract.test.mjs
           node --test scripts/dev/gpt02-reader-column-grants-readiness.test.mjs
           node --test scripts/dev/gpt02-reader-schema-usage-readiness.test.mjs
+          node --test scripts/dev/gpt02-reader-role-settings-readiness.test.mjs
       - name: Deny prepared Hub/Core reservations before legacy tracking or dispatch
         run: node --test artifacts/api-server/tests/gpt02-prepared-execution-denied.test.mjs
       - name: Typecheck
