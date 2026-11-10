@@ -21,7 +21,9 @@ const row=(role,backendPid)=>({
  no_memberships:true,exact_management_member:true,
  no_global_read:true,no_global_write:true,no_database_create:true,no_schema_create:true,
  no_owned_objects:true,
- no_special_admin_roles:true,no_sequence_privileges:true,no_callable_security_definer_routines:true,
+ no_special_admin_roles:true,no_sequence_privileges:true,
+ no_foreign_server_usage:true,no_foreign_table_select:true,
+ no_callable_security_definer_routines:true,
  exact_callable_routines:true,no_callable_mutating_routines:true
 });
 function fake({hub=row('gpt02_hub_evidence_reader',41001),core=row('gpt02_core_evidence_reader',41002),
@@ -88,6 +90,7 @@ test('wrong identity, membership or elevated privilege fails closed',async()=>{
   ['core',{statement_timeout_locked:false}],['core',{lock_timeout_locked:false}],
   ['core',{idle_tx_timeout_locked:false}],
   ['hub',{no_sequence_privileges:false}],
+  ['hub',{no_foreign_server_usage:false}],['core',{no_foreign_table_select:false}],
   ['core',{no_callable_security_definer_routines:false}],
   ['hub',{exact_callable_routines:false}],
   ['hub',{no_callable_mutating_routines:false}]
@@ -154,6 +157,9 @@ test('identity query is catalogue-only and cannot mutate or read task rows',()=>
  assert.match(IDENTITY_QUERY,/pg_execute_server_program/);
  assert.match(IDENTITY_QUERY,/pg_read_server_files/);
  assert.match(IDENTITY_QUERY,/no_sequence_privileges/);
+ assert.match(IDENTITY_QUERY,/no_foreign_server_usage/);
+ assert.match(IDENTITY_QUERY,/has_server_privilege/);
+ assert.match(IDENTITY_QUERY,/no_foreign_table_select/);
  assert.match(IDENTITY_QUERY,/has_sequence_privilege/);
  assert.match(IDENTITY_QUERY,/no_callable_security_definer_routines/);
  assert.match(IDENTITY_QUERY,/exact_callable_routines/);
