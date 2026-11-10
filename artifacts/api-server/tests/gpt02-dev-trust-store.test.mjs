@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash,generateKeyPairSync} from 'node:crypto';
-import {mkdtempSync,mkdirSync,writeFileSync,symlinkSync,chmodSync,rmSync,readFileSync} from 'node:fs';
+import {mkdtempSync,mkdirSync,writeFileSync,symlinkSync,chmodSync,rmSync,readFileSync,renameSync,unlinkSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {loadGpt02DevTrustStore} from '../src/lib/gpt02-dev-trust-store.mjs';
@@ -65,7 +65,6 @@ test('trust directory is private and file permissions cannot be group/world read
 });
 test('symlinked public key file cannot be loaded despite valid PEM and digest',()=>{
  const x=fixture();try{
-  const {renameSync}=await import('node:fs');
   renameSync(join(x.dir,files.core),join(x.dir,'core-real.pem'));
   symlinkSync(join(x.dir,'core-real.pem'),join(x.dir,files.core));
   expectedError(()=>load(x),'TRUST_PUBLIC_KEY_UNAVAILABLE');
@@ -74,7 +73,6 @@ test('symlinked public key file cannot be loaded despite valid PEM and digest',(
 test('missing file and private key content are rejected without leaking file content',()=>{
  const x=fixture();try{
   const path=join(x.dir,files.hub);
-  const {unlinkSync}=await import('node:fs');
   unlinkSync(path);
   expectedError(()=>load(x),'TRUST_PUBLIC_KEY_UNAVAILABLE');
   const {privateKey}=generateKeyPairSync('ed25519');
