@@ -26,9 +26,8 @@ function parseReaderDsn(value,role){
  const expected=role+'.'+PROJECT_REF;
  if(decodeURIComponent(u.username)!==expected||!u.password)
   fail('GPT02_READER_DEDICATED_IDENTITY_REQUIRED');
- if(u.hash||u.searchParams.has('user')||u.searchParams.has('password')||
-    u.searchParams.has('host')||u.searchParams.has('dbname'))
-  fail('GPT02_READER_DSN_OVERRIDE_FORBIDDEN');
+ if(u.hash||[...u.searchParams.keys()].length!==0)
+  fail('GPT02_READER_DSN_QUERY_FORBIDDEN');
  return Object.freeze({connectionString:value,role});
 }
 
@@ -52,7 +51,7 @@ export function createGpt02ReaderPools({
   max:1,
   idleTimeoutMillis:10000,
   connectionTimeoutMillis:5000,
-  ssl:{rejectUnauthorized:false},
+  ssl:{rejectUnauthorized:true},
   allowExitOnIdle:true
  };
  const hubPool=new Pool({...common,connectionString:hub.connectionString,
