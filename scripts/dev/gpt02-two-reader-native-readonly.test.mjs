@@ -28,10 +28,16 @@ const row=(role,backendPid)=>({
  exact_callable_routines:true,no_callable_mutating_routines:true
 });
 function fake({hub=row('gpt02_hub_evidence_reader',41001),core=row('gpt02_core_evidence_reader',41002),
- sameClient=false,fail=false}={}){
+ sameClient=false,fail=false,hubTls=true,coreTls=true}={}){
  const created=[],queries=[];
  class Client{
-  constructor(role){this.role=role;}
+  constructor(role){
+   this.role=role;
+   const tls=role==='hub'?hubTls:coreTls;
+   this.connection={stream:{
+    encrypted:tls,authorized:tls,authorizationError:tls?null:'synthetic'
+   }};
+  }
   async query(sql){
    queries.push({role:this.role,sql});
    if(fail&&sql===IDENTITY_QUERY)throw Error('synthetic hub-secret core-secret');
@@ -118,14 +124,12 @@ test('same PostgreSQL backend PID cannot masquerade as two independent sessions'
 });
 test('TLS must be verified independently for both native readers',async()=>{
  for(const which of ['hub','core']){
-  const base=which==='hub'
-   ? row('gpt02_hub_evidence_reader',41001)
-   : row('gpt02_core_evidence_reader',41002);
-  const f=fake({[which]:{...base,tls_verified:false}});
+  const f=fake(which==='hub'?{hubTls:false}:{coreTls:false});
   const r=await probe(env,{Pool:f.Pool});
   assert.equal(r.permissionsVerified,false);
   assert.equal(r.dispatchPermitted,false);
   assert.equal(r.reason,'NATIVE_READER_PRIVILEGE_MISMATCH');
+  assert.deepEqual(which==='hub'?r.hubFailedChecks:r.coreFailedChecks,['backend_tls']);
  }
 });
 
