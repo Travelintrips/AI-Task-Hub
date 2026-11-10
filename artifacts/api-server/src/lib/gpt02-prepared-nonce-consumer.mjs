@@ -50,10 +50,11 @@ export function createPreparedNonceConsumer({
   if(expectedFingerprints!==undefined)throw Error('GPT02_TEST_CONFIG_MIXED_WITH_REAL_TRUST');
   keyMaterial=publicKeys;
  }else{
-  if(publicKeys!==undefined)throw Error('GPT02_CALLER_SIGNER_KEYS_FORBIDDEN');
+  if(publicKeys!==undefined||expectedFingerprints!==undefined)
+   throw Error('GPT02_CALLER_TRUST_CONFIG_FORBIDDEN');
   if(process.env.NODE_ENV!=='development'||process.env.APP_ENV!=='development')
    throw Error('GPT02_EXPLICIT_CST_DEV_MODE_REQUIRED');
-  const material=loadGpt02DevTrustStore({expectedFingerprints});
+  const material=loadGpt02DevTrustStore();
   keyMaterial={approvalPublicKeyPem:material.approvalPublicKeyPem,
    hubPublicKeyPem:material.hubPublicKeyPem,corePublicKeyPem:material.corePublicKeyPem};
  }
