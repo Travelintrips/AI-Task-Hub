@@ -38,6 +38,19 @@ CREATE ROLE gpt02_hub_evidence_reader
 CREATE ROLE gpt02_core_evidence_reader
  NOLOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB
  NOREPLICATION CONNECTION LIMIT 0 PASSWORD NULL VALID UNTIL '2000-01-01';
+-- PostgreSQL 16/17 may auto-grant the newly created roles to the
+-- CREATEROLE invoker. Remove ONLY the self-created grant within the
+-- same atomic transaction; no surviving path to SET ROLE is permitted.
+DO $auto$
+BEGIN
+ IF EXISTS (SELECT 1 FROM pg_auth_members m
+ WHERE m.roleid IN ('gpt02_hub_evidence_reader'::regrole,
+                    'gpt02_core_evidence_reader'::regrole)
+ AND (m.member<>'postgres'::regrole OR m.grantor<>'postgres'::regrole))
+ THEN RAISE EXCEPTION 'GPT02_INERT_READERS_UNEXPECTED_AUTOGRANT'; END IF;
+END $auto$;
+REVOKE gpt02_hub_evidence_reader FROM postgres GRANTED BY postgres;
+REVOKE gpt02_core_evidence_reader FROM postgres GRANTED BY postgres;
 COMMENT ON ROLE gpt02_hub_evidence_reader IS
  'CST-DEV GPT02 inert Hub read identity; no login, credentials, grants, or dispatch';
 COMMENT ON ROLE gpt02_core_evidence_reader IS
