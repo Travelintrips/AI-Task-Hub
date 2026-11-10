@@ -31,6 +31,7 @@ export const HUB_SQL=[
  "SELECT p.company_id,p.hub_task_id,p.member_id,p.member_audit_id,p.operator_subject,",
  " p.core_task_id::text AS core_task_id,p.hub_execution_id::text AS hub_execution_id,",
  " p.command_candidate_id::text AS command_candidate_id,p.attempt_id::text AS attempt_id,",
+ " p.config_sha256,",
  " floor(extract(epoch FROM p.expires_at)*1000)::float8 AS expires_ms,",
  " t.assigned_to_id,t.assigned_to,t.status AS task_status,t.title AS task_title,",
  " m.name AS member_name,m.is_active AS member_active,",
@@ -71,7 +72,8 @@ export const HUB_SQL=[
 ].join(' ');
 export const CORE_SQL=[
  "SELECT t.id::text AS core_task_id,t.status AS core_status,",
- " t.task_number AS core_task_number,t.repository AS core_repository,",
+ " t.task_number AS core_task_number,t.project_name AS core_project,",
+ " t.repository AS core_repository,",
  " t.branch AS core_branch,t.instruction AS core_instruction,",
  " u.id AS core_operator_user_id,u.role AS core_role,",
  " u.status AS core_operator_status,u.must_change_password,",
@@ -128,6 +130,21 @@ function mapFacts(h,c,query){
  if(typeof h.task_status!=='string'||!h.task_status||
    ['completed','cancelled','canceled','closed','failed','archived'].includes(h.task_status.toLowerCase()))
   denied('HUB_TASK_NOT_ACTIVE');
+ // Same UTF-8, ASCII Unit Separator framing as immutable PostgreSQL
+ // preparer: digest(concat_ws(E'\x1f',...), 'sha256').
+ const PROJECT='GPT02 DEV coding lifecycle';
+ const REPOSITORY='Travelintrips/Core-AI-Foundation';
+ const BRANCH='develop';
+ if(c.core_project!==PROJECT||typeof c.core_instruction!=='string'||
+    c.core_instruction.length<1||!/^[a-f0-9]{64}$/.test(h.config_sha256))
+   denied('IMMUTABLE_PREPARATION_HASH_INPUT_INVALID');
+ const expectedHash=createHash('sha256').update([
+   query.companyId,String(query.hubTaskId),String(h.member_id),
+   String(h.member_audit_id),h.operator_subject,PROJECT,
+   REPOSITORY,BRANCH,c.core_instruction
+ ].join('\x1f')).digest('hex');
+ if(expectedHash!==h.config_sha256)
+   denied('IMMUTABLE_PREPARATION_CONFIGURATION_MISMATCH');
  if(h.company_id!==query.companyId||h.hub_task_id!==query.hubTaskId||
     h.command_candidate_id!==query.commandCandidateId||h.attempt_id!==query.attemptId||
     h.job_company_id!==query.companyId||h.job_task_id!==query.hubTaskId||
@@ -240,7 +257,9 @@ export function createGpt02TrustedFactReader({hubPool,corePool,clock=Date.now}={
      'TWO_INDEPENDENT_RESTRICTED_DB_LOGINS_REQUIRED',
      'INCOMPLETE_PREPARED_ROWS','HUB_CORE_SIGNED_SIDECAR_MISMATCH',
      'SIGNATURE_SIDECAR_CANONICAL_INVALID','SIGNED_LINK_LEDGER_DIGEST_MISMATCH',
-     'HUB_TASK_NOT_ACTIVE','UNREADABLE_SUPER_ADMIN_ASSIGNMENT_AUDIT',
+     'HUB_TASK_NOT_ACTIVE','IMMUTABLE_PREPARATION_HASH_INPUT_INVALID',
+     'IMMUTABLE_PREPARATION_CONFIGURATION_MISMATCH',
+     'UNREADABLE_SUPER_ADMIN_ASSIGNMENT_AUDIT',
      'SUPER_ADMIN_ASSIGNMENT_AUDIT_MISSING',
      'SUPER_ADMIN_ASSIGNMENT_AUDIT_MISMATCH',
      'INVALID_CORE_LOOKUP_FROM_HUB_LEDGER','SIGNED_PREPARATION_EXPIRED'].includes(e?.code))
