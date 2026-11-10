@@ -10,6 +10,7 @@ test('one-shot reader proof has mandatory fail-closed relock and secret cleanup'
     'chmod 600 "$SECRET_ENV"','trap cleanup EXIT HUP INT TERM',
     'ALTER ROLE gpt02_hub_evidence_reader NOLOGIN CONNECTION LIMIT 0',
     'ALTER ROLE gpt02_core_evidence_reader NOLOGIN CONNECTION LIMIT 0',
+    'pg_terminate_backend(pid)','READER_RELOCK_COMMAND_FAILED',
     'openssl rand -hex 32','roles_locked=0','lock_roles',
     'TWO_NATIVE_READERS_PASS_NO_AUTHORITY',
     'GPT02_NATIVE_TWO_READER_PROOF=PASS_RELOCKED_NO_AUTHORITY'
