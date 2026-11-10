@@ -24,6 +24,11 @@ SELECT current_database() database_name,
  bool_and(NOT rolcanlogin AND rolconnlimit=0 AND NOT rolinherit AND NOT rolsuper
   AND NOT rolcreaterole AND NOT rolcreatedb AND NOT rolreplication AND NOT rolbypassrls) locked_roles,
  bool_and(NOT EXISTS(SELECT 1 FROM pg_auth_members m WHERE m.member=readers.oid)) no_memberships,
+ bool_and((SELECT count(*)=1 AND bool_and(member_role.rolname='postgres'
+   AND m.admin_option AND NOT m.inherit_option AND NOT m.set_option
+   AND pg_get_userbyid(m.grantor)='supabase_admin')
+  FROM pg_auth_members m JOIN pg_roles member_role ON member_role.oid=m.member
+  WHERE m.roleid=readers.oid)) exact_management_membership,
  bool_and(NOT EXISTS(SELECT 1 FROM pg_stat_activity a WHERE a.usename=readers.rolname)) no_active_sessions,
  bool_and((SELECT array_agg(x ORDER BY x) FROM unnest(setconfig) x)=
   ARRAY['default_transaction_read_only=on','idle_in_transaction_session_timeout=10s',
@@ -32,16 +37,18 @@ FROM readers`;
 
 const BASE=Object.freeze({
  environment:'CST-DEV',readOnly:false,readerCount:0,lockedRoles:false,
- noMemberships:false,noActiveSessions:false,exactRoleConfig:false,
+ noMemberships:false,exactManagementMembership:false,noActiveSessions:false,exactRoleConfig:false,
  dispatchPermitted:false,issuerLeaseGranted:false,releaseDecision:'NO_GO'
 });
 export function assessReaderRoleSettings(row){
  if(!row||row.database_name!=='postgres'||row.transaction_read_only!=='on')
   return Object.freeze({...BASE,reason:'READER_ROLE_SETTINGS_CATALOG_NOT_READONLY'});
  const good=row.reader_count===2&&row.locked_roles===true&&row.no_memberships===true&&
-  row.no_active_sessions===true&&row.exact_role_config===true;
+  row.exact_management_membership===true&&row.no_active_sessions===true&&
+  row.exact_role_config===true;
  return Object.freeze({...BASE,readOnly:true,readerCount:row.reader_count,
   lockedRoles:row.locked_roles===true,noMemberships:row.no_memberships===true,
+  exactManagementMembership:row.exact_management_membership===true,
   noActiveSessions:row.no_active_sessions===true,exactRoleConfig:row.exact_role_config===true,
   reason:good?'EXACT_INERT_READER_ROLE_SETTINGS_PASS_NO_AUTHORITY':'READER_ROLE_SETTINGS_DRIFT'});
 }
