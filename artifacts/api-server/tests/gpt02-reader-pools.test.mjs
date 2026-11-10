@@ -36,6 +36,13 @@ test('builds two distinct max-one DEV reader pools without exposing DSNs',()=>{
  assert.equal(v.corePool.config.application_name,'gpt02-core-evidence-reader');
  assert.equal(v.hubPool.config.ssl.rejectUnauthorized,true);
  assert.equal(v.corePool.config.ssl.rejectUnauthorized,true);
+ for(const p of [v.hubPool.config.options,v.corePool.config.options]){
+  assert.match(p,/default_transaction_read_only=on/);
+  assert.match(p,/search_path=pg_catalog/);
+  assert.match(p,/statement_timeout=5000/);
+  assert.match(p,/lock_timeout=1000/);
+  assert.match(p,/idle_in_transaction_session_timeout=10000/);
+ }
  assert.equal(v.metadata.environment,'DEV');
  assert.equal(v.metadata.projectRef,ref);
  assert.equal(v.metadata.dispatchPermitted,false);
