@@ -40,7 +40,7 @@ test('four independently pinned public keys are loaded, but can never grant disp
 });
 test('a missing manifest and unknown or duplicated signer role is never trusted',()=>{
  const x=fixture();try{
-  expectedError(()=>loadGpt02DevTrustStore({root:x.dir}),'TRUST_FINGERPRINT_MANIFEST_INVALID');
+  expectedError(()=>loadGpt02DevTrustStore({root:x.dir}),'TRUST_MANIFEST_DIRECTORY_NOT_FOUND');
   expectedError(()=>loadGpt02DevTrustStore({root:x.dir,expectedFingerprints:{...x.pins,extra:'x'}}),
    'TRUST_FINGERPRINT_MANIFEST_INVALID');
   expectedError(()=>loadGpt02DevTrustStore({root:x.dir,expectedFingerprints:{...x.pins,issuer:x.pins.hub}}),
