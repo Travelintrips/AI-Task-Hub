@@ -6,6 +6,8 @@
  * The signed operator_links sidecar already stores Core operator, owner and
  * signed claims.workerId. Never duplicate these into core_preparations.
  */
+import {createHash} from 'node:crypto';
+import {canonicalOperatorLink} from './gpt02-operator-link.mjs';
 const UUID=/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/;
 const ROLE_HUB='gpt02_hub_evidence_reader';
 const ROLE_CORE='gpt02_core_evidence_reader';
@@ -14,7 +16,6 @@ const denied=code=>{const e=new Error(code);e.code=code;throw e;};
 const object=v=>v!==null&&typeof v==='object'&&!Array.isArray(v);
 const exact=(obj,keys)=>object(obj)&&Object.keys(obj).sort().join(',')===[...keys].sort().join(',');
 const integer=v=>Number.isSafeInteger(v)&&v>0;
-const ACTIVE_STATUSES=['new','in_progress','open','pending','active'];
 const IDENTITY_SQL=[
  "SELECT current_database() AS db,current_user AS login,session_user AS session,",
  " current_setting('transaction_read_only') AS read_only,",
@@ -30,7 +31,7 @@ export const HUB_SQL=[
  "SELECT p.company_id,p.hub_task_id,p.member_id,p.member_audit_id,p.operator_subject,",
  " p.core_task_id::text AS core_task_id,p.hub_execution_id::text AS hub_execution_id,",
  " p.command_candidate_id::text AS command_candidate_id,p.attempt_id::text AS attempt_id,",
- " (extract(epoch FROM p.expires_at)*1000)::bigint AS expires_ms,",
+ " (extract(epoch FROM p.expires_at)*1000)::float8 AS expires_ms,",
  " t.assigned_to_id,t.assigned_to,t.status AS task_status,",
  " m.name AS member_name,m.is_active AS member_active,",
  " u.role AS hub_role,u.is_active AS hub_active,u.status AS hub_status,",
@@ -82,6 +83,18 @@ function mapFacts(h,c,query){
  if(!object(h)||!object(c)||!object(h.job_metadata)||!object(h.signed_link_claims))
   denied('INCOMPLETE_PREPARED_ROWS');
  const m=h.job_metadata,l=h.signed_link_claims;
+ let canonical,linkDigest;
+ try{
+  canonical=canonicalOperatorLink(l);
+  linkDigest=createHash('sha256').update(canonical).digest('hex');
+ }catch{denied('SIGNATURE_SIDECAR_CANONICAL_INVALID')}
+ if(!/^[A-Za-z0-9_-]{86}$/.test(h.hub_signature)||
+    !/^[A-Za-z0-9_-]{86}$/.test(h.core_signature)||
+    h.link_digest!==linkDigest||h.approval_digest!==l.approvalDigest)
+  denied('SIGNED_LINK_LEDGER_DIGEST_MISMATCH');
+ if(typeof h.task_status!=='string'||!h.task_status||
+   ['completed','cancelled','canceled','closed','failed','archived'].includes(h.task_status.toLowerCase()))
+  denied('HUB_TASK_NOT_ACTIVE');
  if(h.company_id!==query.companyId||h.hub_task_id!==query.hubTaskId||
     h.command_candidate_id!==query.commandCandidateId||h.attempt_id!==query.attemptId||
     h.job_company_id!==query.companyId||h.job_task_id!==query.hubTaskId||
@@ -178,6 +191,8 @@ export function createGpt02TrustedFactReader({hubPool,corePool,clock=Date.now}={
    if(['UNTRUSTED_TASK_IDENTITY','SEPARATE_DB_SESSIONS_REQUIRED',
      'TWO_INDEPENDENT_RESTRICTED_DB_LOGINS_REQUIRED',
      'INCOMPLETE_PREPARED_ROWS','HUB_CORE_SIGNED_SIDECAR_MISMATCH',
+     'SIGNATURE_SIDECAR_CANONICAL_INVALID','SIGNED_LINK_LEDGER_DIGEST_MISMATCH',
+     'HUB_TASK_NOT_ACTIVE',
      'INVALID_CORE_LOOKUP_FROM_HUB_LEDGER','SIGNED_PREPARATION_EXPIRED'].includes(e?.code))
     throw e;
    denied('INDEPENDENT_READ_FAILED_CLOSED');
