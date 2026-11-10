@@ -99,10 +99,37 @@ export function createPreparedNonceConsumer({
    try{
     // Reader, never a request-body fact, reconstructs immutable reserved IDs
     // using scoped Hub/Core database connections. No silent fallback.
+    const l=input.operatorLink.claims;
+    const approvalDigest=createHash('sha256')
+      .update(canonicalApproval(a)).digest('hex');
+    const linkDigest=createHash('sha256')
+      .update(canonicalOperatorLink(l)).digest('hex');
+    // Verify that Hub/Core DB readers locate the *same immutable* approval
+    // and independently signed operator link, not merely the same task IDs.
     const lookup=Object.freeze({companyId:a.companyId,hubTaskId:a.taskId,
-      commandCandidateId:a.commandId,attemptId:a.attemptId});
+      commandCandidateId:a.commandId,attemptId:a.attemptId,
+      linkId:l.linkId,linkDigest,approvalDigest});
     const facts=await readTrustedFacts(lookup);
-    if(!exact(facts,['prepared','job','core','hubOperator','observedAt']))return denied('INCOMPLETE_TRUSTED_DB_READS');
+    if(!exact(facts,['prepared','job','core','hubOperator','observedAt','storedEvidence']))
+      return denied('INCOMPLETE_TRUSTED_DB_READS');
+    const db=facts.storedEvidence;
+    if(!exact(db,['approval','operatorLink'])||
+       !exact(db.approval,['claims','signatureBase64url','digest'])||
+       !exact(db.operatorLink,['claims','linkDigest','hubSignatureBase64url','coreSignatureBase64url']))
+      return denied('IMMUTABLE_LEDGER_EVIDENCE_MISSING');
+    // PostgreSQL JSONB may reorder property keys, so compare their fixed
+    // canonical serialization rather than naive JSON.stringify().
+    let exactSignedMatch=false;
+    try{
+      exactSignedMatch=canonicalApproval(db.approval.claims)===canonicalApproval(a)&&
+        canonicalOperatorLink(db.operatorLink.claims)===canonicalOperatorLink(l)&&
+        db.approval.digest===approvalDigest&&
+        db.operatorLink.linkDigest===linkDigest&&
+        db.approval.signatureBase64url===input.approval.signatureBase64url&&
+        db.operatorLink.hubSignatureBase64url===input.operatorLink.hubSignatureBase64url&&
+        db.operatorLink.coreSignatureBase64url===input.operatorLink.coreSignatureBase64url;
+    }catch{return denied('IMMUTABLE_LEDGER_EVIDENCE_INVALID')}
+    if(!exactSignedMatch)return denied('SIGNED_PROOF_DIFFERS_FROM_STORED_LEDGER');
     const at=clock();
     if(!Number.isSafeInteger(at)||!Number.isSafeInteger(facts.observedAt)||
        facts.observedAt>at||at-facts.observedAt>2000)
