@@ -32,3 +32,9 @@ Pada pemeriksaan VPS dan kontainer pengganti, trust directory tidak ditemukan. P
 Operator keamanan DEV yang berwenang harus menautkan trust anchor publik dari empat signer nyata ke manifest fingerprint out-of-band, memverifikasi asal signer, lalu menyerahkan file **publik** melalui mount yang dikelola perangkat sesuai prinsip least privilege. Jangan menyalin private key ke Git, VPS umum, SQL, chat, dan jangan mempromosikan approval dari sesi browser.
 
 Baru sesudah readback kunci dan peran benar-benar PASS, layanan attestor serta issuer dapat diuji dengan kredensial khusus dan transaksi nonce terautentikasi yang dibatasi. Tidak ada grant atau dispatch sampai **new Task ID >136** mendapat persetujuan Super Admin task-spesifik, issuer lease terpisah, native DELL ACK. Task135/136 tidak boleh diulang, PROD tidak boleh diubah. **Full lifecycle NO-GO**.
+
+## Penguncian integrasi nonce pada mode DEV operasional
+
+`createPreparedNonceConsumer` sekarang **memanggil `loadGpt02DevTrustStore` secara wajib** ketika `NODE_ENV=development` dan `APP_ENV=development`, menggunakan empat fingerprint dari manifest deployment yang independen. Argumen `publicKeys` dari pemanggil ditolak dalam mode operasional, bahkan sebelum membuka reader maupun issuer. Fixture kunci sintetis hanya diterima di proses unit test (`NODE_ENV=test`, bukan mode PROD), dan tidak pernah dimount ke rute HTTP.
+
+Jika direktori trust tidak tersedia, hasilnya fail-closed `TRUST_STORE_DIRECTORY_NOT_FOUND` tanpa koneksi database atau penulisan nonce. Dua pengujian regresi proses baru membuktikan penolakan kunci injeksi dan absent trust sebelum reader/issuer dipakai. Ini tidak mengaktifkan issuer/attestor yang masih NOLOGIN, tidak membuat grant, dan tidak mengizinkan dispatch.
