@@ -55,10 +55,25 @@ if [ -z "${HOST_PORT:-}" ] || [ -z "${CONTAINER_NAME:-}" ]; then
   exit 1
 fi
 
+COMPOSE_FILES=(-f deploy/hostinger/docker-compose.yml)
+if [ "$TARGET" = "development" ] &&
+   [ "${GPT02_PUBLIC_TRUST_MOUNT_ENABLED:-false}" = "true" ]; then
+  TRUST_OVERRIDE="deploy/hostinger/docker-compose.development.trust.yml"
+  TRUST_DIR="${GPT02_PUBLIC_TRUST_DIR_HOST:-/run/credentials/gpt02-dev}"
+  TRUST_CONFIG_DIR="${GPT02_PUBLIC_TRUST_CONFIG_DIR_HOST:-/etc/gpt02-dev}"
+  if [ ! -f "$TRUST_OVERRIDE" ] ||
+     [ ! -d "$TRUST_DIR" ] ||
+     [ ! -f "$TRUST_CONFIG_DIR/trust-fingerprints.json" ]; then
+    echo "GPT02 DEV public trust mount requested but reviewed public trust is incomplete." >&2
+    exit 1
+  fi
+  COMPOSE_FILES+=(-f "$TRUST_OVERRIDE")
+fi
+
 echo "Building AI Task Hub image (bounded to 12 minutes)..."
 if ! timeout --foreground --kill-after=30s 12m docker compose \
   --env-file "$COMPOSE_ENV" \
-  -f deploy/hostinger/docker-compose.yml \
+  "${COMPOSE_FILES[@]}" \
   build; then
   echo "Docker build failed or exceeded 12 minutes; keeping the current container untouched." >&2
   docker compose --env-file "$COMPOSE_ENV" -f deploy/hostinger/docker-compose.yml ps >&2 || true
@@ -67,7 +82,7 @@ fi
 
 docker compose \
   --env-file "$COMPOSE_ENV" \
-  -f deploy/hostinger/docker-compose.yml \
+  "${COMPOSE_FILES[@]}" \
   up -d --remove-orphans
 
 # DEV-only private bridge: attach AI Task to the existing AI Core worker network.
