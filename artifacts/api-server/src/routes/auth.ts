@@ -14,6 +14,7 @@ const isProduction = process.env.NODE_ENV === "production";
 const devPasswordlessLoginEnabled = (() => {
   const baseUrl = process.env.PUBLIC_APP_BASE_URL?.trim().replace(/\/+$/, "");
   return (
+    !isProduction &&
     process.env.DEV_PASSWORDLESS_LOGIN === "true" &&
     baseUrl === "https://dev-ai-task.cstlogistic.co.id"
   );
@@ -291,6 +292,74 @@ router.post("/auth/google", async (req: Request, res: Response): Promise<void> =
     res.status(401).json({ error: "Google login verification failed" });
   }
 });
+
+// GPT02 operator identity READINESS only. Dashboard DEV login remains passwordless.
+// This endpoint does not sign an approval, issue a nonce/grant, create a task or dispatch.
+// It checks a separately verified Google identity against the active Hub Super Admin.
+// A Google access token alone does not prove fresh, command-bound operator consent.
+router.post("/auth/gpt02/operator-identity-preflight", requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+    res.setHeader("Cache-Control", "no-store");
+    if (isProduction || !devPasswordlessLoginEnabled) {
+      res.status(404).json({ error: "Not available" });
+      return;
+    }
+    if (req.user?.role !== "super_admin") {
+      res.status(403).json({ error: "SUPER_ADMIN_REQUIRED" });
+      return;
+    }
+    const { accessToken } = req.body as { accessToken?: unknown };
+    if (typeof accessToken !== "string" || accessToken.length < 20 || accessToken.length > 8192) {
+      res.status(400).json({ error: "VERIFIED_GOOGLE_IDENTITY_REQUIRED" });
+      return;
+    }
+    const { supabaseUrl, publishableKey } = getSupabaseAuthConfig();
+    if (!supabaseUrl || !publishableKey) {
+      res.status(503).json({ error: "IDENTITY_PROVIDER_UNAVAILABLE" });
+      return;
+    }
+    try {
+      const supabase = createClient(supabaseUrl, publishableKey, {
+        auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+      });
+      const { data, error } = await supabase.auth.getUser(accessToken);
+      const googleUser = data.user;
+      const email = googleUser?.email?.trim().toLowerCase();
+      const providers = googleUser?.app_metadata?.providers;
+      const hasGoogleIdentity = googleUser?.app_metadata?.provider === "google" ||
+        (Array.isArray(providers) && providers.includes("google")) ||
+        googleUser?.identities?.some((x) => x.provider === "google") === true;
+      if (error || !email || !googleUser?.email_confirmed_at || !hasGoogleIdentity) {
+        res.status(403).json({ error: "INDEPENDENT_GOOGLE_IDENTITY_NOT_VERIFIED" });
+        return;
+      }
+      const [activeAdmin] = await db.select({
+        id: usersTable.id, email: usersTable.email, role: usersTable.role,
+        companyId: usersTable.companyId, isActive: usersTable.isActive,
+      }).from(usersTable).where(eq(usersTable.email, email)).limit(1);
+      if (!activeAdmin || !activeAdmin.isActive || activeAdmin.role !== "super_admin" ||
+          String(activeAdmin.id) !== String(req.user.id) ||
+          activeAdmin.email.trim().toLowerCase() !== req.user.email.trim().toLowerCase() ||
+          String(activeAdmin.companyId) !== String(req.user.companyId)) {
+        res.status(403).json({ error: "SUPER_ADMIN_ACCOUNT_MISMATCH" });
+        return;
+      }
+      res.status(200).json({
+        environment: "DEV",
+        identityMatched: true,
+        independentProvider: "google",
+        // A provider identity is NOT command-bound consent.
+        operatorApprovalRecorded: false,
+        issuerPermitted: false, dispatchPermitted: false,
+        remaining: ["SIGNED_COMMAND_BOUND_APPROVAL", "IMMUTABLE_NONCE",
+          "SCOPED_DB_ISSUER", "GRANT_LEASE_FENCING", "NATIVE_ATTESTATION"],
+      });
+    } catch (err) {
+      logger.warn({ code: "GPT02_IDENTITY_PREFLIGHT_UNAVAILABLE" },
+        "GPT02 operator preflight failed closed");
+      res.status(503).json({ error: "IDENTITY_PREFLIGHT_UNAVAILABLE" });
+    }
+  });
 
 // ─── POST /auth/logout ─────────────────────────────────────────────────────────
 
