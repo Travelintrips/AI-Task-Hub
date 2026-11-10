@@ -119,6 +119,8 @@ jobs:
           node --test artifacts/api-server/tests/gpt02-trusted-facts-readonly.test.mjs
           node --test artifacts/api-server/tests/gpt02-reader-pools.test.mjs
           node --test scripts/dev/gpt02-two-reader-native-readonly.test.mjs
+          bash -n scripts/dev/gpt02-native-reader-proof-once.sh
+          node --test scripts/dev/gpt02-native-reader-proof-once.test.mjs
           node --test scripts/dev/gpt02-runtime-unmounted-contract.test.mjs
           node --test scripts/dev/gpt02-reader-column-grants-readiness.test.mjs
           node --test scripts/dev/gpt02-reader-schema-usage-readiness.test.mjs
