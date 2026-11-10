@@ -100,7 +100,7 @@ jobs:
           node --test artifacts/api-server/tests/gpt02-core-task-preparation.test.mjs
           node --test scripts/dev/gpt02-preparer-dedicated-login-readonly.test.mjs
       - name: Reject mismatched future Core preparation and signed Hub/Core proof
-        run: node --test artifacts/api-server/tests/gpt02-prepared-link.test.mjs artifacts/api-server/tests/gpt02-issuer-lease-evidence.test.mjs artifacts/api-server/tests/gpt02-prepared-nonce-consumer.test.mjs artifacts/api-server/tests/gpt02-dev-trust-store.test.mjs
+        run: node --test artifacts/api-server/tests/gpt02-prepared-link.test.mjs artifacts/api-server/tests/gpt02-issuer-lease-evidence.test.mjs artifacts/api-server/tests/gpt02-prepared-nonce-consumer.test.mjs artifacts/api-server/tests/gpt02-dev-trust-store.test.mjs artifacts/api-server/tests/gpt02-dev-trust-manifest.test.mjs
       - name: Audit GPT02 future trusted Hub/Core readers without granting dispatch
         run: node --test scripts/dev/gpt02-trusted-fact-reader-readiness.test.mjs
       - name: Verify independent Hub and Core read-only fact reconstruction
