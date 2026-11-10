@@ -155,7 +155,8 @@ for(const change of [
  {exact_management_member:false},{no_global_read:false},
  {no_global_write:false},{no_db_create:false},{no_schema_create:false},
  {no_owned_objects:false},{no_special_admin_roles:false},
- {no_sequence_privileges:false},
+ {no_sequence_privileges:false},{no_foreign_server_usage:false},
+ {no_foreign_table_select:false},
  {no_callable_security_definer_routines:false},{exact_callable_routines:false},
  {no_callable_mutating_routines:false},{db:'production'}
 ])test('deny forged or privileged Hub DB identity '+JSON.stringify(change),async()=>{
