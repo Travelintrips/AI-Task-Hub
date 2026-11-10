@@ -20,6 +20,7 @@ if [[ "$IMAGE" == 'postgres:16-alpine' ]];then [[ "$v" == 16* ]] || exit 2; echo
 else [[ "$v" == 17* ]] || exit 2; echo CI_PG17_AUTHORITATIVE;fi
 run fixture_root <<'SQL' >/dev/null
 CREATE ROLE postgres LOGIN CREATEROLE BYPASSRLS NOSUPERUSER;
+GRANT pg_read_all_data TO postgres;
 CREATE ROLE gpt02_store_owner NOLOGIN NOINHERIT CONNECTION LIMIT 0;
 CREATE ROLE gpt02_core_prep_owner NOLOGIN NOINHERIT CONNECTION LIMIT 0;
 CREATE ROLE gpt02_core_prep_login NOLOGIN NOINHERIT CONNECTION LIMIT 0;
