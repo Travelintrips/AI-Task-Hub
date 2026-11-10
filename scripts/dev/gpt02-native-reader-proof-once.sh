@@ -29,11 +29,19 @@ printf 'HUB_PASS=%s\nCORE_PASS=%s\n' "$HUB_PASS" "$CORE_PASS" >"$SECRET_ENV"
 
 roles_locked=1
 lock_roles(){
-  docker run --rm --network host --env-file "$APP_ENV_FILE" "$POSTGRES_IMAGE"     sh -lc 'psql "$SUPABASE_DATABASE_URL_DEV" -X -q -v ON_ERROR_STOP=1 <<SQL
+  if docker run --rm --network host --env-file "$APP_ENV_FILE" "$POSTGRES_IMAGE" \
+    sh -lc 'psql "$SUPABASE_DATABASE_URL_DEV" -X -q -v ON_ERROR_STOP=1 <<SQL
 ALTER ROLE gpt02_hub_evidence_reader NOLOGIN CONNECTION LIMIT 0;
 ALTER ROLE gpt02_core_evidence_reader NOLOGIN CONNECTION LIMIT 0;
-SQL' >/dev/null 2>&1 || true
-  roles_locked=1
+SELECT pg_terminate_backend(pid)
+FROM pg_stat_activity
+WHERE usename IN ('"'"'gpt02_hub_evidence_reader'"'"','"'"'gpt02_core_evidence_reader'"'"')
+  AND pid <> pg_backend_pid();
+SQL' >/dev/null 2>&1; then
+    roles_locked=1
+    return 0
+  fi
+  return 1
 }
 cleanup(){
   if [ "$roles_locked" -ne 1 ]; then lock_roles; fi
@@ -80,14 +88,20 @@ if(out.reason!=='TWO_NATIVE_READERS_PASS_NO_AUTHORITY' ||
 NODE
 
 # Re-lock immediately even after a passing proof.
-lock_roles
+lock_roles || deny READER_RELOCK_COMMAND_FAILED
 
-AFTER="$(docker run --rm --network host --env-file "$APP_ENV_FILE" "$POSTGRES_IMAGE"   sh -lc 'psql "$SUPABASE_DATABASE_URL_DEV" -X -qAt -v ON_ERROR_STOP=1 -c "
+AFTER=""
+for _attempt in $(seq 1 20); do
+  AFTER="$(docker run --rm --network host --env-file "$APP_ENV_FILE" "$POSTGRES_IMAGE" \
+    sh -lc 'psql "$SUPABASE_DATABASE_URL_DEV" -X -qAt -v ON_ERROR_STOP=1 -c "
 SELECT string_agg(rolname||'\''|'\''||rolcanlogin||'\''|'\''||rolconnlimit||'\''|'\''||
  (SELECT count(*) FROM pg_auth_members m WHERE m.member=r.oid)||'\''|'\''||
  (SELECT count(*) FROM pg_stat_activity a WHERE a.usename=r.rolname),'\'';'\'' ORDER BY rolname)
 FROM pg_roles r
 WHERE rolname IN ('\''gpt02_hub_evidence_reader'\'','\''gpt02_core_evidence_reader'\'');"' )"
+  [ "$AFTER" = "$EXPECTED" ] && break
+  sleep 0.5
+done
 [ "$AFTER" = "$EXPECTED" ] || deny READER_RELOCK_NOT_VERIFIED
 
 echo 'GPT02_NATIVE_TWO_READER_PROOF=PASS_RELOCKED_NO_AUTHORITY'
