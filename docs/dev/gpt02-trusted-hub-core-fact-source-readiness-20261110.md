@@ -90,3 +90,18 @@ Query aktual `HUB_SQL` dan `CORE_SQL` diuji dengan `EXPLAIN` di bawah masing-mas
 Security advisor dijalankan setelah DDL. Tidak ada temuan baru yang spesifik terhadap dua reader; temuan advisor lain pada project berada di luar scope Issue #159.
 
 **Status baru:** preparer locked PASS; reader role structure/least-privilege/RLS/EXPLAIN PASS; independent authenticated reader sessions masih NO-GO; empat trust root signer asli masih absent; issuer/attestor tetap tidak dibuka; PR tetap DRAFT; Task135/136 tidak diulang; PROD/DELL tidak disentuh.
+
+
+## Factory dua pool reader independen — 11 November 2026
+
+Source candidate baru `artifacts/api-server/src/lib/gpt02-reader-pools.mjs` menutup celah konfigurasi aplikasi tanpa membuka login database. Candidate mewajibkan **dua DSN DEV terpisah**:
+- `GPT02_HUB_READER_DATABASE_URL_DEV`
+- `GPT02_CORE_READER_DATABASE_URL_DEV`
+
+Validasi fail-closed mengikat target ke project CST-DEV `xssrfshdrtdfupgqwfdw`, pooler `aws-1-ap-southeast-2.pooler.supabase.com:5432`, database `postgres`, serta username tepat `gpt02_hub_evidence_reader.xssrfshdrtdfupgqwfdw` dan `gpt02_core_evidence_reader.xssrfshdrtdfupgqwfdw`. Override user/password/host/database melalui query string ditolak. Mode operasional selain `NODE_ENV=development` + `APP_ENV=development` ditolak. Tidak ada fallback ke `SUPABASE_DATABASE_URL_DEV`, `@workspace/db`, atau shared application pool.
+
+Pool constructor sengaja **harus diinjeksi oleh wiring terpisah yang akan direview**, sehingga module candidate ini tidak dapat membuka koneksi sendiri saat di-import. Masing-masing konfigurasi dibatasi `max=1`; metadata tidak mengembalikan DSN/password dan selalu menyatakan `dispatchPermitted=false`. Module belum di-import oleh route/worker dan belum dideploy.
+
+Uji baru `gpt02-reader-pools.test.mjs` menolak DSN hilang, role Hub/Core tertukar, project suffix salah, host/database salah, URL credential override, konfigurasi non-DEV, dan memastikan tidak ada shared-pool/dispatch surface. Uji candidate sendiri **11/11 PASS**; digabung dengan `gpt02-trusted-facts-readonly.test.mjs` menjadi **74/74 PASS** pada worktree terisolasi dari deployment aktif. CI PR juga menjalankan kedua suite pada langkah reader.
+
+**Batas operasional tetap:** dua role hosted masih NOLOGIN dan belum mempunyai secret live; native independent authenticated sessions belum dibuktikan. Jangan mengisi dua env reader atau mengaktifkan LOGIN sampai provisioning credential/operator manifest yang terpisah tersedia. Empat signer publik resmi juga masih absent; issuer/attestor tidak dibuka; lifecycle tetap NO-GO.
