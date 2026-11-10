@@ -95,7 +95,8 @@ function instance({hub,core,lookup}=fixture(),patch={}){
        backend_pid:which==='hub'?42001:42002,tls_verified:true,
        restricted:true,no_memberships:true,no_global_read:true,
        no_global_write:true,no_db_create:true,no_sequence_privileges:true,
-       no_callable_security_definer_routines:true,no_callable_mutating_routines:true,
+       no_callable_security_definer_routines:true,exact_callable_routines:true,
+       no_callable_mutating_routines:true,
        ...(patch.identity?.[which]||{})}]};
     }
     if(sql===HUB_SQL)return {rows:patch.hubRows??[hub]};
@@ -149,8 +150,8 @@ for(const change of [
  {lock_timeout_locked:false},{idle_tx_timeout_locked:false},{backend_pid:0},
  {tls_verified:false},{restricted:false},{no_memberships:false},{no_global_read:false},
  {no_global_write:false},{no_db_create:false},{no_sequence_privileges:false},
- {no_callable_security_definer_routines:false},{no_callable_mutating_routines:false},
- {db:'production'}
+ {no_callable_security_definer_routines:false},{exact_callable_routines:false},
+ {no_callable_mutating_routines:false},{db:'production'}
 ])test('deny forged or privileged Hub DB identity '+JSON.stringify(change),async()=>{
  const x=instance(fixture(),{identity:{hub:change}});
  await assert.rejects(x.reader(x.lookup),e=>e.code==='TWO_INDEPENDENT_RESTRICTED_DB_LOGINS_REQUIRED');
@@ -273,6 +274,10 @@ test('source SQL is strictly parameterized SELECT and contains no dispatch/mutat
   assert.doesNotMatch(normalized,/\b(?:INSERT|UPDATE|DELETE|TRUNCATE|ALTER|CREATE|GRANT|REVOKE|CALL|COPY)\b/i);
  }
  assert.match(HUB_SQL,/gpt02_private\.operator_links/);
+ const moduleSource=readFileSync(new URL('../src/lib/gpt02-trusted-facts-readonly.mjs',import.meta.url),'utf8');
+ assert.match(moduleSource,/exact_callable_routines/);
+ assert.match(moduleSource,/assert_portal_profile_complete/);
+ assert.match(moduleSource,/046a0d067d2b632d0e17af5c6f433bea63794d90c67c55a6475e6fe6b34916c8/);
  assert.match(HUB_SQL,/\$3::uuid/);
  assert.match(CORE_SQL,/ai_platform\.internal_users/);
  const src=readFileSync(new URL('../src/lib/gpt02-trusted-facts-readonly.mjs',import.meta.url),'utf8');
