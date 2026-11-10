@@ -40,16 +40,33 @@ function key(pem){
  * historical snapshots; the live ledger, nonce uniqueness and valid worker
  * lease must be independently proven by a separate authorized service.
  */
-export function inspectIssuerLeaseEvidence({
- prepared,job,core,hubOperator,proof,publicKeys,
- nonceReceipt,identityReceipt,fence,lease,issuerPublicKeyPem,now=Date.now()
-}={}){
+/** Pin all four signer public keys from the independent server trust store.
+ * Never read any of these keys from the caller's evidence envelope. */
+export function createIssuerLeaseEvidenceVerifier({publicKeys,issuerPublicKeyPem}={}){
+ let issuerKey;
+ const allowedKeys=['approvalPublicKeyPem','hubPublicKeyPem','corePublicKeyPem'];
  try{
+  if(!exact(publicKeys,allowedKeys))throw Error('PINNED_KEYS_REQUIRED');
+  issuerKey=key(issuerPublicKeyPem);
+  const fingerprints=[issuerKey,...allowedKeys.map(n=>key(publicKeys[n]))]
+   .map(k=>k.export({format:'der',type:'spki'}).toString('hex'));
+  if(new Set(fingerprints).size!==4)throw Error('INDEPENDENT_KEYS_REQUIRED');
+ }catch{return ()=>denied('PINNED_FOUR_SIGNER_KEYS_REQUIRED');}
+ const trustedKeys=Object.freeze({...publicKeys});
+ const allowedEvidence=['prepared','job','core','hubOperator','proof','nonceReceipt',
+  'identityReceipt','fence','lease','now'];
+ return function inspectIssuerLeaseEvidence(evidence={}){
+ try{
+  if(!object(evidence)||Object.keys(evidence).some(k=>!allowedEvidence.includes(k))||
+     allowedEvidence.filter(k=>k!=='now').some(k=>!Object.hasOwn(evidence,k)))
+   return denied('UNEXPECTED_EVIDENCE_FIELDS');
+  const {prepared,job,core,hubOperator,proof,nonceReceipt,identityReceipt,
+   fence,lease,now=Date.now()}=evidence;
   if(!time(now)||!object(proof)||!object(proof.approval)||!object(proof.operatorLink)||
-     !object(publicKeys)||!object(nonceReceipt)||!object(identityReceipt)||
+     !object(nonceReceipt)||!object(identityReceipt)||
      !object(fence)||!exact(lease,['claims','signatureBase64url']))
    return denied('INCOMPLETE_INDEPENDENT_EVIDENCE');
-  const binding=inspectPreparedSignedLink({prepared,job,core,hubOperator,proof,publicKeys,now});
+  const binding=inspectPreparedSignedLink({prepared,job,core,hubOperator,proof,publicKeys:trustedKeys,now});
   if(binding.matched!==true||binding.signatureVerified!==true||
      binding.dualOriginVerified!==true)return denied('PREPARED_SIGNED_LINK_NOT_VERIFIED');
   const a=proof.approval.claims,l=proof.operatorLink.claims,c=lease.claims;
@@ -107,10 +124,6 @@ export function inspectIssuerLeaseEvidence({
      c.expiresAt<=now||c.expiresAt<=c.issuedAt||
      c.expiresAt>fence.leaseExpiresAt||c.expiresAt-c.issuedAt>15000)
    return denied('ISSUER_LEASE_CLAIMS_MISMATCH');
-  const issuerKey=key(issuerPublicKeyPem);
-  const fingerprints=[issuerKey,...['approvalPublicKeyPem','hubPublicKeyPem','corePublicKeyPem'].map(n=>key(publicKeys[n]))]
-   .map(k=>k.export({format:'der',type:'spki'}).toString('hex'));
-  if(new Set(fingerprints).size!==4)return denied('FOUR_INDEPENDENT_SIGNERS_REQUIRED');
   const sig=lease.signatureBase64url;
   if(typeof sig!=='string'||!/^[A-Za-z0-9_-]{86}$/.test(sig))
    return denied('ISSUER_LEASE_SIGNATURE_INVALID');
@@ -127,4 +140,5 @@ export function inspectIssuerLeaseEvidence({
    commandCreated:false,readOnly:true,releaseDecision:'NO_GO'
   });
  }catch{return denied('UNTRUSTED_OR_INVALID_ISSUER_EVIDENCE')}
+}
 }
