@@ -30,6 +30,16 @@ SELECT current_database() database_name,
   FROM pg_auth_members m JOIN pg_roles member_role ON member_role.oid=m.member
   WHERE m.roleid=readers.oid)) exact_management_membership,
  bool_and(NOT EXISTS(SELECT 1 FROM pg_stat_activity a WHERE a.usename=readers.rolname)) no_active_sessions,
+ bool_and(NOT EXISTS(SELECT 1 FROM pg_shdepend s
+   WHERE s.refclassid='pg_authid'::regclass AND s.refobjid=readers.oid AND s.deptype='o')) no_owned_objects,
+ bool_and(NOT (
+   pg_has_role(readers.rolname,'pg_read_server_files','USAGE') OR
+   pg_has_role(readers.rolname,'pg_write_server_files','USAGE') OR
+   pg_has_role(readers.rolname,'pg_execute_server_program','USAGE') OR
+   pg_has_role(readers.rolname,'pg_signal_backend','USAGE') OR
+   pg_has_role(readers.rolname,'pg_monitor','USAGE') OR
+   pg_has_role(readers.rolname,'pg_checkpoint','USAGE')
+ )) no_special_admin_roles,
  bool_and((SELECT array_agg(x ORDER BY x) FROM unnest(setconfig) x)=
   ARRAY['default_transaction_read_only=on','idle_in_transaction_session_timeout=10s',
         'lock_timeout=1s','search_path=pg_catalog','statement_timeout=5s']::text[]) exact_role_config
@@ -37,7 +47,8 @@ FROM readers`;
 
 const BASE=Object.freeze({
  environment:'CST-DEV',readOnly:false,readerCount:0,lockedRoles:false,
- noMemberships:false,exactManagementMembership:false,noActiveSessions:false,exactRoleConfig:false,
+ noMemberships:false,exactManagementMembership:false,noActiveSessions:false,
+ noOwnedObjects:false,noSpecialAdminRoles:false,exactRoleConfig:false,
  dispatchPermitted:false,issuerLeaseGranted:false,releaseDecision:'NO_GO'
 });
 export function assessReaderRoleSettings(row){
@@ -45,11 +56,14 @@ export function assessReaderRoleSettings(row){
   return Object.freeze({...BASE,reason:'READER_ROLE_SETTINGS_CATALOG_NOT_READONLY'});
  const good=row.reader_count===2&&row.locked_roles===true&&row.no_memberships===true&&
   row.exact_management_membership===true&&row.no_active_sessions===true&&
+  row.no_owned_objects===true&&row.no_special_admin_roles===true&&
   row.exact_role_config===true;
  return Object.freeze({...BASE,readOnly:true,readerCount:row.reader_count,
   lockedRoles:row.locked_roles===true,noMemberships:row.no_memberships===true,
   exactManagementMembership:row.exact_management_membership===true,
-  noActiveSessions:row.no_active_sessions===true,exactRoleConfig:row.exact_role_config===true,
+  noActiveSessions:row.no_active_sessions===true,noOwnedObjects:row.no_owned_objects===true,
+  noSpecialAdminRoles:row.no_special_admin_roles===true,
+  exactRoleConfig:row.exact_role_config===true,
   reason:good?'EXACT_INERT_READER_ROLE_SETTINGS_PASS_NO_AUTHORITY':'READER_ROLE_SETTINGS_DRIFT'});
 }
 export async function auditReaderRoleSettings({client}={}){
