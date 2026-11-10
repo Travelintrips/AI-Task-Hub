@@ -15,13 +15,26 @@ Kondisi baseline yang wajib dipertahankan sebelum provisioning:
 - NOINHERIT
 - non-superuser
 - no CREATEROLE / CREATEDB / BYPASSRLS / replication
-- membership 0
+- outbound membership 0
+- exact management member: hanya `postgres`, `ADMIN=true`, `INHERIT=false`, `SET=false`, grantor `supabase_admin`
 - active session 0
 - no global read/write
+- no database CREATE dan no schema CREATE
+- owned database objects: 0
+- no predefined admin roles: `pg_read_server_files`, `pg_write_server_files`, `pg_execute_server_program`, `pg_signal_backend`, `pg_monitor`, `pg_checkpoint`
 - hanya SELECT kolom minimum + RLS policy yang sudah diverifikasi
-- exact column grants: 86/86, no drift
+- exact column grants: 86/86, no drift, termasuk regular/partitioned/foreign/view/materialized view
+- mutating relation privilege: 0 untuk INSERT/UPDATE/DELETE/TRUNCATE/REFERENCES/TRIGGER/MAINTAIN
 - exact schema USAGE: 5/5, no drift
 - sequence USAGE/SELECT/UPDATE: 0
+- foreign-server USAGE: 0
+- foreign-table SELECT: 0
+- view/materialized-view SELECT: 0
+- effective RLS: tepat 12 policy, 0 policy PUBLIC, fingerprint `77029cdaf9f9079cce23260e703090bc904c515c91bb9708309fd2e84af99338`
+- default ACL leak ke reader langsung atau PUBLIC pada schema accessible: 0
+- callable non-trigger routine tepat satu: `public.assert_portal_profile_complete(p_customer_id integer)`, SECURITY INVOKER, owner `postgres`
+- callable routine inventory fingerprint: `41044abceb9e079b0940fbcb5d0e16caea327b261feddec274044d06b4f9bbba`
+- callable routine source SHA-256: `046a0d067d2b632d0e17af5c6f433bea63794d90c67c55a6475e6fe6b34916c8`
 - callable mutating routine: 0
 - callable SECURITY DEFINER routine: 0
 - role defaults: default_transaction_read_only=on, search_path=pg_catalog, statement_timeout=5s, lock_timeout=1s, idle_in_transaction_session_timeout=10s
@@ -55,11 +68,19 @@ PASS hanya jika:
 - dua pg_backend_pid berbeda;
 - pg_stat_ssl.ssl=true;
 - connection limit bounded;
-- membership 0;
+- outbound membership 0 dan exact management member tetap sesuai baseline;
 - no global read/write;
-- no database CREATE;
+- no database/schema CREATE;
+- no owned object;
+- no predefined admin role;
 - no sequence privilege;
-- no callable mutating routine;
+- no foreign server/table access;
+- no view/materialized-view SELECT;
+- no mutating relation privilege;
+- effective RLS fingerprint tetap tepat;
+- default ACL direct/PUBLIC tetap 0;
+- exact callable routine identity + source hash tetap cocok;
+- no callable mutating/SECURITY DEFINER routine;
 - kelima role defaults di atas tetap aktif.
 
 Bahkan pada PASS, output harus tetap:
