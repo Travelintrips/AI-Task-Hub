@@ -256,9 +256,9 @@ test('operational DEV rejects injected caller signer keys before opening a DB se
  const out=spawnSync(process.execPath,['--input-type=module','-e',subprocess],
   {encoding:'utf8',env:{...process.env,NODE_ENV:'development',APP_ENV:'development'},timeout:5000});
  assert.equal(out.status,0,out.stderr);
- assert.equal(out.stdout,'GPT02_CALLER_SIGNER_KEYS_FORBIDDEN used=false');
+ assert.equal(out.stdout,'GPT02_CALLER_TRUST_CONFIG_FORBIDDEN used=false');
 });
-test('operational DEV without four independently pinned public files refuses admission',()=>{
+test('operational DEV rejects caller-supplied fingerprint manifest before DB access',()=>{
  const moduleUrl=new URL('../src/lib/gpt02-prepared-nonce-consumer.mjs',import.meta.url).href;
  const subprocess=`
  import {createPreparedNonceConsumer} from ${JSON.stringify(moduleUrl)};
@@ -272,5 +272,20 @@ test('operational DEV without four independently pinned public files refuses adm
  const out=spawnSync(process.execPath,['--input-type=module','-e',subprocess],
   {encoding:'utf8',env:{...process.env,NODE_ENV:'development',APP_ENV:'development'},timeout:5000});
  assert.equal(out.status,0,out.stderr);
- assert.equal(out.stdout,'TRUST_STORE_DIRECTORY_NOT_FOUND used=false');
+ assert.equal(out.stdout,'GPT02_CALLER_TRUST_CONFIG_FORBIDDEN used=false');
+});
+test('operational DEV without fixed root-owned manifest refuses admission before DB access',()=>{
+ const moduleUrl=new URL('../src/lib/gpt02-prepared-nonce-consumer.mjs',import.meta.url).href;
+ const subprocess=`
+ import {createPreparedNonceConsumer} from ${JSON.stringify(moduleUrl)};
+ let used=false;
+ try{
+  createPreparedNonceConsumer({readTrustedFacts:async()=>{used=true;},issuerStore:{consumeLinkedApproval:async()=>{used=true;}}});
+  process.stdout.write('UNEXPECTED_PASS');
+ }catch(e){process.stdout.write((e.code||e.message)+' used='+used);}
+ `;
+ const out=spawnSync(process.execPath,['--input-type=module','-e',subprocess],
+  {encoding:'utf8',env:{...process.env,NODE_ENV:'development',APP_ENV:'development'},timeout:5000});
+ assert.equal(out.status,0,out.stderr);
+ assert.equal(out.stdout,'TRUST_MANIFEST_DIRECTORY_NOT_FOUND used=false');
 });
