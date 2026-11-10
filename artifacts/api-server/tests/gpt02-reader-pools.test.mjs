@@ -34,6 +34,8 @@ test('builds two distinct max-one DEV reader pools without exposing DSNs',()=>{
  assert.equal(v.corePool.config.max,1);
  assert.equal(v.hubPool.config.application_name,'gpt02-hub-evidence-reader');
  assert.equal(v.corePool.config.application_name,'gpt02-core-evidence-reader');
+ assert.equal(v.hubPool.config.ssl.rejectUnauthorized,true);
+ assert.equal(v.corePool.config.ssl.rejectUnauthorized,true);
  assert.equal(v.metadata.environment,'DEV');
  assert.equal(v.metadata.projectRef,ref);
  assert.equal(v.metadata.dispatchPermitted,false);
