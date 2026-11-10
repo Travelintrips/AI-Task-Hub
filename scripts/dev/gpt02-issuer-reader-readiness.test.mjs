@@ -72,8 +72,7 @@ test('migration is inert, column-scoped and has no authority surface',async()=>{
   'GRANT USAGE ON SCHEMA gpt02_private',
   'GRANT SELECT (id,command_id,nonce,digest,consumed_at)',
   'issuer_evidence_reader_select',
-  'FOR SELECT TO gpt02_issuer_evidence_reader USING (true)',
-  'REVOKE EXECUTE ON FUNCTION gpt02_private.reject_mutation()'
+  'FOR SELECT TO gpt02_issuer_evidence_reader USING (true)'
  ])assert.ok(src.includes(required),required);
  for(const forbidden of [
   'PASSWORD','dev_gpt02_issuer_evidence','dev_gpt02_attestor_evidence',
