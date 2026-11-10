@@ -130,21 +130,30 @@ const report=(reason,extra={})=>Object.freeze({...BASE,...extra,reason,
  dispatchPermitted:false,issuerLeaseGranted:false,taskCreated:false,
  commandCreated:false,releaseDecision:'NO_GO'});
 
-function ok(row,role){
- return row?.db==='postgres'&&row.login===role&&row.session===role&&
-  row.in_readonly_tx===true&&row.default_readonly===true&&row.search_path_locked===true&&
-  row.statement_timeout_locked===true&&row.lock_timeout_locked===true&&
-  row.idle_tx_timeout_locked===true&&Number.isInteger(row.backend_pid)&&row.backend_pid>0&&
-  row.tls_verified===true&&row.bounded_role===true&&row.no_memberships===true&&
-  row.exact_management_member===true&&row.no_global_read===true&&
-  row.no_global_write===true&&row.no_database_create===true&&row.no_schema_create===true&&
-  row.no_owned_objects===true&&
-  row.no_special_admin_roles===true&&row.no_sequence_privileges===true&&
-  row.no_foreign_server_usage===true&&row.no_foreign_table_select===true&&
-  row.no_view_select===true&&row.no_mutating_relation_privileges===true&&
-  row.no_callable_security_definer_routines===true&&row.exact_callable_routines===true&&
-  row.no_callable_mutating_routines===true;
+function failedChecks(row,role){
+ const checks=[
+  ['database',row?.db==='postgres'],
+  ['session_identity',row?.login===role&&row?.session===role],
+  ['readonly_defaults',row?.in_readonly_tx===true&&row?.default_readonly===true&&
+    row?.search_path_locked===true&&row?.statement_timeout_locked===true&&
+    row?.lock_timeout_locked===true&&row?.idle_tx_timeout_locked===true],
+  ['backend_tls',Number.isInteger(row?.backend_pid)&&row.backend_pid>0&&row?.tls_verified===true],
+  ['bounded_role',row?.bounded_role===true],
+  ['memberships',row?.no_memberships===true&&row?.exact_management_member===true],
+  ['global_privileges',row?.no_global_read===true&&row?.no_global_write===true],
+  ['create_ownership',row?.no_database_create===true&&row?.no_schema_create===true&&
+    row?.no_owned_objects===true],
+  ['special_admin',row?.no_special_admin_roles===true],
+  ['sequence',row?.no_sequence_privileges===true],
+  ['foreign_access',row?.no_foreign_server_usage===true&&row?.no_foreign_table_select===true],
+  ['view_mutation',row?.no_view_select===true&&row?.no_mutating_relation_privileges===true],
+  ['routine_surface',row?.no_callable_security_definer_routines===true&&
+    row?.exact_callable_routines===true&&row?.no_callable_mutating_routines===true]
+ ];
+ return checks.filter(([,pass])=>!pass).map(([name])=>name);
 }
+function ok(row,role){return failedChecks(row,role).length===0;}
+
 function resolvePool(){
  const apiRequire=createRequire(new URL('../../artifacts/api-server/package.json',import.meta.url));
  return apiRequire('pg').Pool;
@@ -184,7 +193,9 @@ export async function probe(env=process.env,deps={}){
    'NATIVE_READER_PRIVILEGE_MISMATCH',{
     hubAuthenticated:hubGood,coreAuthenticated:coreGood,
     twoSessionsVerified:separate,
-    permissionsVerified:hubGood&&coreGood
+    permissionsVerified:hubGood&&coreGood,
+    hubFailedChecks:hubGood?[]:failedChecks(h.row,HUB),
+    coreFailedChecks:coreGood?[]:failedChecks(c.row,CORE)
   });
  }catch{return report('NATIVE_READER_LOGIN_OR_CATALOG_PROBE_FAILED');}
  finally{
