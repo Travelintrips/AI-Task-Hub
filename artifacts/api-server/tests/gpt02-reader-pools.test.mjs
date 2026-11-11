@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
+import {readFileSync,mkdtempSync,writeFileSync,chmodSync,symlinkSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 import {createGpt02ReaderPools} from '../src/lib/gpt02-reader-pools.mjs';
 
 const host='aws-1-ap-southeast-2.pooler.supabase.com';
@@ -61,6 +63,55 @@ test('builds two distinct max-one DEV reader pools without exposing DSNs',async(
  assert.equal(v.metadata.projectRef,ref);
  assert.equal(v.metadata.dispatchPermitted,false);
  assert.equal(JSON.stringify(v.metadata).includes('secret'),false);
+});
+
+test('synthetic file credentials load only from separate restricted files',()=>{
+ const dir=mkdtempSync(join(tmpdir(),'gpt02-reader-files-'));
+ try{
+  writeFileSync(join(dir,'hub-reader-dsn'),dsn('gpt02_hub_evidence_reader','hub-file-secret'),{mode:0o600});
+  writeFileSync(join(dir,'core-reader-dsn'),dsn('gpt02_core_evidence_reader','core-file-secret'),{mode:0o600});
+  writeFileSync(join(dir,'supabase-root-ca-2021.crt'),ca,{mode:0o600});
+  for(const name of ['hub-reader-dsn','core-reader-dsn','supabase-root-ca-2021.crt'])
+   chmodSync(join(dir,name),0o600);
+  const v=createGpt02ReaderPools({
+   env:{},Pool:FakePool,nodeEnv:'test',appEnv:'development',
+   credentialDirectory:dir
+  });
+  assert.notEqual(v.hubPool.config.connectionString,v.corePool.config.connectionString);
+  assert.equal(v.hubPool.config.max,1);
+  assert.equal(v.corePool.config.max,1);
+  assert.equal(v.metadata.credentialSource,'systemd-credential-files');
+  assert.equal(v.metadata.dispatchPermitted,false);
+ }finally{rmSync(dir,{recursive:true,force:true});}
+});
+
+test('file credentials reject symlinks and group/world-readable modes',()=>{
+ const dir=mkdtempSync(join(tmpdir(),'gpt02-reader-bad-files-'));
+ try{
+  writeFileSync(join(dir,'hub-reader-dsn'),dsn('gpt02_hub_evidence_reader'),{mode:0o600});
+  writeFileSync(join(dir,'core-real'),dsn('gpt02_core_evidence_reader'),{mode:0o600});
+  symlinkSync(join(dir,'core-real'),join(dir,'core-reader-dsn'));
+  writeFileSync(join(dir,'supabase-root-ca-2021.crt'),ca,{mode:0o600});
+  for(const name of ['hub-reader-dsn','core-real','supabase-root-ca-2021.crt'])
+   chmodSync(join(dir,name),0o600);
+  assert.throws(()=>createGpt02ReaderPools({
+   env:{},Pool:FakePool,nodeEnv:'test',appEnv:'development',
+   credentialDirectory:dir
+  }),e=>e.code==='GPT02_READER_CREDENTIAL_FILE_SECURITY_INVALID');
+  rmSync(join(dir,'core-reader-dsn'));
+  writeFileSync(join(dir,'core-reader-dsn'),dsn('gpt02_core_evidence_reader'),{mode:0o644});
+  chmodSync(join(dir,'core-reader-dsn'),0o644);
+  assert.throws(()=>createGpt02ReaderPools({
+   env:{},Pool:FakePool,nodeEnv:'test',appEnv:'development',
+   credentialDirectory:dir
+  }),e=>e.code==='GPT02_READER_CREDENTIAL_FILE_SECURITY_INVALID');
+ }finally{rmSync(dir,{recursive:true,force:true});}
+});
+
+test('operational mode rejects DSNs passed through environment variables',()=>{
+ assert.throws(()=>createGpt02ReaderPools({
+  env:env(),Pool:FakePool,nodeEnv:'development',appEnv:'development'
+ }),e=>e.code==='GPT02_READER_OPERATIONAL_CREDENTIAL_SOURCE_NOT_PINNED');
 });
 
 test('missing reader DSN fails closed before constructing any pool',()=>{
