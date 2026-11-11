@@ -56,6 +56,7 @@ RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 RuntimeDirectory=gpt02-reader
 Group=gpt02-issue159-signers
 RuntimeDirectoryMode=0750
+RuntimeDirectoryPreserve=yes
 ReadOnlyPaths=/etc/gpt02-dev/supabase-root-ca-2021.crt /opt/gpt02-reader-runtime
 ReadWritePaths=/run/gpt02-reader
 StandardOutput=journal
