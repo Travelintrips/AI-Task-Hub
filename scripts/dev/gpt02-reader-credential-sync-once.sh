@@ -120,18 +120,15 @@ DB_UPDATED=1
 # systemd decrypts the encrypted DSNs into the fixed private credential mount.
 systemctl reset-failed "$UNIT" >/dev/null 2>&1 || true
 systemctl start "$UNIT"
-HEALTH=""
 for _attempt in $(seq 1 30); do
-  if systemctl is-active --quiet "$UNIT" && [ -S /run/gpt02-reader/reader.sock ]; then
-    HEALTH=$(curl --silent --fail --max-time 2 --unix-socket /run/gpt02-reader/reader.sock http://localhost/health 2>/dev/null || true)
-    if printf '%s' "$HEALTH" | grep -Fq '"readerReady":true'; then
-      break
-    fi
-  fi
+  [ -S /run/gpt02-reader/reader.sock ] && break
   sleep 0.5
 done
 systemctl is-active --quiet "$UNIT" || deny READER_UNIT_NOT_ACTIVE
-[ -n "$HEALTH" ] || deny READER_HEALTH_ENDPOINT_FAILED
+[ -S /run/gpt02-reader/reader.sock ] || deny READER_SOCKET_NOT_READY
+# Do not poll the health endpoint repeatedly: each health check opens two
+# independent DB sessions and may take several seconds on a cold pooler.
+HEALTH=$(curl --silent --show-error --fail --max-time 15 --unix-socket /run/gpt02-reader/reader.sock http://localhost/health) || deny READER_HEALTH_ENDPOINT_FAILED
 
 # Health is only PASS when both independent pools authenticate and verify.
 printf '%s\n' "$HEALTH" | grep -Fq '"readerReady":true' || deny READER_HEALTH_NOT_READY
