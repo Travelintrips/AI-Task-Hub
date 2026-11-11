@@ -55,11 +55,12 @@ SQL
 )"
 [ "$BASELINE" = "false|0|0|0" ] || deny READER_BASELINE_NOT_INERT
 
-docker run --rm --network host --env-file "$APP_ENV_FILE" --env-file "$SECRET_ENV" "$POSTGRES_IMAGE"   sh -lc 'psql "$SUPABASE_DATABASE_URL_DEV" -X -q -v ON_ERROR_STOP=1 -v p="$ISSUER_PASS" <<SQL
+docker run -i --rm --network host --env-file "$APP_ENV_FILE" --env-file "$SECRET_ENV" "$POSTGRES_IMAGE" \
+  sh -lc 'exec psql "$SUPABASE_DATABASE_URL_DEV" -X -q -v ON_ERROR_STOP=1 -v p="$ISSUER_PASS"' >/dev/null <<'SQL'
 BEGIN;
-ALTER ROLE gpt02_issuer_evidence_reader LOGIN CONNECTION LIMIT 1 PASSWORD :'''p''';
+ALTER ROLE gpt02_issuer_evidence_reader LOGIN CONNECTION LIMIT 1 PASSWORD :'p';
 COMMIT;
-SQL' >/dev/null
+SQL
 locked=0
 
 export NODE_ENV=development
