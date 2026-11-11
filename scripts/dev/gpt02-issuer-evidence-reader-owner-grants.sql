@@ -74,7 +74,7 @@ BEGIN
   END IF;
   IF (SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
       WHERE n.nspname='gpt02_private'
-        AND c.relname IN ('receipts','core_identity_receipts','post_consumption_fences')
+        AND c.relname IN ('approvals','operator_links','receipts','core_identity_receipts','post_consumption_fences')
         AND pg_get_userbyid(c.relowner)='gpt02_store_owner'
         AND c.relrowsecurity AND c.relforcerowsecurity) <> 3 THEN
     RAISE EXCEPTION 'GPT02_ISSUER_READER_EVIDENCE_OWNER_OR_RLS_DRIFT';
@@ -98,10 +98,18 @@ $owner$;
 REVOKE ALL ON SCHEMA gpt02_private FROM gpt02_issuer_evidence_reader;
 GRANT USAGE ON SCHEMA gpt02_private TO gpt02_issuer_evidence_reader;
 
+REVOKE ALL ON gpt02_private.approvals FROM gpt02_issuer_evidence_reader;
+REVOKE ALL ON gpt02_private.operator_links FROM gpt02_issuer_evidence_reader;
 REVOKE ALL ON gpt02_private.receipts FROM gpt02_issuer_evidence_reader;
 REVOKE ALL ON gpt02_private.core_identity_receipts FROM gpt02_issuer_evidence_reader;
 REVOKE ALL ON gpt02_private.post_consumption_fences FROM gpt02_issuer_evidence_reader;
 
+GRANT SELECT (command_id,attempt_id,nonce,task_id,company_id,approver_id,claims,digest)
+  ON gpt02_private.approvals TO gpt02_issuer_evidence_reader;
+GRANT SELECT (
+  link_id,command_id,hub_execution_id,core_task_id,hub_task_id,attempt_id,
+  company_id,hub_operator_id,approval_digest,link_digest,claims
+) ON gpt02_private.operator_links TO gpt02_issuer_evidence_reader;
 GRANT SELECT (id,command_id,nonce,digest,consumed_at)
   ON gpt02_private.receipts TO gpt02_issuer_evidence_reader;
 GRANT SELECT (
@@ -114,6 +122,17 @@ GRANT SELECT (
   worker_id,lease_epoch,lease_started_at,lease_expires_at,dispatch_allowed,
   core_ledger_written,created_at
 ) ON gpt02_private.post_consumption_fences TO gpt02_issuer_evidence_reader;
+
+DROP POLICY IF EXISTS issuer_evidence_reader_select ON gpt02_private.approvals;
+CREATE POLICY issuer_evidence_reader_select ON gpt02_private.approvals
+  FOR SELECT TO gpt02_issuer_evidence_reader
+  USING (company_id='default' AND task_id>136 AND claims->>'environment'='DEV');
+
+DROP POLICY IF EXISTS issuer_evidence_reader_select ON gpt02_private.operator_links;
+CREATE POLICY issuer_evidence_reader_select ON gpt02_private.operator_links
+  FOR SELECT TO gpt02_issuer_evidence_reader
+  USING (company_id='default' AND hub_task_id>136 AND attempt_number=1
+         AND claims->>'environment'='DEV');
 
 DROP POLICY IF EXISTS issuer_evidence_reader_select ON gpt02_private.receipts;
 CREATE POLICY issuer_evidence_reader_select ON gpt02_private.receipts
