@@ -82,7 +82,7 @@ test('DEV PIC assignment is scoped, explicit, and cannot dispatch a command',()=
   'await tx.insert(auditLogsTable).values({',
   'action:"gpt02_pic_assigned"',
   'userId:null',
-  'actorIdentity:{version:1,id:req.user!.id',
+  'actorIdentity:{version:1,id:String(req.user!.id)',
   'userEmail:req.user!.email',
   'operatorApprovalGranted:false,commandDispatched:false',
 
@@ -141,7 +141,7 @@ test('GPT02 PIC audit is written in the same transaction as task assignment',()=
  assert.ok(transactionStart>=0 && taskWrite>transactionStart &&
     auditWrite>taskWrite && transactionEnd>auditWrite);
  assert.match(route,/userId:null/);
- assert.match(route,/actorIdentity:\{version:1,id:req\.user!\.id/);
+ assert.match(route,/actorIdentity:\{version:1,id:String\(req\.user!\.id\)/);
  assert.match(route,/userEmail:req\.user!\.email/);
  assert.match(route,/companyId,/);
  assert.doesNotMatch(route,/await db\.insert\(auditLogsTable\)/);
@@ -355,7 +355,7 @@ test('GPT02 PIC assignment stores string auth subject in actorIdentity, never in
  assert.ok(begin>0&&end>begin);
  const route=src.slice(begin,end);
  assert.ok(route.includes('userId:null'));
- assert.ok(route.includes('actorIdentity:{version:1,id:req.user!.id'));
+ assert.ok(route.includes('actorIdentity:{version:1,id:String(req.user!.id)'));
  assert.ok(route.includes('email:req.user!.email.trim().toLowerCase(),role:"super_admin"'));
  assert.doesNotMatch(route,/userId:req\.user!\.id/);
 });
