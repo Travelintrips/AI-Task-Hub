@@ -43,10 +43,19 @@ test('builds two distinct max-one DEV reader pools without exposing DSNs',()=>{
  assert.equal(v.corePool.config.ssl.ca,ca);
  for(const p of [v.hubPool.config.options,v.corePool.config.options]){
   assert.match(p,/default_transaction_read_only=on/);
-  assert.match(p,/search_path=pg_catalog/);
+  assert.doesNotMatch(p,/search_path/);
   assert.match(p,/statement_timeout=5000/);
   assert.match(p,/lock_timeout=1000/);
   assert.match(p,/idle_in_transaction_session_timeout=10000/);
+ }
+ for(const pool of [v.hubPool,v.corePool]){
+  const queries=[];
+  await new Promise((resolve,reject)=>{
+   pool.config.verify({query:async sql=>{queries.push(sql);}},error=>{
+    if(error)reject(error);else resolve();
+   });
+  });
+  assert.deepEqual(queries,['SET search_path TO pg_catalog']);
  }
  assert.equal(v.metadata.environment,'DEV');
  assert.equal(v.metadata.projectRef,ref);
