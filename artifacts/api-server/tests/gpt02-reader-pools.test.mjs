@@ -30,7 +30,7 @@ function make(overrides={}){
  });
 }
 
-test('builds two distinct max-one DEV reader pools without exposing DSNs',()=>{
+test('builds two distinct max-one DEV reader pools without exposing DSNs',async()=>{
  const v=make();
  assert.notEqual(v.hubPool,v.corePool);
  assert.equal(v.hubPool.config.max,1);
