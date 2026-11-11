@@ -31,7 +31,7 @@ function request(socketPath,{method='GET',url='/health',body,headers={}}={}){
 async function fixture({reader,verify}={}){
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'gpt02-reader-runtime-'));
  fs.chownSync(dir,process.getuid(),process.getgid());
- fs.chmodSync(dir,0o2750);
+ fs.chmodSync(dir,0o750);
  const socket=path.join(dir,'reader.sock');
  const server=createGpt02ReaderRuntimeServer({
   reader:reader||(async query=>({prepared:{hubTaskId:query.hubTaskId}})),
@@ -147,7 +147,7 @@ test('rejects a reader socket directory with the wrong signer group',async()=>{
 test('reader and signer systemd units share only the signer group over AF_UNIX',()=>{
  const unit=fs.readFileSync(new URL('../../deploy/hostinger/gpt02-issue159-reader.service',import.meta.url),'utf8');
  assert.match(unit,/Group=gpt02-issue159-signers/);
- assert.match(unit,/RuntimeDirectoryMode=2750/);
+ assert.match(unit,/RuntimeDirectoryMode=0750/);
  assert.match(unit,/SupplementaryGroups=gpt02-issue159-signers/);
  assert.ok(unit.includes('ReadWritePaths=/run/gpt02-reader'));
 });
