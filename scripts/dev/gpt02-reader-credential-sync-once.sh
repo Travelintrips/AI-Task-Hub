@@ -26,14 +26,33 @@ W=$(mktemp -d /run/gpt02-reader-sync.XXXXXX)
 chmod 700 "$W"
 BACKUP=0
 DB_UPDATED=0
+SUCCESS=0
+lock_roles(){
+  cat > "$W/lock.sql" <<'SQL'
+BEGIN;
+ALTER ROLE gpt02_hub_evidence_reader NOLOGIN CONNECTION LIMIT 0;
+ALTER ROLE gpt02_core_evidence_reader NOLOGIN CONNECTION LIMIT 0;
+SELECT pg_terminate_backend(pid)
+FROM pg_stat_activity
+WHERE usename IN ('gpt02_hub_evidence_reader','gpt02_core_evidence_reader')
+  AND pid <> pg_backend_pid();
+COMMIT;
+SQL
+  docker run --rm --network host --env-file "$APP_ENV_FILE" \
+    -v "$W:/run/gpt02:ro" "$IMAGE" sh -lc \
+    'psql "$SUPABASE_DATABASE_URL_DEV" -X -q -v ON_ERROR_STOP=1 -f /run/gpt02/lock.sql' >/dev/null
+}
 cleanup(){
-  if [ "$DB_UPDATED" -ne 1 ]; then
-    if [ "$BACKUP" -eq 1 ]; then
+  if [ "$SUCCESS" -ne 1 ]; then
+    systemctl stop "$UNIT" >/dev/null 2>&1 || true
+    if [ "$DB_UPDATED" -eq 1 ]; then
+      lock_roles >/dev/null 2>&1 || true
+    elif [ "$BACKUP" -eq 1 ]; then
       install -o root -g root -m 600 "$W/hub.old" "$CREDSTORE/gpt02-hub-evidence-reader-dsn"
       install -o root -g root -m 600 "$W/core.old" "$CREDSTORE/gpt02-core-evidence-reader-dsn"
     fi
-    systemctl stop "$UNIT" >/dev/null 2>&1 || true
   fi
+  unset HUB_PASS CORE_PASS
   rm -rf "$W"
 }
 trap cleanup EXIT HUP INT TERM
@@ -42,14 +61,18 @@ trap cleanup EXIT HUP INT TERM
 systemctl stop "$UNIT" >/dev/null 2>&1 || true
 
 # Only proceed from the exact inert baseline. Do not alter grants or RLS.
-BASELINE=$(docker run --rm --network host --env-file "$APP_ENV_FILE" "$IMAGE" sh -lc '
-psql "$SUPABASE_DATABASE_URL_DEV" -X -qAt -F "|" -v ON_ERROR_STOP=1 -c "
-SELECT string_agg(rolname||''|''||rolcanlogin||''|''||rolconnlimit||''|''||
- (SELECT count(*) FROM pg_auth_members m WHERE m.member=r.oid)||''|''||
+cat > "$W/baseline.sql" <<'SQL'
+SELECT string_agg(
+ r.rolname||'|'||r.rolcanlogin||'|'||r.rolconnlimit||'|'||
+ (SELECT count(*) FROM pg_auth_members m WHERE m.member=r.oid)||'|'||
  (SELECT count(*) FROM pg_stat_activity a WHERE a.usename=r.rolname),
- '';'' ORDER BY rolname)
+ ';' ORDER BY r.rolname)
 FROM pg_roles r
-WHERE rolname IN (''gpt02_hub_evidence_reader'',''gpt02_core_evidence_reader'');"')
+WHERE r.rolname IN ('gpt02_hub_evidence_reader','gpt02_core_evidence_reader');
+SQL
+BASELINE=$(docker run --rm --network host --env-file "$APP_ENV_FILE" \
+ -v "$W:/run/gpt02:ro" "$IMAGE" sh -lc \
+ 'psql "$SUPABASE_DATABASE_URL_DEV" -X -qAt -v ON_ERROR_STOP=1 -f /run/gpt02/baseline.sql')
 EXPECTED='gpt02_core_evidence_reader|false|0|0|0;gpt02_hub_evidence_reader|false|0|0|0'
 [ "$BASELINE" = "$EXPECTED" ] || deny READER_BASELINE_NOT_INERT
 
@@ -107,17 +130,22 @@ printf '%s\n' "$HEALTH" | grep -q '"signingPermitted":false' || deny SIGNING_FLA
 printf '%s\n' "$HEALTH" | grep -q '"dispatchPermitted":false' || deny DISPATCH_FLAG_DRIFT
 
 # Independent catalog read-back of the exact bounded login state and live sessions.
-AFTER=$(docker run --rm --network host --env-file "$APP_ENV_FILE" "$IMAGE" sh -lc '
-psql "$SUPABASE_DATABASE_URL_DEV" -X -qAt -F "|" -v ON_ERROR_STOP=1 -c "
-SELECT string_agg(rolname||''|''||rolcanlogin||''|''||rolconnlimit||''|''||
- (SELECT count(*) FROM pg_auth_members m WHERE m.member=r.oid)||''|''||
+cat > "$W/after.sql" <<'SQL'
+SELECT string_agg(
+ r.rolname||'|'||r.rolcanlogin||'|'||r.rolconnlimit||'|'||
+ (SELECT count(*) FROM pg_auth_members m WHERE m.member=r.oid)||'|'||
  (SELECT count(*) FROM pg_stat_activity a WHERE a.usename=r.rolname),
- '';'' ORDER BY rolname)
+ ';' ORDER BY r.rolname)
 FROM pg_roles r
-WHERE rolname IN (''gpt02_hub_evidence_reader'',''gpt02_core_evidence_reader'');"')
-echo "$AFTER" | grep -q 'gpt02_core_evidence_reader|true|1|0|1' || deny CORE_ROLE_READBACK_MISMATCH
-echo "$AFTER" | grep -q 'gpt02_hub_evidence_reader|true|1|0|1' || deny HUB_ROLE_READBACK_MISMATCH
+WHERE r.rolname IN ('gpt02_hub_evidence_reader','gpt02_core_evidence_reader');
+SQL
+AFTER=$(docker run --rm --network host --env-file "$APP_ENV_FILE" \
+ -v "$W:/run/gpt02:ro" "$IMAGE" sh -lc \
+ 'psql "$SUPABASE_DATABASE_URL_DEV" -X -qAt -v ON_ERROR_STOP=1 -f /run/gpt02/after.sql')
+EXPECTED_AFTER='gpt02_core_evidence_reader|true|1|0|1;gpt02_hub_evidence_reader|true|1|0|1'
+[ "$AFTER" = "$EXPECTED_AFTER" ] || deny READER_ROLE_READBACK_MISMATCH
 
+SUCCESS=1
 echo GPT02_READER_CREDENTIAL_SYNC=PASS
 echo GPT02_READER_RUNTIME=ACTIVE
 echo GPT02_READER_HEALTH=PASS
