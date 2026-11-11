@@ -160,7 +160,8 @@ for _attempt in $(seq 1 20); do
    sh -lc 'exec psql "$SUPABASE_DATABASE_URL_DEV" -X -qAt -v ON_ERROR_STOP=1' <<'SQL'
 SELECT concat_ws('|',rolcanlogin::text,rolconnlimit::text,
  (SELECT count(*) FROM pg_auth_members m WHERE m.member=r.oid)::text,
- (SELECT count(*) FROM pg_stat_activity a WHERE a.usename=r.rolname)::text)
+ (SELECT count(*) FROM pg_stat_activity a WHERE a.usename=r.rolname)::text,
+ (SELECT rolpassword IS NULL FROM pg_authid WHERE rolname=r.rolname)::text)
 FROM pg_roles r WHERE rolname='gpt02_issuer_evidence_reader';
 SQL
 )"
