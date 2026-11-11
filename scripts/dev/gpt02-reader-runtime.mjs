@@ -22,8 +22,10 @@ const require=createRequire(import.meta.url);
 const MAX_BODY_BYTES=8192;
 const DEFAULT_SOCKET='/run/gpt02-reader/reader.sock';
 
-const codeOf=e=>typeof e?.code==='string'&&/^[A-Z0-9_:-]{1,100}$/.test(e.code)
- ?e.code:'TRUSTED_READ_FAILED_CLOSED';
+const codeOf=e=>{
+ const candidate=typeof e?.code==='string'?e.code:typeof e?.message==='string'?e.message:'';
+ return /^[A-Z0-9_:-]{1,100}$/.test(candidate)?candidate:'TRUSTED_READ_FAILED_CLOSED';
+};
 function respond(res,status,payload){
  const body=Buffer.from(JSON.stringify(payload));
  res.writeHead(status,{
@@ -134,7 +136,7 @@ export async function listenGpt02ReaderRuntimeSocket(server,socketPath,socketGro
 
 function resolveReaderSignerGroupGid(){
  const groupName='gpt02-issue159-signers';
- const line=fs.readFileSync('/etc/group','utf8').split(/\\r?\\n/).find(x=>x.startsWith(groupName+':'));
+ const line=fs.readFileSync('/etc/group','utf8').split(/\r?\n/).find(x=>x.startsWith(groupName+':'));
  if(!line)throw new Error('GPT02_READER_SIGNER_GROUP_REQUIRED');
  const fields=line.split(':');
  const gid=Number(fields[2]);
