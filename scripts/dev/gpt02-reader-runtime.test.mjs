@@ -115,3 +115,17 @@ test('reader failures return only a bounded code and never enable dispatch',asyn
   assert.equal(result.body.dispatchPermitted,false);
  }finally{await f.close()}
 });
+
+
+test('runtime, pool factory and systemd unit share one pinned credential directory',()=>{
+ const runtime=fs.readFileSync(new URL('./gpt02-reader-runtime.mjs',import.meta.url),'utf8');
+ const pool=fs.readFileSync(new URL('../../artifacts/api-server/src/lib/gpt02-reader-pools.mjs',import.meta.url),'utf8');
+ const unit=fs.readFileSync(new URL('../../deploy/hostinger/gpt02-issue159-reader.service',import.meta.url),'utf8');
+ assert.match(pool,/const CREDENTIAL_DIR='\/run\/credentials\/gpt02-issue159-reader\.service'/);
+ assert.match(pool,/0o440/);
+ assert.match(runtime,/createGpt02ReaderPools\(\{\s*Pool,nodeEnv:'development',appEnv:'development'\s*\}\)/);
+ assert.doesNotMatch(runtime,/GPT02_HUB_READER_DATABASE_URL_DEV|GPT02_CORE_READER_DATABASE_URL_DEV|GPT02_READER_DEV_CA/);
+ assert.match(unit,/LoadCredentialEncrypted=hub-reader-dsn:/);
+ assert.match(unit,/LoadCredentialEncrypted=core-reader-dsn:/);
+ assert.match(unit,/LoadCredential=supabase-root-ca-2021\.crt:/);
+});
