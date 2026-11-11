@@ -122,6 +122,9 @@ jobs:
         run: |
           node --test artifacts/api-server/tests/gpt02-trusted-facts-readonly.test.mjs
           node --test artifacts/api-server/tests/gpt02-reader-pools.test.mjs
+          node --test artifacts/api-server/tests/gpt02-reader-pool-identity.test.mjs
+          node --test scripts/dev/gpt02-reader-runtime.test.mjs
+          systemd-analyze verify deploy/hostinger/gpt02-issue159-reader.service
           node --test scripts/dev/gpt02-two-reader-native-readonly.test.mjs
           bash -n scripts/dev/gpt02-native-reader-proof-once.sh
           node --test scripts/dev/gpt02-native-reader-proof-once.test.mjs
