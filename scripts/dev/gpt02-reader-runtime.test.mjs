@@ -31,7 +31,7 @@ function request(socketPath,{method='GET',url='/health',body,headers={}}={}){
 async function fixture({reader,verify}={}){
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'gpt02-reader-runtime-'));
  fs.chownSync(dir,process.getuid(),process.getgid());
- fs.chmodSync(dir,0o750);
+ fs.chmodSync(dir,0o2750);
  const socket=path.join(dir,'reader.sock');
  const server=createGpt02ReaderRuntimeServer({
   reader:reader||(async query=>({prepared:{hubTaskId:query.hubTaskId}})),
@@ -55,6 +55,7 @@ test('serves health only over a private Unix socket',async()=>{
   assert.equal(st.isSocket(),true);
   assert.equal(st.mode&0o777,0o660);
   assert.equal(st.gid,process.getgid());
+  assert.equal(fs.statSync(f.dir).mode&0o7777,0o2750);
   const result=await request(f.socket);
   assert.equal(result.status,200);
   assert.equal(result.body.ok,true);
