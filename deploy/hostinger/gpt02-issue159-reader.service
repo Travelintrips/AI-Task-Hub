@@ -15,6 +15,7 @@ DynamicUser=yes
 WorkingDirectory=/opt/gpt02-reader-runtime
 Environment=NODE_ENV=development
 Environment=APP_ENV=development
+Environment=PATH=/usr/bin:/bin
 Environment=GPT02_READER_SOCKET=/run/gpt02-reader/reader.sock
 LoadCredentialEncrypted=hub-reader-dsn:/etc/credstore.encrypted/gpt02-hub-evidence-reader-dsn
 LoadCredentialEncrypted=core-reader-dsn:/etc/credstore.encrypted/gpt02-core-evidence-reader-dsn
