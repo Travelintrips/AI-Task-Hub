@@ -98,11 +98,16 @@ BEGIN
   IF jsonb_typeof(p_approval)<>'object' OR jsonb_typeof(p_link)<>'object' THEN
     RAISE EXCEPTION USING ERRCODE='22023',MESSAGE='INVALID_LINKED_APPROVAL_JSON';
   END IF;
-  IF p_approval->>'v'<>'2'
-     OR p_approval->>'environment'<>'DEV'
-     OR p_approval->>'audience'<>'GPT02_NEW_TASK_SINGLE_COMMAND_APPROVAL'
-     OR p_approval->>'companyId'<>'default'
-     OR p_approval->>'operatorNamespace'<>'ai-task-hub.public.users'
+  IF NOT (p_approval ?& ARRAY[
+       'v','environment','audience','taskId','commandId','attemptId','nonce',
+       'operatorNamespace','superAdminId','companyId','issuedAt','expiresAt'
+     ])
+     OR jsonb_object_length(p_approval)<>12
+     OR p_approval->>'v' IS DISTINCT FROM '2'
+     OR p_approval->>'environment' IS DISTINCT FROM 'DEV'
+     OR p_approval->>'audience' IS DISTINCT FROM 'GPT02_NEW_TASK_SINGLE_COMMAND_APPROVAL'
+     OR p_approval->>'companyId' IS DISTINCT FROM 'default'
+     OR p_approval->>'operatorNamespace' IS DISTINCT FROM 'ai-task-hub.public.users'
      OR coalesce(p_approval->>'superAdminId','') !~ '^[A-Za-z0-9][A-Za-z0-9_.:@-]{0,127}$'
      OR coalesce(p_approval->>'nonce','') !~ '^[A-Za-z0-9_-]{32,128}$'
      OR coalesce(p_signature,'') !~ '^[A-Za-z0-9_-]{86}$'
@@ -129,24 +134,32 @@ BEGIN
      OR v_expires<=floor(extract(epoch from clock_timestamp())*1000)::bigint
   THEN RAISE EXCEPTION USING ERRCODE='22023',MESSAGE='INVALID_OR_EXPIRED_APPROVAL'; END IF;
 
-  IF p_link->>'v'<>'1'
-     OR p_link->>'environment'<>'DEV'
-     OR p_link->>'audience'<>'GPT02_DUAL_ACCOUNT_COMMAND_LINK'
-     OR p_link->>'companyId'<>'default'
+  IF NOT (p_link ?& ARRAY[
+       'v','environment','audience','linkId','companyId','hubTaskId','hubExecutionId',
+       'coreTaskId','coreCommandId','attemptId','attemptNumber','assigneeId',
+       'accountableOwnerId','hubOperatorNamespace','hubOperatorId','hubRole','hubActive',
+       'coreOperatorNamespace','coreOperatorUserId','coreRole','coreActive',
+       'corePasswordChanged','workerId','approvalDigest','nonce','issuedAt','expiresAt'
+     ])
+     OR jsonb_object_length(p_link)<>27
+     OR p_link->>'v' IS DISTINCT FROM '1'
+     OR p_link->>'environment' IS DISTINCT FROM 'DEV'
+     OR p_link->>'audience' IS DISTINCT FROM 'GPT02_DUAL_ACCOUNT_COMMAND_LINK'
+     OR p_link->>'companyId' IS DISTINCT FROM 'default'
      OR (p_link->>'hubTaskId')::integer<>v_task
      OR (p_link->>'coreCommandId')::uuid<>v_command
      OR (p_link->>'attemptId')::uuid<>v_attempt
-     OR p_link->>'hubOperatorNamespace'<>'ai-task-hub.public.users'
-     OR p_link->>'hubOperatorId'<>p_approval->>'superAdminId'
-     OR p_link->>'hubRole'<>'super_admin'
-     OR (p_link->>'hubActive')::boolean IS NOT TRUE
-     OR p_link->>'coreOperatorNamespace'<>'ai-core.ai_platform.internal_users'
-     OR p_link->>'coreRole' NOT IN ('owner','admin')
-     OR (p_link->>'coreActive')::boolean IS NOT TRUE
-     OR (p_link->>'corePasswordChanged')::boolean IS NOT TRUE
-     OR p_link->>'workerId'<>'openclaw-dell-chatgpt-wake-dev'
-     OR p_link->>'approvalDigest'<>p_digest
-     OR p_link->>'nonce'<>p_approval->>'nonce'
+     OR p_link->>'hubOperatorNamespace' IS DISTINCT FROM 'ai-task-hub.public.users'
+     OR p_link->>'hubOperatorId' IS DISTINCT FROM p_approval->>'superAdminId'
+     OR p_link->>'hubRole' IS DISTINCT FROM 'super_admin'
+     OR coalesce((p_link->>'hubActive')::boolean,false) IS NOT TRUE
+     OR p_link->>'coreOperatorNamespace' IS DISTINCT FROM 'ai-core.ai_platform.internal_users'
+     OR coalesce(p_link->>'coreRole','') NOT IN ('owner','admin')
+     OR coalesce((p_link->>'coreActive')::boolean,false) IS NOT TRUE
+     OR coalesce((p_link->>'corePasswordChanged')::boolean,false) IS NOT TRUE
+     OR p_link->>'workerId' IS DISTINCT FROM 'openclaw-dell-chatgpt-wake-dev'
+     OR p_link->>'approvalDigest' IS DISTINCT FROM p_digest
+     OR p_link->>'nonce' IS DISTINCT FROM p_approval->>'nonce'
      OR (p_link->>'attemptNumber')::integer<>1
      OR v_link_issued<v_issued OR v_link_expires>v_expires
      OR v_link_expires<=v_link_issued OR v_link_expires-v_link_issued>120000
