@@ -5,9 +5,9 @@ Wants=network-online.target
 After=network-online.target
 StartLimitIntervalSec=60s
 StartLimitBurst=3
-ConditionPathIsReadable=/etc/gpt02-dev/supabase-root-ca-2021.crt
-ConditionPathIsReadable=/etc/credstore.encrypted/gpt02-hub-evidence-reader-dsn
-ConditionPathIsReadable=/etc/credstore.encrypted/gpt02-core-evidence-reader-dsn
+ConditionPathExists=/etc/gpt02-dev/supabase-root-ca-2021.crt
+ConditionPathExists=/etc/credstore.encrypted/gpt02-hub-evidence-reader-dsn
+ConditionPathExists=/etc/credstore.encrypted/gpt02-core-evidence-reader-dsn
 
 [Service]
 Type=simple
@@ -18,6 +18,9 @@ Environment=APP_ENV=development
 Environment=GPT02_READER_SOCKET=/run/gpt02-reader/reader.sock
 LoadCredentialEncrypted=hub-reader-dsn:/etc/credstore.encrypted/gpt02-hub-evidence-reader-dsn
 LoadCredentialEncrypted=core-reader-dsn:/etc/credstore.encrypted/gpt02-core-evidence-reader-dsn
+ExecStartPre=/usr/bin/test -r /etc/gpt02-dev/supabase-root-ca-2021.crt
+ExecStartPre=/usr/bin/test -r /etc/credstore.encrypted/gpt02-hub-evidence-reader-dsn
+ExecStartPre=/usr/bin/test -r /etc/credstore.encrypted/gpt02-core-evidence-reader-dsn
 ExecStart=/usr/bin/node /opt/gpt02-reader-runtime/scripts/dev/gpt02-reader-runtime.mjs
 Restart=on-failure
 RestartSec=5s
