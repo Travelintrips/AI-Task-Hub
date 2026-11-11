@@ -94,3 +94,23 @@ test('rejects one shared pool before opening a connection',async()=>{
   e=>e.code==='INDEPENDENT_HUB_CORE_POOLS_REQUIRED');
  assert.equal(connects,0);
 });
+
+
+test('preserves only a sanitized database error code for startup diagnosis',async()=>{
+ const f=fixture();
+ f.hub.client.query=async sql=>{
+  f.records.push({role:'gpt02_hub_evidence_reader',sql});
+  if(sql==='BEGIN READ ONLY')throw Object.assign(
+   new Error('sensitive connection detail must not escape'),{code:'53300'}
+  );
+  return {rows:[]};
+ };
+ await assert.rejects(
+  verifyGpt02TrustedReaderPools(f.pools),
+  e=>e.code==='INDEPENDENT_READ_FAILED_CLOSED'&&
+      e.safeCode==='INDEPENDENT_READ_FAILED_CLOSED_53300'&&
+      !String(e.safeCode).includes('sensitive')
+ );
+ assert.equal(f.records.some(x=>x.role==='gpt02_hub_evidence_reader'&&x.release===true),true);
+ assert.equal(f.records.some(x=>x.role==='gpt02_core_evidence_reader'&&x.release===true),true);
+});
