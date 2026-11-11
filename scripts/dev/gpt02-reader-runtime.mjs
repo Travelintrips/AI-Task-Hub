@@ -109,7 +109,7 @@ export async function listenGpt02ReaderRuntimeSocket(server,socketPath,socketGro
  const parent=path.dirname(socketPath);
  const dir=fs.lstatSync(parent);
  if(!dir.isDirectory()||dir.uid!==process.getuid()||dir.gid!==socketGroupGid||
-    (dir.mode&0o7777)!==0o750)
+    (dir.mode&0o7777)!==0o2750)
   throw new Error('GPT02_READER_SOCKET_DIRECTORY_NOT_PRIVATE');
  if(fs.existsSync(socketPath)){
   const existing=fs.lstatSync(socketPath);
