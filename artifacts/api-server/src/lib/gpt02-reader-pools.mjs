@@ -14,7 +14,7 @@ const DATABASE='postgres';
 const HUB_ENV='GPT02_HUB_READER_DATABASE_URL_DEV';
 const CORE_ENV='GPT02_CORE_READER_DATABASE_URL_DEV';
 const CA_ENV='GPT02_READER_DEV_CA';
-const CREDENTIAL_DIR='/run/credentials/gpt02-dev';
+const CREDENTIAL_DIR='/run/credentials/gpt02-issue159-reader.service';
 const HUB_CREDENTIAL='hub-reader-dsn';
 const CORE_CREDENTIAL='core-reader-dsn';
 const CA_CREDENTIAL='supabase-root-ca-2021.crt';
@@ -43,9 +43,17 @@ function readCredentialFile(path,synthetic){
  const mode=st.mode&0o777;
  const uid=synthetic?(process.getuid?.()??st.uid):0;
  const gid=synthetic?(process.getgid?.()??st.gid):0;
+ const allowedModes=synthetic?[0o400,0o600]:[0o400,0o440,0o600];
  if(!st.isFile()||st.isSymbolicLink()||st.uid!==uid||st.gid!==gid||
-    ![0o400,0o600].includes(mode))
+    !allowedModes.includes(mode))
   fail('GPT02_READER_CREDENTIAL_FILE_SECURITY_INVALID');
+ if(!synthetic){
+  let directory;
+  try{directory=lstatSync(CREDENTIAL_DIR)}catch{fail('GPT02_READER_CREDENTIAL_DIRECTORY_REQUIRED')}
+  if(!directory.isDirectory()||directory.uid!==0||directory.gid!==0||
+     (directory.mode&0o777)!==0o550)
+   fail('GPT02_READER_CREDENTIAL_DIRECTORY_SECURITY_INVALID');
+ }
  let value;
  try{value=readFileSync(path,'utf8')}catch{fail('GPT02_READER_CREDENTIAL_FILE_REQUIRED')}
  if(typeof value!=='string'||value.length<1||value.length>8192)
