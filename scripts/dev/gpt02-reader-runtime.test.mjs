@@ -148,7 +148,7 @@ test('rejects a reader socket directory with the wrong signer group',async()=>{
 test('reader and signer systemd units share only the signer group over AF_UNIX',()=>{
  const unit=fs.readFileSync(new URL('../../deploy/hostinger/gpt02-issue159-reader.service',import.meta.url),'utf8');
  assert.match(unit,/Group=gpt02-issue159-signers/);
- assert.match(unit,/RuntimeDirectoryMode=0750/);
+ assert.match(unit,/RuntimeDirectoryMode=2750/);
  assert.match(unit,/SupplementaryGroups=gpt02-issue159-signers/);
  assert.ok(unit.includes('ReadWritePaths=/run/gpt02-reader'));
 });
