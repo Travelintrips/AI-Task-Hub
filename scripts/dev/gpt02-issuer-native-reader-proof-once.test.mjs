@@ -20,7 +20,7 @@ test('proof validates only read-only private evidence surface and no authority r
   for(const required of [
     'BEGIN READ ONLY',
     'r.select_columns<>32',
-    'policy_count===3',
+    'r.policy_count<>3',
     'gpt02_private.receipts LIMIT 0',
     'gpt02_private.core_identity_receipts LIMIT 0',
     'gpt02_private.post_consumption_fences LIMIT 0',
