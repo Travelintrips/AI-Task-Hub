@@ -193,3 +193,21 @@ Jangan:
 - menyentuh PROD atau DELL.
 
 Setelah A dan B PASS dengan bukti native, barulah wiring `createGpt02ReaderPools -> createGpt02TrustedFactReader -> createPreparedNonceConsumer` dapat direview sebagai tahap berikutnya. Itu masih belum sama dengan izin dispatch.
+
+
+## Addendum 11 Nov 2026 — isolated long-lived reader sidecar (not API/worker mount)
+
+The operator approved long-lived DEV-only Hub/Core reader runtime credentials, one connection per role, least-privilege SELECT/RLS only, no PROD. To prevent these passwords from being inherited by the shared AI Task application container, the deployment path is now a dedicated systemd sidecar rather than /etc/ai-task/development.env.
+
+- Source entrypoint: scripts/dev/gpt02-reader-runtime.mjs
+- Systemd unit: deploy/hostinger/gpt02-issue159-reader.service
+- Credential files (encrypted at rest, root:root 0600):
+  - /etc/credstore.encrypted/gpt02-hub-evidence-reader-dsn
+  - /etc/credstore.encrypted/gpt02-core-evidence-reader-dsn
+- The unit uses LoadCredentialEncrypted; plaintext DSNs exist only in systemd's per-service /run/credentials/ mount while the service runs. The process reads them into memory and never writes them to environment files, logs, the API container, Git, or database rows.
+- Runtime identity is DynamicUser=yes, NoNewPrivileges=yes, CapabilityBoundingSet=, read-only system, private tmp/devices, no home, bounded memory/tasks, and AF_UNIX + outbound AF_INET/AF_INET6 only. It has no TCP listener; it exposes a root-only Unix socket at /run/gpt02-reader/reader.sock, mode 0600.
+- GET /health verifies two separate TLS-authenticated restricted sessions inside read-only transactions. POST /trusted-facts accepts only the exact task-bound read query consumed by createGpt02TrustedFactReader. Invalid input fails closed. No dispatch, signing, task creation, command creation, nonce consumption, or lease grant exists in this service.
+- This sidecar is not imported by live API routes/workers and is not a replacement for the later signer integration. The four signer services remain separate, private-networked, and unchanged.
+- Credential encryption uses systemd host-key mode because this VPS reports no TPM2 support. This protects credential files from casual plaintext exposure but is not TPM-sealed and does not protect against root compromise of the host.
+
+The sidecar must be enabled only after its source/test/unit checks pass and both dedicated DB roles are explicitly LOGIN, connection limit 1, NOINHERIT, no membership, no bypassrls/superuser, and exact SELECT/RLS posture. The shared application env file must not receive reader DSNs. If the sidecar is stopped for an extended period, lock both reader roles back to NOLOGIN/limit 0 and remove encrypted DSNs.
