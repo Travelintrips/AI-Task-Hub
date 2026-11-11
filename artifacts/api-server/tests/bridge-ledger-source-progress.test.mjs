@@ -81,7 +81,8 @@ test('DEV PIC assignment is scoped, explicit, and cannot dispatch a command',()=
   'db.transaction(async (tx) =>',
   'await tx.insert(auditLogsTable).values({',
   'action:"gpt02_pic_assigned"',
-  'userId:req.user!.id',
+  'userId:null',
+  'actorIdentity:{version:1,id:req.user!.id',
   'userEmail:req.user!.email',
   'operatorApprovalGranted:false,commandDispatched:false',
 
@@ -139,8 +140,9 @@ test('GPT02 PIC audit is written in the same transaction as task assignment',()=
  const transactionEnd=route.indexOf('return updated;',auditWrite);
  assert.ok(transactionStart>=0 && taskWrite>transactionStart &&
     auditWrite>taskWrite && transactionEnd>auditWrite);
- assert.match(route,/userId:req\.user!\.id/);
- assert.match(route,/userEmail:req\.user!\.email/);
+ assert.match(route,/userId:null/);
+ assert.match(route,/actorIdentity:\\{version:1,id:req\\.user!\\.id/);
+ assert.match(route,/userEmail:req\\.user!\\.email/);
  assert.match(route,/companyId,/);
  assert.doesNotMatch(route,/await db\.insert\(auditLogsTable\)/);
 });
@@ -218,7 +220,8 @@ test('GPT02 PIC audit readback is DEV-only, company-scoped, and cannot authorize
   'recorded["memberId"]===task.assignedToId',
   'recorded["memberName"]===task.assignedTo',
   'recorded["companyId"]===companyId',
-  'audit.actorId != null',
+  'actorIdentity["role"]==="super_admin"',
+  'actorEmail===audit.actorEmail?.trim().toLowerCase()',
   'auditMatchesCurrent',
   'operatorApprovalGranted:false',
   'commandDispatched:false',
