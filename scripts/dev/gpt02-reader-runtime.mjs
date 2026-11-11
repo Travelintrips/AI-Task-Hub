@@ -23,7 +23,9 @@ const MAX_BODY_BYTES=8192;
 const DEFAULT_SOCKET='/run/gpt02-reader/reader.sock';
 
 const codeOf=e=>{
- const candidate=typeof e?.code==='string'?e.code:typeof e?.message==='string'?e.message:'';
+ const candidate=typeof e?.safeCode==='string'?e.safeCode:
+  typeof e?.code==='string'?e.code:
+  typeof e?.message==='string'?e.message:'';
  return /^[A-Z0-9_:-]{1,100}$/.test(candidate)?candidate:'TRUSTED_READ_FAILED_CLOSED';
 };
 function respond(res,status,payload){
