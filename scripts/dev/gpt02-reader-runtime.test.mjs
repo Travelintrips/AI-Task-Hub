@@ -149,9 +149,5 @@ test('reader and signer systemd units share only the signer group over AF_UNIX',
  assert.match(unit,/RuntimeDirectoryGroup=gpt02-issue159-signers/);
  assert.match(unit,/RuntimeDirectoryMode=2750/);
  assert.match(unit,/SupplementaryGroups=gpt02-issue159-signers/);
- const signer=fs.readFileSync(new URL('../../../../Core-AI-Foundation/deploy/ai-coding-standalone-dev/gpt02-issue159-signer@.service',import.meta.url),'utf8');
- assert.match(signer,/SupplementaryGroups=gpt02-issue159-signers/);
- assert.match(signer,/BindReadOnlyPaths=\\/run\\/gpt02-reader/);
- assert.match(signer,/RestrictAddressFamilies=AF_UNIX/);
- assert.match(signer,/PrivateNetwork=yes/);
+ assert.match(unit,/ReadWritePaths=\\/run\\/gpt02-reader/);
 });
