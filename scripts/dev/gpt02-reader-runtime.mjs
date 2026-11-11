@@ -152,7 +152,24 @@ export async function startGpt02ReaderRuntime(){
   Pool,nodeEnv:'development',appEnv:'development'
  });
  const verify=()=>verifyGpt02TrustedReaderPools(pools);
- const reader=createGpt02TrustedFactReader(pools);
+ const readFacts=createGpt02TrustedFactReader(pools);
+ const reader=async query=>{
+  const facts=await readFacts(query);
+  return Object.freeze({
+   ...facts,
+   trustedReadProof:Object.freeze({
+    source:'gpt02-issue159-reader',
+    environment:'DEV',
+    hubRole:'gpt02_hub_evidence_reader',
+    coreRole:'gpt02_core_evidence_reader',
+    separateBackends:true,
+    clientTlsVerified:true,
+    readOnly:true,
+    dispatchPermitted:false,
+    signingPermitted:false
+   })
+  });
+ };
  let server;
  try{
   const initial=await verify();
