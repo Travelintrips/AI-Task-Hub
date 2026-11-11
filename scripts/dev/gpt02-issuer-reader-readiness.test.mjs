@@ -12,13 +12,13 @@ const row=(patch={})=>({
  memberships:0,members_of_role:1,exact_management_member:true,active_sessions:0,
  global_read:false,global_write:false,
  db_create:false,private_usage:true,private_create:false,owned_objects:0,special_admin:false,
- sequence_privileges:0,column_diff_count:0,select_column_count:32,table_level_grants:0,
- policy_count:3,exact_policy_count:3,callable_security_definer:0,callable_mutating:0,
+ sequence_privileges:0,column_diff_count:0,select_column_count:51,table_level_grants:0,
+ policy_count:5,exact_policy_count:5,public_policy_count:0,callable_security_definer:0,callable_mutating:0,
  callable_count:1,allowed_callable_count:1,...patch
 });
 
 test('exact inert issuer reader catalog passes evidence only',()=>{
- assert.equal(EXPECTED_COLUMNS.length,32);
+ assert.equal(EXPECTED_COLUMNS.length,51);
  assert.equal(verifyIssuerReaderReadiness(row()),true);
  const r=readinessReport(row());
  assert.equal(r.catalogVerified,true);
@@ -37,8 +37,8 @@ test('any privilege, role, grant, RLS or callable drift fails closed',()=>{
   {active_sessions:1},{global_read:true},
   {global_write:true},{db_create:true},{private_usage:false},{private_create:true},
   {owned_objects:1},{special_admin:true},{sequence_privileges:1},
-  {column_diff_count:1},{select_column_count:31},{table_level_grants:1},
-  {policy_count:2},{exact_policy_count:2},{callable_security_definer:1},
+  {column_diff_count:1},{select_column_count:50},{table_level_grants:1},
+  {policy_count:4},{exact_policy_count:4},{public_policy_count:1},{callable_security_definer:1},
   {callable_mutating:1},{callable_count:2},{allowed_callable_count:0},
   {rolconfig:['default_transaction_read_only=on']}
  ])assert.equal(verifyIssuerReaderReadiness(row(patch)),false,JSON.stringify(patch));
@@ -47,6 +47,11 @@ test('any privilege, role, grant, RLS or callable drift fails closed',()=>{
 test('catalog query covers exact column, RLS and effective privilege surfaces',()=>{
  assert.match(QUERY,/information_schema\.table_privileges/);
  assert.match(QUERY,/has_column_privilege/);
+ assert.match(QUERY,/approvals/);
+ assert.match(QUERY,/operator_links/);
+ assert.match(QUERY,/public_policy_count/);
+ assert.match(QUERY,/task_id > 136/);
+ assert.match(QUERY,/attempt_number = 1/);
  assert.match(QUERY,/pg_policies/);
  assert.match(QUERY,/relforcerowsecurity/);
  assert.match(QUERY,/pg_auth_members/);
