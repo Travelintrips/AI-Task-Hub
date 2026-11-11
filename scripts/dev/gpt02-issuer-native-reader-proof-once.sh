@@ -65,9 +65,8 @@ locked=0
 CONN="host=$POOLER_HOST port=5432 dbname=postgres user=${ROLE}.${PROJECT_REF} sslmode=verify-full sslrootcert=/tmp/supabase-ca.crt"
 
 docker run -i --rm --network host --env-file "$SECRET_ENV" \
-  -v "$CA_FILE:/tmp/supabase-ca.crt:ro" "$POSTGRES_IMAGE" \
-  sh -lc 'exec psql "$CONN" -X -qAt -v ON_ERROR_STOP=1' \
-  CONN="$CONN" <<'SQL'
+  -e CONN="$CONN" -v "$CA_FILE:/tmp/supabase-ca.crt:ro" "$POSTGRES_IMAGE" \
+  sh -lc 'exec psql "$CONN" -X -qAt -v ON_ERROR_STOP=1' <<'SQL'
 BEGIN READ ONLY;
 SET LOCAL statement_timeout='5s';
 DO $proof$
