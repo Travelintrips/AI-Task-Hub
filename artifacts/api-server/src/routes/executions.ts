@@ -1678,7 +1678,7 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
         if (mode === "chatgpt" && accountAlias === "GPT02") {
           const [latestAudit]=await tx.select({
             id:auditLogsTable.id,after:auditLogsTable.after,
-            actorId:auditLogsTable.userId,
+            actorEmail:auditLogsTable.userEmail,
           }).from(auditLogsTable)
             .where(and(eq(auditLogsTable.companyId,companyId),
               eq(auditLogsTable.entityId,taskId),
@@ -1687,7 +1687,14 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
           let auditPayload: Record<string, unknown> = {};
           try { auditPayload=asRecord(JSON.parse(latestAudit?.after??"null")); }
           catch { auditPayload={}; }
-          if (!latestAudit || latestAudit.actorId == null ||
+          const actorIdentity=asRecord(auditPayload["actorIdentity"]);
+          const actorEmail=typeof actorIdentity["email"]==="string" ?
+            actorIdentity["email"].trim().toLowerCase() : null;
+          if (!latestAudit ||
+              actorIdentity["role"]!=="super_admin" ||
+              (actorIdentity["version"]!==1 && actorIdentity["version"]!=="1") ||
+              typeof actorIdentity["id"]!=="string" ||
+              actorEmail!==latestAudit.actorEmail?.trim().toLowerCase() ||
               auditPayload["memberId"]!==currentTask.assignedToId ||
               auditPayload["memberName"]!==currentTask.assignedTo ||
               auditPayload["companyId"]!==companyId ||
