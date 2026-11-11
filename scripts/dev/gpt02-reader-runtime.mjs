@@ -103,16 +103,17 @@ export function createGpt02ReaderRuntimeServer({reader,verify}={}){
  return server;
 }
 
-export async function listenGpt02ReaderRuntimeSocket(server,socketPath){
+export async function listenGpt02ReaderRuntimeSocket(server,socketPath,socketGroupGid=process.getgid()){
  if(typeof socketPath!=='string'||!path.isAbsolute(socketPath))
   throw new Error('GPT02_READER_SOCKET_PATH_REQUIRED');
  const parent=path.dirname(socketPath);
  const dir=fs.lstatSync(parent);
- if(!dir.isDirectory()||dir.uid!==process.getuid()||(dir.mode&0o077)!==0)
+ if(!dir.isDirectory()||dir.uid!==process.getuid()||dir.gid!==socketGroupGid||
+    (dir.mode&0o7777)!==0o2750)
   throw new Error('GPT02_READER_SOCKET_DIRECTORY_NOT_PRIVATE');
  if(fs.existsSync(socketPath)){
   const existing=fs.lstatSync(socketPath);
-  if(!existing.isSocket()||existing.uid!==process.getuid())
+  if(!existing.isSocket()||existing.uid!==process.getuid()||existing.gid!==socketGroupGid)
    throw new Error('GPT02_READER_SOCKET_PATH_OCCUPIED');
   fs.unlinkSync(socketPath);
  }
@@ -120,14 +121,26 @@ export async function listenGpt02ReaderRuntimeSocket(server,socketPath){
   server.once('error',reject);
   server.listen(socketPath,()=>{server.removeListener('error',reject);resolve()});
  });
- fs.chmodSync(socketPath,0o600);
+ fs.chownSync(socketPath,process.getuid(),socketGroupGid);
+ fs.chmodSync(socketPath,0o660);
  const socket=fs.lstatSync(socketPath);
- if(!socket.isSocket()||socket.uid!==process.getuid()||
-    (socket.mode&0o777)!==0o600)
+ if(!socket.isSocket()||socket.uid!==process.getuid()||socket.gid!==socketGroupGid||
+    (socket.mode&0o777)!==0o660)
   throw new Error('GPT02_READER_SOCKET_MODE_INVALID');
  return socketPath;
 }
 
+
+
+function resolveReaderSignerGroupGid(){
+ const groupName='gpt02-issue159-signers';
+ const line=fs.readFileSync('/etc/group','utf8').split(/\\r?\\n/).find(x=>x.startsWith(groupName+':'));
+ if(!line)throw new Error('GPT02_READER_SIGNER_GROUP_REQUIRED');
+ const fields=line.split(':');
+ const gid=Number(fields[2]);
+ if(!Number.isSafeInteger(gid)||gid<=0)throw new Error('GPT02_READER_SIGNER_GROUP_INVALID');
+ return gid;
+}
 
 export async function startGpt02ReaderRuntime(){
  if(process.env.NODE_ENV!=='development'||process.env.APP_ENV!=='development')
@@ -145,7 +158,8 @@ export async function startGpt02ReaderRuntime(){
   const initial=await verify();
   server=createGpt02ReaderRuntimeServer({reader,verify});
   const socketPath=process.env.GPT02_READER_SOCKET||DEFAULT_SOCKET;
-  await listenGpt02ReaderRuntimeSocket(server,socketPath);
+  const signerGroupGid=resolveReaderSignerGroupGid();
+  await listenGpt02ReaderRuntimeSocket(server,socketPath,signerGroupGid);
   process.stdout.write(JSON.stringify({
    event:'gpt02_reader_runtime_started',
    environment:'DEV',socketPath,
