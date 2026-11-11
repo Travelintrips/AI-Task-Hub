@@ -570,7 +570,7 @@ export default function AiTaskDetail() {
     isFetching: gpt02PicAuditFetching } = useQuery<{
       taskId:number; assignedMemberId:number|null; assignedTo:string|null;
       auditPresent:boolean; auditMatchesCurrent:boolean; assignmentAudited:boolean;
-      auditId:number|null; actorId:number|null; actorName:string|null;
+      auditId:number|null; actorId:string|null; actorName:string|null;
       assignedAt:string|null; operatorApprovalGranted:false;
       commandDispatched:false; nativeAckVerified:false;
     }>({
