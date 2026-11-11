@@ -89,12 +89,16 @@ test('role bootstrap is inert and owner grants are separately fenced',async()=>{
   "m.admin_option AND NOT m.inherit_option AND NOT m.set_option",
   'GPT02_STORE_OWNER_ESCROW_NOT_RESTORED',
   'GRANT USAGE ON SCHEMA gpt02_private',
+  "c.relname IN ('approvals','operator_links','receipts','core_identity_receipts','post_consumption_fences')",
+  'REVOKE SELECT (command_id,attempt_id,nonce,task_id,company_id,approver_id,claims,signature,digest,expires_at,recorded_at,operator_namespace)',
+  'REVOKE SELECT (link_id,command_id,hub_execution_id,core_task_id,hub_task_id,attempt_id,attempt_number,company_id,assignee_id,accountable_owner_id,hub_operator_id,core_operator_user_id,approval_digest,link_digest,hub_signature,core_signature,claims,expires_at,created_at)',
   'GRANT SELECT (command_id,attempt_id,nonce,task_id,company_id,approver_id,claims,digest)',
   'link_id,command_id,hub_execution_id,core_task_id,hub_task_id,attempt_id',
   'GRANT SELECT (id,command_id,nonce,digest,consumed_at)',
   'CREATE POLICY issuer_evidence_reader_select ON gpt02_private.approvals',
   'CREATE POLICY issuer_evidence_reader_select ON gpt02_private.operator_links',
   "USING (company_id='default' AND task_id>136 AND claims->>'environment'='DEV')",
+  "USING (company_id='default' AND hub_task_id>136 AND attempt_number=1",
   'issuer_evidence_reader_select',
   'FOR SELECT TO gpt02_issuer_evidence_reader USING (true)'
  ])assert.ok(ownerSrc.includes(required),required);
