@@ -57,3 +57,28 @@ test('mount contract cannot grant signer or dispatch authority',async()=>{
   'DISPATCH_ENABLED=true'
  ]) assert.equal(all.includes(forbidden),false,forbidden);
 });
+
+test('DEV health success also requires four pinned Ed25519 public roots inside the container',async()=>{
+ const sh=await read('deploy/hostinger/deploy.sh');
+ const healthy=sh.indexOf('if [ "$status" = "healthy" ]; then');
+ const verify=sh.indexOf('GPT02_TRUST_VERIFY_JS');
+ assert.ok(healthy>=0&&verify>healthy,'mount verifier must run after DEV health check');
+ assert.match(sh,/docker exec -i "\$CONTAINER_NAME" node - <<'GPT02_TRUST_VERIFY_JS'/);
+ assert.match(sh,/GPT02_DEV_PUBLIC_TRUST_VERIFIED_FOUR_ROOTS_NO_DISPATCH/);
+ assert.match(sh,/GPT02 DEV public trust verification failed; deployment remains NO-GO/);
+ const extracted=sh.match(/<<'GPT02_TRUST_VERIFY_JS'\n([\s\S]*?)\nGPT02_TRUST_VERIFY_JS/);
+ assert.ok(extracted,'exact runtime verifier heredoc present');
+ const script=extracted[1];
+ const {Script}=await import('node:vm');
+ assert.doesNotThrow(()=>new Script(script),'runtime JS syntax');
+ for(const required of [
+  'crypto.createPublicKey','asymmetricKeyType !== "ed25519"',
+  'createHash("sha256")','type: "spki"','new Set(fingerprints).size !== 4',
+  'PUBLIC_TRUST_FINGERPRINT_MISMATCH','PUBLIC_TRUST_UNEXPECTED_FILES',
+  'process.getuid()','process.exitCode = 2'
+ ]) assert.ok(script.includes(required),required);
+ for(const forbidden of [
+  'createPrivateKey','private-key','pkcs8','sign(',
+  'fetch(','http://','https://','dispatchPermitted:true'
+ ]) assert.equal(script.includes(forbidden),false,forbidden);
+});
