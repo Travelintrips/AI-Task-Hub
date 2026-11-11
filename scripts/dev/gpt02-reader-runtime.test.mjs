@@ -33,12 +33,12 @@ async function fixture({reader,verify}={}){
  fs.chmodSync(dir,0o700);
  const socket=path.join(dir,'reader.sock');
  const server=createGpt02ReaderRuntimeServer({
-  reader:reader||async query=>({prepared:{hubTaskId:query.hubTaskId}}),
-  verify:verify||async()=>({
+  reader:reader||(async query=>({prepared:{hubTaskId:query.hubTaskId}})),
+  verify:verify||(async()=>({
    hub:{role:'gpt02_hub_evidence_reader'},
    core:{role:'gpt02_core_evidence_reader'},
    separateBackends:true
-  })
+  })),
  });
  await listenGpt02ReaderRuntimeSocket(server,socket);
  return {dir,socket,server,async close(){
