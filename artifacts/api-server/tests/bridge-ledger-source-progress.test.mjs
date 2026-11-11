@@ -263,6 +263,8 @@ test('direct GPT02 execution requires matching PIC audit within transaction fenc
   'eq(auditLogsTable.companyId,companyId)',
   'eq(auditLogsTable.entityId,taskId)',
   'eq(auditLogsTable.action,"gpt02_pic_assigned")',
+  'actorIdentity["role"]!=="super_admin"',
+  'actorEmail!==latestAudit.actorEmail?.trim().toLowerCase()',
   'auditPayload["memberId"]!==currentTask.assignedToId',
   'auditPayload["memberName"]!==currentTask.assignedTo',
   'auditPayload["companyId"]!==companyId',
@@ -272,6 +274,26 @@ test('direct GPT02 execution requires matching PIC audit within transaction fenc
   'picAssignedMemberId:currentTask.assignedToId',
   'dispatchNotStarted:true'
  ]) assert.ok(handler.includes(requirement), requirement);
+});
+
+test('PIC-bound future GPT02 task cannot fall into generic GPT01 or worker execution',()=>{
+ const source=readFileSync(new URL('../src/routes/executions.ts',import.meta.url),'utf8');
+ const start=source.indexOf('router.post("/ai-tasks/:id/execution", requireAuth');
+ const end=source.indexOf('// Read-only preview and readiness check.',start);
+ assert.ok(start>0&&end>start);
+ const handler=source.slice(start,end);
+ const guard=handler.indexOf('GPT02_SIGNER_BOUNDARY_REQUIRES_PREPARATION');
+ const genericCreate=handler.indexOf('tx.insert(aiExecutionJobsTable)');
+ assert.ok(guard>0&&genericCreate>guard);
+ for(const requirement of [
+  'taskId > 136',
+  'eq(auditLogsTable.action,"gpt02_pic_assigned")',
+  'actorIdentity["role"]==="super_admin"',
+  'auditPayload["memberId"]===task.assignedToId',
+  'auditPayload["memberName"]===task.assignedTo',
+  'dispatchNotStarted:true',
+  'continuationScheduled:false',
+ ]) assert.ok(handler.includes(requirement),requirement);
 });
 
 test('legacy failed/blocked GPT02 execution cannot restart without supervised recovery',()=>{
