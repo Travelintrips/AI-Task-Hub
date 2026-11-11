@@ -116,6 +116,8 @@ jobs:
           node --test scripts/dev/gpt02-reader-default-acl-readiness.test.mjs
           node --test scripts/dev/gpt02-reader-callable-routines-readiness.test.mjs
           node --test scripts/dev/gpt02-issuer-reader-readiness.test.mjs
+          bash -n scripts/dev/gpt02-issuer-native-reader-proof-once.sh
+          node --test scripts/dev/gpt02-issuer-native-reader-proof-once.test.mjs
       - name: Verify independent Hub and Core read-only fact reconstruction
         run: |
           node --test artifacts/api-server/tests/gpt02-trusted-facts-readonly.test.mjs
