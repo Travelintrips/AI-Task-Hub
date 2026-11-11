@@ -1352,8 +1352,8 @@ router.get("/ai-tasks/:id/gpt02-pic-audit", requireAuth, async (req: Request, re
       .where(and(eq(aiTasksTable.id,taskId),eq(aiTasksTable.companyId,companyId))).limit(1);
     if (!task) { res.sendStatus(404); return; }
     const [audit]=await db.select({
-      id:auditLogsTable.id,actorId:auditLogsTable.userId,
-      actorName:auditLogsTable.userName,at:auditLogsTable.createdAt,
+      id:auditLogsTable.id,actorName:auditLogsTable.userName,
+      actorEmail:auditLogsTable.userEmail,at:auditLogsTable.createdAt,
       after:auditLogsTable.after,
     }).from(auditLogsTable)
       .where(and(eq(auditLogsTable.companyId,companyId),
@@ -1363,7 +1363,14 @@ router.get("/ai-tasks/:id/gpt02-pic-audit", requireAuth, async (req: Request, re
       try {return JSON.parse(audit?.after??"null") as unknown;}catch{return null;}
     })();
     const recorded=asRecord(payload);
-    const auditMatchesCurrent=!!audit && audit.actorId != null &&
+    const actorIdentity=asRecord(recorded["actorIdentity"]);
+    const actorId=typeof actorIdentity["id"]==="string" ? actorIdentity["id"] : null;
+    const actorEmail=typeof actorIdentity["email"]==="string" ?
+      actorIdentity["email"].trim().toLowerCase() : null;
+    const auditMatchesCurrent=!!audit && actorId != null &&
+      actorIdentity["role"]==="super_admin" &&
+      (actorIdentity["version"]===1 || actorIdentity["version"]==="1") &&
+      actorEmail===audit.actorEmail?.trim().toLowerCase() &&
       typeof recorded["memberId"]==="number" &&
       recorded["memberId"]===task.assignedToId &&
       recorded["memberName"]===task.assignedTo &&
@@ -1372,7 +1379,7 @@ router.get("/ai-tasks/:id/gpt02-pic-audit", requireAuth, async (req: Request, re
     res.json({taskId,assignedMemberId:task.assignedToId,
       assignedTo:task.assignedTo,auditPresent:!!audit,
       auditMatchesCurrent,assignmentAudited:auditMatchesCurrent,
-      auditId:audit?.id??null,actorId:audit?.actorId??null,
+      auditId:audit?.id??null,actorId,
       actorName:audit?.actorName??null,assignedAt:audit?.at??null,
       operatorApprovalGranted:false,commandDispatched:false,
       nativeAckVerified:false});
@@ -1432,10 +1439,18 @@ router.post("/ai-tasks/:id/gpt02-assign-pic", requireAuth, async (req: Request, 
         entityType:"ai_task",
         entityId:taskId,
         companyId,
-        userId:req.user!.id,
+        // public.audit_logs.user_id is an integer legacy FK. Authenticated
+        // Super Admin identities use a stable string subject (for example
+        // google_*), so do not coerce that subject into the integer column.
+        // Preserve the authoritative identity in the signed/read-back payload,
+        // matching the already verified Task136 audit shape.
+        userId:null,
         userEmail:req.user!.email,
         userName:req.user!.name,
-        after:JSON.stringify({memberId:member.id,memberName:member.name,taskId,companyId,
+        after:JSON.stringify({
+          actorIdentity:{version:1,id:String(req.user!.id),
+            email:req.user!.email.trim().toLowerCase(),role:"super_admin"},
+          memberId:member.id,memberName:member.name,taskId,companyId,
           operatorApprovalGranted:false,commandDispatched:false}),
       });
       return updated;
@@ -1663,7 +1678,7 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
         if (mode === "chatgpt" && accountAlias === "GPT02") {
           const [latestAudit]=await tx.select({
             id:auditLogsTable.id,after:auditLogsTable.after,
-            actorId:auditLogsTable.userId,
+            actorEmail:auditLogsTable.userEmail,
           }).from(auditLogsTable)
             .where(and(eq(auditLogsTable.companyId,companyId),
               eq(auditLogsTable.entityId,taskId),
@@ -1672,7 +1687,14 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
           let auditPayload: Record<string, unknown> = {};
           try { auditPayload=asRecord(JSON.parse(latestAudit?.after??"null")); }
           catch { auditPayload={}; }
-          if (!latestAudit || latestAudit.actorId == null ||
+          const actorIdentity=asRecord(auditPayload["actorIdentity"]);
+          const actorEmail=typeof actorIdentity["email"]==="string" ?
+            actorIdentity["email"].trim().toLowerCase() : null;
+          if (!latestAudit ||
+              actorIdentity["role"]!=="super_admin" ||
+              (actorIdentity["version"]!==1 && actorIdentity["version"]!=="1") ||
+              typeof actorIdentity["id"]!=="string" ||
+              actorEmail!==latestAudit.actorEmail?.trim().toLowerCase() ||
               auditPayload["memberId"]!==currentTask.assignedToId ||
               auditPayload["memberName"]!==currentTask.assignedTo ||
               auditPayload["companyId"]!==companyId ||

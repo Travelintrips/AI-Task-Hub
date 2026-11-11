@@ -81,7 +81,8 @@ test('DEV PIC assignment is scoped, explicit, and cannot dispatch a command',()=
   'db.transaction(async (tx) =>',
   'await tx.insert(auditLogsTable).values({',
   'action:"gpt02_pic_assigned"',
-  'userId:req.user!.id',
+  'userId:null',
+  'actorIdentity:{version:1,id:String(req.user!.id)',
   'userEmail:req.user!.email',
   'operatorApprovalGranted:false,commandDispatched:false',
 
@@ -139,7 +140,8 @@ test('GPT02 PIC audit is written in the same transaction as task assignment',()=
  const transactionEnd=route.indexOf('return updated;',auditWrite);
  assert.ok(transactionStart>=0 && taskWrite>transactionStart &&
     auditWrite>taskWrite && transactionEnd>auditWrite);
- assert.match(route,/userId:req\.user!\.id/);
+ assert.match(route,/userId:null/);
+ assert.match(route,/actorIdentity:\{version:1,id:String\(req\.user!\.id\)/);
  assert.match(route,/userEmail:req\.user!\.email/);
  assert.match(route,/companyId,/);
  assert.doesNotMatch(route,/await db\.insert\(auditLogsTable\)/);
@@ -218,7 +220,8 @@ test('GPT02 PIC audit readback is DEV-only, company-scoped, and cannot authorize
   'recorded["memberId"]===task.assignedToId',
   'recorded["memberName"]===task.assignedTo',
   'recorded["companyId"]===companyId',
-  'audit.actorId != null',
+  'actorIdentity["role"]==="super_admin"',
+  'actorEmail===audit.actorEmail?.trim().toLowerCase()',
   'auditMatchesCurrent',
   'operatorApprovalGranted:false',
   'commandDispatched:false',
@@ -344,3 +347,16 @@ test('GPT02 lineage diagnostic appears on existing task detail with no resume co
  assert.ok(src.includes('NO-GO:'));
  assert.ok(src.includes('bukan persetujuan operator, izin resume'));
 });
+
+test('GPT02 PIC assignment stores string auth subject in actorIdentity, never integer audit user_id',()=>{
+ const src=readFileSync(new URL('../src/routes/executions.ts',import.meta.url),'utf8');
+ const begin=src.indexOf('router.post("/ai-tasks/:id/gpt02-assign-pic", requireAuth');
+ const end=src.indexOf('router.post("/ai-tasks/:id/execution", requireAuth',begin);
+ assert.ok(begin>0&&end>begin);
+ const route=src.slice(begin,end);
+ assert.ok(route.includes('userId:null'));
+ assert.ok(route.includes('actorIdentity:{version:1,id:String(req.user!.id)'));
+ assert.ok(route.includes('email:req.user!.email.trim().toLowerCase(),role:"super_admin"'));
+ assert.doesNotMatch(route,/userId:req\.user!\.id/);
+});
+
