@@ -113,7 +113,7 @@ export async function listenGpt02ReaderRuntimeSocket(server,socketPath){
   throw new Error('GPT02_READER_SOCKET_PATH_REQUIRED');
  const parent=path.dirname(socketPath);
  const dir=fs.lstatSync(parent);
- if(!dir.isDirectory()||(dir.mode&0o077)!==0)
+ if(!dir.isDirectory()||dir.uid!==process.getuid()||(dir.mode&0o077)!==0)
   throw new Error('GPT02_READER_SOCKET_DIRECTORY_NOT_PRIVATE');
  if(fs.existsSync(socketPath)){
   const existing=fs.lstatSync(socketPath);
@@ -141,7 +141,7 @@ function readSystemdCredential(name){
  const filename=path.join(directory,name);
  const stat=fs.lstatSync(filename);
  if(!stat.isFile()||stat.isSymbolicLink()||stat.size<1||stat.size>4096||
-    stat.uid!==0||(stat.mode&0o027)!==0||(stat.mode&0o040)===0)
+    stat.uid!==0||(stat.mode&0o222)!==0||(stat.mode&0o007)!==0||(stat.mode&0o040)===0)
   throw new Error('SYSTEMD_READER_CREDENTIAL_INVALID');
  try{fs.accessSync(filename,fs.constants.R_OK)}
  catch{throw new Error('SYSTEMD_READER_CREDENTIAL_UNREADABLE')}
