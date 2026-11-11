@@ -19,7 +19,7 @@ test('issuer reader proof is one-shot, fail-closed and always relocks',()=>{
 test('proof validates only read-only private evidence surface and no authority roles',()=>{
   for(const required of [
     'BEGIN READ ONLY',
-    'select_columns===32',
+    'r.select_columns<>32',
     'policy_count===3',
     'gpt02_private.receipts LIMIT 0',
     'gpt02_private.core_identity_receipts LIMIT 0',
@@ -44,7 +44,7 @@ test('password never persists or prints',()=>{
     'tee /etc/ai-task/development.env'
   ])assert.equal(src.includes(forbidden),false,forbidden);
   assert.ok(src.includes('rm -f "$SECRET_ENV"'));
-  assert.ok(src.includes('unset PASS GPT02_ISSUER_READER_DATABASE_URL_DEV'));
+  assert.ok(src.includes('unset PASS PGPASSWORD GPT02_ISSUER_READER_DATABASE_URL_DEV'));
 });
 
 test('baseline and final state both require NOLOGIN limit0 zero memberships/sessions',()=>{
