@@ -456,7 +456,11 @@ export async function verifyGpt02TrustedReaderPools({hubPool,corePool}={}){
   return result;
  }catch(e){
   if(e?.code&&String(e.code).startsWith('TWO_INDEPENDENT_'))throw e;
-  denied('INDEPENDENT_READ_FAILED_CLOSED');
+  const cause=typeof e?.code==='string'&&/^[A-Z0-9_:-]{1,40}$/.test(e.code)?e.code:'UNKNOWN';
+  const failure=new Error('INDEPENDENT_READ_FAILED_CLOSED');
+  failure.code='INDEPENDENT_READ_FAILED_CLOSED';
+  failure.safeCode='INDEPENDENT_READ_FAILED_CLOSED_'+cause;
+  throw failure;
  }finally{
   if(hub&&hubTx)try{await hub.query('ROLLBACK')}catch{}
   if(core&&coreTx)try{await core.query('ROLLBACK')}catch{}
