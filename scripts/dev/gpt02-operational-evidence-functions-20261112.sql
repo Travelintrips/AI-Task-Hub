@@ -64,6 +64,15 @@ REVOKE ALL ON FUNCTION gpt02_stage.prepare_core_task(text,integer,text,text,text
 GRANT EXECUTE ON FUNCTION gpt02_stage.prepare_core_task(text,integer,text,text,text,text)
   TO gpt02_core_prep_login;
 GRANT USAGE ON SCHEMA gpt02_stage TO gpt02_core_prep_login;
+
+-- Evidence functions execute as gpt02_store_owner and need a read-only view of
+-- the immutable preparation tuple. No write privilege is granted.
+GRANT USAGE ON SCHEMA gpt02_stage TO gpt02_store_owner;
+GRANT SELECT ON gpt02_stage.core_preparations TO gpt02_store_owner;
+CREATE POLICY gpt02_store_owner_preparation_read
+  ON gpt02_stage.core_preparations
+  FOR SELECT TO gpt02_store_owner
+  USING (company_id='default' AND hub_task_id>139);
 RESET ROLE;
 REVOKE SET OPTION FOR gpt02_core_prep_owner FROM postgres GRANTED BY postgres RESTRICT;
 
@@ -329,6 +338,19 @@ BEGIN
      OR to_regprocedure('gpt02_private.consume_linked_approval(jsonb,text,text,jsonb,text,text,text)') IS NULL
      OR to_regprocedure('gpt02_private.reserve_post_consumption_fence(uuid,uuid,uuid,text)') IS NULL
   THEN RAISE EXCEPTION 'GPT02_OPERATIONAL_FUNCTION_POSTCONDITION_FAILED'; END IF;
+
+  IF NOT has_schema_privilege('gpt02_store_owner','gpt02_stage','USAGE')
+     OR NOT has_table_privilege('gpt02_store_owner','gpt02_stage.core_preparations','SELECT')
+     OR has_table_privilege('gpt02_store_owner','gpt02_stage.core_preparations','INSERT,UPDATE,DELETE,TRUNCATE')
+     OR NOT EXISTS(
+       SELECT 1 FROM pg_policies
+       WHERE schemaname='gpt02_stage'
+         AND tablename='core_preparations'
+         AND policyname='gpt02_store_owner_preparation_read'
+         AND cmd='SELECT'
+         AND roles='{gpt02_store_owner}'
+     )
+  THEN RAISE EXCEPTION 'GPT02_OPERATIONAL_PREPARATION_READ_BOUNDARY_FAILED'; END IF;
 
   IF has_function_privilege('public',
        'gpt02_private.record_linked_approval(jsonb,text,text,jsonb,text,text,text)','EXECUTE')
