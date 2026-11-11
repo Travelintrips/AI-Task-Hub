@@ -319,6 +319,13 @@ function mapFacts(h,c,query){
     operatorRole:c.core_role,operatorActive:true,passwordChanged:true},
   hubOperator:{subject:h.operator_subject,role:h.hub_role,active:true,
     memberId:h.member_id,accountableOwnerId:h.accountable_owner_id},
+  hubAssignment:{
+   action:h.audit_action,
+   entityId:h.audit_entity_id,
+   actorId:audit.actorIdentity.id,
+   actorRole:audit.actorIdentity.role,
+   actorActive:h.hub_active===true&&h.hub_status==='active'
+  },
   storedEvidence:{
    approval:{claims:h.stored_approval_claims,
      signatureBase64url:h.stored_approval_signature,
