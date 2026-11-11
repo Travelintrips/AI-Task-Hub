@@ -45,7 +45,7 @@ cleanup(){
 }
 trap cleanup EXIT HUP INT TERM
 
-BASELINE="$(docker run --rm --network host --env-file "$APP_ENV_FILE" "$POSTGRES_IMAGE" \
+BASELINE="$(docker run -i --rm --network host --env-file "$APP_ENV_FILE" "$POSTGRES_IMAGE" \
   sh -lc 'exec psql "$SUPABASE_DATABASE_URL_DEV" -X -qAt -v ON_ERROR_STOP=1' <<'SQL'
 SELECT concat_ws('|',rolcanlogin::text,rolconnlimit::text,
  (SELECT count(*) FROM pg_auth_members m WHERE m.member=r.oid)::text,
@@ -141,7 +141,7 @@ lock_role || deny READER_RELOCK_COMMAND_FAILED
 
 AFTER=""
 for _attempt in $(seq 1 20); do
- AFTER="$(docker run --rm --network host --env-file "$APP_ENV_FILE" "$POSTGRES_IMAGE" \
+ AFTER="$(docker run -i --rm --network host --env-file "$APP_ENV_FILE" "$POSTGRES_IMAGE" \
    sh -lc 'exec psql "$SUPABASE_DATABASE_URL_DEV" -X -qAt -v ON_ERROR_STOP=1' <<'SQL'
 SELECT concat_ws('|',rolcanlogin::text,rolconnlimit::text,
  (SELECT count(*) FROM pg_auth_members m WHERE m.member=r.oid)::text,
