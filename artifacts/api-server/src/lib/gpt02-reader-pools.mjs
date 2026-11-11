@@ -74,7 +74,14 @@ export function createGpt02ReaderPools({
   connectionTimeoutMillis:5000,
   ssl:{ca,rejectUnauthorized:true},
   // Fail closed from PostgreSQL startup, before any application query.
-  options:'-c default_transaction_read_only=on -c search_path=pg_catalog -c statement_timeout=5000 -c lock_timeout=1000 -c idle_in_transaction_session_timeout=10000',
+  // Supavisor rejects search_path as a libpq startup option. Set it with
+  // pg-pool's verify hook before the connection is handed to a caller.
+  options:'-c default_transaction_read_only=on -c statement_timeout=5000 -c lock_timeout=1000 -c idle_in_transaction_session_timeout=10000',
+  verify:(client,done)=>{
+   client.query('SET search_path TO pg_catalog')
+    .then(()=>done())
+    .catch(error=>done(error instanceof Error?error:new Error('GPT02_READER_SESSION_INIT_FAILED')));
+  },
   allowExitOnIdle:true
  };
  const hubPool=new Pool({...common,connectionString:hub.connectionString,
