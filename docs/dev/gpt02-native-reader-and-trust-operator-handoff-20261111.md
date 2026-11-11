@@ -211,3 +211,14 @@ The operator approved long-lived DEV-only Hub/Core reader runtime credentials, o
 - Credential encryption uses systemd host-key mode because this VPS reports no TPM2 support. This protects credential files from casual plaintext exposure but is not TPM-sealed and does not protect against root compromise of the host.
 
 The sidecar must be enabled only after its source/test/unit checks pass and both dedicated DB roles are explicitly LOGIN, connection limit 1, NOINHERIT, no membership, no bypassrls/superuser, and exact SELECT/RLS posture. The shared application env file must not receive reader DSNs. If the sidecar is stopped for an extended period, lock both reader roles back to NOLOGIN/limit 0 and remove encrypted DSNs.
+
+
+## Addendum 11 Nov 2026 — read-only signer access boundary
+
+The Hub/Core reader remains a separate service. To allow the four isolated signer processes to request read-only facts without joining the database directly:
+- A dedicated static group `gpt02-issue159-signers` is used only for the local reader socket.
+- Reader runtime directory is group-owned, setgid mode 2750; socket is group mode 0660.
+- The four signer template services receive only that supplementary group and a read-only bind mount of `/run/gpt02-reader`.
+- Signer services retain `PrivateNetwork=yes` and `RestrictAddressFamilies=AF_UNIX`; no TCP/network path is opened.
+- The reader endpoint still exposes only bounded `POST /trusted-facts` and health. Both responses keep signing and dispatch false.
+- This grants read-only access to the prepared Hub/Core evidence reader, not signing authority. Issuer-ledger read remains a separate credential/read path and is not enabled by this change.
