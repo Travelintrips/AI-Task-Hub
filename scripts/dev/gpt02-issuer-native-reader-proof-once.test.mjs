@@ -24,10 +24,10 @@ test('proof validates only read-only private evidence surface and no authority r
     'gpt02_private.receipts LIMIT 0',
     'gpt02_private.core_identity_receipts LIMIT 0',
     'gpt02_private.post_consumption_fences LIMIT 0',
-    'signingPermitted:false',
-    'authorizationGranted:false',
-    'dispatchPermitted:false',
-    "releaseDecision:'NO_GO'"
+    '"signingPermitted":false',
+    '"authorizationGranted":false',
+    '"dispatchPermitted":false',
+    '"releaseDecision":"NO_GO"'
   ])assert.ok(src.includes(required),required);
   for(const forbidden of [
     'dev_gpt02_issuer_evidence','dev_gpt02_attestor_evidence',
