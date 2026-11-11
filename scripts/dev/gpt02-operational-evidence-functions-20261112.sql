@@ -14,6 +14,7 @@ BEGIN
      OR current_setting('transaction_read_only')<>'off'
      OR to_regprocedure('gpt02_stage.prepare_core_task_dormant(text,integer,text,text,text,text)') IS NULL
      OR to_regprocedure('gpt02_stage.prepare_core_task(text,integer,text,text,text,text)') IS NOT NULL
+     OR to_regprocedure('gpt02_stage.prepare_core_task_v1_internal(text,integer,text,text,text,text)') IS NOT NULL
   THEN RAISE EXCEPTION 'GPT02_OPERATIONAL_PRECONDITION_FAILED'; END IF;
 
   IF (SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
@@ -37,7 +38,28 @@ $pre$;
 GRANT gpt02_core_prep_owner TO postgres WITH SET TRUE;
 SET ROLE gpt02_core_prep_owner;
 ALTER FUNCTION gpt02_stage.prepare_core_task_dormant(text,integer,text,text,text,text)
-  RENAME TO prepare_core_task;
+  RENAME TO prepare_core_task_v1_internal;
+REVOKE ALL ON FUNCTION gpt02_stage.prepare_core_task_v1_internal(text,integer,text,text,text,text) FROM PUBLIC;
+
+CREATE FUNCTION gpt02_stage.prepare_core_task(
+  p_company text,p_task integer,p_project text,p_repo text,p_branch text,p_instruction text
+) RETURNS TABLE(
+  core_task_id uuid,command_candidate_id uuid,attempt_id uuid,hub_execution_id uuid,
+  created boolean,dispatch_permitted boolean
+)
+LANGUAGE plpgsql SECURITY DEFINER SET search_path TO pg_catalog
+AS $fn$
+BEGIN
+  IF session_user<>'gpt02_core_prep_login' OR p_task<=139 THEN
+    RAISE EXCEPTION USING ERRCODE='42501',MESSAGE='FRESH_TASK_AFTER_139_REQUIRED';
+  END IF;
+  RETURN QUERY
+    SELECT * FROM gpt02_stage.prepare_core_task_v1_internal(
+      p_company,p_task,p_project,p_repo,p_branch,p_instruction
+    );
+END
+$fn$;
+
 REVOKE ALL ON FUNCTION gpt02_stage.prepare_core_task(text,integer,text,text,text,text) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION gpt02_stage.prepare_core_task(text,integer,text,text,text,text)
   TO gpt02_core_prep_login;
@@ -93,7 +115,7 @@ BEGIN
     RAISE EXCEPTION USING ERRCODE='22023',MESSAGE='INVALID_LINKED_APPROVAL_TYPES';
   END;
 
-  IF v_task<=136 OR v_command=v_attempt
+  IF v_task<=139 OR v_command=v_attempt
      OR v_issued<0 OR v_expires<=v_issued OR v_expires-v_issued>300000
      OR v_expires<=floor(extract(epoch from clock_timestamp())*1000)::bigint
   THEN RAISE EXCEPTION USING ERRCODE='22023',MESSAGE='INVALID_OR_EXPIRED_APPROVAL'; END IF;
