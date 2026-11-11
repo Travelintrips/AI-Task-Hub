@@ -1489,6 +1489,46 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
         /^GPT[0-9]{2,4}$/.test(body.accountAlias.trim().toUpperCase())
       ? body.accountAlias.trim().toUpperCase()
       : process.env.AI_TASK_DEFAULT_GPT_ALIAS?.trim().toUpperCase() || "GPT01";
+
+    // Once a future task (>136) has an audited GPT02 PIC assignment, it belongs
+    // to the signer-boundary admission path. Generic worker/GPT01 reasoning
+    // execution must not create a competing historical attempt.
+    if (process.env.NODE_ENV === "development" && process.env.APP_ENV !== "production" &&
+        taskId > 136 && !(body.mode === "chatgpt" && normalizedAccountAlias === "GPT02")) {
+      const [gpt02Audit]=await db.select({
+        after:auditLogsTable.after,
+        actorEmail:auditLogsTable.userEmail,
+      }).from(auditLogsTable)
+        .where(and(eq(auditLogsTable.companyId,companyId),
+          eq(auditLogsTable.entityId,taskId),
+          eq(auditLogsTable.action,"gpt02_pic_assigned")))
+        .orderBy(desc(auditLogsTable.createdAt),desc(auditLogsTable.id)).limit(1);
+      let auditPayload: Record<string, unknown> = {};
+      try { auditPayload=asRecord(JSON.parse(gpt02Audit?.after??"null")); }
+      catch { auditPayload={}; }
+      const actorIdentity=asRecord(auditPayload["actorIdentity"]);
+      const actorEmail=typeof actorIdentity["email"]==="string" ?
+        actorIdentity["email"].trim().toLowerCase() : null;
+      const gpt02Bound=!!gpt02Audit &&
+        actorIdentity["role"]==="super_admin" &&
+        (actorIdentity["version"]===1 || actorIdentity["version"]==="1") &&
+        typeof actorIdentity["id"]==="string" &&
+        actorEmail===gpt02Audit.actorEmail?.trim().toLowerCase() &&
+        auditPayload["memberId"]===task.assignedToId &&
+        auditPayload["memberName"]===task.assignedTo &&
+        auditPayload["taskId"]===taskId &&
+        auditPayload["companyId"]===companyId;
+      if (gpt02Bound) {
+        res.setHeader("Cache-Control","no-store");
+        res.status(409).json({
+          error:"GPT02_SIGNER_BOUNDARY_REQUIRES_PREPARATION",
+          dispatchNotStarted:true,
+          continuationScheduled:false,
+          message:"Task GPT02 yang sudah terikat PIC harus melalui prepared signer-boundary; generic GPT01/worker execution ditahan.",
+        });
+        return;
+      }
+    }
     // Lifecycle-specific guard: never turn a new inquiry into an unowned AI command.
     // Keep the existing idempotent dispatch and reconciliation code below unchanged.
     if (body.lifecycleStart === true &&
@@ -1678,7 +1718,7 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
         if (mode === "chatgpt" && accountAlias === "GPT02") {
           const [latestAudit]=await tx.select({
             id:auditLogsTable.id,after:auditLogsTable.after,
-            actorId:auditLogsTable.userId,
+            actorEmail:auditLogsTable.userEmail,
           }).from(auditLogsTable)
             .where(and(eq(auditLogsTable.companyId,companyId),
               eq(auditLogsTable.entityId,taskId),
@@ -1687,7 +1727,14 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
           let auditPayload: Record<string, unknown> = {};
           try { auditPayload=asRecord(JSON.parse(latestAudit?.after??"null")); }
           catch { auditPayload={}; }
-          if (!latestAudit || latestAudit.actorId == null ||
+          const actorIdentity=asRecord(auditPayload["actorIdentity"]);
+          const actorEmail=typeof actorIdentity["email"]==="string" ?
+            actorIdentity["email"].trim().toLowerCase() : null;
+          if (!latestAudit ||
+              actorIdentity["role"]!=="super_admin" ||
+              (actorIdentity["version"]!==1 && actorIdentity["version"]!=="1") ||
+              typeof actorIdentity["id"]!=="string" ||
+              actorEmail!==latestAudit.actorEmail?.trim().toLowerCase() ||
               auditPayload["memberId"]!==currentTask.assignedToId ||
               auditPayload["memberName"]!==currentTask.assignedTo ||
               auditPayload["companyId"]!==companyId ||
