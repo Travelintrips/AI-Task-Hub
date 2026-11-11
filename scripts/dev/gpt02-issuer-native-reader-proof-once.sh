@@ -45,11 +45,14 @@ cleanup(){
 }
 trap cleanup EXIT HUP INT TERM
 
-BASELINE="$(docker run --rm --network host --env-file "$APP_ENV_FILE" "$POSTGRES_IMAGE"   sh -lc 'psql "$SUPABASE_DATABASE_URL_DEV" -X -qAt -v ON_ERROR_STOP=1 -c "
-SELECT rolcanlogin||'''|'''||rolconnlimit||'''|'''||
- (SELECT count(*) FROM pg_auth_members m WHERE m.member=r.oid)||'''|'''||
- (SELECT count(*) FROM pg_stat_activity a WHERE a.usename=r.rolname)
-FROM pg_roles r WHERE rolname='''gpt02_issuer_evidence_reader''';"' )"
+BASELINE="$(docker run --rm --network host --env-file "$APP_ENV_FILE" "$POSTGRES_IMAGE" \
+  sh -lc 'exec psql "$SUPABASE_DATABASE_URL_DEV" -X -qAt -v ON_ERROR_STOP=1' <<'SQL'
+SELECT concat_ws('|',rolcanlogin::text,rolconnlimit::text,
+ (SELECT count(*) FROM pg_auth_members m WHERE m.member=r.oid)::text,
+ (SELECT count(*) FROM pg_stat_activity a WHERE a.usename=r.rolname)::text)
+FROM pg_roles r WHERE rolname='gpt02_issuer_evidence_reader';
+SQL
+)"
 [ "$BASELINE" = "false|0|0|0" ] || deny READER_BASELINE_NOT_INERT
 
 docker run --rm --network host --env-file "$APP_ENV_FILE" --env-file "$SECRET_ENV" "$POSTGRES_IMAGE"   sh -lc 'psql "$SUPABASE_DATABASE_URL_DEV" -X -q -v ON_ERROR_STOP=1 -v p="$ISSUER_PASS" <<SQL
@@ -138,11 +141,14 @@ lock_role || deny READER_RELOCK_COMMAND_FAILED
 
 AFTER=""
 for _attempt in $(seq 1 20); do
- AFTER="$(docker run --rm --network host --env-file "$APP_ENV_FILE" "$POSTGRES_IMAGE"    sh -lc 'psql "$SUPABASE_DATABASE_URL_DEV" -X -qAt -v ON_ERROR_STOP=1 -c "
-SELECT rolcanlogin||'''|'''||rolconnlimit||'''|'''||
- (SELECT count(*) FROM pg_auth_members m WHERE m.member=r.oid)||'''|'''||
- (SELECT count(*) FROM pg_stat_activity a WHERE a.usename=r.rolname)
-FROM pg_roles r WHERE rolname='''gpt02_issuer_evidence_reader''';"' )"
+ AFTER="$(docker run --rm --network host --env-file "$APP_ENV_FILE" "$POSTGRES_IMAGE" \
+   sh -lc 'exec psql "$SUPABASE_DATABASE_URL_DEV" -X -qAt -v ON_ERROR_STOP=1' <<'SQL'
+SELECT concat_ws('|',rolcanlogin::text,rolconnlimit::text,
+ (SELECT count(*) FROM pg_auth_members m WHERE m.member=r.oid)::text,
+ (SELECT count(*) FROM pg_stat_activity a WHERE a.usename=r.rolname)::text)
+FROM pg_roles r WHERE rolname='gpt02_issuer_evidence_reader';
+SQL
+)"
  [ "$AFTER" = "false|0|0|0" ] && break
  sleep 0.5
 done
