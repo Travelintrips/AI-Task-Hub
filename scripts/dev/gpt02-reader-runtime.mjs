@@ -20,11 +20,6 @@ import {
 
 const require=createRequire(import.meta.url);
 const MAX_BODY_BYTES=8192;
-const CREDENTIAL_NAMES=Object.freeze({
- hub:'hub-reader-dsn',
- core:'core-reader-dsn'
-});
-const CA_PATH='/etc/gpt02-dev/supabase-root-ca-2021.crt';
 const DEFAULT_SOCKET='/run/gpt02-reader/reader.sock';
 
 const codeOf=e=>typeof e?.code==='string'&&/^[A-Z0-9_:-]{1,100}$/.test(e.code)
@@ -133,35 +128,15 @@ export async function listenGpt02ReaderRuntimeSocket(server,socketPath){
  return socketPath;
 }
 
-function readSystemdCredential(name){
- const directory=process.env.CREDENTIALS_DIRECTORY;
- if(typeof directory!=='string'||!path.isAbsolute(directory)||
-    !path.resolve(directory).startsWith('/run/credentials/'))
-  throw new Error('SYSTEMD_CREDENTIAL_DIRECTORY_REQUIRED');
- const filename=path.join(directory,name);
- const stat=fs.lstatSync(filename);
- if(!stat.isFile()||stat.isSymbolicLink()||stat.size<1||stat.size>4096||
-    stat.uid!==0||(stat.mode&0o222)!==0||(stat.mode&0o007)!==0||(stat.mode&0o040)===0)
-  throw new Error('SYSTEMD_READER_CREDENTIAL_INVALID');
- try{fs.accessSync(filename,fs.constants.R_OK)}
- catch{throw new Error('SYSTEMD_READER_CREDENTIAL_UNREADABLE')}
- const value=fs.readFileSync(filename,'utf8').trim();
- if(!value)throw new Error('SYSTEMD_READER_CREDENTIAL_EMPTY');
- return value;
-}
 
 export async function startGpt02ReaderRuntime(){
  if(process.env.NODE_ENV!=='development'||process.env.APP_ENV!=='development')
   throw new Error('GPT02_READER_EXPLICIT_DEV_MODE_REQUIRED');
- const env={
-  ...process.env,
-  GPT02_HUB_READER_DATABASE_URL_DEV:readSystemdCredential(CREDENTIAL_NAMES.hub),
-  GPT02_CORE_READER_DATABASE_URL_DEV:readSystemdCredential(CREDENTIAL_NAMES.core),
-  GPT02_READER_DEV_CA:fs.readFileSync(CA_PATH,'utf8')
- };
  const {Pool}=require('pg');
+ // The factory reads only the fixed systemd credential mount. No DSN or CA
+ // is copied into process.env, a shared API environment file, or logs.
  const pools=createGpt02ReaderPools({
-  env,Pool,nodeEnv:'development',appEnv:'development'
+  Pool,nodeEnv:'development',appEnv:'development'
  });
  const verify=()=>verifyGpt02TrustedReaderPools(pools);
  const reader=createGpt02TrustedFactReader(pools);
