@@ -44,12 +44,14 @@ async function readJson(req){
   throw Object.assign(new Error('JSON_REQUIRED'),{code:'JSON_REQUIRED'});
  const chunks=[];
  let size=0;
+ let tooLarge=false;
  for await(const chunk of req){
   size+=chunk.length;
-  if(size>MAX_BODY_BYTES)
-   throw Object.assign(new Error('REQUEST_TOO_LARGE'),{code:'REQUEST_TOO_LARGE'});
-  chunks.push(chunk);
+  if(size>MAX_BODY_BYTES){tooLarge=true;continue;}
+  if(!tooLarge)chunks.push(chunk);
  }
+ if(tooLarge)
+  throw Object.assign(new Error('REQUEST_TOO_LARGE'),{code:'REQUEST_TOO_LARGE'});
  let value;
  try{value=JSON.parse(Buffer.concat(chunks).toString('utf8'))}
  catch{throw Object.assign(new Error('INVALID_JSON'),{code:'INVALID_JSON'})}
