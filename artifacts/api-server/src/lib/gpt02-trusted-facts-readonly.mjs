@@ -399,3 +399,61 @@ export function createGpt02TrustedFactReader({hubPool,corePool,clock=Date.now}={
   }
  };
 }
+
+
+/**
+ * Readiness-only verification for the two independent evidence pools.
+ * This performs no business-row lookup, nonce operation, signature, task,
+ * command, or dispatch. Every acquired session is rolled back and destroyed.
+ */
+export async function verifyGpt02TrustedReaderPools({hubPool,corePool}={}){
+ if(!hubPool||typeof hubPool.connect!=='function'||
+    !corePool||typeof corePool.connect!=='function'||hubPool===corePool)
+  denied('INDEPENDENT_HUB_CORE_POOLS_REQUIRED');
+ let hub,core,hubTx=false,coreTx=false;
+ try{
+  [hub,core]=await Promise.all([hubPool.connect(),corePool.connect()]);
+  if(!hub||!core||hub===core)denied('SEPARATE_DB_SESSIONS_REQUIRED');
+  const hubStream=hub?.connection?.stream,coreStream=core?.connection?.stream;
+  const hubTls=hubStream?.encrypted===true&&hubStream?.authorized===true&&
+   (hubStream.authorizationError===undefined||hubStream.authorizationError===null);
+  const coreTls=coreStream?.encrypted===true&&coreStream?.authorized===true&&
+   (coreStream.authorizationError===undefined||coreStream.authorizationError===null);
+  await Promise.all([hub.query('BEGIN READ ONLY'),core.query('BEGIN READ ONLY')]);
+  hubTx=true;coreTx=true;
+  for(const client of [hub,core]){
+   await client.query("SET LOCAL search_path TO pg_catalog");
+   await client.query("SET LOCAL statement_timeout='5s'");
+   await client.query("SET LOCAL lock_timeout='1s'");
+   await client.query("SET LOCAL idle_in_transaction_session_timeout='10s'");
+   await client.query("SET LOCAL row_security=on");
+  }
+  const [hi,ci]=await Promise.all([hub.query(IDENTITY_SQL),core.query(IDENTITY_SQL)]);
+  if(hi.rows?.length!==1||ci.rows?.length!==1||
+     !verifyDbIdentity(hi.rows[0],ROLE_HUB,hubTls)||
+     !verifyDbIdentity(ci.rows[0],ROLE_CORE,coreTls)||
+     hi.rows[0].backend_pid===ci.rows[0].backend_pid)
+   denied('TWO_INDEPENDENT_RESTRICTED_DB_LOGINS_REQUIRED');
+  const result=Object.freeze({
+   environment:'DEV',
+   hub:Object.freeze({role:ROLE_HUB,tlsVerified:hubTls,
+    backendPid:hi.rows[0].backend_pid,readOnly:true}),
+   core:Object.freeze({role:ROLE_CORE,tlsVerified:coreTls,
+    backendPid:ci.rows[0].backend_pid,readOnly:true}),
+   separateBackends:true,
+   dispatchPermitted:false,
+   signingPermitted:false
+  });
+  await hub.query('ROLLBACK');hubTx=false;
+  await core.query('ROLLBACK');coreTx=false;
+  return result;
+ }catch(e){
+  if(e?.code&&String(e.code).startsWith('TWO_INDEPENDENT_'))throw e;
+  denied('INDEPENDENT_READ_FAILED_CLOSED');
+ }finally{
+  if(hub&&hubTx)try{await hub.query('ROLLBACK')}catch{}
+  if(core&&coreTx)try{await core.query('ROLLBACK')}catch{}
+  if(hub)try{hub.release(true)}catch{}
+  if(core)try{core.release(true)}catch{}
+ }
+}
