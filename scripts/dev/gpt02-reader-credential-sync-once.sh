@@ -120,14 +120,24 @@ DB_UPDATED=1
 # systemd decrypts the encrypted DSNs into the fixed private credential mount.
 systemctl reset-failed "$UNIT" >/dev/null 2>&1 || true
 systemctl start "$UNIT"
+HEALTH=""
+for _attempt in $(seq 1 30); do
+  if systemctl is-active --quiet "$UNIT" && [ -S /run/gpt02-reader/reader.sock ]; then
+    HEALTH=$(curl --silent --fail --max-time 2 --unix-socket /run/gpt02-reader/reader.sock http://localhost/health 2>/dev/null || true)
+    if printf '%s' "$HEALTH" | grep -Fq '"readerReady":true'; then
+      break
+    fi
+  fi
+  sleep 0.5
+done
 systemctl is-active --quiet "$UNIT" || deny READER_UNIT_NOT_ACTIVE
+[ -n "$HEALTH" ] || deny READER_HEALTH_ENDPOINT_FAILED
 
 # Health is only PASS when both independent pools authenticate and verify.
-HEALTH=$(curl --silent --show-error --fail --max-time 5 --unix-socket /run/gpt02-reader/reader.sock http://localhost/health) || deny READER_HEALTH_ENDPOINT_FAILED
-printf '%s\n' "$HEALTH" | grep -q '"readerReady":true' || deny READER_HEALTH_NOT_READY
-printf '%s\n' "$HEALTH" | grep -q '"twoSessionsVerified":true' || deny READER_BACKENDS_NOT_INDEPENDENT
-printf '%s\n' "$HEALTH" | grep -q '"signingPermitted":false' || deny SIGNING_FLAG_DRIFT
-printf '%s\n' "$HEALTH" | grep -q '"dispatchPermitted":false' || deny DISPATCH_FLAG_DRIFT
+printf '%s\n' "$HEALTH" | grep -Fq '"readerReady":true' || deny READER_HEALTH_NOT_READY
+printf '%s\n' "$HEALTH" | grep -Fq '"twoSessionsVerified":true' || deny READER_BACKENDS_NOT_INDEPENDENT
+printf '%s\n' "$HEALTH" | grep -Fq '"signingPermitted":false' || deny SIGNING_FLAG_DRIFT
+printf '%s\n' "$HEALTH" | grep -Fq '"dispatchPermitted":false' || deny DISPATCH_FLAG_DRIFT
 
 # Independent catalog read-back of the exact bounded login state and live sessions.
 cat > "$W/after.sql" <<'SQL'
