@@ -5,6 +5,12 @@
 export const ROLE='gpt02_issuer_evidence_reader';
 
 export const EXPECTED_COLUMNS=Object.freeze([
+ ['approvals','command_id'],['approvals','attempt_id'],['approvals','nonce'],['approvals','task_id'],
+ ['approvals','company_id'],['approvals','approver_id'],['approvals','claims'],['approvals','digest'],
+ ['operator_links','link_id'],['operator_links','command_id'],['operator_links','hub_execution_id'],
+ ['operator_links','core_task_id'],['operator_links','hub_task_id'],['operator_links','attempt_id'],
+ ['operator_links','company_id'],['operator_links','hub_operator_id'],['operator_links','approval_digest'],
+ ['operator_links','link_digest'],['operator_links','claims'],
  ['receipts','id'],['receipts','command_id'],['receipts','nonce'],['receipts','digest'],['receipts','consumed_at'],
  ['core_identity_receipts','receipt_id'],['core_identity_receipts','command_id'],['core_identity_receipts','link_id'],
  ['core_identity_receipts','operator_user_id'],['core_identity_receipts','recorded_by'],['core_identity_receipts','hub_operator_id'],
@@ -28,7 +34,7 @@ export const QUERY=
  " FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace"+
  " JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped"+
  " WHERE n.nspname='gpt02_private'"+
- " AND c.relname IN ('receipts','core_identity_receipts','post_consumption_fences')"+
+ " AND c.relname IN ('approvals','operator_links','receipts','core_identity_receipts','post_consumption_fences')"+
  " AND has_column_privilege('"+ROLE+"',c.oid,a.attnum,'SELECT')"+
  " ), column_diff AS ("+
  " (SELECT * FROM expected EXCEPT SELECT * FROM actual) UNION ALL"+
@@ -39,8 +45,8 @@ export const QUERY=
  " FROM pg_policies p JOIN pg_namespace n ON n.nspname=p.schemaname"+
  " JOIN pg_class c ON c.relnamespace=n.oid AND c.relname=p.tablename"+
  " WHERE p.schemaname='gpt02_private'"+
- " AND p.tablename IN ('receipts','core_identity_receipts','post_consumption_fences')"+
- " AND '"+ROLE+"'=ANY(p.roles)"+
+ " AND p.tablename IN ('approvals','operator_links','receipts','core_identity_receipts','post_consumption_fences')"+
+ " AND ('"+ROLE+"'=ANY(p.roles) OR 'public'=ANY(p.roles))"+
  " ), routines AS ("+
  " SELECT n.nspname,p.proname,p.prosecdef,pg_get_functiondef(p.oid) def"+
  " FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace"+
@@ -78,11 +84,15 @@ export const QUERY=
  " (SELECT count(*)::int FROM actual) select_column_count,"+
  " (SELECT count(*)::int FROM information_schema.table_privileges tp WHERE tp.grantee=r.rolname"+
  " AND tp.table_schema='gpt02_private' AND tp.table_name IN"+
- " ('receipts','core_identity_receipts','post_consumption_fences')) table_level_grants,"+
+ " ('approvals','operator_links','receipts','core_identity_receipts','post_consumption_fences')) table_level_grants,"+
  " (SELECT count(*)::int FROM policies) policy_count,"+
  " (SELECT count(*)::int FROM policies WHERE policyname='issuer_evidence_reader_select'"+
- " AND permissive='PERMISSIVE' AND cmd='SELECT' AND qual='true' AND with_check IS NULL"+
- " AND roles=ARRAY['"+ROLE+"']::name[] AND relrowsecurity AND relforcerowsecurity) exact_policy_count,"+
+ " AND permissive='PERMISSIVE' AND cmd='SELECT' AND with_check IS NULL"+
+ " AND roles=ARRAY['"+ROLE+"']::name[] AND relrowsecurity AND relforcerowsecurity"+
+ " AND ((tablename IN ('receipts','core_identity_receipts','post_consumption_fences') AND qual='true')"+
+ " OR (tablename='approvals' AND qual='((company_id = ''default''::text) AND (task_id > 136) AND ((claims ->> ''environment''::text) = ''DEV''::text))')"+
+ " OR (tablename='operator_links' AND qual='((company_id = ''default''::text) AND (hub_task_id > 136) AND (attempt_number = 1) AND ((claims ->> ''environment''::text) = ''DEV''::text))'))) exact_policy_count,"+
+ " (SELECT count(*)::int FROM policies WHERE 'public'=ANY(roles)) public_policy_count,"+
  " (SELECT count(*)::int FROM routines WHERE prosecdef) callable_security_definer,"+
  " (SELECT count(*)::int FROM routines WHERE def ~* '\\m(INSERT|UPDATE|DELETE|TRUNCATE|MERGE|CALL|ALTER|GRANT|REVOKE)\\M') callable_mutating,"+
  " (SELECT count(*)::int FROM routines) callable_count,"+
@@ -107,8 +117,8 @@ export function verifyIssuerReaderReadiness(row){
   row.global_read===false&&row.global_write===false&&row.db_create===false&&
   row.private_usage===true&&row.private_create===false&&row.owned_objects===0&&
   row.special_admin===false&&row.sequence_privileges===0&&
-  row.select_column_count===32&&row.column_diff_count===0&&row.table_level_grants===0&&
-  row.policy_count===3&&row.exact_policy_count===3&&
+  row.select_column_count===51&&row.column_diff_count===0&&row.table_level_grants===0&&
+  row.policy_count===5&&row.exact_policy_count===5&&row.public_policy_count===0&&
   row.callable_security_definer===0&&row.callable_mutating===0&&
   row.callable_count===1&&row.allowed_callable_count===1;
 }
