@@ -30,7 +30,8 @@ function request(socketPath,{method='GET',url='/health',body,headers={}}={}){
 }
 async function fixture({reader,verify}={}){
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'gpt02-reader-runtime-'));
- fs.chmodSync(dir,0o700);
+ fs.chownSync(dir,process.getuid(),process.getgid());
+ fs.chmodSync(dir,0o2750);
  const socket=path.join(dir,'reader.sock');
  const server=createGpt02ReaderRuntimeServer({
   reader:reader||(async query=>({prepared:{hubTaskId:query.hubTaskId}})),
@@ -40,7 +41,7 @@ async function fixture({reader,verify}={}){
    separateBackends:true
   })),
  });
- await listenGpt02ReaderRuntimeSocket(server,socket);
+ await listenGpt02ReaderRuntimeSocket(server,socket,process.getgid());
  return {dir,socket,server,async close(){
   await new Promise(resolve=>server.close(resolve));
   try{fs.rmSync(dir,{recursive:true,force:true})}catch{}
@@ -52,7 +53,8 @@ test('serves health only over a private Unix socket',async()=>{
  try{
   const st=fs.lstatSync(f.socket);
   assert.equal(st.isSocket(),true);
-  assert.equal(st.mode&0o777,0o600);
+  assert.equal(st.mode&0o777,0o660);
+  assert.equal(st.gid,process.getgid());
   const result=await request(f.socket);
   assert.equal(result.status,200);
   assert.equal(result.body.ok,true);
@@ -128,4 +130,28 @@ test('runtime, pool factory and systemd unit share one pinned credential directo
  assert.match(unit,/LoadCredentialEncrypted=hub-reader-dsn:/);
  assert.match(unit,/LoadCredentialEncrypted=core-reader-dsn:/);
  assert.match(unit,/LoadCredential=supabase-root-ca-2021\.crt:/);
+});
+
+test('rejects a reader socket directory with the wrong signer group',async()=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'gpt02-reader-runtime-group-'));
+ fs.chmodSync(dir,0o2750);
+ const server=createGpt02ReaderRuntimeServer({reader:async()=>({}),verify:async()=>({})});
+ await assert.rejects(
+  listenGpt02ReaderRuntimeSocket(server,path.join(dir,'reader.sock'),process.getgid()+1),
+  /GPT02_READER_SOCKET_DIRECTORY_NOT_PRIVATE/
+ );
+ await new Promise(resolve=>server.close(resolve));
+ fs.rmSync(dir,{recursive:true,force:true});
+});
+
+test('reader and signer systemd units share only the signer group over AF_UNIX',()=>{
+ const unit=fs.readFileSync(new URL('../../deploy/hostinger/gpt02-issue159-reader.service',import.meta.url),'utf8');
+ assert.match(unit,/RuntimeDirectoryGroup=gpt02-issue159-signers/);
+ assert.match(unit,/RuntimeDirectoryMode=2750/);
+ assert.match(unit,/SupplementaryGroups=gpt02-issue159-signers/);
+ const signer=fs.readFileSync(new URL('../../../../Core-AI-Foundation/deploy/ai-coding-standalone-dev/gpt02-issue159-signer@.service',import.meta.url),'utf8');
+ assert.match(signer,/SupplementaryGroups=gpt02-issue159-signers/);
+ assert.match(signer,/BindReadOnlyPaths=\\/run\\/gpt02-reader/);
+ assert.match(signer,/RestrictAddressFamilies=AF_UNIX/);
+ assert.match(signer,/PrivateNetwork=yes/);
 });
