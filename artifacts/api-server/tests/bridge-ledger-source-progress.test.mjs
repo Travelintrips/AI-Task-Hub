@@ -142,7 +142,7 @@ test('GPT02 PIC audit is written in the same transaction as task assignment',()=
     auditWrite>taskWrite && transactionEnd>auditWrite);
  assert.match(route,/userId:null/);
  assert.match(route,/actorIdentity:\{version:1,id:req\.user!\.id/);
- assert.match(route,/userEmail:req\\.user!\\.email/);
+ assert.match(route,/userEmail:req\.user!\.email/);
  assert.match(route,/companyId,/);
  assert.doesNotMatch(route,/await db\.insert\(auditLogsTable\)/);
 });
