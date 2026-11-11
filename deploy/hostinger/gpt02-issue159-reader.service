@@ -19,6 +19,7 @@ Environment=PATH=/usr/bin:/bin
 Environment=GPT02_READER_SOCKET=/run/gpt02-reader/reader.sock
 LoadCredentialEncrypted=hub-reader-dsn:/etc/credstore.encrypted/gpt02-hub-evidence-reader-dsn
 LoadCredentialEncrypted=core-reader-dsn:/etc/credstore.encrypted/gpt02-core-evidence-reader-dsn
+LoadCredential=supabase-root-ca-2021.crt:/etc/gpt02-dev/supabase-root-ca-2021.crt
 ExecStartPre=/usr/bin/test -r /etc/gpt02-dev/supabase-root-ca-2021.crt
 ExecStart=/usr/bin/env node /opt/gpt02-reader-runtime/scripts/dev/gpt02-reader-runtime.mjs
 Restart=on-failure
