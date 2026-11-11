@@ -98,7 +98,7 @@ BEGIN
     (SELECT count(*) FROM pg_policy p JOIN pg_class x ON x.oid=p.polrelid
       JOIN pg_namespace n ON n.oid=x.relnamespace
       WHERE n.nspname='gpt02_private'
-        AND x.relname IN ('receipts','core_identity_receipts','post_consumption_fences')
+        AND x.relname IN ('approvals','operator_links','receipts','core_identity_receipts','post_consumption_fences')
         AND p.polroles @> ARRAY[pr.oid])::int policy_count,
     (SELECT count(*) FROM pg_policies p
       WHERE p.schemaname='gpt02_private'
