@@ -1037,7 +1037,9 @@ export default function AiTaskDetail() {
                   Run Worker
                 </Button>
                 <Button
+                  variant="outline"
                   size="sm"
+                  className="opacity-60 cursor-not-allowed"
                   disabled={true}
                   aria-label="Lifecycle GPT02 DEV belum aktif karena bukti sebelum pengiriman belum lengkap"
                 >
