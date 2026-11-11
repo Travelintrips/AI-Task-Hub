@@ -419,8 +419,8 @@ export async function verifyGpt02TrustedReaderPools({hubPool,corePool}={}){
    (hubStream.authorizationError===undefined||hubStream.authorizationError===null);
   const coreTls=coreStream?.encrypted===true&&coreStream?.authorized===true&&
    (coreStream.authorizationError===undefined||coreStream.authorizationError===null);
-  await Promise.all([hub.query('BEGIN READ ONLY'),core.query('BEGIN READ ONLY')]);
-  hubTx=true;coreTx=true;
+  await hub.query('BEGIN READ ONLY');hubTx=true;
+  await core.query('BEGIN READ ONLY');coreTx=true;
   for(const client of [hub,core]){
    await client.query("SET LOCAL search_path TO pg_catalog");
    await client.query("SET LOCAL statement_timeout='5s'");
