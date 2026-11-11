@@ -247,6 +247,10 @@ test('GPT02 task detail requires matched audit before lifecycle button can dispa
  assert.ok(src.includes('!gpt02PicAudit?.auditMatchesCurrent'));
  assert.ok(src.includes('queryKey:["gpt02-pic-audit",id,task?.companyId]'));
  assert.ok(src.includes('Audit PIC belum cocok'));
+ const lifecycleButton=src.slice(src.indexOf('Mulai Lifecycle GPT02')-500,src.indexOf('Mulai Lifecycle GPT02'));
+ assert.ok(lifecycleButton.includes('variant="outline"'));
+ assert.ok(lifecycleButton.includes('disabled={true}'));
+ assert.ok(lifecycleButton.includes('cursor-not-allowed'));
 });
 
 test('direct GPT02 execution requires matching PIC audit within transaction fence',()=>{
