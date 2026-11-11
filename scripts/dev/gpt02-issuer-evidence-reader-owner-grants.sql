@@ -76,7 +76,7 @@ BEGIN
       WHERE n.nspname='gpt02_private'
         AND c.relname IN ('approvals','operator_links','receipts','core_identity_receipts','post_consumption_fences')
         AND pg_get_userbyid(c.relowner)='gpt02_store_owner'
-        AND c.relrowsecurity AND c.relforcerowsecurity) <> 3 THEN
+        AND c.relrowsecurity AND c.relforcerowsecurity) <> 5 THEN
     RAISE EXCEPTION 'GPT02_ISSUER_READER_EVIDENCE_OWNER_OR_RLS_DRIFT';
   END IF;
 END
@@ -103,6 +103,17 @@ REVOKE ALL ON gpt02_private.operator_links FROM gpt02_issuer_evidence_reader;
 REVOKE ALL ON gpt02_private.receipts FROM gpt02_issuer_evidence_reader;
 REVOKE ALL ON gpt02_private.core_identity_receipts FROM gpt02_issuer_evidence_reader;
 REVOKE ALL ON gpt02_private.post_consumption_fences FROM gpt02_issuer_evidence_reader;
+
+REVOKE SELECT (command_id,attempt_id,nonce,task_id,company_id,approver_id,claims,signature,digest,expires_at,recorded_at,operator_namespace)
+  ON gpt02_private.approvals FROM gpt02_issuer_evidence_reader;
+REVOKE SELECT (link_id,command_id,hub_execution_id,core_task_id,hub_task_id,attempt_id,attempt_number,company_id,assignee_id,accountable_owner_id,hub_operator_id,core_operator_user_id,approval_digest,link_digest,hub_signature,core_signature,claims,expires_at,created_at)
+  ON gpt02_private.operator_links FROM gpt02_issuer_evidence_reader;
+REVOKE SELECT (id,command_id,nonce,digest,consumed_at)
+  ON gpt02_private.receipts FROM gpt02_issuer_evidence_reader;
+REVOKE SELECT (receipt_id,command_id,link_id,operator_user_id,recorded_by,hub_operator_id,link_digest,binding_verified,may_dispatch_worker,may_close_job,may_issue_grant,core_ledger_written,created_at)
+  ON gpt02_private.core_identity_receipts FROM gpt02_issuer_evidence_reader;
+REVOKE SELECT (fence_id,receipt_id,command_id,link_id,hub_execution_id,core_task_id,attempt_id,worker_id,lease_epoch,lease_started_at,lease_expires_at,dispatch_allowed,core_ledger_written,created_at)
+  ON gpt02_private.post_consumption_fences FROM gpt02_issuer_evidence_reader;
 
 GRANT SELECT (command_id,attempt_id,nonce,task_id,company_id,approver_id,claims,digest)
   ON gpt02_private.approvals TO gpt02_issuer_evidence_reader;
