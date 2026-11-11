@@ -217,7 +217,7 @@ The sidecar must be enabled only after its source/test/unit checks pass and both
 
 The Hub/Core reader remains a separate service. To allow the four isolated signer processes to request read-only facts without joining the database directly:
 - A dedicated static group `gpt02-issue159-signers` is used only for the local reader socket.
-- Reader runtime directory is group-owned, setgid mode 2750; socket is group mode 0660.
+- Reader runtime directory is owned by the DynamicUser with the static signer group as primary group, setgid mode 2750; socket is group mode 0660.
 - The four signer template services receive only that supplementary group and a read-only bind mount of `/run/gpt02-reader`.
 - Signer services retain `PrivateNetwork=yes` and `RestrictAddressFamilies=AF_UNIX`; no TCP/network path is opened.
 - The reader endpoint still exposes only bounded `POST /trusted-facts` and health. Both responses keep signing and dispatch false.
