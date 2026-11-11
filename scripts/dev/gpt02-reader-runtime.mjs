@@ -141,8 +141,10 @@ function readSystemdCredential(name){
  const filename=path.join(directory,name);
  const stat=fs.lstatSync(filename);
  if(!stat.isFile()||stat.isSymbolicLink()||stat.size<1||stat.size>4096||
-    (stat.mode&0o077)!==0||stat.uid!==process.getuid())
+    stat.uid!==0||(stat.mode&0o027)!==0||(stat.mode&0o040)===0)
   throw new Error('SYSTEMD_READER_CREDENTIAL_INVALID');
+ try{fs.accessSync(filename,fs.constants.R_OK)}
+ catch{throw new Error('SYSTEMD_READER_CREDENTIAL_UNREADABLE')}
  const value=fs.readFileSync(filename,'utf8').trim();
  if(!value)throw new Error('SYSTEMD_READER_CREDENTIAL_EMPTY');
  return value;
