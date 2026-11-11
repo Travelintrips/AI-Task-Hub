@@ -344,3 +344,16 @@ test('GPT02 lineage diagnostic appears on existing task detail with no resume co
  assert.ok(src.includes('NO-GO:'));
  assert.ok(src.includes('bukan persetujuan operator, izin resume'));
 });
+
+test('GPT02 PIC assignment stores string auth subject in actorIdentity, never integer audit user_id',()=>{
+ const src=readFileSync(new URL('../src/routes/executions.ts',import.meta.url),'utf8');
+ const begin=src.indexOf('router.post("/ai-tasks/:id/gpt02-assign-pic", requireAuth');
+ const end=src.indexOf('router.post("/ai-tasks/:id/execution", requireAuth',begin);
+ assert.ok(begin>0&&end>begin);
+ const route=src.slice(begin,end);
+ assert.ok(route.includes('userId:null'));
+ assert.ok(route.includes('actorIdentity:{version:1,id:req.user!.id'));
+ assert.ok(route.includes('email:req.user!.email.trim().toLowerCase(),role:"super_admin"'));
+ assert.doesNotMatch(route,/userId:req\.user!\.id/);
+});
+
