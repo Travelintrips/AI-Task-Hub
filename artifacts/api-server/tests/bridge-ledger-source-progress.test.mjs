@@ -81,7 +81,8 @@ test('DEV PIC assignment is scoped, explicit, and cannot dispatch a command',()=
   'db.transaction(async (tx) =>',
   'await tx.insert(auditLogsTable).values({',
   'action:"gpt02_pic_assigned"',
-  'userId:req.user!.id',
+  'userId:null',
+  'actorIdentity:{version:1,id:req.user!.id',
   'userEmail:req.user!.email',
   'operatorApprovalGranted:false,commandDispatched:false',
 
@@ -139,7 +140,8 @@ test('GPT02 PIC audit is written in the same transaction as task assignment',()=
  const transactionEnd=route.indexOf('return updated;',auditWrite);
  assert.ok(transactionStart>=0 && taskWrite>transactionStart &&
     auditWrite>taskWrite && transactionEnd>auditWrite);
- assert.match(route,/userId:req\.user!\.id/);
+ assert.match(route,/userId:null/);
+ assert.match(route,/actorIdentity:\{version:1,id:req\.user!\.id/);
  assert.match(route,/userEmail:req\.user!\.email/);
  assert.match(route,/companyId,/);
  assert.doesNotMatch(route,/await db\.insert\(auditLogsTable\)/);
@@ -218,7 +220,8 @@ test('GPT02 PIC audit readback is DEV-only, company-scoped, and cannot authorize
   'recorded["memberId"]===task.assignedToId',
   'recorded["memberName"]===task.assignedTo',
   'recorded["companyId"]===companyId',
-  'audit.actorId != null',
+  'actorIdentity["role"]==="super_admin"',
+  'actorEmail===audit.actorEmail?.trim().toLowerCase()',
   'auditMatchesCurrent',
   'operatorApprovalGranted:false',
   'commandDispatched:false',
@@ -226,12 +229,28 @@ test('GPT02 PIC audit readback is DEV-only, company-scoped, and cannot authorize
  ]) assert.ok(route.includes(item),item);
  assert.doesNotMatch(route,/db\.update\(|db\.insert\(|submitAiTaskCommand\(/);
 });
+test('GPT02 PIC assignment stores string auth subject in actorIdentity, never integer audit user_id',()=>{
+ const src=readFileSync(new URL('../src/routes/executions.ts',import.meta.url),'utf8');
+ const begin=src.indexOf('router.post("/ai-tasks/:id/gpt02-assign-pic", requireAuth');
+ const end=src.indexOf('router.post("/ai-tasks/:id/execution", requireAuth',begin);
+ assert.ok(begin>0&&end>begin);
+ const route=src.slice(begin,end);
+ assert.ok(route.includes('userId:null'));
+ assert.ok(route.includes('actorIdentity:{version:1,id:req.user!.id'));
+ assert.ok(route.includes('email:req.user!.email.trim().toLowerCase(),role:"super_admin"'));
+ assert.doesNotMatch(route,/userId:req\.user!\.id/);
+});
+
 test('GPT02 task detail requires matched audit before lifecycle button can dispatch',()=>{
  const src=readFileSync(new URL('../../ai-task-center/src/pages/ai-task-detail.tsx',import.meta.url),'utf8');
  assert.ok(src.includes('gpt02-pic-audit'));
  assert.ok(src.includes('!gpt02PicAudit?.auditMatchesCurrent'));
  assert.ok(src.includes('queryKey:["gpt02-pic-audit",id,task?.companyId]'));
  assert.ok(src.includes('Audit PIC belum cocok'));
+ const lifecycleButton=src.slice(src.indexOf('Mulai Lifecycle GPT02')-500,src.indexOf('Mulai Lifecycle GPT02'));
+ assert.ok(lifecycleButton.includes('variant="outline"'));
+ assert.ok(lifecycleButton.includes('disabled={true}'));
+ assert.ok(lifecycleButton.includes('cursor-not-allowed'));
 });
 
 test('direct GPT02 execution requires matching PIC audit within transaction fence',()=>{
@@ -248,6 +267,8 @@ test('direct GPT02 execution requires matching PIC audit within transaction fenc
   'eq(auditLogsTable.companyId,companyId)',
   'eq(auditLogsTable.entityId,taskId)',
   'eq(auditLogsTable.action,"gpt02_pic_assigned")',
+  'actorIdentity["role"]!=="super_admin"',
+  'actorEmail!==latestAudit.actorEmail?.trim().toLowerCase()',
   'auditPayload["memberId"]!==currentTask.assignedToId',
   'auditPayload["memberName"]!==currentTask.assignedTo',
   'auditPayload["companyId"]!==companyId',
@@ -257,6 +278,26 @@ test('direct GPT02 execution requires matching PIC audit within transaction fenc
   'picAssignedMemberId:currentTask.assignedToId',
   'dispatchNotStarted:true'
  ]) assert.ok(handler.includes(requirement), requirement);
+});
+
+test('PIC-bound future GPT02 task cannot fall into generic GPT01 or worker execution',()=>{
+ const source=readFileSync(new URL('../src/routes/executions.ts',import.meta.url),'utf8');
+ const start=source.indexOf('router.post("/ai-tasks/:id/execution", requireAuth');
+ const end=source.indexOf('// Read-only preview and readiness check.',start);
+ assert.ok(start>0&&end>start);
+ const handler=source.slice(start,end);
+ const guard=handler.indexOf('GPT02_SIGNER_BOUNDARY_REQUIRES_PREPARATION');
+ const genericCreate=handler.indexOf('tx.insert(aiExecutionJobsTable)');
+ assert.ok(guard>0&&genericCreate>guard);
+ for(const requirement of [
+  'taskId > 136',
+  'eq(auditLogsTable.action,"gpt02_pic_assigned")',
+  'actorIdentity["role"]==="super_admin"',
+  'auditPayload["memberId"]===task.assignedToId',
+  'auditPayload["memberName"]===task.assignedTo',
+  'dispatchNotStarted:true',
+  'continuationScheduled:false',
+ ]) assert.ok(handler.includes(requirement),requirement);
 });
 
 test('legacy failed/blocked GPT02 execution cannot restart without supervised recovery',()=>{

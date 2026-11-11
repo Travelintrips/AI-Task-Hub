@@ -4,7 +4,7 @@ import {randomUUID,randomBytes,generateKeyPairSync,sign,createHash} from 'node:c
 import {readFileSync} from 'node:fs';
 import {inspectPreparedSignedLink as inspect} from '../src/lib/gpt02-prepared-link.mjs';
 import {canonicalApproval} from '../src/lib/gpt02-issuer-store.mjs';
-import {canonicalOperatorLink,operatorLinkSigningBytes} from '../src/lib/gpt02-operator-link.mjs';
+import {canonicalOperatorLink,operatorLinkSigningBytes,createOperatorLinkVerifier} from '../src/lib/gpt02-operator-link.mjs';
 const now=Date.now();
 const approvalKeys=generateKeyPairSync('ed25519'),hubKeys=generateKeyPairSync('ed25519'),coreKeys=generateKeyPairSync('ed25519');
 const publicKeys={approvalPublicKeyPem:approvalKeys.publicKey.export({type:'spki',format:'pem'}).toString(),
@@ -121,4 +121,19 @@ test('the validator has zero database connectivity or operational dispatch impor
  const routes=readFileSync(new URL('../src/routes/executions.ts',import.meta.url),'utf8');
  assert.equal(routes.includes('gpt02-prepared-link'),false);
  assert.ok(routes.includes('GPT02_LIFECYCLE_PRE_DISPATCH_PROOF_REQUIRED'));
+});
+
+test('direct operator-link verifier rejects Task135 and Task136 even with fresh valid dual signatures',()=>{
+ const verifyLink=createOperatorLinkVerifier({hubPublicKeyPem:publicKeys.hubPublicKeyPem,corePublicKeyPem:publicKeys.corePublicKeyPem});
+ for(const taskId of [135,136,137]){
+  const x=fixture();
+  const approval={...x.proof.approval.claims,taskId};
+  const approvalDigest=createHash('sha256').update(canonicalApproval(approval)).digest('hex');
+  const link={...x.proof.operatorLink.claims,hubTaskId:taskId,approvalDigest};
+  const proof={claims:link,
+   hubSignatureBase64url:sign(null,operatorLinkSigningBytes(link,'hub'),hubKeys.privateKey).toString('base64url'),
+   coreSignatureBase64url:sign(null,operatorLinkSigningBytes(link,'core'),coreKeys.privateKey).toString('base64url')};
+  if(taskId<=136)assert.throws(()=>verifyLink(proof,approval,approvalDigest,now),/INVALID_OR_EXPIRED_OPERATOR_LINK/);
+  else assert.equal(verifyLink(proof,approval,approvalDigest,now).hubOperatorId,link.hubOperatorId);
+ }
 });
