@@ -127,6 +127,13 @@ test('two authenticated scoped READ ONLY sessions reconstruct exact signed-sidec
  assert.equal(v.core.operatorUserId,77);
  assert.equal(v.core.workerId,'openclaw-dell-chatgpt-wake-dev');
  assert.equal(v.hubOperator.accountableOwnerId,'fixture_owner');
+ assert.deepEqual(v.hubAssignment,{
+  action:'gpt02_pic_assigned',
+  entityId:'137',
+  actorId:'google_fixture_super_admin',
+  actorRole:'super_admin',
+  actorActive:true
+ });
  assert.equal(v.job.status,'prepared');
  assert.equal(v.observedAt,now);
  assert.equal(v.storedEvidence.approval.digest,x.lookup.approvalDigest);
