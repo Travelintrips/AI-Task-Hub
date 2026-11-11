@@ -82,3 +82,79 @@ test('DEV health success also requires four pinned Ed25519 public roots inside t
   'fetch(','http://','https://','dispatchPermitted:true'
  ]) assert.equal(script.includes(forbidden),false,forbidden);
 });
+
+test('exact deployment verifier passes and fails closed on synthetic roots without real secrets',async()=>{
+ const source=await read('deploy/hostinger/deploy.sh');
+ const match=source.match(/<<'GPT02_TRUST_VERIFY_JS'\n([\s\S]*?)\nGPT02_TRUST_VERIFY_JS/);
+ assert.ok(match);
+ const js=match[1];
+ const {runInNewContext}=await import('node:vm');
+ const {generateKeyPairSync,createHash,createPublicKey}=await import('node:crypto');
+ const dir='/run/credentials/gpt02-dev';
+ const manifestPath='/etc/gpt02-dev/trust-fingerprints.json';
+ const names={
+  approval:'approval-public.pem',hub:'hub-identity-public.pem',
+  core:'core-identity-public.pem',issuer:'issuer-public.pem'
+ };
+ const keys={};
+ const pins={};
+ for(const [role,filename] of Object.entries(names)){
+  const key=generateKeyPairSync('ed25519').publicKey;
+  keys[dir+'/'+filename]=key.export({format:'pem',type:'spki'}).toString();
+  pins[role]=createHash('sha256')
+   .update(key.export({format:'der',type:'spki'})).digest('hex');
+ }
+ const makeStat=(kind,uid,mode)=>({
+  uid,mode,nlink:1,isSymbolicLink:()=>false,
+  isDirectory:()=>kind==='dir',isFile:()=>kind==='file'
+ });
+ function execute({wrongFingerprint=false,unexpectedFile=false,wrongKeyOwner=false}={}){
+  const expected={...pins};
+  if(wrongFingerprint)expected.issuer='0'.repeat(64);
+  const fs={
+   lstatSync(path){
+    if(path===dir)return makeStat('dir',1000,0o40700);
+    if(path===manifestPath)return makeStat('file',0,0o100644);
+    if(Object.hasOwn(keys,path))
+     return makeStat('file',wrongKeyOwner?0:1000,0o100600);
+    throw Error('UNEXPECTED_PATH');
+   },
+   readdirSync(path){
+    assert.equal(path,dir);
+    return unexpectedFile?[...Object.values(names),'private-key.pkcs8']:
+     Object.values(names);
+   },
+   readFileSync(path){
+    if(path===manifestPath)return JSON.stringify(expected);
+    if(Object.hasOwn(keys,path))return keys[path];
+    throw Error('UNEXPECTED_READ');
+   }
+  };
+  const processStub={getuid:()=>1000,exitCode:0};
+  const logs=[],errors=[];
+  runInNewContext(js,{
+   require(name){
+    if(name==='node:fs')return fs;
+    if(name==='node:crypto')return {createHash,createPublicKey};
+    throw Error('UNEXPECTED_REQUIRE');
+   },
+   process:processStub,
+   console:{log:(m)=>logs.push(String(m)),error:(m)=>errors.push(String(m))}
+  },{timeout:2000});
+  return {code:processStub.exitCode,logs,errors};
+ }
+ const pass=execute();
+ assert.equal(pass.code,0);
+ assert.deepEqual(pass.logs,['GPT02_DEV_PUBLIC_TRUST_VERIFIED_FOUR_ROOTS_NO_DISPATCH']);
+ assert.deepEqual(pass.errors,[]);
+ for(const [caseName,input,reason] of [
+  ['wrong fingerprint',{wrongFingerprint:true},'PUBLIC_TRUST_FINGERPRINT_MISMATCH'],
+  ['unexpected private-looking file',{unexpectedFile:true},'PUBLIC_TRUST_UNEXPECTED_FILES'],
+  ['wrong key owner',{wrongKeyOwner:true},'PUBLIC_TRUST_KEY_FILE_UNSAFE']
+ ]){
+  const failed=execute(input);
+  assert.equal(failed.code,2,caseName);
+  assert.deepEqual(failed.logs,[],caseName);
+  assert.ok(failed.errors.some(e=>e.includes(reason)),caseName);
+ }
+});
