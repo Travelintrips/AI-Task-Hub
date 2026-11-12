@@ -643,6 +643,25 @@ export default function AiTaskDetail() {
     retry: false,
     refetchInterval: 30_000,
   });
+
+  // A failed historical execution may confirm its existing PIC only through
+  // the accepted human review. No new attempt, grant, or worker dispatch.
+  const gpt02RecoveryPicMutation = useMutation({
+    mutationFn: ({memberId,reviewId}:{memberId:number;reviewId:number}) =>
+      apiFetch(`/ai-tasks/${id}/gpt02-confirm-recovery-pic?companyId=${encodeURIComponent(task?.companyId ?? "")}`,
+        {method:"POST",body:JSON.stringify({memberId,reviewId})}),
+    onSuccess: () => {
+      toast({title:"PIC recovery dikonfirmasi",
+        description:"Identitas PIC dicatat bersama audit. Job gagal tetap gagal; persetujuan dan pengiriman ulang tidak diberikan."});
+      void queryClient.invalidateQueries({queryKey:["ai-task",id]});
+      void queryClient.invalidateQueries({queryKey:["ai-tasks"]});
+      void queryClient.invalidateQueries({queryKey:["gpt02-pic-options",id]});
+      void queryClient.invalidateQueries({queryKey:["gpt02-pic-audit",id]});
+      void queryClient.invalidateQueries({queryKey:["gpt02-lineage",id]});
+    },
+    onError: (err:Error) => toast({title:"Konfirmasi PIC recovery ditolak",
+      description:err.message,variant:"destructive"}),
+  });
   const humanReviewMutation = useMutation({
     mutationFn: () => apiFetch(`/ai-tasks/${id}/human-review`, {method:"POST",body:JSON.stringify({})}),
     onSuccess: () => {
@@ -1095,10 +1114,25 @@ export default function AiTaskDetail() {
                   value={gpt02PicOptions?.selectedMemberId ? String(gpt02PicOptions.selectedMemberId) : "__none__"}
                   onValueChange={(value) => {
                     const memberId = Number(value);
-                    if (Number.isSafeInteger(memberId) && memberId > 0) gpt02AssignPicMutation.mutate(memberId);
+                    if (Number.isSafeInteger(memberId) && memberId > 0) {
+                      const reviewId=recoveryReview?.humanTask?.id;
+                      if (executionData?.execution?.status?.toLowerCase()==="failed" &&
+                          recoveryReview?.humanTask?.status==="accepted" &&
+                          typeof reviewId==="number" && Number.isSafeInteger(reviewId)) {
+                        if (window.confirm("Konfirmasi anggota tim ID " + memberId +
+                            " sebagai PIC pada review gagal ini? Hanya pencatatan dan audit PIC. Tidak ada persetujuan operator, restart, atau pengiriman command.")) {
+                          gpt02RecoveryPicMutation.mutate({memberId,reviewId});
+                        }
+                      } else gpt02AssignPicMutation.mutate(memberId);
+                    }
                   }}
                   disabled={gpt02PicFetching || !!gpt02PicError || gpt02AssignPicMutation.isPending ||
-                    Boolean(executionData?.execution) || ["completed","cancelled"].includes(task.status)}>
+                    gpt02RecoveryPicMutation.isPending ||
+                    (Boolean(executionData?.execution) &&
+                      !(executionData?.execution?.status?.toLowerCase()==="failed" &&
+                        recoveryReview?.humanTask?.status==="accepted" &&
+                        !gpt02PicOptions?.assignmentReady)) ||
+                    ["completed","cancelled"].includes(task.status)}>
                   <SelectTrigger className="mt-1 bg-white"><SelectValue placeholder="Pilih PIC aktif" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__none__" disabled>Belum terverifikasi</SelectItem>
@@ -1106,6 +1140,14 @@ export default function AiTaskDetail() {
                       <SelectItem key={member.id} value={String(member.id)}>{member.name} (ID {member.id})</SelectItem>)}
                   </SelectContent>
                 </Select>
+                {executionData?.execution?.status?.toLowerCase()==="failed" &&
+                  recoveryReview?.humanTask?.status==="accepted" &&
+                  !gpt02PicOptions?.assignmentReady && (
+                  <p role="status" className="mt-1 text-xs text-amber-700">
+                    Konfirmasi PIC untuk Human Review yang diterima. Ini hanya menautkan ID anggota dan audit;
+                    Job lama tetap FAILED dan penerbitan attempt baru tetap terkunci.
+                  </p>
+                )}
                 {gpt02PicError && <p role="alert" className="mt-1 text-xs text-red-700">Daftar PIC tidak tersedia. Periksa akses Super Admin DEV.</p>}
                 {gpt02PicOptions?.choicesTruncated && <p className="mt-1 text-xs text-amber-700">Daftar dibatasi 100 anggota; pilihan lain memerlukan pemeriksaan admin.</p>}
                 <p className="mt-1 text-xs text-slate-600">
