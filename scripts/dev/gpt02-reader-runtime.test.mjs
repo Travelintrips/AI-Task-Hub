@@ -28,13 +28,14 @@ function request(socketPath,{method='GET',url='/health',body,headers={}}={}){
   req.end();
  });
 }
-async function fixture({reader,verify}={}){
+async function fixture({reader,preSignReader,verify}={}){
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'gpt02-reader-runtime-'));
  fs.chownSync(dir,process.getuid(),process.getgid());
  fs.chmodSync(dir,0o2750);
  const socket=path.join(dir,'reader.sock');
  const server=createGpt02ReaderRuntimeServer({
   reader:reader||(async query=>({prepared:{hubTaskId:query.hubTaskId}})),
+  preSignReader:preSignReader||(async query=>({prepared:{hubTaskId:query.hubTaskId}})),
   verify:verify||(async()=>({
    hub:{role:'gpt02_hub_evidence_reader'},
    core:{role:'gpt02_core_evidence_reader'},
@@ -81,6 +82,24 @@ test('forwards only a bounded trusted-facts JSON request to the reader',async()=
   assert.deepEqual(result.body.facts,{facts:'read-only'});
   assert.equal(result.body.dispatchPermitted,false);
   assert.equal(result.body.signingPermitted,false);
+ }finally{await f.close()}
+});
+
+test('forwards bounded pre-sign facts without granting signing or dispatch',async()=>{
+ let received;
+ const f=await fixture({preSignReader:async query=>{received=query;return {stage:'pre-sign-read-only'}}});
+ try{
+  const query={companyId:'default',hubTaskId:147,
+   commandCandidateId:'9ebbd7d8-1d9d-4aa7-b168-ec86767c989b',
+   attemptId:'420a9938-0d6d-441d-a990-60abb35258c0'};
+  const result=await request(f.socket,{method:'POST',url:'/pre-sign-facts',body:query});
+  assert.equal(result.status,200);
+  assert.deepEqual(received,query);
+  assert.deepEqual(result.body.facts,{stage:'pre-sign-read-only'});
+  assert.equal(result.body.signingPermitted,false);
+  assert.equal(result.body.authorizationGranted,false);
+  assert.equal(result.body.dispatchPermitted,false);
+  assert.equal(result.body.releaseDecision,'NO_GO');
  }finally{await f.close()}
 });
 
@@ -136,7 +155,7 @@ test('runtime, pool factory and systemd unit share one pinned credential directo
 test('rejects a reader socket directory with the wrong signer group',async()=>{
  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'gpt02-reader-runtime-group-'));
  fs.chmodSync(dir,0o2750);
- const server=createGpt02ReaderRuntimeServer({reader:async()=>({}),verify:async()=>({})});
+ const server=createGpt02ReaderRuntimeServer({reader:async()=>({}),preSignReader:async()=>({}),verify:async()=>({})});
  await assert.rejects(
   listenGpt02ReaderRuntimeSocket(server,path.join(dir,'reader.sock'),process.getgid()+1),
   /GPT02_READER_SOCKET_DIRECTORY_NOT_PRIVATE/
