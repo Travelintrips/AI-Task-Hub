@@ -1141,6 +1141,10 @@ export default function AiTaskDetail() {
                 <p className="font-medium">Hasil eksekusi: {gpt02Lineage.executionOutcome?.verified === true ? "Selesai — respons native dan ACK akhir cocok dengan command ini." : "Bukti lengkap hasil eksekusi belum terverifikasi."}</p>
                 {gpt02Lineage.executionOutcome?.route === "direct_chatgpt_command" && !gpt02Lineage.coreTaskIdPresent && <p>Jalur uji ini membuat command ChatGPT langsung, bukan Core coding task. Pencatatan lifecycle tetap belum lengkap.</p>}
                 <p className="font-medium text-amber-800">Pencatatan lifecycle — NO-GO: {gpt02Lineage.diagnosticReasons.length ? gpt02Lineage.diagnosticReasons.join(", ") : "Verifikasi native independen tetap diperlukan"}</p>
+                {gpt02PicOptions?.assignmentReady && gpt02PicAudit?.auditMatchesCurrent &&
+                  gpt02Lineage.diagnosticReasons.includes("PIC_ID_NOT_BOUND") && (
+                    <p className="text-amber-800">PIC Human telah diverifikasi pada task, namun belum ada binding PIC ke percobaan eksekusi/Core yang dapat dibuktikan. PIC_ID_NOT_BOUND pada diagnostik lifecycle tidak membatalkan penugasan PIC yang sudah diaudit.</p>
+                  )}
                 <p>Hasil eksekusi dan kelengkapan lifecycle dinilai terpisah. Pemeriksaan ini bukan persetujuan operator, izin resume, atau penutupan bisnis; tidak memberi izin menjalankan ulang.</p>
               </div>
             )}
@@ -1281,7 +1285,9 @@ export default function AiTaskDetail() {
           </div>
         ) : (
           <div className="mt-4 rounded-lg border border-dashed border-gray-200 p-5 text-center text-xs text-gray-500">
-            Belum ada execution. Pilih Run Worker untuk bounded worker atau Run ChatGPT untuk jalur ChatGPT dengan callback + Ed25519 attestation + final ACK.
+            {gpt02PicAudit?.auditMatchesCurrent
+              ? "Belum ada execution. Penugasan PIC sudah diaudit, tetapi Run Worker via GPT01 tidak diizinkan. Lifecycle GPT02 masih NO-GO sampai seluruh bukti resmi lengkap."
+              : "Belum ada execution. Run Worker hanya untuk alur non-GPT02 yang terotorisasi; jalur GPT02 harus memenuhi gate otorisasi dan bukti E2E sebelum dispatch."}
           </div>
         )}
       </div>
