@@ -85,6 +85,10 @@ jobs:
         run: bash scripts/dev/test-gpt02-execution-outcome-sql.sh
       - name: Refuse unproven GPT02 lifecycle before command creation
         run: node --test artifacts/api-server/tests/gpt02-lifecycle-closed-until-admission.test.mjs
+      - name: Block audited GPT02 PIC worker/GPT01 fallback before execution
+        run: |
+          node scripts/dev/test-gpt02-worker-fallback-contract.mjs
+          bash -n scripts/dev/test-gpt02-lifecycle-start-isolated.sh
       - name: Verify idempotent Core coding task preparation without command dispatch
         run: |
           bash scripts/dev/test-gpt02-core-task-preparation-isolated.sh

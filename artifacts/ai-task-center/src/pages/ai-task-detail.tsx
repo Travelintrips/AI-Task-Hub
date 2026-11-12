@@ -1030,8 +1030,13 @@ export default function AiTaskDetail() {
                 <Button
                   variant="outline"
                   size="sm"
-                  disabled={!executionData?.bridgeConfigured || startExecutionMutation.isPending}
+                  disabled={!executionData?.bridgeConfigured || startExecutionMutation.isPending ||
+                    (currentUser?.role === "super_admin" &&
+                      (gpt02PicAuditFetching || !gpt02PicAudit || gpt02PicAudit.auditPresent))}
                   onClick={() => startExecutionMutation.mutate("worker")}
+                  aria-label={gpt02PicAudit?.auditPresent
+                    ? "Run Worker dinonaktifkan: task memiliki audit PIC GPT02; jalur GPT01 fallback tidak diizinkan"
+                    : "Run Worker"}
                 >
                   {startExecutionMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Send className="h-3.5 w-3.5 mr-1" />}
                   Run Worker
@@ -1048,6 +1053,11 @@ export default function AiTaskDetail() {
             )}
           </div>
         </div>
+        {!executionData?.execution && gpt02PicAudit?.auditPresent && (
+          <p role="status" className="mt-2 text-xs text-amber-700">
+            Run Worker dikunci untuk task dengan audit PIC GPT02. Jalur GPT01 tidak boleh menggantikan lifecycle GPT02 yang memerlukan otorisasi dan bukti sebelum dispatch.
+          </p>
+        )}
         {!executionData?.execution && (
           <p role="status" className="mt-2 text-xs text-amber-700">
             Mode lifecycle GPT02 DEV belum dapat dijalankan: Core Task, persetujuan bertanda tangan, pengikatan percobaan, nonce dan pengaman lease harus terbukti sebelum pengiriman. Hasil uji teks lama tidak diulang.

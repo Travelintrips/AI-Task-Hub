@@ -1489,6 +1489,32 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
         /^GPT[0-9]{2,4}$/.test(body.accountAlias.trim().toUpperCase())
       ? body.accountAlias.trim().toUpperCase()
       : process.env.AI_TASK_DEFAULT_GPT_ALIAS?.trim().toUpperCase() || "GPT01";
+    // A DEV task with a real GPT02 PIC audit must never silently fall back
+    // from the bounded worker route to the GPT01 ChatGPT default. Such a
+    // fallback skips the separate GPT02 proof/nonce/issuer boundary.
+    // This is a read-only gate before even reserving an execution. The already
+    // proven GPT02 one-shot text path is preserved for explicit GPT02 requests.
+    if (process.env.NODE_ENV === "development" && process.env.APP_ENV !== "production") {
+      const [gpt02PicAssignment] = await db.select({ id: auditLogsTable.id })
+        .from(auditLogsTable)
+        .where(and(
+          eq(auditLogsTable.companyId, companyId),
+          eq(auditLogsTable.entityId, taskId),
+          eq(auditLogsTable.action, "gpt02_pic_assigned"),
+        ))
+        .limit(1);
+      if (gpt02PicAssignment &&
+          (body.mode !== "chatgpt" || normalizedAccountAlias !== "GPT02")) {
+        res.setHeader("Cache-Control", "no-store");
+        res.status(409).json({
+          error: "GPT02_PIC_AUDITED_WORKER_FALLBACK_FORBIDDEN",
+          dispatchNotStarted: true,
+          continuationScheduled: false,
+          message: "Task dengan audit PIC GPT02 tidak boleh memakai Run Worker/GPT01. Gunakan alur GPT02 yang memiliki otorisasi dan bukti sebelum dispatch.",
+        });
+        return;
+      }
+    }
     // Lifecycle-specific guard: never turn a new inquiry into an unowned AI command.
     // Keep the existing idempotent dispatch and reconciliation code below unchanged.
     if (body.lifecycleStart === true &&
@@ -1671,6 +1697,23 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
             (currentTask.assignedToId !== task.assignedToId ||
              currentTask.assignedTo !== task.assignedTo)) {
           throw new Error("GPT02_PIC_CHANGED_DURING_ADMISSION");
+        }
+        // The PIC endpoint uses this same advisory lock, so a concurrent PIC
+        // assignment cannot commit between our initial read and reservation.
+        // Recheck after acquiring the lock before creating a generic execution.
+        if (process.env.NODE_ENV === "development" && process.env.APP_ENV !== "production" &&
+            (mode !== "chatgpt" || accountAlias !== "GPT02")) {
+          const [auditedUnderLock] = await tx.select({ id: auditLogsTable.id })
+            .from(auditLogsTable)
+            .where(and(
+              eq(auditLogsTable.companyId, companyId),
+              eq(auditLogsTable.entityId, taskId),
+              eq(auditLogsTable.action, "gpt02_pic_assigned"),
+            ))
+            .limit(1);
+          if (auditedUnderLock) {
+            throw new Error("GPT02_PIC_AUDITED_WORKER_FALLBACK_FORBIDDEN");
+          }
         }
         // The caller must not bypass the dashboard's audit gate by invoking
         // the dispatch API directly. Read the audit inside the admission lock.
@@ -1889,7 +1932,8 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
   } catch (err) {
     if (err instanceof Error && ["GPT02_TASK_CHANGED_DURING_ADMISSION",
         "GPT02_PIC_CHANGED_DURING_ADMISSION",
-        "GPT02_PIC_AUDIT_NOT_VERIFIED"].includes(err.message)) {
+        "GPT02_PIC_AUDIT_NOT_VERIFIED",
+        "GPT02_PIC_AUDITED_WORKER_FALLBACK_FORBIDDEN"].includes(err.message)) {
       res.status(409).json({error:err.message,dispatchNotStarted:true});
       return;
     }
