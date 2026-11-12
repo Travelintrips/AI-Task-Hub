@@ -2,7 +2,7 @@
  * CST-DEV only. Exact column-level SELECT grant inventory for the two GPT02
  * evidence readers. Catalog-only, non-mutating, permanently non-authorizing.
  */
-export const EXPECTED_COLUMN_GRANTS=86;
+export const EXPECTED_COLUMN_GRANTS=87;
 
 export const QUERY=`WITH expected_sets(grantee,schema_name,table_name,cols) AS (
  VALUES
@@ -15,7 +15,7 @@ export const QUERY=`WITH expected_sets(grantee,schema_name,table_name,cols) AS (
  ('gpt02_hub_evidence_reader','public','audit_logs',array['id','company_id','action','entity_id','after','user_email']),
  ('gpt02_hub_evidence_reader','public','ai_execution_jobs',array['id','company_id','task_id','status','source','external_id','idempotency_key','title','instruction','progress','callback_verified','attestation_verified','final_ack_verified','command_id','worker_id','assigned_client_id','metadata']),
  ('gpt02_core_evidence_reader','ai_platform','ai_coding_tasks',array['id','status','task_number','project_name','repository','branch','instruction']),
- ('gpt02_core_evidence_reader','ai_platform','internal_users',array['id','role','status','must_change_password']),
+ ('gpt02_core_evidence_reader','ai_platform','internal_users',array['id','email','role','status','must_change_password']),
  ('gpt02_core_evidence_reader','ai_platform','ai_coding_runs',array['task_id']),
  ('gpt02_core_evidence_reader','ai_platform','ai_coding_bridge_commands',array['task_id'])
 ), expected AS (
