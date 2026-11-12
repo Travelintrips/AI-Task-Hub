@@ -79,6 +79,8 @@ jobs:
         run: node --experimental-strip-types --test scripts/dev/gpt02-approval-readiness-ui.test.mjs
       - name: GPT02 exact lineage fail-closed regression
         run: pnpm --filter @workspace/api-server run test:gpt02-lineage
+      - name: Confirm historical FAILED GPT02 PIC without approval or dispatch
+        run: node --test scripts/dev-gpt02-recovery-pic-confirmation.test.mjs
       - name: Verify signed GPT02 operator proof is task-bound and non-authorizing
         run: node --test scripts/dev/gpt02-signed-operator-approval-preview.test.cjs scripts/dev/gpt02-nondispatch-fence.contract.test.mjs scripts/dev/gpt02-lifecycle-live-preflight.test.cjs
       - name: Separate exact native delivery result from lifecycle approval
