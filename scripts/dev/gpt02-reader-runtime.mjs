@@ -139,7 +139,14 @@ export async function listenGpt02ReaderRuntimeSocket(server,socketPath,socketGro
  if(typeof socketPath!=='string'||!path.isAbsolute(socketPath))
   throw new Error('GPT02_READER_SOCKET_PATH_REQUIRED');
  const parent=path.dirname(socketPath);
- const dir=fs.lstatSync(parent);
+ const parentEntry=fs.lstatSync(parent);
+ let dir=parentEntry;
+ if(parentEntry.isSymbolicLink()){
+  if(socketPath!==DEFAULT_SOCKET||
+     fs.realpathSync(parent)!=='/run/private/gpt02-reader')
+   throw new Error('GPT02_READER_SOCKET_DIRECTORY_NOT_PRIVATE');
+  dir=fs.statSync(parent);
+ }
  if(!dir.isDirectory()||dir.uid!==process.getuid()||dir.gid!==socketGroupGid||
     (dir.mode&0o777)!==0o750)
   throw new Error('GPT02_READER_SOCKET_DIRECTORY_NOT_PRIVATE');
