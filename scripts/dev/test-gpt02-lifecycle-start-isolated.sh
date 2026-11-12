@@ -159,6 +159,19 @@ const assert=require('node:assert/strict');
  const body=await pic.json();assert.equal(pic.status,200);assert.equal(body.memberId,201);
  r=await request(1001,payload);assert.equal(r.code,409);
  assert.equal(r.body.error,'GPT02_LIFECYCLE_PRE_DISPATCH_PROOF_REQUIRED');
+ // A task with the committed GPT02 PIC audit may not use the Run Worker
+ // button or the default/explicit GPT01 ChatGPT route. Neither may reserve
+ // a new execution or attempt a fallback dispatch.
+ for(const wrongMode of [
+   {mode:'worker'}, {mode:'worker',accountAlias:'GPT01'},
+   {mode:'chatgpt'}, {mode:'chatgpt',accountAlias:'GPT01'},
+ ]){
+   r=await request(1001,wrongMode);
+   assert.equal(r.code,409,'audited GPT02 PIC must block '+JSON.stringify(wrongMode));
+   assert.equal(r.body.error,'GPT02_PIC_AUDITED_WORKER_FALLBACK_FORBIDDEN');
+   assert.equal(r.body.dispatchNotStarted,true);
+   assert.equal(r.body.continuationScheduled,false);
+ }
  // Exercise the real one-shot ledger branch in an internal-only network.
  // The remote Core API is intentionally unreachable: no native wake is possible.
  const pic2=await fetch(base+'1010/gpt02-assign-pic?companyId=default',
