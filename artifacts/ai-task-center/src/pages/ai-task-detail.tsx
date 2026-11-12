@@ -53,6 +53,7 @@ import {
 } from "@/components/ui/dialog";
 import { getStoredToken } from "@/lib/auth-api";
 import { useAuth } from "@/contexts/auth-context";
+import { evaluateGpt02ApprovalReadiness } from "@/lib/gpt02-approval-readiness";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -939,6 +940,15 @@ export default function AiTaskDetail() {
   const missingDataKeys: string[] = (() => {
     try { return JSON.parse(task.missingData ?? "[]"); } catch { return []; }
   })();
+  const operatorReadiness = evaluateGpt02ApprovalReadiness({
+    assignmentReady: gpt02PicOptions?.assignmentReady,
+    auditMatchesCurrent: gpt02PicAudit?.auditMatchesCurrent,
+    executionId: gpt02Lineage?.executionId,
+    coreTaskIdPresent: gpt02Lineage?.coreTaskIdPresent,
+    coreCommandMatched: gpt02Lineage?.coreCommandMatched,
+    bindingSchemaReady: gpt02Lineage?.bindingSchemaReady,
+    diagnosticReasons: gpt02Lineage?.diagnosticReasons,
+  });
 
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-6">
@@ -1131,6 +1141,40 @@ export default function AiTaskDetail() {
         </div>
         {!gpt02PicOptions?.assignmentReady && <p role="status" className="mt-2 text-xs text-amber-700">Tentukan PIC aktif berdasarkan ID melalui Super Admin DEV. Nama saja tidak mengizinkan lifecycle GPT02.</p>}
         {gpt02PicOptions?.assignmentReady && !gpt02PicAudit?.auditMatchesCurrent && <p role="status" className="mt-2 text-xs text-amber-700">Audit PIC belum cocok. Tidak mengizinkan lifecycle GPT02 sampai bukti penugasan dapat dibaca kembali.</p>}
+        {currentUser?.role === "super_admin" && (
+          <section data-testid="gpt02-operator-readiness" aria-label="Kesiapan persetujuan operator GPT02"
+            className="mt-3 rounded-lg border border-slate-200 bg-white p-3 text-xs space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="font-semibold text-slate-900">Kesiapan persetujuan operator GPT02 — baca-saja</h3>
+              <span className="font-semibold text-amber-800">NO-GO · belum ada izin dispatch</span>
+            </div>
+            <p className="text-slate-600">
+              Status di bawah berasal dari bukti PIC dan lineage dalam API AI Task.
+              Service signer aktif bukan bukti persetujuan per-command. Pemeriksaan ini tidak menerbitkan approval.
+            </p>
+            <ol className="grid grid-cols-1 gap-2 sm:grid-cols-2" aria-live="polite">
+              {operatorReadiness.steps.map((step) => (
+                <li key={step.id} className="rounded-md border border-slate-200 p-2">
+                  <p className="font-medium text-slate-800">{step.label}</p>
+                  <p className={step.state === "verified" ? "text-emerald-700" : "text-amber-800"}>
+                    {step.state === "verified" ? "Bukti tersedia" :
+                     step.state === "missing" ? "Belum lengkap" : "Belum dapat diverifikasi di UI"}
+                  </p>
+                  <p className="text-slate-600">{step.detail}</p>
+                </li>
+              ))}
+            </ol>
+            <Button type="button" variant="outline" size="sm" disabled={true}
+              aria-label="Persetujuan operator GPT02 belum diaktifkan; perlu otorisasi bertanda tangan dan issuer independen">
+              Persetujuan operator (belum diaktifkan)
+            </Button>
+            <p role="status" className="text-amber-800">
+              Penyiapan permintaan resmi memerlukan sumber bukti Hub/Core yang terikat pada attempt,
+              otentikasi Super Admin dan issuer yang sah. Jangan memasukkan private key atau token ke halaman ini.
+              Tidak ada command, nonce, atau lease yang diterbitkan dari panel ini.
+            </p>
+          </section>
+        )}
         {currentUser?.role==="super_admin" && (
           <div className="mt-3 space-y-2 rounded-lg border border-slate-200 bg-white p-3 text-xs">
             <div className="flex flex-wrap items-center justify-between gap-2">
