@@ -75,6 +75,8 @@ jobs:
         run: node --test scripts/dev/gpt02-dev-admin-login-hardening.test.cjs
       - name: Verify Google-backed GPT02 operator preflight cannot authorize commands
         run: node --test scripts/dev/gpt02-operator-identity-preflight.test.cjs
+      - name: GPT02 operator readiness UI is non-authorizing
+        run: node --experimental-strip-types --test scripts/dev/gpt02-approval-readiness-ui.test.mjs
       - name: GPT02 exact lineage fail-closed regression
         run: pnpm --filter @workspace/api-server run test:gpt02-lineage
       - name: Verify signed GPT02 operator proof is task-bound and non-authorizing
