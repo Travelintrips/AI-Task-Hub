@@ -6,7 +6,7 @@
  * approved credential mechanism. No plaintext credential on argv, source,
  * application .env, GitHub Actions, or process environment.
  */
-import {constants,openSync,fstatSync,readFileSync,closeSync} from 'node:fs';
+import {constants,openSync,fstatSync,readFileSync,closeSync,realpathSync} from 'node:fs';
 import {isAbsolute,resolve,sep} from 'node:path';
 import {readFileSync as readPublicCert} from 'node:fs';
 import {corePreparationPoolConfig} from '../../artifacts/api-server/src/lib/gpt02-core-task-preparation.mjs';
@@ -18,13 +18,23 @@ const CERT=new URL('./fixtures/supabase-root-ca-2021.crt',import.meta.url);
 
 /** Avoid following links, loose permissions, inherited role or stale file. */
 export function readOperatorSecret(filePath,dependencies={}){
- const fs=dependencies.fs||{openSync,fstatSync,readFileSync,closeSync};
+ const fs=dependencies.fs||{openSync,fstatSync,readFileSync,closeSync,realpathSync};
  const uid=dependencies.uid??process.getuid?.();
  const allowedRoot=resolve(dependencies.approvedRoot??'/run/credentials');
  if(!Number.isInteger(uid)||typeof filePath!=='string'||filePath.length>300||
     !isAbsolute(filePath)||filePath.includes('\0')||
     resolve(filePath)!==filePath||!filePath.startsWith(allowedRoot+sep))
   throw Error('INVALID_SECRET_FILE_TARGET');
+ // O_NOFOLLOW protects the final component only. Reject symlinked parent
+ // components too; otherwise a path under /run/credentials could resolve out.
+ // Actual credential roots must be ordinary managed directories.
+ try {
+  if(fs.realpathSync(allowedRoot)!==allowedRoot||
+     fs.realpathSync(filePath)!==filePath)
+   throw Error('SECRET_PATH_SYMLINK_COMPONENT_FORBIDDEN');
+ }catch{
+  throw Error('SECRET_PATH_SYMLINK_COMPONENT_FORBIDDEN');
+ }
  let fd;
  try{
   fd=fs.openSync(filePath,constants.O_RDONLY|constants.O_NOFOLLOW|(constants.O_CLOEXEC||0));

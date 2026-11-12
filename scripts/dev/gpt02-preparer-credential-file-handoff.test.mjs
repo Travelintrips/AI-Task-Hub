@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync,writeFileSync,chmodSync,symlinkSync,linkSync,rmSync,openSync,closeSync,fstatSync,readFileSync} from 'node:fs';
+import {mkdtempSync,mkdirSync,writeFileSync,chmodSync,symlinkSync,linkSync,rmSync,openSync,closeSync,fstatSync,readFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {handoff,readOperatorSecret} from './gpt02-preparer-credential-file-handoff.mjs';
@@ -84,6 +84,33 @@ test('strict ownership and mode reject world/group, symlinks and hardlinks',()=>
   assert.throws(()=>readOperatorSecret(f.file,{approvedRoot:f.dir}));
   assert.throws(()=>readOperatorSecret(hard,{approvedRoot:f.dir}));
  }finally{f.cleanup()}
+});
+
+test('symlinked parent directory cannot escape the authorized credential namespace',async()=>{
+ const approved=mkdtempSync(join(tmpdir(),'gpt02-approved-'));
+ const outside=mkdtempSync(join(tmpdir(),'gpt02-outside-'));
+ try{
+  const credential=join(outside,'dev-preparer-password');
+  writeFileSync(credential,secret,{mode:0o600});
+  chmodSync(credential,0o600);
+  const link=join(approved,'unit');
+  symlinkSync(outside,link,'dir');
+  const disguised=join(link,'dev-preparer-password');
+  // This file is owner-only and not a symlink itself. O_NOFOLLOW alone
+  // accepts it, so we must also reject the symlinked parent directory.
+  assert.throws(()=>readOperatorSecret(disguised,{approvedRoot:approved}),
+    /SECRET_PATH_SYMLINK_COMPONENT_FORBIDDEN/);
+  let calls=0;
+  const output=await handoff({...base,GPT02_CORE_PREP_SECRET_FILE:disguised},{
+    approvedRoot:approved,probeFn:()=>{calls++;return {permissionsVerified:true}}
+  });
+  assert.equal(calls,0);
+  assert.equal(output.releaseDecision,'NO_GO');
+  assert.equal(output.permissionsVerified,false);
+ }finally{
+  rmSync(approved,{recursive:true,force:true});
+  rmSync(outside,{recursive:true,force:true});
+ }
 });
 
 test('bad content never reaches database client',async()=>{
