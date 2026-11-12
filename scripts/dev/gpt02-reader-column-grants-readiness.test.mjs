@@ -11,7 +11,7 @@ const good={
  difference_count:0,mutating_relation_privilege_count:0,differences:[]
 };
 
-test('exact 86 column grants pass inventory only, never authority',()=>{
+test('exact 87 column grants pass inventory only, never authority',()=>{
  const r=assessReaderColumnGrants(good);
  assert.equal(r.readOnly,true);
  assert.equal(r.exactColumnGrants,true);
