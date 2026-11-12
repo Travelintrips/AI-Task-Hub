@@ -1469,6 +1469,110 @@ router.post("/ai-tasks/:id/gpt02-assign-pic", requireAuth, async (req: Request, 
   }
 });
 
+
+// DEV-only: confirm PIC identity for an accepted recovery review tied to
+// exactly one FAILED GPT02 execution. This never grants dispatch or Final ACK.
+router.post("/ai-tasks/:id/gpt02-confirm-recovery-pic", requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+  if (process.env.NODE_ENV !== "development" || process.env.APP_ENV === "production") {
+    res.sendStatus(404); return;
+  }
+  if (req.user?.role !== "super_admin") {
+    res.status(403).json({error:"SUPER_ADMIN_REQUIRED"}); return;
+  }
+  // Browser-only same-origin POST; credentialed cross-origin writes fail closed.
+  const origin=req.get("origin"),host=req.get("host");
+  try {
+    const parsed=new URL(origin??"");
+    if (!host || parsed.protocol!=="https:" || parsed.host!==host) {
+      res.status(403).json({error:"SAME_ORIGIN_REQUIRED"}); return;
+    }
+  } catch { res.status(403).json({error:"SAME_ORIGIN_REQUIRED"}); return; }
+  const taskId=Number(req.params.id);
+  const body=asRecord(req.body);
+  const memberId=body["memberId"],reviewId=body["reviewId"];
+  if (!Number.isSafeInteger(taskId) || taskId<=0 ||
+    typeof memberId!=="number" || !Number.isSafeInteger(memberId) || memberId<=0 ||
+    typeof reviewId!=="number" || !Number.isSafeInteger(reviewId) || reviewId<=0 ||
+    !req.user.email?.trim()) {
+    res.status(400).json({error:"INVALID_TASK_MEMBER_OR_REVIEW_ID"}); return;
+  }
+  try {
+    const companyId=getCompanyIdForWrite(req);
+    const [member]=await db.select({id:teamMembersTable.id,name:teamMembersTable.name})
+      .from(teamMembersTable).where(and(eq(teamMembersTable.id,memberId),
+        eq(teamMembersTable.companyId,companyId),eq(teamMembersTable.isActive,true)))
+      .limit(1);
+    if (!member || !member.name.trim()) {
+      res.status(409).json({error:"ACTIVE_COMPANY_MEMBER_NOT_FOUND"}); return;
+    }
+    const linked=await db.transaction(async (tx) => {
+      // Use the same task-scoped lock as normal PIC and execution admission.
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${companyId} || ':' || ${taskId}::text, 0))`);
+      const proof=await tx.execute(sql`
+        SELECT e.id AS execution_id, e.command_id
+        FROM ai_platform.ai_human_tasks AS h
+        JOIN ai_execution_jobs AS e ON h.source_id='execution:' || e.id::text
+        JOIN ai_tasks AS t ON t.id=e.task_id AND t.company_id=e.company_id
+        WHERE h.id=${reviewId}::integer
+          AND h.source_module='ai_core_lifecycle' AND h.source_type='job'
+          AND h.status='accepted' AND lower(h.assigned_user)=lower(${req.user!.email})
+          AND h.payload_json->>'taskId'=${String(taskId)}
+          AND h.payload_json->>'executionId'=e.id::text
+          AND h.payload_json->>'commandId'=e.command_id::text
+          AND h.payload_json->>'picName'=${member.name}
+          AND h.payload_json->>'resumeAllowed'='false'
+          AND e.task_id=${taskId} AND e.company_id=${companyId}
+          AND e.source='AI_TASK' AND e.status='failed'
+          AND e.final_ack_verified IS FALSE AND e.command_id IS NOT NULL
+          AND t.status NOT IN ('completed','cancelled')
+          AND t.assigned_to=${member.name} AND t.assigned_to_id IS NULL
+          AND NOT EXISTS (SELECT 1 FROM ai_execution_jobs AS other
+            WHERE other.task_id=t.id AND other.company_id=t.company_id AND other.id<>e.id)
+        LIMIT 1 FOR SHARE OF h,e`);
+      const match=proof.rows?.[0] as Record<string, unknown> | undefined;
+      if (!match || typeof match["execution_id"]!=="string" ||
+        typeof match["command_id"]!=="string") return null;
+      const [updated]=await tx.update(aiTasksTable).set({assignedToId:member.id})
+        .where(and(eq(aiTasksTable.id,taskId),eq(aiTasksTable.companyId,companyId),
+          isNull(aiTasksTable.assignedToId),eq(aiTasksTable.assignedTo,member.name),
+          sql`${aiTasksTable.status} NOT IN ('completed','cancelled')`,
+          sql`NOT EXISTS (SELECT 1 FROM ai_execution_jobs AS other
+            WHERE other.task_id=${taskId} AND other.company_id=${companyId}
+              AND other.id<>${match["execution_id"]}::uuid)`))
+        .returning({id:aiTasksTable.id,assignedToId:aiTasksTable.assignedToId,
+          assignedTo:aiTasksTable.assignedTo});
+      if (!updated) return null;
+      await tx.insert(auditLogsTable).values({
+        action:"gpt02_pic_assigned",module:"ai_tasks",entityType:"ai_task",
+        entityId:taskId,companyId,userId:null,
+        userEmail:req.user!.email,userName:req.user!.name,
+        after:JSON.stringify({
+          actorIdentity:{version:1,id:String(req.user!.id),
+            email:req.user!.email.trim().toLowerCase(),role:"super_admin"},
+          memberId:member.id,memberName:member.name,taskId,companyId,
+          recoveryReviewId:reviewId,recoveryExecutionId:match["execution_id"],
+          originalCommandId:match["command_id"],recoveryPicOnly:true,
+          operatorApprovalGranted:false,commandDispatched:false,
+          nativeAckVerified:false,resumeAllowed:false}),
+      });
+      return updated;
+    });
+    if (!linked) {
+      res.status(409).json({error:"RECOVERY_REVIEW_OR_TERMINAL_EXECUTION_NOT_VERIFIED",
+        operatorApprovalGranted:false,dispatchNotStarted:true}); return;
+    }
+    res.setHeader("Cache-Control","no-store");
+    res.status(200).json({taskId:linked.id,memberId:linked.assignedToId,
+      assignedTo:linked.assignedTo,reviewId,recoveryPicOnly:true,
+      operatorApprovalGranted:false,commandDispatched:false,
+      nativeAckVerified:false,resumeAllowed:false});
+  } catch (err) {
+    logger.warn({err,taskId},"DEV GPT02 recovery PIC confirmation unavailable");
+    res.status(503).json({error:"GPT02_RECOVERY_PIC_CONFIRMATION_UNAVAILABLE"});
+  }
+});
+
 router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const taskId = Number(req.params.id);
