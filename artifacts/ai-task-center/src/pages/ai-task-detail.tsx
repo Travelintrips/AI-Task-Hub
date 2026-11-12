@@ -565,6 +565,8 @@ export default function AiTaskDetail() {
     queryFn: () => apiFetch(gpt02PicPath),
     enabled: currentUser?.role === "super_admin" && Boolean(task?.companyId),
     retry: false,
+    // A verified PIC may be assigned from a separate administrator session.
+    refetchInterval: 30_000,
   });
   const { data: gpt02PicAudit, error: gpt02PicAuditError,
     isFetching: gpt02PicAuditFetching } = useQuery<{
@@ -578,6 +580,7 @@ export default function AiTaskDetail() {
     queryFn:()=>apiFetch(`/ai-tasks/${id}/gpt02-pic-audit?companyId=${encodeURIComponent(task?.companyId ?? "")}`),
     enabled:currentUser?.role==="super_admin" && Boolean(task?.companyId),
     retry:false,
+    refetchInterval:30_000,
   });
   const {data:gpt02Lineage,error:gpt02LineageError,isFetching:gpt02LineageFetching,
     refetch:refreshGpt02Lineage} = useQuery<{
@@ -1019,8 +1022,17 @@ export default function AiTaskDetail() {
             <Button
               variant="outline"
               size="sm"
-              disabled={executionFetching}
-              onClick={() => void queryClient.invalidateQueries({ queryKey: ["ai-task-execution", id] })}
+              disabled={executionFetching || gpt02PicFetching || gpt02PicAuditFetching || gpt02LineageFetching}
+              onClick={() => {
+                // Sync all related readbacks, not execution alone.
+                void Promise.all([
+                  queryClient.invalidateQueries({ queryKey: ["ai-task", id] }),
+                  queryClient.invalidateQueries({ queryKey: ["ai-task-execution", id] }),
+                  queryClient.invalidateQueries({ queryKey: ["gpt02-pic-options", id] }),
+                  queryClient.invalidateQueries({ queryKey: ["gpt02-pic-audit", id] }),
+                  queryClient.invalidateQueries({ queryKey: ["gpt02-lineage", id] }),
+                ]);
+              }}
             >
               <RefreshCw className={`h-3.5 w-3.5 mr-1 ${executionFetching ? "animate-spin" : ""}`} />
               Sync
