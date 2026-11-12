@@ -4,7 +4,7 @@
  * NOT mounted by HTTP/worker, NOT a signer, nonce writer or grant issuer.
  */
 import { createHash, createPublicKey, verify } from 'node:crypto';
-import { canonicalApproval } from './gpt02-issuer-store.mjs';
+import { canonicalApproval, validateApprovalClaims } from './gpt02-issuer-store.mjs';
 import { createOperatorLinkVerifier } from './gpt02-operator-link.mjs';
 const UUID=/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/;
 const DIGEST=/^[a-f0-9]{64}$/;
@@ -26,6 +26,7 @@ export function inspectPreparedSignedLink({prepared,job,core,hubOperator,proof,p
     Object.keys(publicKeys).sort().join(',')!=='approvalPublicKeyPem,corePublicKeyPem,hubPublicKeyPem')
     return fail('UNEXPECTED_SIGNED_PROOF_FIELDS');
   const a=ap.claims,l=link.claims;
+  try{validateApprovalClaims(a,now)}catch{return fail('APPROVAL_CLAIMS_INVALID_OR_EXPIRED')}
   if(prepared.companyId!=='default'||!Number.isSafeInteger(prepared.hubTaskId)||prepared.hubTaskId<=136||
      !Number.isSafeInteger(prepared.memberId)||prepared.memberId<=0||
      !Number.isSafeInteger(prepared.memberAuditId)||prepared.memberAuditId<=0||

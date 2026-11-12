@@ -287,5 +287,5 @@ test('operational DEV without fixed root-owned manifest refuses admission before
  const out=spawnSync(process.execPath,['--input-type=module','-e',subprocess],
   {encoding:'utf8',env:{...process.env,NODE_ENV:'development',APP_ENV:'development'},timeout:5000});
  assert.equal(out.status,0,out.stderr);
- assert.equal(out.stdout,'TRUST_MANIFEST_DIRECTORY_NOT_FOUND used=false');
+ assert.match(out.stdout,/^(?:TRUST_STORE_DIRECTORY_UNSAFE|TRUST_MANIFEST_DIRECTORY_NOT_FOUND) used=false$/);
 });

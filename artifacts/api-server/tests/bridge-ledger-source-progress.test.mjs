@@ -82,7 +82,7 @@ test('DEV PIC assignment is scoped, explicit, and cannot dispatch a command',()=
   'await tx.insert(auditLogsTable).values({',
   'action:"gpt02_pic_assigned"',
   'userId:null',
-  'actorIdentity:{version:1,id:req.user!.id',
+  'actorIdentity:{version:1,id:String(req.user!.id)',
   'userEmail:req.user!.email',
   'operatorApprovalGranted:false,commandDispatched:false',
 
@@ -141,7 +141,7 @@ test('GPT02 PIC audit is written in the same transaction as task assignment',()=
  assert.ok(transactionStart>=0 && taskWrite>transactionStart &&
     auditWrite>taskWrite && transactionEnd>auditWrite);
  assert.match(route,/userId:null/);
- assert.match(route,/actorIdentity:\{version:1,id:req\.user!\.id/);
+ assert.match(route,/actorIdentity:\{version:1,id:String\(req\.user!\.id\)/);
  assert.match(route,/userEmail:req\.user!\.email/);
  assert.match(route,/companyId,/);
  assert.doesNotMatch(route,/await db\.insert\(auditLogsTable\)/);
@@ -236,7 +236,7 @@ test('GPT02 PIC assignment stores string auth subject in actorIdentity, never in
  assert.ok(begin>0&&end>begin);
  const route=src.slice(begin,end);
  assert.ok(route.includes('userId:null'));
- assert.ok(route.includes('actorIdentity:{version:1,id:req.user!.id'));
+ assert.ok(route.includes('actorIdentity:{version:1,id:String(req.user!.id)'));
  assert.ok(route.includes('email:req.user!.email.trim().toLowerCase(),role:"super_admin"'));
  assert.doesNotMatch(route,/userId:req\.user!\.id/);
 });
@@ -286,17 +286,19 @@ test('PIC-bound future GPT02 task cannot fall into generic GPT01 or worker execu
  const end=source.indexOf('// Read-only preview and readiness check.',start);
  assert.ok(start>0&&end>start);
  const handler=source.slice(start,end);
- const guard=handler.indexOf('GPT02_SIGNER_BOUNDARY_REQUIRES_PREPARATION');
+ // The current dev security gate blocks ALL audited GPT02 PIC tasks from
+ // GPT01/worker fallback, including a malformed/stale PIC audit payload.
+ // It runs before reserving any attempt; later exact PIC admission still
+ // validates immutable identity under the task-scoped transaction lock.
+ const guard=handler.indexOf('GPT02_PIC_AUDITED_WORKER_FALLBACK_FORBIDDEN');
  const genericCreate=handler.indexOf('tx.insert(aiExecutionJobsTable)');
  assert.ok(guard>0&&genericCreate>guard);
  for(const requirement of [
-  'taskId > 136',
-  'eq(auditLogsTable.action,"gpt02_pic_assigned")',
-  'actorIdentity["role"]==="super_admin"',
-  'auditPayload["memberId"]===task.assignedToId',
-  'auditPayload["memberName"]===task.assignedTo',
-  'dispatchNotStarted:true',
-  'continuationScheduled:false',
+  'eq(auditLogsTable.action, "gpt02_pic_assigned")',
+  'if (gpt02PicAssignment &&',
+  'body.mode !== "chatgpt" || normalizedAccountAlias !== "GPT02"',
+  'dispatchNotStarted: true',
+  'continuationScheduled: false',
  ]) assert.ok(handler.includes(requirement),requirement);
 });
 
@@ -384,4 +386,16 @@ test('GPT02 lineage diagnostic appears on existing task detail with no resume co
  assert.ok(src.includes('Diagnostik lineage GPT02 — baca-saja'));
  assert.ok(src.includes('NO-GO:'));
  assert.ok(src.includes('bukan persetujuan operator, izin resume'));
+});
+
+test('GPT02 PIC assignment stores string auth subject in actorIdentity, never integer audit user_id',()=>{
+ const src=readFileSync(new URL('../src/routes/executions.ts',import.meta.url),'utf8');
+ const begin=src.indexOf('router.post("/ai-tasks/:id/gpt02-assign-pic", requireAuth');
+ const end=src.indexOf('router.post("/ai-tasks/:id/execution", requireAuth',begin);
+ assert.ok(begin>0&&end>begin);
+ const route=src.slice(begin,end);
+ assert.ok(route.includes('userId:null'));
+ assert.ok(route.includes('actorIdentity:{version:1,id:String(req.user!.id)'));
+ assert.ok(route.includes('email:req.user!.email.trim().toLowerCase(),role:"super_admin"'));
+ assert.doesNotMatch(route,/userId:req\.user!\.id/);
 });

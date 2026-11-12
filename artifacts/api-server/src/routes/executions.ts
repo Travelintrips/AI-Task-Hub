@@ -1448,7 +1448,7 @@ router.post("/ai-tasks/:id/gpt02-assign-pic", requireAuth, async (req: Request, 
         userEmail:req.user!.email,
         userName:req.user!.name,
         after:JSON.stringify({
-          actorIdentity:{version:1,id:req.user!.id,
+          actorIdentity:{version:1,id:String(req.user!.id),
             email:req.user!.email.trim().toLowerCase(),role:"super_admin"},
           memberId:member.id,memberName:member.name,taskId,companyId,
           operatorApprovalGranted:false,commandDispatched:false}),
@@ -1466,6 +1466,110 @@ router.post("/ai-tasks/:id/gpt02-assign-pic", requireAuth, async (req: Request, 
   } catch (err) {
     logger.warn({err,taskId},"DEV GPT02 PIC assignment unavailable");
     res.status(503).json({error:"GPT02_PIC_ASSIGNMENT_UNAVAILABLE"});
+  }
+});
+
+
+// DEV-only: confirm PIC identity for an accepted recovery review tied to
+// exactly one FAILED GPT02 execution. This never grants dispatch or Final ACK.
+router.post("/ai-tasks/:id/gpt02-confirm-recovery-pic", requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+  if (process.env.NODE_ENV !== "development" || process.env.APP_ENV === "production") {
+    res.sendStatus(404); return;
+  }
+  if (req.user?.role !== "super_admin") {
+    res.status(403).json({error:"SUPER_ADMIN_REQUIRED"}); return;
+  }
+  // Browser-only same-origin POST; credentialed cross-origin writes fail closed.
+  const origin=req.get("origin"),host=req.get("host");
+  try {
+    const parsed=new URL(origin??"");
+    if (!host || parsed.protocol!=="https:" || parsed.host!==host) {
+      res.status(403).json({error:"SAME_ORIGIN_REQUIRED"}); return;
+    }
+  } catch { res.status(403).json({error:"SAME_ORIGIN_REQUIRED"}); return; }
+  const taskId=Number(req.params.id);
+  const body=asRecord(req.body);
+  const memberId=body["memberId"],reviewId=body["reviewId"];
+  if (!Number.isSafeInteger(taskId) || taskId<=0 ||
+    typeof memberId!=="number" || !Number.isSafeInteger(memberId) || memberId<=0 ||
+    typeof reviewId!=="number" || !Number.isSafeInteger(reviewId) || reviewId<=0 ||
+    !req.user.email?.trim()) {
+    res.status(400).json({error:"INVALID_TASK_MEMBER_OR_REVIEW_ID"}); return;
+  }
+  try {
+    const companyId=getCompanyIdForWrite(req);
+    const [member]=await db.select({id:teamMembersTable.id,name:teamMembersTable.name})
+      .from(teamMembersTable).where(and(eq(teamMembersTable.id,memberId),
+        eq(teamMembersTable.companyId,companyId),eq(teamMembersTable.isActive,true)))
+      .limit(1);
+    if (!member || !member.name.trim()) {
+      res.status(409).json({error:"ACTIVE_COMPANY_MEMBER_NOT_FOUND"}); return;
+    }
+    const linked=await db.transaction(async (tx) => {
+      // Use the same task-scoped lock as normal PIC and execution admission.
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${companyId} || ':' || ${taskId}::text, 0))`);
+      const proof=await tx.execute(sql`
+        SELECT e.id AS execution_id, e.command_id
+        FROM ai_platform.ai_human_tasks AS h
+        JOIN ai_execution_jobs AS e ON h.source_id='execution:' || e.id::text
+        JOIN ai_tasks AS t ON t.id=e.task_id AND t.company_id=e.company_id
+        WHERE h.id=${reviewId}::integer
+          AND h.source_module='ai_core_lifecycle' AND h.source_type='job'
+          AND h.status='accepted' AND lower(h.assigned_user)=lower(${req.user!.email})
+          AND h.payload_json->>'taskId'=${String(taskId)}
+          AND h.payload_json->>'executionId'=e.id::text
+          AND h.payload_json->>'commandId'=e.command_id::text
+          AND h.payload_json->>'picName'=${member.name}
+          AND h.payload_json->>'resumeAllowed'='false'
+          AND e.task_id=${taskId} AND e.company_id=${companyId}
+          AND e.source='AI_TASK' AND e.status='failed'
+          AND e.final_ack_verified IS FALSE AND e.command_id IS NOT NULL
+          AND t.status NOT IN ('completed','cancelled')
+          AND t.assigned_to=${member.name} AND t.assigned_to_id IS NULL
+          AND NOT EXISTS (SELECT 1 FROM ai_execution_jobs AS other
+            WHERE other.task_id=t.id AND other.company_id=t.company_id AND other.id<>e.id)
+        LIMIT 1 FOR SHARE OF h,e`);
+      const match=proof.rows?.[0] as Record<string, unknown> | undefined;
+      if (!match || typeof match["execution_id"]!=="string" ||
+        typeof match["command_id"]!=="string") return null;
+      const [updated]=await tx.update(aiTasksTable).set({assignedToId:member.id})
+        .where(and(eq(aiTasksTable.id,taskId),eq(aiTasksTable.companyId,companyId),
+          isNull(aiTasksTable.assignedToId),eq(aiTasksTable.assignedTo,member.name),
+          sql`${aiTasksTable.status} NOT IN ('completed','cancelled')`,
+          sql`NOT EXISTS (SELECT 1 FROM ai_execution_jobs AS other
+            WHERE other.task_id=${taskId} AND other.company_id=${companyId}
+              AND other.id<>${match["execution_id"]}::uuid)`))
+        .returning({id:aiTasksTable.id,assignedToId:aiTasksTable.assignedToId,
+          assignedTo:aiTasksTable.assignedTo});
+      if (!updated) return null;
+      await tx.insert(auditLogsTable).values({
+        action:"gpt02_pic_assigned",module:"ai_tasks",entityType:"ai_task",
+        entityId:taskId,companyId,userId:null,
+        userEmail:req.user!.email,userName:req.user!.name,
+        after:JSON.stringify({
+          actorIdentity:{version:1,id:String(req.user!.id),
+            email:req.user!.email.trim().toLowerCase(),role:"super_admin"},
+          memberId:member.id,memberName:member.name,taskId,companyId,
+          recoveryReviewId:reviewId,recoveryExecutionId:match["execution_id"],
+          originalCommandId:match["command_id"],recoveryPicOnly:true,
+          operatorApprovalGranted:false,commandDispatched:false,
+          nativeAckVerified:false,resumeAllowed:false}),
+      });
+      return updated;
+    });
+    if (!linked) {
+      res.status(409).json({error:"RECOVERY_REVIEW_OR_TERMINAL_EXECUTION_NOT_VERIFIED",
+        operatorApprovalGranted:false,dispatchNotStarted:true}); return;
+    }
+    res.setHeader("Cache-Control","no-store");
+    res.status(200).json({taskId:linked.id,memberId:linked.assignedToId,
+      assignedTo:linked.assignedTo,reviewId,recoveryPicOnly:true,
+      operatorApprovalGranted:false,commandDispatched:false,
+      nativeAckVerified:false,resumeAllowed:false});
+  } catch (err) {
+    logger.warn({err,taskId},"DEV GPT02 recovery PIC confirmation unavailable");
+    res.status(503).json({error:"GPT02_RECOVERY_PIC_CONFIRMATION_UNAVAILABLE"});
   }
 });
 
@@ -1489,42 +1593,28 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
         /^GPT[0-9]{2,4}$/.test(body.accountAlias.trim().toUpperCase())
       ? body.accountAlias.trim().toUpperCase()
       : process.env.AI_TASK_DEFAULT_GPT_ALIAS?.trim().toUpperCase() || "GPT01";
-
-    // Once a future task (>136) has an audited GPT02 PIC assignment, it belongs
-    // to the signer-boundary admission path. Generic worker/GPT01 reasoning
-    // execution must not create a competing historical attempt.
-    if (process.env.NODE_ENV === "development" && process.env.APP_ENV !== "production" &&
-        taskId > 136 && !(body.mode === "chatgpt" && normalizedAccountAlias === "GPT02")) {
-      const [gpt02Audit]=await db.select({
-        after:auditLogsTable.after,
-        actorEmail:auditLogsTable.userEmail,
-      }).from(auditLogsTable)
-        .where(and(eq(auditLogsTable.companyId,companyId),
-          eq(auditLogsTable.entityId,taskId),
-          eq(auditLogsTable.action,"gpt02_pic_assigned")))
-        .orderBy(desc(auditLogsTable.createdAt),desc(auditLogsTable.id)).limit(1);
-      let auditPayload: Record<string, unknown> = {};
-      try { auditPayload=asRecord(JSON.parse(gpt02Audit?.after??"null")); }
-      catch { auditPayload={}; }
-      const actorIdentity=asRecord(auditPayload["actorIdentity"]);
-      const actorEmail=typeof actorIdentity["email"]==="string" ?
-        actorIdentity["email"].trim().toLowerCase() : null;
-      const gpt02Bound=!!gpt02Audit &&
-        actorIdentity["role"]==="super_admin" &&
-        (actorIdentity["version"]===1 || actorIdentity["version"]==="1") &&
-        typeof actorIdentity["id"]==="string" &&
-        actorEmail===gpt02Audit.actorEmail?.trim().toLowerCase() &&
-        auditPayload["memberId"]===task.assignedToId &&
-        auditPayload["memberName"]===task.assignedTo &&
-        auditPayload["taskId"]===taskId &&
-        auditPayload["companyId"]===companyId;
-      if (gpt02Bound) {
-        res.setHeader("Cache-Control","no-store");
+    // A DEV task with a real GPT02 PIC audit must never silently fall back
+    // from the bounded worker route to the GPT01 ChatGPT default. Such a
+    // fallback skips the separate GPT02 proof/nonce/issuer boundary.
+    // This is a read-only gate before even reserving an execution. The already
+    // proven GPT02 one-shot text path is preserved for explicit GPT02 requests.
+    if (process.env.NODE_ENV === "development" && process.env.APP_ENV !== "production") {
+      const [gpt02PicAssignment] = await db.select({ id: auditLogsTable.id })
+        .from(auditLogsTable)
+        .where(and(
+          eq(auditLogsTable.companyId, companyId),
+          eq(auditLogsTable.entityId, taskId),
+          eq(auditLogsTable.action, "gpt02_pic_assigned"),
+        ))
+        .limit(1);
+      if (gpt02PicAssignment &&
+          (body.mode !== "chatgpt" || normalizedAccountAlias !== "GPT02")) {
+        res.setHeader("Cache-Control", "no-store");
         res.status(409).json({
-          error:"GPT02_SIGNER_BOUNDARY_REQUIRES_PREPARATION",
-          dispatchNotStarted:true,
-          continuationScheduled:false,
-          message:"Task GPT02 yang sudah terikat PIC harus melalui prepared signer-boundary; generic GPT01/worker execution ditahan.",
+          error: "GPT02_PIC_AUDITED_WORKER_FALLBACK_FORBIDDEN",
+          dispatchNotStarted: true,
+          continuationScheduled: false,
+          message: "Task dengan audit PIC GPT02 tidak boleh memakai Run Worker/GPT01. Gunakan alur GPT02 yang memiliki otorisasi dan bukti sebelum dispatch.",
         });
         return;
       }
@@ -1711,6 +1801,23 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
             (currentTask.assignedToId !== task.assignedToId ||
              currentTask.assignedTo !== task.assignedTo)) {
           throw new Error("GPT02_PIC_CHANGED_DURING_ADMISSION");
+        }
+        // The PIC endpoint uses this same advisory lock, so a concurrent PIC
+        // assignment cannot commit between our initial read and reservation.
+        // Recheck after acquiring the lock before creating a generic execution.
+        if (process.env.NODE_ENV === "development" && process.env.APP_ENV !== "production" &&
+            (mode !== "chatgpt" || accountAlias !== "GPT02")) {
+          const [auditedUnderLock] = await tx.select({ id: auditLogsTable.id })
+            .from(auditLogsTable)
+            .where(and(
+              eq(auditLogsTable.companyId, companyId),
+              eq(auditLogsTable.entityId, taskId),
+              eq(auditLogsTable.action, "gpt02_pic_assigned"),
+            ))
+            .limit(1);
+          if (auditedUnderLock) {
+            throw new Error("GPT02_PIC_AUDITED_WORKER_FALLBACK_FORBIDDEN");
+          }
         }
         // The caller must not bypass the dashboard's audit gate by invoking
         // the dispatch API directly. Read the audit inside the admission lock.
@@ -1929,7 +2036,8 @@ router.post("/ai-tasks/:id/execution", requireAuth, async (req: Request, res: Re
   } catch (err) {
     if (err instanceof Error && ["GPT02_TASK_CHANGED_DURING_ADMISSION",
         "GPT02_PIC_CHANGED_DURING_ADMISSION",
-        "GPT02_PIC_AUDIT_NOT_VERIFIED"].includes(err.message)) {
+        "GPT02_PIC_AUDIT_NOT_VERIFIED",
+        "GPT02_PIC_AUDITED_WORKER_FALLBACK_FORBIDDEN"].includes(err.message)) {
       res.status(409).json({error:err.message,dispatchNotStarted:true});
       return;
     }

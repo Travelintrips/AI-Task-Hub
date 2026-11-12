@@ -76,8 +76,14 @@ jobs:
         run: node --test scripts/dev/gpt02-dev-admin-login-hardening.test.cjs
       - name: Verify Google-backed GPT02 operator preflight cannot authorize commands
         run: node --test scripts/dev/gpt02-operator-identity-preflight.test.cjs
+      - name: GPT02 independent native reader health remains NO-GO
+        run: node --test scripts/dev/gpt02-native-readonly-health-preflight.test.mjs
+      - name: GPT02 operator readiness UI is non-authorizing
+        run: node --experimental-strip-types --test scripts/dev/gpt02-approval-readiness-ui.test.mjs
       - name: GPT02 exact lineage fail-closed regression
         run: pnpm --filter @workspace/api-server run test:gpt02-lineage
+      - name: Confirm historical FAILED GPT02 PIC without approval or dispatch
+        run: node --test scripts/dev-gpt02-recovery-pic-confirmation.test.mjs
       - name: Verify signed GPT02 operator proof is task-bound and non-authorizing
         run: node --test scripts/dev/gpt02-signed-operator-approval-preview.test.cjs scripts/dev/gpt02-nondispatch-fence.contract.test.mjs scripts/dev/gpt02-lifecycle-live-preflight.test.cjs
       - name: Separate exact native delivery result from lifecycle approval
@@ -86,6 +92,10 @@ jobs:
         run: bash scripts/dev/test-gpt02-execution-outcome-sql.sh
       - name: Refuse unproven GPT02 lifecycle before command creation
         run: node --test artifacts/api-server/tests/gpt02-lifecycle-closed-until-admission.test.mjs
+      - name: Block audited GPT02 PIC worker/GPT01 fallback before execution
+        run: |
+          node scripts/dev/test-gpt02-worker-fallback-contract.mjs
+          bash -n scripts/dev/test-gpt02-lifecycle-start-isolated.sh
       - name: Verify idempotent Core coding task preparation without command dispatch
         run: |
           bash scripts/dev/test-gpt02-core-task-preparation-isolated.sh
