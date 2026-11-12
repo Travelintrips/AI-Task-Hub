@@ -17,6 +17,9 @@ import {
  createGpt02TrustedFactReader,
  verifyGpt02TrustedReaderPools
 } from '../../artifacts/api-server/src/lib/gpt02-trusted-facts-readonly.mjs';
+import {
+ createGpt02PreSignFactReader
+} from '../../artifacts/api-server/src/lib/gpt02-presign-facts-readonly.mjs';
 
 const require=createRequire(import.meta.url);
 const MAX_BODY_BYTES=8192;
@@ -59,8 +62,8 @@ async function readJson(req){
  return value;
 }
 
-export function createGpt02ReaderRuntimeServer({reader,verify}={}){
- if(typeof reader!=='function'||typeof verify!=='function')
+export function createGpt02ReaderRuntimeServer({reader,preSignReader,verify}={}){
+ if(typeof reader!=='function'||typeof preSignReader!=='function'||typeof verify!=='function')
   throw new Error('GPT02_READER_RUNTIME_DEPENDENCIES_REQUIRED');
  const server=createServer(async(req,res)=>{
   if(req.method==='GET'&&req.url==='/health'){
@@ -73,6 +76,31 @@ export function createGpt02ReaderRuntimeServer({reader,verify}={}){
    }catch(e){
     respond(res,503,{ok:false,readerReady:false,code:codeOf(e),
      signingPermitted:false,dispatchPermitted:false});
+   }
+   return;
+  }
+  if(req.method==='POST'&&req.url==='/pre-sign-facts'){
+   let query;
+   try{query=await readJson(req)}
+   catch(e){
+    const code=codeOf(e);
+    respond(res,code==='REQUEST_TOO_LARGE'?413:400,{ok:false,code,
+     signingPermitted:false,authorizationGranted:false,dispatchPermitted:false});
+    return;
+   }
+   try{
+    const facts=await preSignReader(query);
+    respond(res,200,{ok:true,environment:'DEV',facts,
+     signingPermitted:false,authorizationGranted:false,dispatchPermitted:false,
+     releaseDecision:'NO_GO'});
+   }catch(e){
+    const code=codeOf(e);
+    const status=code==='UNTRUSTED_TASK_IDENTITY'?400:
+     code.startsWith('PRESIGN_')||code.startsWith('SIGNED_')||
+     code.startsWith('TWO_INDEPENDENT_')?409:503;
+    respond(res,status,{ok:false,code,
+     signingPermitted:false,authorizationGranted:false,dispatchPermitted:false,
+     releaseDecision:'NO_GO'});
    }
    return;
   }
@@ -157,6 +185,8 @@ export async function startGpt02ReaderRuntime(){
  });
  const verify=()=>verifyGpt02TrustedReaderPools(pools);
  const readFacts=createGpt02TrustedFactReader(pools);
+ const readPreSignFacts=createGpt02PreSignFactReader(pools);
+ const preSignReader=async query=>readPreSignFacts(query);
  const reader=async query=>{
   const facts=await readFacts(query);
   return Object.freeze({
@@ -177,7 +207,7 @@ export async function startGpt02ReaderRuntime(){
  let server;
  try{
   const initial=await verify();
-  server=createGpt02ReaderRuntimeServer({reader,verify});
+  server=createGpt02ReaderRuntimeServer({reader,preSignReader,verify});
   const socketPath=process.env.GPT02_READER_SOCKET||DEFAULT_SOCKET;
   const signerGroupGid=resolveReaderSignerGroupGid();
   await listenGpt02ReaderRuntimeSocket(server,socketPath,signerGroupGid);
