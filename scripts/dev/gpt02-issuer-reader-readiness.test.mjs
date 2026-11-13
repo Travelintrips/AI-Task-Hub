@@ -119,14 +119,17 @@ test('role bootstrap is inert and owner grants are separately fenced',async()=>{
   assert.doesNotMatch(ownerSrc,
     /FOR SELECT TO gpt02_issuer_evidence_reader\s+USING\s*\(\s*true\s*\)/i,
     'OBSOLETE_BROAD_ISSUER_POLICY_FORBIDDEN');
+ // Ignore standalone explanatory SQL comments, but never active SQL.
+ const ownerNonCommentSql=ownerSrc.split('\n')
+   .filter(line=>!line.trimStart().startsWith('--')).join('\n');
  for(const forbidden of [
   'CREATE ROLE','ALTER ROLE','PASSWORD','GRANT INSERT','GRANT UPDATE','GRANT DELETE',
   'GRANT EXECUTE','SECURITY DEFINER','SUPABASE_DATABASE_URL_PROD','dispatchPermitted=true'
- ])assert.equal(ownerSrc.includes(forbidden),false,forbidden);
+ ])assert.equal(ownerNonCommentSql.includes(forbidden),false,forbidden);
 });
 
 test('native issuer proof must reject obsolete all-rows RLS before release',async()=>{
  const native=await readFile(new URL('./gpt02-issuer-native-reader-proof-once.sh',import.meta.url),'utf8');
- assert.doesNotMatch(native,/p\.qual\s*=\s*'true'/i,
+ assert.equal(/p\.qual\s*=\s*'true'/i.test(native),false,
   'NATIVE_PROOF_STILL_ACCEPTS_UNSCOPED_USING_TRUE: requires independently reviewed native-proof update');
 });
