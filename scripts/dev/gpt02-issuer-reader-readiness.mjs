@@ -25,6 +25,22 @@ export const EXPECTED_COLUMNS=Object.freeze([
  ['post_consumption_fences','created_at']
 ]);
 
+
+/** Canonical PostgreSQL pg_policies.qual, with whitespace collapsed.
+ * Captured from isolated PG16 RLS CREATE POLICY regression, not live DEV.
+ * A different PostgreSQL print form must fail closed pending security review.
+ */
+export const EXPECTED_SCOPED_ISSUER_EVIDENCE_QUALS=Object.freeze({
+  "receipts": "(EXISTS ( SELECT 1 FROM gpt02_private.approvals a WHERE ((a.command_id = receipts.command_id) AND (a.nonce = receipts.nonce) AND (a.digest = receipts.digest) AND (a.company_id = 'default'::text) AND (a.task_id > 136) AND ((a.claims ->> 'environment'::text) = 'DEV'::text))))",
+  "core_identity_receipts": "(EXISTS ( SELECT 1 FROM (gpt02_private.receipts r JOIN gpt02_private.operator_links l ON ((l.command_id = r.command_id))) WHERE ((r.id = core_identity_receipts.receipt_id) AND (r.command_id = core_identity_receipts.command_id) AND (l.link_id = core_identity_receipts.link_id) AND (l.company_id = 'default'::text) AND (l.hub_task_id > 136) AND ((l.claims ->> 'environment'::text) = 'DEV'::text))))",
+  "post_consumption_fences": "(EXISTS ( SELECT 1 FROM (gpt02_private.receipts r JOIN gpt02_private.operator_links l ON ((l.command_id = r.command_id))) WHERE ((r.id = post_consumption_fences.receipt_id) AND (r.command_id = post_consumption_fences.command_id) AND (l.link_id = post_consumption_fences.link_id) AND (l.attempt_id = post_consumption_fences.attempt_id) AND (l.hub_execution_id = post_consumption_fences.hub_execution_id) AND (l.core_task_id = post_consumption_fences.core_task_id) AND (l.company_id = 'default'::text) AND (l.hub_task_id > 136) AND ((l.claims ->> 'environment'::text) = 'DEV'::text))))"
+});
+const sqlLiteral=s=>"'"+s.replaceAll("'","''")+"'";
+const SCOPED_POLICY_MATCH=Object.entries(EXPECTED_SCOPED_ISSUER_EVIDENCE_QUALS)
+  .map(([table,qual])=>"("+ "tablename="+sqlLiteral(table)+
+    " AND regexp_replace(qual,'[[:space:]]+',' ','g')="+sqlLiteral(qual)+")")
+  .join(" OR ");
+
 const expectedValues=EXPECTED_COLUMNS.map(([t,c])=>"('"+t+"','"+c+"')").join(',');
 
 export const QUERY=
@@ -89,7 +105,7 @@ export const QUERY=
  " (SELECT count(*)::int FROM policies WHERE policyname='issuer_evidence_reader_select'"+
  " AND permissive='PERMISSIVE' AND cmd='SELECT' AND with_check IS NULL"+
  " AND roles=ARRAY['"+ROLE+"']::name[] AND relrowsecurity AND relforcerowsecurity"+
- " AND ((tablename IN ('receipts','core_identity_receipts','post_consumption_fences') AND qual='true')"+
+ " AND (("+SCOPED_POLICY_MATCH+")"+
  " OR (tablename='approvals' AND qual='((company_id = ''default''::text) AND (task_id > 136) AND ((claims ->> ''environment''::text) = ''DEV''::text))')"+
  " OR (tablename='operator_links' AND qual='((company_id = ''default''::text) AND (hub_task_id > 136) AND (attempt_number = 1) AND ((claims ->> ''environment''::text) = ''DEV''::text))'))) exact_policy_count,"+
  " (SELECT count(*)::int FROM policies WHERE 'public'=ANY(roles)) public_policy_count,"+
