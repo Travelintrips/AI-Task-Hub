@@ -145,17 +145,49 @@ CREATE POLICY issuer_evidence_reader_select ON gpt02_private.operator_links
   USING (company_id='default' AND hub_task_id>136 AND attempt_number=1
          AND claims->>'environment'='DEV');
 
+-- Do not allow direct issuer-reader SELECT to enumerate all receipts.
+-- Every evidence row must trace to an independently scoped DEV approval.
+-- All references below use the restricted reader's RLS-enabled parent tables;
+-- no request-controlled GUC, SECURITY DEFINER or cross-tenant fallback.
 DROP POLICY IF EXISTS issuer_evidence_reader_select ON gpt02_private.receipts;
 CREATE POLICY issuer_evidence_reader_select ON gpt02_private.receipts
-  FOR SELECT TO gpt02_issuer_evidence_reader USING (true);
+  FOR SELECT TO gpt02_issuer_evidence_reader
+  USING (EXISTS (
+    SELECT 1 FROM gpt02_private.approvals a
+    WHERE a.command_id=receipts.command_id
+      AND a.nonce=receipts.nonce AND a.digest=receipts.digest
+      AND a.company_id='default' AND a.task_id>136
+      AND a.claims->>'environment'='DEV'
+  ));
 
 DROP POLICY IF EXISTS issuer_evidence_reader_select ON gpt02_private.core_identity_receipts;
 CREATE POLICY issuer_evidence_reader_select ON gpt02_private.core_identity_receipts
-  FOR SELECT TO gpt02_issuer_evidence_reader USING (true);
+  FOR SELECT TO gpt02_issuer_evidence_reader
+  USING (EXISTS (
+    SELECT 1 FROM gpt02_private.receipts r
+    JOIN gpt02_private.operator_links l ON l.command_id=r.command_id
+    WHERE r.id=core_identity_receipts.receipt_id
+      AND r.command_id=core_identity_receipts.command_id
+      AND l.link_id=core_identity_receipts.link_id
+      AND l.company_id='default' AND l.hub_task_id>136
+      AND l.claims->>'environment'='DEV'
+  ));
 
 DROP POLICY IF EXISTS issuer_evidence_reader_select ON gpt02_private.post_consumption_fences;
 CREATE POLICY issuer_evidence_reader_select ON gpt02_private.post_consumption_fences
-  FOR SELECT TO gpt02_issuer_evidence_reader USING (true);
+  FOR SELECT TO gpt02_issuer_evidence_reader
+  USING (EXISTS (
+    SELECT 1 FROM gpt02_private.receipts r
+    JOIN gpt02_private.operator_links l ON l.command_id=r.command_id
+    WHERE r.id=post_consumption_fences.receipt_id
+      AND r.command_id=post_consumption_fences.command_id
+      AND l.link_id=post_consumption_fences.link_id
+      AND l.attempt_id=post_consumption_fences.attempt_id
+      AND l.hub_execution_id=post_consumption_fences.hub_execution_id
+      AND l.core_task_id=post_consumption_fences.core_task_id
+      AND l.company_id='default' AND l.hub_task_id>136
+      AND l.claims->>'environment'='DEV'
+  ));
 
 RESET ROLE;
 REVOKE SET OPTION FOR gpt02_store_owner FROM postgres GRANTED BY postgres RESTRICT;
