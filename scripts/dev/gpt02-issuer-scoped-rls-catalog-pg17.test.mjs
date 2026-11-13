@@ -119,4 +119,23 @@ test('PG17 normalizes scoped issuer policies exactly; never opens runtime author
  const visible=docker(['exec','-i',name,'psql','-X','-U','postgres','-d','postgres','-Atq',
   '-v','ON_ERROR_STOP=1'],{input:behavior});
  assert.deepEqual(visible.split('\n'),expectedBehavior,'PG17_RLS_SCOPE_OR_PRIVILEGE_DRIFT');
+
+ // Deliberately mutate ONLY this disposable fixture to demonstrate why the
+ // exact policy count and no-USING(true) gate must not be bypassed.
+ // PostgreSQL ORs permissive policies: an extra policy exposes bad evidence.
+ const broadened=docker(['exec','-i',name,'psql','-X','-U','postgres','-d','postgres',
+  '-Atq','-v','ON_ERROR_STOP=1'],{input:[
+   'CREATE POLICY adversarial_extra_reader_select ON gpt02_private.receipts',
+   ' FOR SELECT TO gpt02_issuer_evidence_reader USING (true);',
+   'SET ROLE gpt02_issuer_evidence_reader;',
+   "SELECT 'breached_receipts:'||count(*) FROM gpt02_private.receipts;",
+   'RESET ROLE;',
+   "SELECT 'receipt_reader_policy_count:'||count(*) FROM pg_policies",
+   " WHERE schemaname='gpt02_private' AND tablename='receipts'",
+   " AND 'gpt02_issuer_evidence_reader'=ANY(roles);"
+  ].join('\n')});
+ assert.deepEqual(broadened.split('\n'),[
+  'breached_receipts:4','receipt_reader_policy_count:2'
+ ],'PG17_ADDITIVE_PERMISSIVE_POLICY_NOT_DETECTED');
+
 });
