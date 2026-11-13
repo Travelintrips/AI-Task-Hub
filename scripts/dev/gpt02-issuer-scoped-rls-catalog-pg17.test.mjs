@@ -120,6 +120,31 @@ test('PG17 normalizes scoped issuer policies exactly; never opens runtime author
   '-v','ON_ERROR_STOP=1'],{input:behavior});
  assert.deepEqual(visible.split('\n'),expectedBehavior,'PG17_RLS_SCOPE_OR_PRIVILEGE_DRIFT');
 
+ // The hosted fence table has independent FKs for command/link/receipt,
+ // but the matching attempt, execution and Core task IDs are verified by RLS.
+ // Corrupt one synthetic fence field at a time inside a rolled-back transaction.
+ // The valid Task 152 fence must remain visible; Task 149's now-misbound fence
+ // must be denied before the extra-permissive-policy negative control.
+ const task149="'00000000-0000-4000-8000-000000000149'::uuid";
+ const mismatchCases=[
+  ['attempt_id',"'90000000-0000-4000-8000-000000000149'::uuid"],
+  ['hub_execution_id',"'90000000-0000-4000-8000-000000000150'::uuid"],
+  ['core_task_id',"'90000000-0000-4000-8000-000000000151'::uuid"]
+ ];
+ for(const [column,value] of mismatchCases){
+  const mismatched=docker(['exec','-i',name,'psql','-X','-U','postgres','-d','postgres',
+   '-Atq','-v','ON_ERROR_STOP=1'],{input:[
+    'BEGIN;',
+    'UPDATE gpt02_private.post_consumption_fences SET '+column+'='+value+
+      ' WHERE command_id='+task149+';',
+    'SET ROLE gpt02_issuer_evidence_reader;',
+    "SELECT 'visible_fences:'||count(*) FROM gpt02_private.post_consumption_fences;",
+    'RESET ROLE;',
+    'ROLLBACK;'
+   ].join('\n')});
+  assert.equal(mismatched,'visible_fences:1','PG17_FENCE_'+column+'_MISMATCH_WAS_VISIBLE');
+ }
+ 
  // Deliberately mutate ONLY this disposable fixture to demonstrate why the
  // exact policy count and no-USING(true) gate must not be bypassed.
  // PostgreSQL ORs permissive policies: an extra policy exposes bad evidence.
