@@ -613,6 +613,38 @@ export default function AiTaskDetail() {
     onError: (err: Error) => toast({title:"Gagal menetapkan PIC GPT02",description:err.message,variant:"destructive"}),
   });
 
+  // Same task, independent read-only preparation status. This does NOT claim
+  // a signed issuer grant or permission to run GPT02.
+  const { data: gpt02PreparationReadiness, error: gpt02PreparationReadinessError,
+    isFetching: gpt02PreparationReadinessFetching } = useQuery<{
+      taskId:number;preparationEligible:boolean;historicalRepairAvailable:boolean;
+      featureEnabled:boolean;canRequestPreparation:boolean;reason:string;
+      readOnly:true;commandDispatched:false;operatorApprovalGranted:false;
+      dispatchPermitted:false;issuerGrantReady:false;
+    }>({
+      queryKey:["gpt02-preparation-readiness",id,task?.companyId],
+      queryFn:()=>apiFetch(`/ai-tasks/${id}/gpt02-preparation-readiness?companyId=${encodeURIComponent(task?.companyId ?? "")}`),
+      enabled:currentUser?.role==="super_admin" && Boolean(task?.companyId) &&
+        gpt02PicAudit?.auditPresent===true,
+      retry:false,refetchInterval:30_000,
+    });
+  const gpt02PrepareOnlyMutation = useMutation({
+    mutationFn:()=>apiFetch(
+      `/ai-tasks/${id}/gpt02-prepare?companyId=${encodeURIComponent(task?.companyId ?? "")}`,{
+        method:"POST",headers:{"X-GPT02-Intent":"prepare-only"},
+        body:JSON.stringify({prepareOnly:true}),
+      }),
+    onSuccess:()=>{
+      toast({title:"Core Task disiapkan — tanpa dispatch",
+        description:"Reservasi persiapan tercatat; belum ada persetujuan issuer, worker atau ACK."});
+      void queryClient.invalidateQueries({queryKey:["ai-task-execution",id]});
+      void queryClient.invalidateQueries({queryKey:["gpt02-lineage",id]});
+      void queryClient.invalidateQueries({queryKey:["gpt02-preparation-readiness",id]});
+    },
+    onError:(err:Error)=>toast({
+      title:"Persiapan GPT02 ditolak",description:err.message,variant:"destructive",
+    }),
+  });
   // A DEV-only audited correction for a known historical bridge placeholder.
   // This edits the existing task, never prepares/dispatches a GPT02 command.
   const gpt02RepairInstructionMutation = useMutation({
@@ -626,6 +658,7 @@ export default function AiTaskDetail() {
         description:"Judul dan instruksi baru dicatat dengan audit. Belum ada command, worker, atau izin dispatch."});
       void queryClient.invalidateQueries({queryKey:["ai-task",id]});
       void queryClient.invalidateQueries({queryKey:["gpt02-lineage",id]});
+      void queryClient.invalidateQueries({queryKey:["gpt02-preparation-readiness",id]});
     },
     onError: (err: Error) => toast({
       title:"Koreksi instruksi GPT02 ditolak",description:err.message,variant:"destructive",
@@ -1223,6 +1256,39 @@ export default function AiTaskDetail() {
                 "Perbaiki instruksi Task ini (tanpa dispatch)"}
             </Button>
           </div>
+        )}
+        {currentUser?.role === "super_admin" && gpt02PicAudit?.auditPresent && (
+          <section data-testid="gpt02-preparation-readiness"
+            className="mt-3 rounded-lg border border-slate-200 bg-white p-3 space-y-2">
+            <h3 className="text-xs font-semibold text-slate-900">Persiapan Core Task GPT02 — DEV saja</h3>
+            <p role="status" className="text-xs text-slate-700">
+              {gpt02PreparationReadinessFetching ? "Memeriksa kesiapan persiapan..." :
+                gpt02PreparationReadinessError || !gpt02PreparationReadiness ?
+                  "Status persiapan tidak tersedia; tindakan tetap ditahan." :
+                gpt02PreparationReadiness.reason==="FRESH_TASK_INSTRUCTION_REQUIRED" ?
+                  "Instruksi masih berupa referensi lama. Gunakan koreksi ber-audit di atas terlebih dahulu." :
+                gpt02PreparationReadiness.reason==="GPT02_CORE_PREPARATION_NOT_ENABLED" ?
+                  "Instruksi sudah memenuhi pemeriksaan, tetapi layanan persiapan khusus DEV belum diaktifkan." :
+                gpt02PreparationReadiness.reason==="READY_FOR_PREPARATION_ONLY" ?
+                  "Siap mengajukan persiapan saja; belum memiliki izin menjalankan worker." :
+                  `Persiapan belum memenuhi syarat: ${gpt02PreparationReadiness.reason}`}
+            </p>
+            <Button type="button" variant="outline" size="sm"
+              disabled={!gpt02PreparationReadiness?.canRequestPreparation ||
+                gpt02PrepareOnlyMutation.isPending || gpt02PreparationReadinessFetching ||
+                Boolean(executionData?.execution)}
+              onClick={() => {
+                if (window.confirm(`Siapkan hanya Core PENDING dan Hub prepared untuk Task #${task.id}? Tidak ada approval, worker atau command yang dikirim.`))
+                  gpt02PrepareOnlyMutation.mutate();
+              }}>
+              {gpt02PrepareOnlyMutation.isPending ? "Menyiapkan Core Task..." :
+                "Siapkan Core Task (tanpa dispatch)"}
+            </Button>
+            <p className="text-xs text-amber-800">
+              Preparation bukan persetujuan operator. Run Worker tetap terkunci sampai
+              signed approval, nonce, binding dan issuer lease terverifikasi.
+            </p>
+          </section>
         )}
         {currentUser?.role === "super_admin" && (
           <section data-testid="gpt02-operator-readiness" aria-label="Kesiapan persetujuan operator GPT02"

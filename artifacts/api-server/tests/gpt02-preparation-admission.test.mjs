@@ -144,3 +144,50 @@ test('Super Admin UI correction is explicit, confirmation-gated, and non-dispatc
     'Perbaiki instruksi Task ini (tanpa dispatch)'])
     assert.ok(ui.includes(value),value);
 });
+test('DEV Super Admin preparation readiness GET returns evidence only and never prepares',async()=>{
+  const route=await readFile(new URL('../src/routes/gpt02-preparation.ts',import.meta.url),'utf8');
+  const start=route.indexOf('router.get("/ai-tasks/:id/gpt02-preparation-readiness"');
+  const end=route.indexOf('router.post("/ai-tasks/:id/gpt02-prepare"');
+  assert.ok(start>0 && end>start);
+  const getRoute=route.slice(start,end);
+  for(const value of [
+    'requireAuth','req.user?.role!=="super_admin"','CST_DEV_COMPANY_SCOPE_REQUIRED',
+    'readPreparationFacts(taskId,companyId','process.env.GPT02_CORE_PREPARATION_ENABLED',
+    'historicalRepairAvailable:facts.historicalRepair.eligible',
+    'canRequestPreparation:featureEnabled&&facts.preparation.eligible',
+    'readOnly:true','operatorApprovalGranted:false','dispatchPermitted:false',
+    'issuerGrantReady:false','commandDispatched:false',
+  ]) assert.ok(getRoute.includes(value),value);
+  for(const forbidden of [
+    '.prepare(', 'submitAiTaskCommand(', 'submitAiTaskChatGptCommand(',
+    'db.update(', 'db.insert(', 'process.env.SUPABASE_DATABASE_URL_DEV',
+  ]) assert.equal(getRoute.includes(forbidden),false,forbidden);
+});
+test('Task detail shows verified readiness and explicit prepare-only button, never worker shortcut',async()=>{
+  const ui=await readFile(new URL('../../ai-task-center/src/pages/ai-task-detail.tsx',import.meta.url),'utf8');
+  const start=ui.indexOf('data-testid="gpt02-preparation-readiness"');
+  const end=ui.indexOf('data-testid="gpt02-operator-readiness"',start);
+  assert.ok(start>0 && end>start);
+  const section=ui.slice(start,end);
+  for(const required of [
+    'gpt02PreparationReadiness?.canRequestPreparation',
+    'gpt02PrepareOnlyMutation.isPending',
+    'gpt02PreparationReadinessFetching',
+    'Boolean(executionData?.execution)',
+    'window.confirm(', 'Siapkan Core Task (tanpa dispatch)',
+    'signed approval, nonce, binding dan issuer lease',
+  ]) assert.ok(section.includes(required),required);
+  assert.ok(ui.includes('gpt02-preparation-readiness?companyId='));
+  assert.ok(ui.includes('gpt02-prepare?companyId='));
+  assert.ok(ui.includes('X-GPT02-Intent":"prepare-only"'));
+  assert.ok(ui.includes('prepareOnly:true'));
+  for(const forbidden of [
+    'startExecutionMutation.mutate("worker")', 'startExecutionMutation.mutate("chatgpt")',
+  ]) assert.ok(!section.includes(forbidden),forbidden);
+});
+test('existing GPT02 lifecycle gate and worker fallback gate are unchanged',async()=>{
+  const route=await readFile(new URL('../src/routes/executions.ts',import.meta.url),'utf8');
+  assert.ok(route.includes('GPT02_PIC_AUDITED_WORKER_FALLBACK_FORBIDDEN'));
+  assert.ok(route.includes('GPT02_LIFECYCLE_PRE_DISPATCH_PROOF_REQUIRED'));
+  assert.ok(route.includes('GPT02_PREPARED_HUB_CORE_REQUIRES_AUTHORIZED_ISSUER'));
+});

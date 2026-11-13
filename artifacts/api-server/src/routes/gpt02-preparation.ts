@@ -13,6 +13,84 @@ import { createCoreTaskPreparer } from "../lib/gpt02-core-task-preparation.mjs";
 
 const router: IRouter = Router();
 
+// Shared server-derived readback: the GET readiness and POST admission must
+// assess precisely the same persisted task, PIC and audit facts.
+async function readPreparationFacts(
+  taskId: number, companyId: string,
+  actor: {id: string|number;email: string;role: string}|null,
+) {
+  const [task]=await db.select({
+    id:aiTasksTable.id,companyId:aiTasksTable.companyId,status:aiTasksTable.status,
+    source:aiTasksTable.source,title:aiTasksTable.title,description:aiTasksTable.description,
+    assignedToId:aiTasksTable.assignedToId,assignedTo:aiTasksTable.assignedTo,
+  }).from(aiTasksTable)
+    .where(and(eq(aiTasksTable.id,taskId),eq(aiTasksTable.companyId,companyId))).limit(1);
+  if (!task) return null;
+  const [member]=task.assignedToId
+    ? await db.select({id:teamMembersTable.id,name:teamMembersTable.name,isActive:teamMembersTable.isActive})
+      .from(teamMembersTable)
+      .where(and(eq(teamMembersTable.id,task.assignedToId),
+        eq(teamMembersTable.companyId,companyId))).limit(1)
+    : [];
+  const [audit]=await db.select({
+    id:auditLogsTable.id,after:auditLogsTable.after,userEmail:auditLogsTable.userEmail,
+  }).from(auditLogsTable)
+    .where(and(eq(auditLogsTable.companyId,companyId),eq(auditLogsTable.entityId,taskId),
+      eq(auditLogsTable.action,"gpt02_pic_assigned")))
+    .orderBy(desc(auditLogsTable.createdAt),desc(auditLogsTable.id)).limit(1);
+  const executions=await db.select({id:aiExecutionJobsTable.id}).from(aiExecutionJobsTable)
+    .where(and(eq(aiExecutionJobsTable.companyId,companyId),
+      eq(aiExecutionJobsTable.taskId,taskId))).limit(1);
+  const facts={task,member:member??null,audit:audit??null,actor,companyId,
+    existingExecutionCount:executions.length};
+  return {
+    preparation:assessGpt02PreparationAdmission(facts),
+    historicalRepair:assessGpt02HistoricalInstructionRepair(facts),
+  };
+}
+
+// Readiness is not a cryptographic grant: it returns no secrets or command
+// authority, and cannot start a prepared task or alter any runtime state.
+router.get("/ai-tasks/:id/gpt02-preparation-readiness", requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+  res.setHeader("Cache-Control","no-store");
+  if (process.env.NODE_ENV!=="development" || process.env.APP_ENV!=="development") {
+    res.sendStatus(404);return;
+  }
+  if (req.user?.role!=="super_admin") {
+    res.status(403).json({error:"SUPER_ADMIN_REQUIRED",dispatchPermitted:false});return;
+  }
+  const taskId=Number(req.params.id);
+  if (!Number.isSafeInteger(taskId) || taskId<=136) {
+    res.status(400).json({error:"FRESH_DEV_TASK_ID_REQUIRED",dispatchPermitted:false});return;
+  }
+  try {
+    const companyId=getCompanyIdForWrite(req);
+    if (companyId!=="default") {
+      res.status(403).json({error:"CST_DEV_COMPANY_SCOPE_REQUIRED",dispatchPermitted:false});return;
+    }
+    const facts=await readPreparationFacts(taskId,companyId,
+      req.user?{id:req.user.id,email:req.user.email,role:req.user.role}:null);
+    if (!facts) {res.sendStatus(404);return;}
+    const featureEnabled=process.env.GPT02_CORE_PREPARATION_ENABLED==="true";
+    res.status(200).json({
+      taskId,preparationEligible:facts.preparation.eligible,
+      historicalRepairAvailable:facts.historicalRepair.eligible,
+      featureEnabled,
+      canRequestPreparation:featureEnabled&&facts.preparation.eligible,
+      reason:!facts.preparation.eligible?facts.preparation.reason:
+        featureEnabled?"READY_FOR_PREPARATION_ONLY":"GPT02_CORE_PREPARATION_NOT_ENABLED",
+      readOnly:true,commandDispatched:false,operatorApprovalGranted:false,
+      dispatchPermitted:false,issuerGrantReady:false,
+    });
+  } catch {
+    logger.warn({taskId,code:"GPT02_PREPARATION_READINESS_UNAVAILABLE"},
+      "GPT02 preparation readback unavailable");
+    res.status(503).json({error:"GPT02_PREPARATION_READINESS_UNAVAILABLE",
+      readOnly:true,dispatchPermitted:false});
+  }
+});
+
 // A task-specific, explicitly requested PREPARATION only. Inactive by default.
 // The dedicated PostgreSQL login can create a PENDING Core task/prepared Hub
 // execution, but NEVER issues commands, operator approval, leases or dispatch.
@@ -49,32 +127,10 @@ router.post("/ai-tasks/:id/gpt02-prepare", requireAuth,
     if (companyId!=="default") {
       res.status(403).json({error:"CST_DEV_COMPANY_SCOPE_REQUIRED",dispatchPermitted:false}); return;
     }
-    const [task]=await db.select({
-      id:aiTasksTable.id,companyId:aiTasksTable.companyId,status:aiTasksTable.status,
-      source:aiTasksTable.source,title:aiTasksTable.title,description:aiTasksTable.description,
-      assignedToId:aiTasksTable.assignedToId,assignedTo:aiTasksTable.assignedTo,
-    }).from(aiTasksTable).where(and(eq(aiTasksTable.id,taskId),eq(aiTasksTable.companyId,companyId)))
-      .limit(1);
-    if (!task) {res.sendStatus(404);return;}
-    const [member]=task.assignedToId
-      ? await db.select({id:teamMembersTable.id,name:teamMembersTable.name,isActive:teamMembersTable.isActive})
-        .from(teamMembersTable)
-        .where(and(eq(teamMembersTable.id,task.assignedToId),
-          eq(teamMembersTable.companyId,companyId))).limit(1)
-      : [];
-    const [audit]=await db.select({id:auditLogsTable.id,after:auditLogsTable.after,userEmail:auditLogsTable.userEmail})
-      .from(auditLogsTable)
-      .where(and(eq(auditLogsTable.companyId,companyId),eq(auditLogsTable.entityId,taskId),
-        eq(auditLogsTable.action,"gpt02_pic_assigned")))
-      .orderBy(desc(auditLogsTable.createdAt),desc(auditLogsTable.id)).limit(1);
-    const existing=await db.select({id:aiExecutionJobsTable.id}).from(aiExecutionJobsTable)
-      .where(and(eq(aiExecutionJobsTable.companyId,companyId),
-        eq(aiExecutionJobsTable.taskId,taskId))).limit(1);
-    const admission=assessGpt02PreparationAdmission({
-      task,member:member??null,audit:audit??null,actor:req.user
-        ? {id:req.user.id,email:req.user.email,role:req.user.role} : null,
-      companyId,existingExecutionCount:existing.length,
-    });
+    const facts=await readPreparationFacts(taskId,companyId,
+      req.user?{id:req.user.id,email:req.user.email,role:req.user.role}:null);
+    if (!facts) {res.sendStatus(404);return;}
+    const admission=facts.preparation;
     if (!admission.eligible || !admission.instruction) {
       res.status(409).json({
         error:admission.reason,prepared:false,
