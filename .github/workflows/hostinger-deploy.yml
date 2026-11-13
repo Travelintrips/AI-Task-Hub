@@ -343,4 +343,4 @@ jobs:
              git checkout -B develop origin/develop; \
              git reset --hard \"$EXPECTED_SHA\"; \
              test \"\$(git rev-parse HEAD)\" = \"$EXPECTED_SHA\" || { echo 'DEV_RELEASE_HEAD_MISMATCH'; exit 1; }; \
-             AI_TASK_APP_ROOT=\"\$APP_ROOT\" bash deploy/hostinger/deploy.sh development"
+             AI_TASK_DEV_EXPECTED_SHA=\"$EXPECTED_SHA\" AI_TASK_APP_ROOT=\"\$APP_ROOT\" bash deploy/hostinger/deploy.sh development"
