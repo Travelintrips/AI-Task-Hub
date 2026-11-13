@@ -1,0 +1,34 @@
+[Unit]
+Description=DEV-only AI Core Job Ledger to WhatsApp self-number monitor (read-only ledger; NO_GO-safe)
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+ExecStart=/root/.nvm/versions/node/v22.23.3/bin/node /opt/ai-core-job-wa-dev-monitor/monitor.cjs
+WorkingDirectory=/opt/ai-core-job-wa-dev-monitor
+Environment=NODE_ENV=development
+Restart=on-failure
+RestartSec=20s
+UMask=0077
+StateDirectory=ai-core-job-wa-dev-monitor
+StateDirectoryMode=0700
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/ai-core-job-wa-dev-monitor
+ProtectHome=read-only
+ProtectControlGroups=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+PrivateTmp=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+MemoryMax=192M
+CPUQuota=25%
+TasksMax=48
+LogRateLimitIntervalSec=60s
+LogRateLimitBurst=10
+
+[Install]
+WantedBy=multi-user.target
