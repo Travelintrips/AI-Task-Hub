@@ -28,12 +28,12 @@ const schema=[
  'SET client_min_messages=WARNING;',
  'CREATE SCHEMA gpt02_private;',
  'CREATE ROLE gpt02_issuer_evidence_reader NOLOGIN;',
- 'CREATE TABLE gpt02_private.approvals(command_id uuid PRIMARY KEY,nonce text,digest text,company_id text NOT NULL CHECK(company_id=\\'default\\'),task_id int NOT NULL CHECK(task_id>136),claims jsonb NOT NULL);',
- 'CREATE TABLE gpt02_private.operator_links(link_id uuid PRIMARY KEY,command_id uuid UNIQUE REFERENCES gpt02_private.approvals(command_id),company_id text NOT NULL CHECK(company_id=\\'default\\'),hub_task_id int NOT NULL CHECK(hub_task_id>136),attempt_id uuid UNIQUE NOT NULL,attempt_number int NOT NULL CHECK(attempt_number=1),hub_execution_id uuid UNIQUE NOT NULL,core_task_id uuid NOT NULL,claims jsonb NOT NULL);',
+ 'CREATE TABLE gpt02_private.approvals(command_id uuid PRIMARY KEY,nonce text,digest text,company_id text NOT NULL CHECK(company_id=\'default\'),task_id int NOT NULL CHECK(task_id>136),claims jsonb NOT NULL);',
+ 'CREATE TABLE gpt02_private.operator_links(link_id uuid PRIMARY KEY,command_id uuid UNIQUE REFERENCES gpt02_private.approvals(command_id),company_id text NOT NULL CHECK(company_id=\'default\'),hub_task_id int NOT NULL CHECK(hub_task_id>136),attempt_id uuid UNIQUE NOT NULL,attempt_number int NOT NULL CHECK(attempt_number=1),hub_execution_id uuid UNIQUE NOT NULL,core_task_id uuid NOT NULL,claims jsonb NOT NULL);',
  'CREATE TABLE gpt02_private.receipts(id uuid PRIMARY KEY,command_id uuid UNIQUE NOT NULL REFERENCES gpt02_private.approvals(command_id),nonce text,digest text,UNIQUE(id,command_id));',
  'CREATE TABLE gpt02_private.core_identity_receipts(receipt_id uuid PRIMARY KEY,command_id uuid UNIQUE NOT NULL,link_id uuid UNIQUE NOT NULL,FOREIGN KEY(receipt_id,command_id) REFERENCES gpt02_private.receipts(id,command_id),FOREIGN KEY(link_id) REFERENCES gpt02_private.operator_links(link_id));',
  'CREATE TABLE gpt02_private.post_consumption_fences(fence_id uuid PRIMARY KEY,receipt_id uuid UNIQUE NOT NULL REFERENCES gpt02_private.core_identity_receipts(receipt_id),command_id uuid UNIQUE NOT NULL REFERENCES gpt02_private.receipts(command_id),link_id uuid UNIQUE NOT NULL REFERENCES gpt02_private.operator_links(link_id),attempt_id uuid UNIQUE NOT NULL,hub_execution_id uuid UNIQUE NOT NULL,core_task_id uuid NOT NULL);',
- 'DO $q$ DECLARE t text;BEGIN FOREACH t IN ARRAY ARRAY[\\'approvals\\',\\'operator_links\\',\\'receipts\\',\\'core_identity_receipts\\',\\'post_consumption_fences\\'] LOOP EXECUTE format(\\'ALTER TABLE gpt02_private.%I ENABLE ROW LEVEL SECURITY\\',t); EXECUTE format(\\'ALTER TABLE gpt02_private.%I FORCE ROW LEVEL SECURITY\\',t);END LOOP;END $q$;',
+ 'DO $q$ DECLARE t text;BEGIN FOREACH t IN ARRAY ARRAY[\'approvals\',\'operator_links\',\'receipts\',\'core_identity_receipts\',\'post_consumption_fences\'] LOOP EXECUTE format(\'ALTER TABLE gpt02_private.%I ENABLE ROW LEVEL SECURITY\',t); EXECUTE format(\'ALTER TABLE gpt02_private.%I FORCE ROW LEVEL SECURITY\',t);END LOOP;END $q$;',
 ].join('\n');
 const query=[
  'WITH expected(tablename,qual) AS (VALUES '+expected+'),',
