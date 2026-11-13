@@ -87,3 +87,30 @@ differs, stop rather than overwriting unexpected code. A rollback must pin
 the post-migration function SHA before executing the preserved baseline.
 No automatic login, database password rotation or external dispatch is
 included.
+
+### Hosted non-superuser migrator role boundary
+
+The hosted database administrator postgres is not SUPERUSER, but is
+CREATEROLE/BYPASSRLS and can CREATE in gpt02_stage. It is a member
+of the function-owner role but cannot SET that role. A similarly
+scoped synthetic non-superuser cannot CREATE OR REPLACE the wrapper directly.
+
+The hosted function owner membership baseline has EXACTLY two rows:
+(1) grantor supabase_admin, ADMIN TRUE, SET FALSE, INHERIT FALSE; and
+(2) self-grantor postgres, ADMIN FALSE, SET FALSE, INHERIT TRUE.
+
+The revised guarded migration checks these exact role memberships, temporarily
+sets ONLY the existing self-grant SET option TRUE within an uncommitted
+transaction, switches to function owner to replace its existing definition,
+resets the role, restores the original self-grant, then verifies both
+membership rows are unchanged BEFORE COMMIT. Any failure rolls back.
+
+The isolation suite now uses a distinct non-superuser CREATEROLE/BYPASSRLS
+migrator with two equivalent grants and SET FALSE. It verifies that direct
+replacement is forbidden, an injected error AFTER temporary role elevation
+rolls the entire transaction back, successful replacement restores SET FALSE,
+owner and ACL, and reapplying the migration fails closed.
+
+SECURITY REVIEW REQUIRED before hosted activation of any temporary SET role
+change. It does not give the GPT02 preparer LOGIN permission to connect,
+approve, issue a nonce, lease, worker or dispatch.

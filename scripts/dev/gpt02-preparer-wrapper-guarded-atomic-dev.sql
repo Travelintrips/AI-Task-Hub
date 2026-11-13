@@ -9,7 +9,16 @@ DECLARE f record; r record; internal_oid oid;
 BEGIN
  IF current_database()<>'postgres' OR current_user<>'postgres' OR session_user<>'postgres'
     OR current_setting('transaction_read_only')<>'off'
-    OR NOT pg_has_role('postgres','gpt02_core_prep_owner','MEMBER') THEN
+    OR NOT pg_has_role('postgres','gpt02_core_prep_owner','MEMBER')
+    OR pg_has_role('postgres','gpt02_core_prep_owner','SET')
+    OR (SELECT count(*) FROM pg_auth_members
+        WHERE roleid='gpt02_core_prep_owner'::regrole AND member='postgres'::regrole)<>2
+    OR NOT EXISTS(SELECT 1 FROM pg_auth_members m JOIN pg_roles g ON g.oid=m.grantor
+       WHERE m.roleid='gpt02_core_prep_owner'::regrole AND m.member='postgres'::regrole
+       AND g.rolname='supabase_admin' AND m.admin_option AND NOT m.set_option AND NOT m.inherit_option)
+    OR NOT EXISTS(SELECT 1 FROM pg_auth_members m JOIN pg_roles g ON g.oid=m.grantor
+       WHERE m.roleid='gpt02_core_prep_owner'::regrole AND m.member='postgres'::regrole
+       AND g.rolname='postgres' AND NOT m.admin_option AND NOT m.set_option AND m.inherit_option) THEN
    RAISE EXCEPTION 'GPT02_WRAPPER_CST_DEV_ADMIN_CONTEXT_REQUIRED';
  END IF;
  SELECT rolcanlogin,rolconnlimit,rolvaliduntil INTO r
@@ -49,6 +58,10 @@ BEGIN
    RAISE EXCEPTION 'GPT02_TASK171_OR_PREPARER_STATE_CHANGED';
  END IF;
 END $guarded_pre$;
+-- Transactional owner SET escalation, reverted before COMMIT.
+-- No other backend can see the uncommitted temporary role change.
+GRANT gpt02_core_prep_owner TO postgres WITH SET TRUE, INHERIT TRUE GRANTED BY postgres;
+SET ROLE gpt02_core_prep_owner;
 
 -- SOURCE CANDIDATE ONLY — security review required, NEVER auto-deploy.
 -- CST-DEV preparer public entrypoint hardening for Task #171 and future
@@ -105,6 +118,8 @@ BEGIN
       p_company,p_task,p_project,p_repo,p_branch,p_instruction);
 END;
 $gpt02_preparer_guard$;
+RESET ROLE;
+GRANT gpt02_core_prep_owner TO postgres WITH SET FALSE, INHERIT TRUE GRANTED BY postgres;
 
 
 DO $guarded_post$
@@ -116,6 +131,18 @@ BEGIN
  INTO f FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
  WHERE n.nspname='gpt02_stage' AND p.proname='prepare_core_task'
    AND p.proargtypes='25 23 25 25 25 25'::oidvector;
+ IF current_user<>'postgres' OR session_user<>'postgres'
+    OR pg_has_role('postgres','gpt02_core_prep_owner','SET')
+    OR (SELECT count(*) FROM pg_auth_members
+        WHERE roleid='gpt02_core_prep_owner'::regrole AND member='postgres'::regrole)<>2
+    OR NOT EXISTS(SELECT 1 FROM pg_auth_members m JOIN pg_roles g ON g.oid=m.grantor
+       WHERE m.roleid='gpt02_core_prep_owner'::regrole AND m.member='postgres'::regrole
+         AND g.rolname='supabase_admin' AND m.admin_option AND NOT m.set_option AND NOT m.inherit_option)
+    OR NOT EXISTS(SELECT 1 FROM pg_auth_members m JOIN pg_roles g ON g.oid=m.grantor
+       WHERE m.roleid='gpt02_core_prep_owner'::regrole AND m.member='postgres'::regrole
+         AND g.rolname='postgres' AND NOT m.admin_option AND NOT m.set_option AND m.inherit_option) THEN
+   RAISE EXCEPTION 'GPT02_TEMPORARY_OWNER_SET_NOT_RESTORED';
+ END IF;
  IF f.oid IS NULL OR f.owner<>'gpt02_core_prep_owner' OR f.prosecdef IS DISTINCT FROM true
     OR f.acl IS DISTINCT FROM '{gpt02_core_prep_owner=X/gpt02_core_prep_owner,gpt02_core_prep_login=X/gpt02_core_prep_owner}'
     OR position('pg_advisory_xact_lock' in f.definition)=0

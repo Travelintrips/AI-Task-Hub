@@ -82,12 +82,35 @@ baseline='b5cf331682d291f61a012853671cd40c1dc3068fc7e1c57f81354c755f7d47c7'
 sed "s/$baseline/$sha/g" \
  "$ROOT/scripts/dev/gpt02-preparer-wrapper-guarded-atomic-dev.sql" >"$WORK/migration.sql"
 sed -i "s/current_database()<>'postgres'/current_database()<>'gpt02_core_preparation_isolated'/g" "$WORK/migration.sql"
+sed -i "s/current_user<>'postgres'/current_user<>'cst_migrator'/g;s/session_user<>'postgres'/session_user<>'cst_migrator'/g;s/pg_has_role('postgres'/pg_has_role('cst_migrator'/g" "$WORK/migration.sql"
+sed -i "s/member='postgres'::regrole/member='cst_migrator'::regrole/g;s/g.rolname='postgres'/g.rolname='cst_migrator'/g;s/TO postgres WITH /TO cst_migrator WITH /g;s/GRANTED BY postgres/GRANTED BY cst_migrator/g" "$WORK/migration.sql"
 aclBefore="$(psqlAs postgres -c "SELECT pg_get_userbyid(p.proowner)||'|'||p.proacl::text
  FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
  WHERE n.nspname='gpt02_stage' AND p.proname='prepare_core_task';")"
 echo "ACL_BEFORE=$aclBefore"
+psqlAs postgres -c "
+ CREATE ROLE cst_migrator LOGIN NOSUPERUSER CREATEROLE CREATEDB NOREPLICATION BYPASSRLS;
+ CREATE ROLE supabase_admin NOLOGIN;
+ GRANT gpt02_core_prep_owner TO supabase_admin WITH ADMIN TRUE, SET FALSE, INHERIT FALSE;
+ GRANT gpt02_core_prep_owner TO cst_migrator WITH ADMIN TRUE, SET FALSE, INHERIT FALSE GRANTED BY supabase_admin;
+ GRANT USAGE,CREATE ON SCHEMA gpt02_stage TO cst_migrator;
+ GRANT USAGE ON SCHEMA extensions TO cst_migrator;
+ GRANT EXECUTE ON FUNCTION extensions.digest(bytea,text) TO cst_migrator;
+ GRANT SELECT ON public.ai_tasks,public.ai_execution_jobs TO cst_migrator;
+ GRANT SELECT ON gpt02_stage.core_preparations TO cst_migrator;" >/dev/null
+# The actual hosted role has a second self-grant with SET=FALSE, INHERIT=TRUE.
+psqlAs cst_migrator -c "GRANT gpt02_core_prep_owner TO cst_migrator WITH ADMIN FALSE, SET FALSE, INHERIT TRUE GRANTED BY cst_migrator;" >/dev/null
+permission="$(psqlAs cst_migrator -c "SELECT r.rolsuper::text||'|'||r.rolcreaterole::text||'|'||r.rolbypassrls::text||'|'||
+ pg_has_role(current_user,'gpt02_core_prep_owner','MEMBER')::text||'|'||
+ pg_has_role(current_user,'gpt02_core_prep_owner','SET')::text||'|'||
+ has_schema_privilege(current_user,'gpt02_stage','CREATE')::text
+ FROM pg_roles r WHERE r.rolname=current_user;")"
+[[ "$permission" == 'false|true|true|true|false|true' ]] ||
+ { echo "NONSUPER_MIGRATOR_MISMATCH:$permission" >&2;exit 1; }
+echo PASS:NONSUPER_MIGRATOR_MATCHES_HOSTED_ROLE_BOUNDARY
+
 sed "s/$sha/$(printf '%064d' 0)/g" "$WORK/migration.sql" >"$WORK/wrong.sql"
-if psqlAs postgres < "$WORK/wrong.sql" >"$WORK/wrong.log" 2>&1; then
+if psqlAs cst_migrator < "$WORK/wrong.sql" >"$WORK/wrong.log" 2>&1; then
   echo BAD_FINGERPRINT_ACCEPTED >&2;exit 1
 fi
 grep -q 'GPT02_BASELINE_WRAPPER_SIGNATURE_OWNER_OR_PRIVILEGE_DRIFT' "$WORK/wrong.log" ||
@@ -97,19 +120,52 @@ afterBad="$(psqlAs postgres -c "SELECT encode(extensions.digest(convert_to(pg_ge
  WHERE n.nspname='gpt02_stage' AND p.proname='prepare_core_task';")"
 [[ "$afterBad" == "$sha" ]] || { echo ROLLBACK_NOT_ATOMIC >&2;exit 1; }
 echo PASS:WRONG_BASELINE_DENIED_AND_ROLLED_BACK
-psqlAs postgres < "$WORK/migration.sql" >"$WORK/apply.log" 2>&1 ||
+# Fail AFTER temporary self-granted SET ROLE but BEFORE CREATE FUNCTION.
+# All role changes must roll back, and the old function must stay untouched.
+stateBefore="$(psqlAs postgres -c "SELECT count(*)::text||'|'||
+ count(*) FILTER(WHERE set_option)::text
+ FROM pg_auth_members WHERE member='cst_migrator'::regrole
+ AND roleid='gpt02_core_prep_owner'::regrole;")"
+[[ "$stateBefore" == '2|0' ]] || { echo UNEXPECTED_INITIAL_MEMBERSHIP >&2;exit 1; }
+awk '
+ /^CREATE OR REPLACE FUNCTION gpt02_stage.prepare_core_task/ {
+  print "DO $fault$ BEGIN RAISE EXCEPTION \047SYNTHETIC_AFTER_TEMPORARY_ROLE_SET\047; END $fault$;"
+ }
+ {print}
+' "$WORK/migration.sql" >"$WORK/fault.sql"
+if psqlAs cst_migrator < "$WORK/fault.sql" >"$WORK/fault.log" 2>&1; then
+  echo ERROR_AFTER_TEMP_ROLE_SET_UNEXPECTEDLY_ACCEPTED >&2;exit 1
+fi
+grep -q SYNTHETIC_AFTER_TEMPORARY_ROLE_SET "$WORK/fault.log" ||
+ { echo WRONG_FAILPOINT_ERROR;tail -18 "$WORK/fault.log";exit 1; }
+stateAfter="$(psqlAs postgres -c "SELECT count(*)::text||'|'||
+ count(*) FILTER(WHERE set_option)::text
+ FROM pg_auth_members WHERE member='cst_migrator'::regrole
+ AND roleid='gpt02_core_prep_owner'::regrole;")"
+[[ "$stateAfter" == "$stateBefore" ]] ||
+ { echo TEMPORARY_OWNER_SET_LEAKED_AFTER_ROLLBACK >&2;exit 1; }
+echo PASS:FAIL_AFTER_TEMPORARY_ROLE_SET_ROLLS_BACK_ALL_GRANTS
+
+psqlAs cst_migrator < "$WORK/migration.sql" >"$WORK/apply.log" 2>&1 ||
  { echo GUARDED_SQL_FAILED;tail -30 "$WORK/apply.log";exit 1; }
 aclAfter="$(psqlAs postgres -c "SELECT pg_get_userbyid(p.proowner)||'|'||p.proacl::text
  FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
  WHERE n.nspname='gpt02_stage' AND p.proname='prepare_core_task';")"
 [[ "$aclAfter" == "$aclBefore" ]] || { echo OWNER_OR_ACL_CHANGED >&2;exit 1; }
 echo PASS:ATOMIC_WRAPPER_REPLACEMENT_PRESERVES_OWNER_AND_ACL
+stateAfterCommit="$(psqlAs postgres -c "SELECT count(*)::text||'|'||
+ count(*) FILTER(WHERE set_option)::text
+ FROM pg_auth_members WHERE member='cst_migrator'::regrole
+ AND roleid='gpt02_core_prep_owner'::regrole;")"
+[[ "$stateAfterCommit" == "$stateBefore" ]] ||
+ { echo TEMPORARY_SET_NOT_RESTORED_BEFORE_COMMIT >&2;exit 1; }
+echo PASS:TEMPORARY_SET_ROLE_RESTORED_BEFORE_COMMIT
 newSha="$(psqlAs postgres -c "SELECT encode(extensions.digest(convert_to(pg_get_functiondef(p.oid),'UTF8'),'sha256'),'hex')
  FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
  WHERE n.nspname='gpt02_stage' AND p.proname='prepare_core_task';")"
 [[ "$newSha" != "$sha" && "$newSha" =~ ^[a-f0-9]{64}$ ]] ||
  { echo WRAPPER_NOT_UPDATED >&2;exit 1; }
-if psqlAs postgres < "$WORK/migration.sql" >"$WORK/reapply.log" 2>&1; then
+if psqlAs cst_migrator < "$WORK/migration.sql" >"$WORK/reapply.log" 2>&1; then
   echo REAPPLY_UNEXPECTEDLY_ACCEPTED >&2;exit 1
 fi
 grep -q 'GPT02_BASELINE_WRAPPER_SIGNATURE_OWNER_OR_PRIVILEGE_DRIFT' "$WORK/reapply.log" ||
