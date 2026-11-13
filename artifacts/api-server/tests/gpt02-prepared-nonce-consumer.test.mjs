@@ -289,3 +289,23 @@ test('operational DEV without fixed root-owned manifest refuses admission before
  assert.equal(out.status,0,out.stderr);
  assert.match(out.stdout,/^(?:TRUST_STORE_DIRECTORY_UNSAFE|TRUST_MANIFEST_DIRECTORY_NOT_FOUND) used=false$/);
 });
+
+test('operational DEV refuses a caller-supplied clock before trust loading or issuer use',()=>{
+ const moduleUrl=new URL('../src/lib/gpt02-prepared-nonce-consumer.mjs',import.meta.url).href;
+ const subprocess=`
+ import {createPreparedNonceConsumer} from ${JSON.stringify(moduleUrl)};
+ let used=false;
+ try{
+  createPreparedNonceConsumer({
+   readTrustedFacts:async()=>{used=true;},
+   issuerStore:{consumeLinkedApproval:async()=>{used=true;}},
+   clock:()=>Number.MAX_SAFE_INTEGER
+  });
+  process.stdout.write('UNEXPECTED_PASS');
+ }catch(e){process.stdout.write((e.code||e.message)+' used='+used);}
+ `;
+ const out=spawnSync(process.execPath,['--input-type=module','-e',subprocess],
+  {encoding:'utf8',env:{...process.env,NODE_ENV:'development',APP_ENV:'development'},timeout:5000});
+ assert.equal(out.status,0,out.stderr);
+ assert.equal(out.stdout,'GPT02_CALLER_CLOCK_FORBIDDEN used=false');
+});
