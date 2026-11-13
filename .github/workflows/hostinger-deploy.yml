@@ -278,7 +278,9 @@ jobs:
         with:
           node-version: '24'
       - name: Verify fail-closed DEV release gate regressions
-        run: node --test scripts/dev/verify-hostinger-dev-ci-run.test.mjs
+        run: |
+          node --test scripts/dev/verify-hostinger-dev-ci-run.test.mjs
+          bash scripts/dev/test-hostinger-dev-sha-pin-isolated.sh
       - name: Require exact develop SHA full AI Task DEV Verify SUCCESS
         env:
           GITHUB_TOKEN: ${{ github.token }}
