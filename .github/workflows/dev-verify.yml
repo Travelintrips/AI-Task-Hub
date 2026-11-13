@@ -60,7 +60,8 @@ jobs:
           bash scripts/dev/test-gpt02-approval-future-task-constraint-isolated.sh
           bash scripts/dev/test-gpt02-owner-grant-escrow-pg17-isolated.sh
           bash scripts/dev/test-gpt02-private-operator-sidecars-inert-pg17.sh
-          node --test scripts/dev/gpt02-private-operator-sidecars-inert.contract.test.mjs
+          bash scripts/dev/test-gpt02-post-consumption-fence-hosted-inert-pg17.sh
+          node --test scripts/dev/gpt02-private-operator-sidecars-inert.contract.test.mjs scripts/dev/gpt02-hosted-inert-fence.contract.test.mjs
       - name: Verify bounded CST-DEV connection probe cannot grant dispatch
         run: node --test scripts/dev/gpt02-bounded-login-smoke-guards.test.mjs
       - name: Verify SCRAM issuer and atomic dual-origin Hub/Core identity evidence
@@ -109,7 +110,38 @@ jobs:
           node --test artifacts/api-server/tests/gpt02-core-task-preparation.test.mjs
           node --test scripts/dev/gpt02-preparer-dedicated-login-readonly.test.mjs
       - name: Reject mismatched future Core preparation and signed Hub/Core proof
-        run: node --test artifacts/api-server/tests/gpt02-prepared-link.test.mjs
+        run: |
+          node --test artifacts/api-server/tests/gpt02-prepared-link.test.mjs artifacts/api-server/tests/gpt02-issuer-lease-evidence.test.mjs artifacts/api-server/tests/gpt02-prepared-nonce-consumer.test.mjs artifacts/api-server/tests/gpt02-dev-trust-store.test.mjs artifacts/api-server/tests/gpt02-dev-trust-manifest.test.mjs
+          node --test scripts/dev/gpt02-four-signer-trust-readiness.test.mjs
+          node --test scripts/dev/gpt02-four-signer-contract.test.mjs
+          node --test scripts/dev/gpt02-public-trust-mount-contract.test.mjs
+      - name: Audit GPT02 future trusted Hub/Core readers without granting dispatch
+        run: |
+          node --test scripts/dev/gpt02-trusted-fact-reader-readiness.test.mjs
+          node --test scripts/dev/gpt02-reader-column-grants-readiness.test.mjs
+          node --test scripts/dev/gpt02-reader-rls-readiness.test.mjs
+          node --test scripts/dev/gpt02-reader-schema-usage-readiness.test.mjs
+          node --test scripts/dev/gpt02-reader-role-settings-readiness.test.mjs
+          node --test scripts/dev/gpt02-reader-sequence-readiness.test.mjs
+          node --test scripts/dev/gpt02-reader-default-acl-readiness.test.mjs
+          node --test scripts/dev/gpt02-reader-callable-routines-readiness.test.mjs
+          node --test scripts/dev/gpt02-issuer-reader-readiness.test.mjs
+          bash -n scripts/dev/gpt02-issuer-native-reader-proof-once.sh
+          node --test scripts/dev/gpt02-issuer-native-reader-proof-once.test.mjs
+      - name: Verify independent Hub and Core read-only fact reconstruction
+        run: |
+          node --test artifacts/api-server/tests/gpt02-trusted-facts-readonly.test.mjs
+          node --test artifacts/api-server/tests/gpt02-reader-pools.test.mjs
+          node --test artifacts/api-server/tests/gpt02-reader-pool-identity.test.mjs
+          node --test scripts/dev/gpt02-reader-runtime.test.mjs
+          systemd-analyze verify deploy/hostinger/gpt02-issue159-reader.service
+          node --test scripts/dev/gpt02-two-reader-native-readonly.test.mjs
+          bash -n scripts/dev/gpt02-native-reader-proof-once.sh
+          node --test scripts/dev/gpt02-native-reader-proof-once.test.mjs
+          node --test scripts/dev/gpt02-runtime-unmounted-contract.test.mjs
+          node --test scripts/dev/gpt02-reader-column-grants-readiness.test.mjs
+          node --test scripts/dev/gpt02-reader-schema-usage-readiness.test.mjs
+          node --test scripts/dev/gpt02-reader-role-settings-readiness.test.mjs
       - name: Deny prepared Hub/Core reservations before legacy tracking or dispatch
         run: node --test artifacts/api-server/tests/gpt02-prepared-execution-denied.test.mjs
       - name: Typecheck
