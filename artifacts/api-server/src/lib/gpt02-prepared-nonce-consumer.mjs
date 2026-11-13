@@ -39,7 +39,7 @@ export function createPreparedNonceConsumer({
  readTrustedFacts,issuerStore,publicKeys,expectedFingerprints,clock
 }={}){
  const synthetic=process.env.NODE_ENV==='test'&&process.env.APP_ENV!=='production';
- // Operational DEV must use its own monotonicity-checked server wall clock.
+ // Operational DEV must use its own server-controlled wall clock.
  // A caller-supplied clock could otherwise bypass signed expiry/freshness gates.
  if(!synthetic&&clock!==undefined)
   throw Error('GPT02_CALLER_CLOCK_FORBIDDEN');
