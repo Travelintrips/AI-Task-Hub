@@ -111,8 +111,26 @@ export function createPreparedNonceConsumer({
       commandCandidateId:a.commandId,attemptId:a.attemptId,
       linkId:l.linkId,linkDigest,approvalDigest});
     const facts=await readTrustedFacts(lookup);
-    if(!exact(facts,['prepared','job','core','hubOperator','observedAt','storedEvidence']))
+    if(!exact(facts,[
+      'prepared','job','core','hubOperator','hubAssignment',
+      'observedAt','storedEvidence','trustedReadProof'
+    ]))
       return denied('INCOMPLETE_TRUSTED_DB_READS');
+    const readerProof=facts.trustedReadProof;
+    if(!exact(readerProof,[
+      'source','environment','hubRole','coreRole','separateBackends',
+      'clientTlsVerified','readOnly','dispatchPermitted','signingPermitted'
+    ])||
+      readerProof.source!=='gpt02-issue159-reader'||
+      readerProof.environment!=='DEV'||
+      readerProof.hubRole!=='gpt02_hub_evidence_reader'||
+      readerProof.coreRole!=='gpt02_core_evidence_reader'||
+      readerProof.separateBackends!==true||
+      readerProof.clientTlsVerified!==true||
+      readerProof.readOnly!==true||
+      readerProof.dispatchPermitted!==false||
+      readerProof.signingPermitted!==false)
+      return denied('TRUSTED_READER_PROOF_INVALID');
     const db=facts.storedEvidence;
     if(!exact(db,['approval','operatorLink'])||
        !exact(db.approval,['claims','signatureBase64url','digest'])||
