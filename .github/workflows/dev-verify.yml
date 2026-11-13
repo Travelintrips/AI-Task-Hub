@@ -115,6 +115,8 @@ jobs:
           node --test scripts/dev/gpt02-four-signer-trust-readiness.test.mjs
           node --test scripts/dev/gpt02-four-signer-contract.test.mjs
           node --test scripts/dev/gpt02-public-trust-mount-contract.test.mjs
+      - name: Verify scoped issuer evidence RLS canonical forms on isolated PostgreSQL 17 (NO-GO)
+        run: node --test scripts/dev/gpt02-issuer-scoped-rls-catalog-pg17.test.mjs
       - name: Audit GPT02 future trusted Hub/Core readers without granting dispatch
         run: |
           node --test scripts/dev/gpt02-trusted-fact-reader-readiness.test.mjs
