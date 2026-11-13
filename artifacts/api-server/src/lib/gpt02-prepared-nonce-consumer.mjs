@@ -136,6 +136,16 @@ export function createPreparedNonceConsumer({
       readerProof.dispatchPermitted!==false||
       readerProof.signingPermitted!==false)
       return denied('TRUSTED_READER_PROOF_INVALID');
+    // Recheck the authenticated Hub PIC audit against the signed task's
+    // actual actor; never accept a populated but unrelated assignment.
+    const assignment=facts.hubAssignment;
+    if(!exact(assignment,['action','entityId','actorId','actorRole','actorActive'])||
+      assignment.action!=='gpt02_pic_assigned'||
+      assignment.entityId!==String(a.taskId)||
+      assignment.actorId!==a.superAdminId||
+      assignment.actorRole!=='super_admin'||
+      assignment.actorActive!==true)
+      return denied('TRUSTED_HUB_ASSIGNMENT_MISMATCH');
     const db=facts.storedEvidence;
     if(!exact(db,['approval','operatorLink'])||
        !exact(db.approval,['claims','signatureBase64url','digest'])||
