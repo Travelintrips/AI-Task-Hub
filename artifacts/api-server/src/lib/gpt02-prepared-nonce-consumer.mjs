@@ -36,15 +36,20 @@ function pinnedKeys(keys){
  return Object.freeze(publicKeys);
 }
 export function createPreparedNonceConsumer({
- readTrustedFacts,issuerStore,publicKeys,expectedFingerprints,clock=Date.now
+ readTrustedFacts,issuerStore,publicKeys,expectedFingerprints,clock
 }={}){
+ const synthetic=process.env.NODE_ENV==='test'&&process.env.APP_ENV!=='production';
+ // Operational DEV must use its own monotonicity-checked server wall clock.
+ // A caller-supplied clock could otherwise bypass signed expiry/freshness gates.
+ if(!synthetic&&clock!==undefined)
+  throw Error('GPT02_CALLER_CLOCK_FORBIDDEN');
+ const trustedClock=clock===undefined?Date.now:clock;
  if(typeof readTrustedFacts!=='function'||!issuerStore||
-  typeof issuerStore.consumeLinkedApproval!=='function'||typeof clock!=='function')
+  typeof issuerStore.consumeLinkedApproval!=='function'||typeof trustedClock!=='function')
   throw Error('GPT02_AUTHENTICATED_READ_AND_ISSUER_REQUIRED');
  // Only synthetic test runners may inject their own ephemeral public keys.
  // Operational DEV must load independently pinned public keys from the
  // restricted on-host trust store before any issuer or task reader can run.
- const synthetic=process.env.NODE_ENV==='test'&&process.env.APP_ENV!=='production';
  let keyMaterial;
  if(synthetic){
   if(expectedFingerprints!==undefined)throw Error('GPT02_TEST_CONFIG_MIXED_WITH_REAL_TRUST');
@@ -131,7 +136,7 @@ export function createPreparedNonceConsumer({
         db.operatorLink.coreSignatureBase64url===input.operatorLink.coreSignatureBase64url;
     }catch{return denied('IMMUTABLE_LEDGER_EVIDENCE_INVALID')}
     if(!exactSignedMatch)return denied('SIGNED_PROOF_DIFFERS_FROM_STORED_LEDGER');
-    const at=clock();
+    const at=trustedClock();
     if(!Number.isSafeInteger(at)||!Number.isSafeInteger(facts.observedAt)||
        facts.observedAt>at||at-facts.observedAt>2000)
       return denied('STALE_OR_UNTRUSTED_FACT_READ');
@@ -145,7 +150,7 @@ export function createPreparedNonceConsumer({
     // Never grant authority from these boolean fields: the issuer connection
     // independently authenticates, verifies signatures and atomically claims
     // the nonce against hosted immutable DB approval + signed origin rows.
-    if(clock()-facts.observedAt>2000)return denied('FACTS_EXPIRED_BEFORE_CONSUMPTION');
+    if(trustedClock()-facts.observedAt>2000)return denied('FACTS_EXPIRED_BEFORE_CONSUMPTION');
     const receipt=await issuerStore.consumeLinkedApproval(input);
     if(!receipt||typeof receipt.receiptId!=='string'||
        !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(receipt.receiptId)||
