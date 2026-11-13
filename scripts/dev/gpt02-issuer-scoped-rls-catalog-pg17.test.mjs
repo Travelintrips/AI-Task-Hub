@@ -54,7 +54,7 @@ test('PG17 normalizes scoped issuer policies exactly; never opens runtime author
    '-Atqc','SELECT 1'],{encoding:'utf8',timeout:3000});
   const logs=spawnSync('docker',['logs',name],{encoding:'utf8',timeout:3000});
   if(probe.status===0&&probe.stdout.trim()==='1'&&
-      (logs.stderr||'').includes('PostgreSQL init process complete')){ready=true;break;}
+      ((logs.stdout||'')+(logs.stderr||'')).includes('PostgreSQL init process complete')){ready=true;break;}
   await new Promise(resolve=>setTimeout(resolve,500));
  }
  assert.ok(ready,'ISOLATED_PG17_NOT_READY');
