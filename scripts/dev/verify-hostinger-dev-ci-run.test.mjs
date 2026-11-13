@@ -172,7 +172,8 @@ test('Hostinger DEV deployment must preserve exact SHA across both git fetches',
   assert.match(development, /DEV_RELEASE_HEAD_MISMATCH/);
   assert.match(development, /AI_TASK_DEV_EXPECTED_SHA=/);
   assert.match(development, /git reset --hard/);
-  assert.match(deploy, /if \[ "\$TARGET" = "development" \] && \[ -n/);
+  assert.match(deploy, /DEV_RELEASE_EXPECTED_SHA_REQUIRED/);
+  assert.match(deploy, /AI_TASK_DEV_EXPECTED_SHA:-/);
   assert.match(deploy, /DEV_RELEASE_SHA_CHANGED_DURING_DEPLOY/);
   assert.match(deploy, /DEV_RELEASE_HEAD_MISMATCH_AFTER_CHECKOUT/);
   assert.doesNotMatch(production, /EXPECTED_SHA|AI_TASK_DEV_EXPECTED_SHA|dev-ci-release-gate/);
