@@ -100,10 +100,33 @@ test('role bootstrap is inert and owner grants are separately fenced',async()=>{
   "USING (company_id='default' AND task_id>136 AND claims->>'environment'='DEV')",
   "USING (company_id='default' AND hub_task_id>136 AND attempt_number=1",
   'issuer_evidence_reader_select',
-  'FOR SELECT TO gpt02_issuer_evidence_reader USING (true)'
+  // Evidence descendants must remain linked to the restricted DEV task.
+  'USING (EXISTS (',
+  'a.nonce=receipts.nonce AND a.digest=receipts.digest',
+  'r.id=core_identity_receipts.receipt_id',
+  'l.link_id=core_identity_receipts.link_id',
+  'r.id=post_consumption_fences.receipt_id',
+  'l.attempt_id=post_consumption_fences.attempt_id',
+  'l.hub_execution_id=post_consumption_fences.hub_execution_id',
+  'l.core_task_id=post_consumption_fences.core_task_id'
  ])assert.ok(ownerSrc.includes(required),required);
+  for(const table of ['receipts','core_identity_receipts','post_consumption_fences']){
+    assert.match(ownerSrc,new RegExp(
+      'CREATE POLICY issuer_evidence_reader_select ON gpt02_private\\.'+table+
+      '\\s+FOR SELECT TO gpt02_issuer_evidence_reader\\s+USING \\(EXISTS \\('),
+      'MISSING_SCOPED_READER_POLICY_'+table);
+  }
+  assert.doesNotMatch(ownerSrc,
+    /FOR SELECT TO gpt02_issuer_evidence_reader\s+USING\s*\(\s*true\s*\)/i,
+    'OBSOLETE_BROAD_ISSUER_POLICY_FORBIDDEN');
  for(const forbidden of [
   'CREATE ROLE','ALTER ROLE','PASSWORD','GRANT INSERT','GRANT UPDATE','GRANT DELETE',
   'GRANT EXECUTE','SECURITY DEFINER','SUPABASE_DATABASE_URL_PROD','dispatchPermitted=true'
  ])assert.equal(ownerSrc.includes(forbidden),false,forbidden);
+});
+
+test('native issuer proof must reject obsolete all-rows RLS before release',async()=>{
+ const native=await readFile(new URL('./gpt02-issuer-native-reader-proof-once.sh',import.meta.url),'utf8');
+ assert.doesNotMatch(native,/p\.qual\s*=\s*'true'/i,
+  'NATIVE_PROOF_STILL_ACCEPTS_UNSCOPED_USING_TRUE: requires independently reviewed native-proof update');
 });
