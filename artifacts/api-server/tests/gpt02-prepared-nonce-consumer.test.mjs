@@ -106,6 +106,28 @@ test('signed real verifier match calls restricted issuer exactly once and NEVER 
  for(const k of ['issuerLeaseGranted','dispatchPermitted','commandCreated','completionPermitted'])assert.equal(v[k],false);
  assert.equal(v.releaseDecision,'NO_GO');assert.deepEqual(calls(),{reads:1,issued:1});
 });
+for(const [label,secondValue] of [
+ ['wall clock rollback',now-5000],
+ ['non-integer wall clock',Number.NaN]
+]){
+ test('reject '+label+' before issuing any nonce evidence',async()=>{
+  const x=fixture();
+  let ticks=0,issued=0;
+  const consumer=createPreparedNonceConsumer({
+   publicKeys:x.publicKeys,
+   clock:()=>++ticks===1?now:secondValue,
+   readTrustedFacts:async()=>facts(x),
+   issuerStore:{async consumeLinkedApproval(){issued++;return successReceipt();}}
+  });
+  const result=await consumer.consume(x.proof);
+  assert.equal(result.reason,'UNTRUSTED_CLOCK_ROLLBACK_BEFORE_CONSUMPTION');
+  assert.equal(result.evidenceConsumed,false);
+  assert.equal(result.dispatchPermitted,false);
+  assert.equal(result.releaseDecision,'NO_GO');
+  assert.equal(ticks,2);
+  assert.equal(issued,0);
+ });
+}
 for(const taskId of [135,136]){
  test('deny historically used Task'+taskId+' BEFORE database read and nonce write',async()=>{
   const x=fixture(taskId),{consumer,calls}=setup(x);
