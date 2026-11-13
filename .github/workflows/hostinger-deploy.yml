@@ -316,9 +316,11 @@ jobs:
           PORT: '22'
           USERNAME: root
           APP_ROOT: ${{ vars.HOSTINGER_APP_ROOT }}
+          EXPECTED_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           test -n "$USERNAME"
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Invalid expected DEV release SHA"; exit 1; }
           REMOTE_ROOT="${APP_ROOT:-/root/apps/ai-task/development}"
           ssh -i ~/.ssh/id_hostinger -p "$PORT" \
             -o StrictHostKeyChecking=accept-new \
@@ -337,6 +339,8 @@ jobs:
              fi; \
              cd \"\$APP_ROOT\"; \
              git fetch origin develop; \
+             test \"\$(git rev-parse origin/develop)\" = \"$EXPECTED_SHA\" || { echo 'DEV_RELEASE_SHA_CHANGED'; exit 1; }; \
              git checkout -B develop origin/develop; \
-             git reset --hard origin/develop; \
+             git reset --hard \"$EXPECTED_SHA\"; \
+             test \"\$(git rev-parse HEAD)\" = \"$EXPECTED_SHA\" || { echo 'DEV_RELEASE_HEAD_MISMATCH'; exit 1; }; \
              AI_TASK_APP_ROOT=\"\$APP_ROOT\" bash deploy/hostinger/deploy.sh development"
