@@ -114,3 +114,35 @@ owner and ACL, and reapplying the migration fails closed.
 SECURITY REVIEW REQUIRED before hosted activation of any temporary SET role
 change. It does not give the GPT02 preparer LOGIN permission to connect,
 approve, issue a nonce, lease, worker or dispatch.
+
+## Hosted CST-DEV guarded wrapper installation — VERIFIED
+
+The guarded **outer wrapper only** has now been applied with the Supabase
+migration name gpt02_preparer_wrapper_task_instruction_guard_20261114.
+Recorded migration version: 20261113211108. Migration returned success.
+
+Read-back from the real CST-DEV project, after migration:
+- New active function definition SHA-256:
+  81a549214cb354283741f51d0411fb646b4bca118876e450c8cb191b41b8ea43
+- Previous fingerprint:
+  b5cf331682d291f61a012853671cd40c1dc3068fc7e1c57f81354c755f7d47c7
+- Existing gpt02_core_prep_owner and exact EXECUTE ACL preserved: TRUE
+- Persisted instruction/status/source checks present: TRUE
+- Owner membership two grants restored, zero SET grants: TRUE
+- Dedicated preparer account remains NOLOGIN, connection limit 0: TRUE
+- Dedicated preparer active sessions: ZERO
+- Task #171 execution rows: ZERO
+- Task #171 preparation rows: ZERO
+- No issuer grant, signer, nonce, worker or command produced.
+- Runtime API feature remains OFF; DEV and PROD service health remained 200.
+- This migration was DEV-only; never run against PROD.
+
+The original body is archived in
+scripts/dev/gpt02-preparer-wrapper-baseline-rollback-dev.sql.
+For a rollback, FIRST verify the new active function SHA above, owner/ACL and
+role membership baseline, and perform the replacement as the existing owner
+inside a separately approved transaction. Do not reapply this migration:
+the old SHA guard intentionally rejects a second run.
+
+This verifies one database hardening step, NOT authorization for Task #171
+worker dispatch. UI/API source remains PR #181 DRAFT, unmerged/undeployed.
