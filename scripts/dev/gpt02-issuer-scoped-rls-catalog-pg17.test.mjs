@@ -28,7 +28,7 @@ const schema=[
  'SET client_min_messages=WARNING;',
  'CREATE SCHEMA gpt02_private;',
  'CREATE ROLE gpt02_issuer_evidence_reader NOLOGIN;',
- 'CREATE TABLE gpt02_private.approvals(command_id uuid PRIMARY KEY,nonce text,digest text,company_id text NOT NULL CHECK(company_id=\'default\'),task_id int NOT NULL CHECK(task_id>136),claims jsonb NOT NULL);',
+ 'CREATE TABLE gpt02_private.approvals(command_id uuid PRIMARY KEY,nonce text,digest text,signature text,company_id text NOT NULL CHECK(company_id=\'default\'),task_id int NOT NULL CHECK(task_id>136),claims jsonb NOT NULL);',
  'CREATE TABLE gpt02_private.operator_links(link_id uuid PRIMARY KEY,command_id uuid UNIQUE REFERENCES gpt02_private.approvals(command_id),company_id text NOT NULL CHECK(company_id=\'default\'),hub_task_id int NOT NULL CHECK(hub_task_id>136),attempt_id uuid UNIQUE NOT NULL,attempt_number int NOT NULL CHECK(attempt_number=1),hub_execution_id uuid UNIQUE NOT NULL,core_task_id uuid NOT NULL,claims jsonb NOT NULL);',
  'CREATE TABLE gpt02_private.receipts(id uuid PRIMARY KEY,command_id uuid UNIQUE NOT NULL REFERENCES gpt02_private.approvals(command_id),nonce text,digest text,UNIQUE(id,command_id));',
  'CREATE TABLE gpt02_private.core_identity_receipts(receipt_id uuid PRIMARY KEY,command_id uuid UNIQUE NOT NULL,link_id uuid UNIQUE NOT NULL,FOREIGN KEY(receipt_id,command_id) REFERENCES gpt02_private.receipts(id,command_id),FOREIGN KEY(link_id) REFERENCES gpt02_private.operator_links(link_id));',
@@ -42,6 +42,59 @@ const query=[
  "SELECT expected.tablename||':'||CASE WHEN expected.qual=actual.qual THEN 'MATCH' ELSE 'DRIFT' END",
  ' FROM expected JOIN actual USING(tablename) ORDER BY expected.tablename;'
 ].join('\n');
+
+
+// Fixture rows are synthetic; no live task, signer, nonce, or credential is used.
+// This checks behavior under the actual candidate SQL, not only pg_policies text.
+const behavior=[
+ 'GRANT USAGE ON SCHEMA gpt02_private TO gpt02_issuer_evidence_reader;',
+ 'GRANT SELECT(command_id,nonce,digest,company_id,task_id,claims) ON gpt02_private.approvals TO gpt02_issuer_evidence_reader;',
+ 'GRANT SELECT(link_id,command_id,company_id,hub_task_id,attempt_number,attempt_id,hub_execution_id,core_task_id,claims) ON gpt02_private.operator_links TO gpt02_issuer_evidence_reader;',
+ 'GRANT SELECT(id,command_id,nonce,digest) ON gpt02_private.receipts TO gpt02_issuer_evidence_reader;',
+ 'GRANT SELECT(receipt_id,command_id,link_id) ON gpt02_private.core_identity_receipts TO gpt02_issuer_evidence_reader;',
+ 'GRANT SELECT(receipt_id,command_id,link_id,attempt_id,hub_execution_id,core_task_id) ON gpt02_private.post_consumption_fences TO gpt02_issuer_evidence_reader;',
+ 'INSERT INTO gpt02_private.approvals(command_id,nonce,digest,signature,company_id,task_id,claims)',
+ " SELECT ('00000000-0000-4000-8000-'||lpad(task_id::text,12,'0'))::uuid,",
+ " 'nonce'||task_id,'digest'||task_id,'synthetic-private','default',task_id,",
+ " jsonb_build_object('environment',CASE WHEN task_id=151 THEN 'PROD' ELSE 'DEV' END)",
+ ' FROM (VALUES(149),(150),(151),(152)) AS tasks(task_id);',
+ 'INSERT INTO gpt02_private.operator_links(link_id,command_id,company_id,hub_task_id,attempt_id,attempt_number,hub_execution_id,core_task_id,claims)',
+ " SELECT ('10000000-0000-4000-8000-'||lpad(task_id::text,12,'0'))::uuid,",
+ " ('00000000-0000-4000-8000-'||lpad(task_id::text,12,'0'))::uuid,",
+ " 'default',task_id,('30000000-0000-4000-8000-'||lpad(task_id::text,12,'0'))::uuid,1,",
+ " ('40000000-0000-4000-8000-'||lpad(task_id::text,12,'0'))::uuid,",
+ " ('50000000-0000-4000-8000-'||lpad(task_id::text,12,'0'))::uuid,",
+ " jsonb_build_object('environment',CASE WHEN task_id=151 THEN 'PROD' ELSE 'DEV' END)",
+ ' FROM (VALUES(149),(150),(151),(152)) AS tasks(task_id);',
+ 'INSERT INTO gpt02_private.receipts(id,command_id,nonce,digest)',
+ " SELECT ('20000000-0000-4000-8000-'||lpad(task_id::text,12,'0'))::uuid,",
+ " ('00000000-0000-4000-8000-'||lpad(task_id::text,12,'0'))::uuid,",
+ " CASE WHEN task_id=150 THEN 'INVALID_NONCE' ELSE 'nonce'||task_id END,'digest'||task_id",
+ ' FROM (VALUES(149),(150),(151),(152)) AS tasks(task_id);',
+ 'INSERT INTO gpt02_private.core_identity_receipts(receipt_id,command_id,link_id)',
+ ' SELECT r.id,r.command_id,l.link_id FROM gpt02_private.receipts r',
+ ' JOIN gpt02_private.operator_links l USING(command_id);',
+ 'INSERT INTO gpt02_private.post_consumption_fences(fence_id,receipt_id,command_id,link_id,attempt_id,hub_execution_id,core_task_id)',
+ " SELECT ('60000000-0000-4000-8000-'||right(r.id::text,12))::uuid,",
+ ' r.id,r.command_id,l.link_id,l.attempt_id,l.hub_execution_id,l.core_task_id',
+ ' FROM gpt02_private.receipts r JOIN gpt02_private.operator_links l USING(command_id);',
+ 'SET ROLE gpt02_issuer_evidence_reader;',
+ "SELECT 'approval_tasks:'||string_agg(task_id::text,',' ORDER BY task_id) FROM gpt02_private.approvals;",
+ "SELECT 'receipts:'||count(*) FROM gpt02_private.receipts;",
+ "SELECT 'identity_receipts:'||count(*) FROM gpt02_private.core_identity_receipts;",
+ "SELECT 'fences:'||count(*) FROM gpt02_private.post_consumption_fences;",
+ "SELECT 'signature_read:'||has_column_privilege(current_user,'gpt02_private.approvals','signature','SELECT');",
+ "SELECT 'receipt_write:'||has_table_privilege(current_user,'gpt02_private.receipts','UPDATE');",
+ 'RESET ROLE;'
+].join('\n');
+const expectedBehavior=[
+ 'approval_tasks:149,150,152',
+ 'receipts:2',
+ 'identity_receipts:2',
+ 'fences:2',
+ 'signature_read:false',
+ 'receipt_write:false'
+];
 
 test('PG17 normalizes scoped issuer policies exactly; never opens runtime authority',async t=>{
  const name='gpt02-rls-pg17-'+process.pid+'-'+randomBytes(3).toString('hex');
@@ -63,4 +116,7 @@ test('PG17 normalizes scoped issuer policies exactly; never opens runtime author
  const result=docker(['exec','-i',name,'psql','-X','-U','postgres','-d','postgres','-Atq',
   '-v','ON_ERROR_STOP=1'],{input:schema+'\n'+policies+'\n'+query});
  assert.deepEqual(result.split('\n'),tables.map(x=>x+':MATCH'),'PG17_SCOPED_RLS_POLICY_DRIFT');
+ const visible=docker(['exec','-i',name,'psql','-X','-U','postgres','-d','postgres','-Atq',
+  '-v','ON_ERROR_STOP=1'],{input:behavior});
+ assert.deepEqual(visible.split('\n'),expectedBehavior,'PG17_RLS_SCOPE_OR_PRIVILEGE_DRIFT');
 });
