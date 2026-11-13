@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import {EXPECTED_COLUMNS,QUERY,readinessReport,verifyIssuerReaderReadiness}
+import {EXPECTED_COLUMNS,QUERY,EXPECTED_SCOPED_ISSUER_EVIDENCE_QUALS,readinessReport,verifyIssuerReaderReadiness}
  from './gpt02-issuer-reader-readiness.mjs';
 
 const row=(patch={})=>({
@@ -132,4 +132,11 @@ test('native issuer proof must reject obsolete all-rows RLS before release',asyn
  const native=await readFile(new URL('./gpt02-issuer-native-reader-proof-once.sh',import.meta.url),'utf8');
  assert.equal(/p\.qual\s*=\s*'true'/i.test(native),false,
   'NATIVE_PROOF_STILL_ACCEPTS_UNSCOPED_USING_TRUE: requires independently reviewed native-proof update');
+ for(const [table,canonicalQual] of Object.entries(EXPECTED_SCOPED_ISSUER_EVIDENCE_QUALS)){
+   const expectedSqlLiteral=canonicalQual.replaceAll("'", "''");
+   assert.ok(native.includes(
+     "(p.tablename='"+table+"' AND regexp_replace(p.qual, '[[:space:]]+', ' ', 'g')='"+expectedSqlLiteral+"')"),
+     'NATIVE_PROOF_SCOPED_POLICY_MISMATCH_'+table);
+ }
+
 });
