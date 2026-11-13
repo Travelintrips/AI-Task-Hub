@@ -1,0 +1,11 @@
+services:
+  app:
+    volumes:
+      - type: bind
+        source: ${GPT02_PUBLIC_TRUST_DIR_HOST:-/run/credentials/gpt02-dev}
+        target: /run/credentials/gpt02-dev
+        read_only: true
+      - type: bind
+        source: ${GPT02_PUBLIC_TRUST_CONFIG_DIR_HOST:-/etc/gpt02-dev}
+        target: /etc/gpt02-dev
+        read_only: true

@@ -46,7 +46,7 @@ export function createOperatorLinkVerifier({hubPublicKeyPem,corePublicKeyPem}={}
   const payload=canonicalOperatorLink(proof.claims),c=JSON.parse(payload);
   const hubSignature=proof.hubSignatureBase64url,coreSignature=proof.coreSignatureBase64url;
   if(!Number.isSafeInteger(now)||now<0||c.v!==1||c.environment!=='DEV'||c.audience!=='GPT02_DUAL_ACCOUNT_COMMAND_LINK'||
-   !int32(c.hubTaskId)||c.hubTaskId===135||!int32(c.coreOperatorUserId)||!int32(c.assigneeId)||c.attemptNumber!==1||
+   !int32(c.hubTaskId)||c.hubTaskId<=136||!int32(c.coreOperatorUserId)||!int32(c.assigneeId)||c.attemptNumber!==1||
    c.companyId!=='default'||c.hubOperatorNamespace!=='ai-task-hub.public.users'||
    c.coreOperatorNamespace!=='ai-core.ai_platform.internal_users'||typeof c.hubOperatorId!=='string'||!SUBJECT.test(c.hubOperatorId)||
    typeof c.accountableOwnerId!=='string'||!SUBJECT.test(c.accountableOwnerId)||
