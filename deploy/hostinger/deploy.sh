@@ -39,8 +39,29 @@ fi
 
 cd "$APP_ROOT"
 git fetch origin "$BRANCH"
+
+# Development release workflows pin a CI-verified SHA, even if develop moves
+# between the initial SSH checkout and this script's own git refresh.
+# This is opt-in for DEV; production source checkout remains unchanged.
+if [ "$TARGET" = "development" ] && [ -n "${AI_TASK_DEV_EXPECTED_SHA:-}" ]; then
+  if [[ ! "$AI_TASK_DEV_EXPECTED_SHA" =~ ^[a-f0-9]{40}$ ]]; then
+    echo "DEV_RELEASE_SHA_INVALID" >&2
+    exit 1
+  fi
+  if [ "$(git rev-parse "origin/$BRANCH")" != "$AI_TASK_DEV_EXPECTED_SHA" ]; then
+    echo "DEV_RELEASE_SHA_CHANGED_DURING_DEPLOY" >&2
+    exit 1
+  fi
+fi
+
 git checkout -B "$BRANCH" "origin/$BRANCH"
 git reset --hard "origin/$BRANCH"
+
+if [ "$TARGET" = "development" ] && [ -n "${AI_TASK_DEV_EXPECTED_SHA:-}" ] &&
+   [ "$(git rev-parse HEAD)" != "$AI_TASK_DEV_EXPECTED_SHA" ]; then
+  echo "DEV_RELEASE_HEAD_MISMATCH_AFTER_CHECKOUT" >&2
+  exit 1
+fi
 
 set -a
 . "$COMPOSE_ENV"
