@@ -56,3 +56,34 @@ transaction. Verify readback and preserve NOLOGIN.
 This patch alone does not enable Task #171 preparation or dispatch. Other
 issuer/approval/nonce work (#172, #177) and release gating (#179) remain
 separate blockers. Task #171 and PIC must be reused, not recreated.
+
+## Guarded hosted migration package (follow-up)
+
+- Atomic, baseline-fingerprint pinned candidate:
+  scripts/dev/gpt02-preparer-wrapper-guarded-atomic-dev.sql.
+- Original wrapper definition for reviewed emergency rollback:
+  scripts/dev/gpt02-preparer-wrapper-baseline-rollback-dev.sql.
+- Isolated full migration fixture:
+  scripts/dev/test-gpt02-preparer-guarded-migration-isolated.sh.
+
+The migration begins with the exact live SHA-256 of the old function,
+exact role owner and EXECUTE ACL, the original restricted internal function,
+a dedicated preparer with NOLOGIN/zero sessions/expired password, no unexpired
+preparations and zero Task #171 execution/preparation. The DO preflight fails
+closed on any change. It executes CREATE OR REPLACE FUNCTION once inside
+a bounded transaction and verifies its new task-bound clauses, owner,
+unchanged ACL, and locked account BEFORE COMMIT.
+
+Synthetic PostgreSQL 16 proof used a dedicated existing wrapper with the
+exact same ACL shape; replaced the pinned baseline hash and database name
+with fixture-local values ONLY for that isolated run. An intentionally bad
+fingerprint rolled back without changing the old function; the correct
+migration preserved owner and ACL; repeated application was rejected; no
+Core command or role activation occurred.
+
+The reviewed migration must NEVER be run from an active generic dashboard
+app session or under the dedicated preparer. If the actual hosted baseline
+differs, stop rather than overwriting unexpected code. A rollback must pin
+the post-migration function SHA before executing the preserved baseline.
+No automatic login, database password rotation or external dispatch is
+included.

@@ -114,6 +114,8 @@ jobs:
           node --test scripts/dev/gpt02-preparer-instruction-bound-wrapper.contract.test.mjs
           bash -n scripts/dev/test-gpt02-preparer-instruction-bound-wrapper-isolated.sh
           bash scripts/dev/test-gpt02-preparer-instruction-bound-wrapper-isolated.sh
+          bash -n scripts/dev/test-gpt02-preparer-guarded-migration-isolated.sh
+          bash scripts/dev/test-gpt02-preparer-guarded-migration-isolated.sh
           node --test scripts/dev/gpt02-preparer-dedicated-login-readonly.test.mjs
       - name: Reject mismatched future Core preparation and signed Hub/Core proof
         run: |
