@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Local-only regression: no real git remote, SSH, database, or Docker.
-HERE="$(cd -- "$(dirname -- "\${BASH_SOURCE[0]}")" && pwd)"
+HERE="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "$HERE/../.." && pwd)"
 DEPLOY_SCRIPT="$REPO_ROOT/deploy/hostinger/deploy.sh"
 test -f "$DEPLOY_SCRIPT"
@@ -14,8 +14,8 @@ mkdir -p "$tmp/bin" "$tmp/app/.git"
 
 cat > "$tmp/bin/git" <<'GIT'
 #!/usr/bin/env bash
-if [[ "\${1:-}" == "rev-parse" ]]; then
-  printf '%s\n' "\${MOCK_ORIGIN_SHA:-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb}"
+if [[ "${1:-}" == "rev-parse" ]]; then
+  printf '%s\n' "${MOCK_ORIGIN_SHA:-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb}"
 fi
 exit 0
 GIT
