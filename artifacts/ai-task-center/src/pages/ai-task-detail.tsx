@@ -613,6 +613,25 @@ export default function AiTaskDetail() {
     onError: (err: Error) => toast({title:"Gagal menetapkan PIC GPT02",description:err.message,variant:"destructive"}),
   });
 
+  // A DEV-only audited correction for a known historical bridge placeholder.
+  // This edits the existing task, never prepares/dispatches a GPT02 command.
+  const gpt02RepairInstructionMutation = useMutation({
+    mutationFn: () => apiFetch(
+      `/ai-tasks/${id}/gpt02-replace-historical-reference?companyId=${encodeURIComponent(task?.companyId ?? "")}`,
+      { method: "POST",
+        headers: { "X-GPT02-Intent": "replace-historical-reference" },
+        body: JSON.stringify({replaceHistoricalReference:true}) }),
+    onSuccess: () => {
+      toast({title:"Instruksi E2E Task diperbaiki",
+        description:"Judul dan instruksi baru dicatat dengan audit. Belum ada command, worker, atau izin dispatch."});
+      void queryClient.invalidateQueries({queryKey:["ai-task",id]});
+      void queryClient.invalidateQueries({queryKey:["gpt02-lineage",id]});
+    },
+    onError: (err: Error) => toast({
+      title:"Koreksi instruksi GPT02 ditolak",description:err.message,variant:"destructive",
+    }),
+  });
+
   const [reconciliationRequested, setReconciliationRequested] = useState(false);
   const { data: reconciliation, isFetching: reconciliationFetching, error: reconciliationError, refetch: checkReconciliation } = useQuery<{
     status: string; matchCount: number; uniqueCommandMatch: boolean; commandId: string | null;
@@ -1185,6 +1204,26 @@ export default function AiTaskDetail() {
         </div>
         {!gpt02PicOptions?.assignmentReady && <p role="status" className="mt-2 text-xs text-amber-700">Tentukan PIC aktif berdasarkan ID melalui Super Admin DEV. Nama saja tidak mengizinkan lifecycle GPT02.</p>}
         {gpt02PicOptions?.assignmentReady && !gpt02PicAudit?.auditMatchesCurrent && <p role="status" className="mt-2 text-xs text-amber-700">Audit PIC belum cocok. Tidak mengizinkan lifecycle GPT02 sampai bukti penugasan dapat dibaca kembali.</p>}
+        {currentUser?.role === "super_admin" &&
+          gpt02PicAudit?.auditMatchesCurrent && !executionData?.execution &&
+          /^AI Core bridge command [a-f0-9]{8}$/i.test(task.title) && (
+          <div className="mt-3 rounded-lg border border-amber-200 bg-white p-3 space-y-2">
+            <p className="text-xs text-amber-800">
+              Instruksi Task ini masih menunjuk ke command historis, bukan pekerjaan GPT02 baru.
+              Perbaikan aman hanya mengubah judul dan instruksi Task yang sama dengan audit;
+              tidak mengirim job atau membuka Run Worker.
+            </p>
+            <Button type="button" variant="outline" size="sm"
+              disabled={gpt02RepairInstructionMutation.isPending}
+              onClick={() => {
+                if (window.confirm(`Ganti referensi command lama pada Task #${task.id} menjadi instruksi uji GPT02 DEV baru? Tidak ada dispatch atau persetujuan worker.`))
+                  gpt02RepairInstructionMutation.mutate();
+              }}>
+              {gpt02RepairInstructionMutation.isPending ? "Mencatat koreksi..." :
+                "Perbaiki instruksi Task ini (tanpa dispatch)"}
+            </Button>
+          </div>
+        )}
         {currentUser?.role === "super_admin" && (
           <section data-testid="gpt02-operator-readiness" aria-label="Kesiapan persetujuan operator GPT02"
             className="mt-3 rounded-lg border border-slate-200 bg-white p-3 text-xs space-y-2">

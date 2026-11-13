@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import {assessGpt02PreparationAdmission as assess} from '../src/lib/gpt02-preparation-admission.mjs';
+import {
+  assessGpt02PreparationAdmission as assess,
+  assessGpt02HistoricalInstructionRepair as repair,
+} from '../src/lib/gpt02-preparation-admission.mjs';
 
 const task={
   id:171,companyId:'default',source:'manual',title:'GPT02 DEV E2E Task #171',
@@ -81,4 +84,63 @@ test('route is off by default, super admin + same origin + intent + scoped pool 
   for(const forbidden of ['submitAiTaskCommand(', 'submitAiTaskChatGptCommand(',
     'createCommand(', 'startExecutionMutation(', 'process.env.SUPABASE_DATABASE_URL_DEV'])
     assert.equal(route.includes(forbidden),false,forbidden);
+});
+
+test('exact historical placeholder for Task #171 can be replaced as audited edit, never dispatched',()=>{
+  const old='AI Core bridge command 057d9f3d';
+  const r=repair({...good,task:{...task,title:old,description:old}});
+  assert.equal(r.eligible,true);
+  assert.equal(r.taskId,171);
+  assert.equal(r.title,'GPT02 DEV fresh E2E Task #171');
+  assert.match(r.description,/GPT02_DEV_E2E_171_ACK/);
+  assert.doesNotMatch(r.description,/057d9f3[cd]/i);
+  assert.equal(r.operatorApprovalGranted,false);
+  assert.equal(r.dispatchPermitted,false);
+  assert.equal(assess({...good,task:{...task,title:r.title,description:r.description}}).eligible,true);
+});
+test('only exact old placeholder can be rewritten, not an arbitrary task',()=>{
+  const old='AI Core bridge command 057d9f3d';
+  for(const patch of [
+    {title:'Something else',description:old},
+    {title:old,description:'Different body'},
+    {title:'AI Core bridge command '+ 'f'.repeat(32),description:'AI Core bridge command '+ 'f'.repeat(32)},
+    {title:task.title,description:task.description},
+    {title:old,description:old+' extra'},
+  ]) {
+    const r=repair({...good,task:{...task,...patch}});
+    assert.equal(r.eligible,false);
+    assert.equal(r.reason,'HISTORICAL_PLACEHOLDER_NOT_VERIFIED');
+  }
+});
+test('no cross-tenant edits, PIC mismatch, or replays can repair an instruction',()=>{
+  const old='AI Core bridge command 057d9f3d';
+  const input={...good,task:{...task,title:old,description:old}};
+  for(const patch of [
+    {companyId:'other'},{actor:{...actor,role:'user'}},
+    {member:{...member,id:4}},{existingExecutionCount:1},
+    {audit:{...audit,after:JSON.stringify({...payload,memberId:4})}},
+  ]) {
+    const r=repair({...input,...patch});
+    assert.equal(r.eligible,false);
+    assert.equal(r.dispatchPermitted,false);
+  }
+});
+test('instruction repair route updates only existing task under audit transaction',async()=>{
+  const route=await readFile(new URL('../src/routes/gpt02-preparation.ts',import.meta.url),'utf8');
+  for(const required of ['gpt02-replace-historical-reference','replace-historical-reference',
+    'replaceHistoricalReference!==true','db.transaction(async (tx)','pg_advisory_xact_lock',
+    'assessGpt02HistoricalInstructionRepair','eq(aiTasksTable.title,task.title)',
+    'eq(aiTasksTable.status,"new_inquiry")','gpt02_e2e_instruction_replaced',
+    'commandDispatched:false'])
+      assert.ok(route.includes(required),required);
+  for(const forbidden of ['submitAiTaskCommand(', 'submitAiTaskChatGptCommand(', 'executeWorker('])
+    assert.ok(!route.includes(forbidden),forbidden);
+});
+test('Super Admin UI correction is explicit, confirmation-gated, and non-dispatching',async()=>{
+  const ui=await readFile(new URL('../../ai-task-center/src/pages/ai-task-detail.tsx',import.meta.url),'utf8');
+  for(const value of ['gpt02RepairInstructionMutation','replaceHistoricalReference:true',
+    'X-GPT02-Intent','replace-historical-reference','window.confirm(',
+    'gpt02PicAudit?.auditMatchesCurrent','!executionData?.execution',
+    'Perbaiki instruksi Task ini (tanpa dispatch)'])
+    assert.ok(ui.includes(value),value);
 });

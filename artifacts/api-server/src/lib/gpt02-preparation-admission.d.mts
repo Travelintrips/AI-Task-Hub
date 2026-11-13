@@ -13,3 +13,9 @@ export declare function assessGpt02PreparationAdmission(args:{
   audit:PreparationAudit|null;actor:PreparationActor|null;companyId:string;
   existingExecutionCount?:number
 }):PreparationResult;
+
+export declare function assessGpt02HistoricalInstructionRepair(args:{
+  task:PreparationTask|null;member:{id:number;name:string;isActive:boolean}|null;
+  audit:PreparationAudit|null;actor:PreparationActor|null;companyId:string;
+  existingExecutionCount?:number
+}):PreparationResult & {title?:string;description?:string};

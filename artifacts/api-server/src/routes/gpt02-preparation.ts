@@ -1,12 +1,14 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { Pool } from "pg";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import {
   aiExecutionJobsTable, aiTasksTable, teamMembersTable, auditLogsTable, db,
 } from "@workspace/db";
 import { getCompanyIdForWrite, requireAuth } from "../middleware/auth";
 import { logger } from "../lib/logger";
-import { assessGpt02PreparationAdmission } from "../lib/gpt02-preparation-admission.mjs";
+import {
+  assessGpt02PreparationAdmission, assessGpt02HistoricalInstructionRepair,
+} from "../lib/gpt02-preparation-admission.mjs";
 import { createCoreTaskPreparer } from "../lib/gpt02-core-task-preparation.mjs";
 
 const router: IRouter = Router();
@@ -112,6 +114,102 @@ router.post("/ai-tasks/:id/gpt02-prepare", requireAuth,
       error:"GPT02_PREPARATION_UNAVAILABLE",prepared:false,
       operatorApprovalGranted:false,dispatchPermitted:false,
     });
+  }
+});
+// Explicit one-time repair for a verified historical command placeholder.
+// This only updates the existing task's title and instruction, with an atomic
+// audit record. It NEVER touches execution, Core commands, grants or workers.
+router.post("/ai-tasks/:id/gpt02-replace-historical-reference", requireAuth,
+  async (req: Request, res: Response): Promise<void> => {
+  res.setHeader("Cache-Control", "no-store");
+  if (process.env.NODE_ENV!=="development" || process.env.APP_ENV!=="development") {
+    res.sendStatus(404);return;
+  }
+  if (req.user?.role!=="super_admin") {
+    res.status(403).json({error:"SUPER_ADMIN_REQUIRED",dispatchPermitted:false});return;
+  }
+  try {
+    const origin=new URL(req.get("origin")??"");
+    if (origin.protocol!=="https:" || !req.get("host") || origin.host!==req.get("host")) {
+      res.status(403).json({error:"SAME_ORIGIN_REQUIRED",dispatchPermitted:false});return;
+    }
+  } catch {
+    res.status(403).json({error:"SAME_ORIGIN_REQUIRED",dispatchPermitted:false});return;
+  }
+  if (req.get("x-gpt02-intent")!=="replace-historical-reference" ||
+      !req.body || typeof req.body!=="object" || Array.isArray(req.body) ||
+      Object.keys(req.body).length!==1 || req.body.replaceHistoricalReference!==true) {
+    res.status(400).json({error:"EXPLICIT_REPLACEMENT_INTENT_REQUIRED",dispatchPermitted:false});return;
+  }
+  const taskId=Number(req.params.id), companyId=getCompanyIdForWrite(req);
+  if (!Number.isSafeInteger(taskId) || taskId<=136 || companyId!=="default") {
+    res.status(400).json({error:"FRESH_DEV_TASK_SCOPE_REQUIRED",dispatchPermitted:false});return;
+  }
+  try {
+    const result=await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${companyId} || ':' || ${taskId}::text, 0))`);
+      const [task]=await tx.select({
+        id:aiTasksTable.id,companyId:aiTasksTable.companyId,status:aiTasksTable.status,
+        source:aiTasksTable.source,title:aiTasksTable.title,description:aiTasksTable.description,
+        assignedToId:aiTasksTable.assignedToId,assignedTo:aiTasksTable.assignedTo,
+      }).from(aiTasksTable)
+        .where(and(eq(aiTasksTable.id,taskId),eq(aiTasksTable.companyId,companyId))).limit(1);
+      const [member]=task?.assignedToId
+        ? await tx.select({id:teamMembersTable.id,name:teamMembersTable.name,isActive:teamMembersTable.isActive})
+          .from(teamMembersTable)
+          .where(and(eq(teamMembersTable.id,task.assignedToId),
+            eq(teamMembersTable.companyId,companyId))).limit(1)
+        : [];
+      const [audit]=await tx.select({
+        id:auditLogsTable.id,after:auditLogsTable.after,userEmail:auditLogsTable.userEmail,
+      }).from(auditLogsTable)
+        .where(and(eq(auditLogsTable.companyId,companyId),eq(auditLogsTable.entityId,taskId),
+          eq(auditLogsTable.action,"gpt02_pic_assigned")))
+        .orderBy(desc(auditLogsTable.createdAt),desc(auditLogsTable.id)).limit(1);
+      const existing=await tx.select({id:aiExecutionJobsTable.id}).from(aiExecutionJobsTable)
+        .where(and(eq(aiExecutionJobsTable.companyId,companyId),eq(aiExecutionJobsTable.taskId,taskId)))
+        .limit(1);
+      const accepted=assessGpt02HistoricalInstructionRepair({
+        task:task??null,member:member??null,audit:audit??null,
+        actor:req.user ? {id:req.user.id,email:req.user.email,role:req.user.role} : null,
+        companyId,existingExecutionCount:existing.length,
+      });
+      if (!accepted.eligible || !accepted.title || !accepted.description || !task)
+        return {updated:false,reason:accepted.reason};
+      const [updated]=await tx.update(aiTasksTable)
+        .set({title:accepted.title,description:accepted.description})
+        .where(and(eq(aiTasksTable.id,taskId),eq(aiTasksTable.companyId,companyId),
+          eq(aiTasksTable.title,task.title),
+          eq(aiTasksTable.description,task.description ?? ""),
+          eq(aiTasksTable.status,"new_inquiry"),
+          eq(aiTasksTable.assignedToId,task.assignedToId!)))
+        .returning({id:aiTasksTable.id});
+      if (!updated)return {updated:false,reason:"TASK_MODIFIED_CONCURRENTLY"};
+      await tx.insert(auditLogsTable).values({
+        action:"gpt02_e2e_instruction_replaced",module:"ai_tasks",
+        entityType:"ai_task",entityId:taskId,companyId,userId:req.user!.id,
+        userEmail:req.user!.email,userName:req.user!.name,
+        before:JSON.stringify({title:task.title,description:task.description}),
+        after:JSON.stringify({
+          title:accepted.title,description:accepted.description,
+          picAssignmentAuditId:accepted.auditId,operatorApprovalGranted:false,
+          dispatchPermitted:false,commandDispatched:false,
+        }),
+      });
+      return {updated:true,reason:"HISTORICAL_REFERENCE_REPLACED",
+        taskId,title:accepted.title,description:accepted.description,
+        prepared:false,operatorApprovalGranted:false,dispatchPermitted:false,
+        commandDispatched:false};
+    });
+    if (!result.updated) {
+      res.status(409).json({error:result.reason,updated:false,dispatchPermitted:false});return;
+    }
+    res.status(200).json(result);
+  } catch {
+    logger.warn({taskId,code:"GPT02_INSTRUCTION_REPAIR_UNAVAILABLE"},
+      "Scoped GPT02 task instruction repair failed closed");
+    res.status(503).json({error:"GPT02_INSTRUCTION_REPAIR_UNAVAILABLE",
+      updated:false,dispatchPermitted:false});
   }
 });
 export default router;
