@@ -37,6 +37,19 @@ run_dev() {
     bash "$DEPLOY_SCRIPT" development
 }
 
+# A direct DEV invocation without a verified SHA must fail before git/Docker.
+set +e
+missing_output="$(env -u AI_TASK_DEV_EXPECTED_SHA PATH="$tmp/bin:$PATH" AI_TASK_APP_ROOT="$tmp/app" AI_TASK_COMPOSE_ENV="$tmp/compose.env" bash "$DEPLOY_SCRIPT" development 2>&1)"
+missing_status=$?
+bad_output="$(env PATH="$tmp/bin:$PATH" AI_TASK_APP_ROOT="$tmp/app" AI_TASK_COMPOSE_ENV="$tmp/compose.env" AI_TASK_DEV_EXPECTED_SHA="not-a-valid-sha" bash "$DEPLOY_SCRIPT" development 2>&1)"
+bad_status=$?
+set -e
+[[ "$missing_status" -ne 0 && "$bad_status" -ne 0 ]] || { echo 'DEV_SHA_MISSING_OR_INVALID_ACCEPTED' >&2; exit 1; }
+grep -q 'DEV_RELEASE_EXPECTED_SHA_REQUIRED' <<<"$missing_output"
+grep -q 'DEV_RELEASE_EXPECTED_SHA_REQUIRED' <<<"$bad_output"
+! grep -q 'UNEXPECTED_DOCKER_EXECUTED' <<<"$missing_output"
+! grep -q 'UNEXPECTED_DOCKER_EXECUTED' <<<"$bad_output"
+
 set +e
 wrong_output="$(run_dev bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb 2>&1)"
 wrong_status=$?
@@ -56,4 +69,4 @@ grep -q 'Missing application env file' <<<"$matching_output"
 ! grep -q 'DEV_RELEASE_SHA_CHANGED_DURING_DEPLOY' <<<"$matching_output"
 ! grep -q 'UNEXPECTED_DOCKER_EXECUTED' <<<"$matching_output"
 
-echo 'ISOLATED_DEV_SHA_PIN_PASS: mismatch rejected; match reaches next preflight; zero Docker calls'
+echo 'ISOLATED_DEV_SHA_PIN_PASS: missing/invalid SHA and mismatch rejected; match reaches next preflight; zero Docker calls'
