@@ -262,11 +262,35 @@ jobs:
             -o ServerAliveCountMax=30 \
             -o TCPKeepAlive=yes \
             "$USERNAME@$HOST" 'IFS= read -r SUPABASE_DATABASE_URL; IFS= read -r SUPABASE_URL; IFS= read -r SUPABASE_ANON_KEY; IFS= read -r SUPABASE_SERVICE_ROLE_KEY; IFS= read -r OPENAI_API_KEY; IFS= read -r APP_ROOT; export SUPABASE_DATABASE_URL SUPABASE_URL SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY OPENAI_API_KEY APP_ROOT; bash -s'
-  deploy-development:
-    needs: verify
+  dev-ci-release-gate:
+    name: Require exact-SHA full DEV Verify before Hostinger deployment
     if: >-
       (github.event_name == 'workflow_dispatch' && inputs.target == 'development') ||
       (github.event_name == 'push' && github.ref_name == 'develop' && vars.HOSTINGER_AUTO_DEPLOY == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify fail-closed DEV release gate regressions
+        run: node --test scripts/dev/verify-hostinger-dev-ci-run.test.mjs
+      - name: Require exact develop SHA full AI Task DEV Verify SUCCESS
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/dev/verify-hostinger-dev-ci-run.mjs
+
+  deploy-development:
+    needs: [verify, dev-ci-release-gate]
+    if: >-
+      needs.verify.result == 'success' &&
+      needs.dev-ci-release-gate.result == 'success' &&
+      ((github.event_name == 'workflow_dispatch' && inputs.target == 'development') ||
+       (github.event_name == 'push' && github.ref_name == 'develop' && vars.HOSTINGER_AUTO_DEPLOY == 'true'))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: development
