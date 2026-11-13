@@ -63,7 +63,13 @@ function fixture(taskId=137){
 
 const facts=x=>({
  prepared:x.prepared,job:x.job,core:x.core,hubOperator:x.hubOperator,
+ hubAssignment:{action:'gpt02_pic_assigned',entityId:String(x.prepared.hubTaskId),
+  actorId:x.hubOperator.subject,actorRole:'super_admin',actorActive:true},
  observedAt:now-100,
+ trustedReadProof:{source:'gpt02-issue159-reader',environment:'DEV',
+  hubRole:'gpt02_hub_evidence_reader',coreRole:'gpt02_core_evidence_reader',
+  separateBackends:true,clientTlsVerified:true,readOnly:true,
+  dispatchPermitted:false,signingPermitted:false},
  storedEvidence:{
   approval:{claims:x.proof.approval.claims,
     signatureBase64url:x.proof.approval.signatureBase64url,
@@ -117,6 +123,15 @@ for(const [label,patch] of [
  ['existing worker command',x=>({...x,core:{...x.core,commandCount:1}})],
  ['stale signed source',x=>({...x,observedAt:now-3000})],
  ['future timestamp',x=>({...x,observedAt:now+100})],
+ ['reader proof without TLS',x=>({...x,trustedReadProof:{...x.trustedReadProof,clientTlsVerified:false}})],
+ ['reader proof permits signing',x=>({...x,trustedReadProof:{...x.trustedReadProof,signingPermitted:true}})],
+ ['reader proof permits dispatch',x=>({...x,trustedReadProof:{...x.trustedReadProof,dispatchPermitted:true}})],
+ ['reader proof has one backend',x=>({...x,trustedReadProof:{...x.trustedReadProof,separateBackends:false}})],
+ ['reader proof without read-only session',x=>({...x,trustedReadProof:{...x.trustedReadProof,readOnly:false}})],
+ ['reader proof wrong source',x=>({...x,trustedReadProof:{...x.trustedReadProof,source:'caller'}})],
+ ['PIC assignment wrong task',x=>({...x,hubAssignment:{...x.hubAssignment,entityId:'another-task'}})],
+ ['PIC assignment wrong actor',x=>({...x,hubAssignment:{...x.hubAssignment,actorId:'different-operator'}})],
+ ['PIC assignment inactive',x=>({...x,hubAssignment:{...x.hubAssignment,actorActive:false}})],
  ['absent signed facts',()=>({})]
 ])test('deny '+label+' BEFORE issuing restricted nonce consumption',async()=>{
  const x=fixture(),{consumer,calls}=setup(x,patch);
