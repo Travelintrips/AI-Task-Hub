@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { readFile } from 'node:fs/promises';
 import assert from 'node:assert/strict';
 import { classifyFullDevRun, assertFullDevJobPassed, requireFullDevRun } from './verify-hostinger-dev-ci-run.mjs';
 
@@ -151,4 +152,28 @@ test('waits for the real full run rather than trusting earlier lightweight green
   assert.equal(result.verifiedRunId, 51);
   assert.equal(count, 3);
   assert.equal(slept, 2);
+});
+
+test('Hostinger DEV deployment must preserve exact SHA across both git fetches', async () => {
+  const workflow = await readFile(
+    new URL('../../.github/workflows/hostinger-deploy.yml', import.meta.url), 'utf8'
+  );
+  const deploy = await readFile(
+    new URL('../../deploy/hostinger/deploy.sh', import.meta.url), 'utf8'
+  );
+  const development = workflow.split('\n  deploy-development:\n')[1];
+  const production = workflow.split('\n  deploy-production:\n')[1]
+    .split('\n  dev-ci-release-gate:\n')[0];
+  assert.ok(development, 'missing development deploy job');
+  assert.ok(production, 'missing production deploy job');
+  assert.match(development, /needs: \[verify, dev-ci-release-gate\]/);
+  assert.match(development, /EXPECTED_SHA: \$\{\{ github\.sha \}\}/);
+  assert.match(development, /DEV_RELEASE_SHA_CHANGED/);
+  assert.match(development, /DEV_RELEASE_HEAD_MISMATCH/);
+  assert.match(development, /AI_TASK_DEV_EXPECTED_SHA=/);
+  assert.match(development, /git reset --hard/);
+  assert.match(deploy, /if \[ "\$TARGET" = "development" \] && \[ -n/);
+  assert.match(deploy, /DEV_RELEASE_SHA_CHANGED_DURING_DEPLOY/);
+  assert.match(deploy, /DEV_RELEASE_HEAD_MISMATCH_AFTER_CHECKOUT/);
+  assert.doesNotMatch(production, /EXPECTED_SHA|AI_TASK_DEV_EXPECTED_SHA|dev-ci-release-gate/);
 });
