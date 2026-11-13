@@ -178,7 +178,11 @@ export function createPreparedNonceConsumer({
     // Never grant authority from these boolean fields: the issuer connection
     // independently authenticates, verifies signatures and atomically claims
     // the nonce against hosted immutable DB approval + signed origin rows.
-    if(trustedClock()-facts.observedAt>2000)return denied('FACTS_EXPIRED_BEFORE_CONSUMPTION');
+    const consumeAt=trustedClock();
+    if(!Number.isSafeInteger(consumeAt)||consumeAt<at)
+      return denied('UNTRUSTED_CLOCK_ROLLBACK_BEFORE_CONSUMPTION');
+    if(consumeAt-facts.observedAt>2000)
+      return denied('FACTS_EXPIRED_BEFORE_CONSUMPTION');
     const receipt=await issuerStore.consumeLinkedApproval(input);
     if(!receipt||typeof receipt.receiptId!=='string'||
        !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/.test(receipt.receiptId)||
