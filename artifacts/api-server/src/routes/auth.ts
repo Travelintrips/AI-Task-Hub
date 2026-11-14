@@ -221,7 +221,9 @@ router.post("/auth/google", async (req: Request, res: Response): Promise<void> =
       // recent actual Google OAuth, not merely a historically linked provider.
       const decoded = registeredUser.role === "super_admin" ? jwt.decode(accessToken) : null;
       const authMethods = decoded && typeof decoded === "object" ? decoded.amr : undefined;
-      const verifiedGoogleOAuthAt = recentGoogleOAuthEvidenceAt(authMethods, authUser.identities);
+      const verifiedGoogleOAuthAt = recentGoogleOAuthEvidenceAt(
+        authMethods, authUser.identities, linkedProviders,
+      );
 
       const token = signToken({
         id: registeredUser.id,
@@ -230,7 +232,11 @@ router.post("/auth/google", async (req: Request, res: Response): Promise<void> =
         companyId: registeredUser.companyId,
         name: registeredUser.name,
         ...(registeredUser.role === "super_admin" && verifiedGoogleOAuthAt !== null
-          ? { authSource: "supabase_google_identity" as const, authVerifiedAt: verifiedGoogleOAuthAt }
+          ? {
+              authSource: "supabase_google_identity" as const,
+              authSupabaseId: authUser.id,
+              authVerifiedAt: verifiedGoogleOAuthAt,
+            }
           : {}),
       });
 

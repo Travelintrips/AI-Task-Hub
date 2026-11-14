@@ -10,6 +10,7 @@ export interface AuthUser {
   name: string;
   /** Issued only by the Supabase Google-identity exchange, not DEV email login. */
   authSource?: "supabase_google_identity";
+  authSupabaseId?: string;
   authVerifiedAt?: number;
 }
 
