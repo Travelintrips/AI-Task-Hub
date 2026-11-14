@@ -30,9 +30,14 @@ test("one active profile succeeds without coercing the CST-DEV TEXT ID or nullab
   assert.equal(typeof active.id, "string");
   assert.equal(active.companyId, null);
 });
-test("a profile with a role unknown to AI Task Hub cannot obtain an app JWT", () => {
-  assert.equal(selectUniqueActiveGoogleDevProfile([{ ...active, role: "admin" }], roles), null);
+test("unique legacy admin keeps existing DEV Google login behavior without new privileges", () => {
+  assert.equal(selectUniqueActiveGoogleDevProfile([{ ...active, role: "admin" }], roles)?.role, "admin");
   assert.equal(selectUniqueActiveGoogleDevProfile([{ ...active, role: "staff" }], roles)?.role, "staff");
+  assert.equal(selectUniqueActiveGoogleDevProfile([{ ...active, role: "unrecognized" }], roles), null);
+  assert.equal(selectUniqueActiveGoogleDevProfile([{ ...active, role: "admin" }, active], roles), null);
+  assert.equal(trustedGoogleDevProfilePin({
+    ai_task_user_id: active.id, ai_task_role: "admin", ai_task_company_id: "@NULL@",
+  }, roles), "invalid");
 });
 test("blocked status or inactive account is denied even with a unique verified email", () => {
   assert.equal(selectUniqueActiveGoogleDevProfile([{ ...active, isActive: false }], roles), null);
