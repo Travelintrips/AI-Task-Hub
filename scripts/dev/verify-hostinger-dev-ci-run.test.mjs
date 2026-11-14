@@ -169,6 +169,14 @@ test('Hostinger DEV deployment must preserve exact SHA across both git fetches',
   assert.match(development, /needs: \[verify, dev-ci-release-gate\]/);
   assert.match(development, /EXPECTED_SHA: \$\{\{ github\.sha \}\}/);
   assert.match(development, /DEV_RELEASE_SHA_CHANGED/);
+  assert.match(development, /DEV_RELEASE_DIRTY_WORKTREE_BLOCKED/);
+  const statusGuardIndex = development.indexOf('git status --porcelain=v1 --untracked-files=all');
+  const checkoutIndex = development.indexOf('git checkout -B develop origin/develop');
+  const resetIndex = development.indexOf('git reset --hard');
+  assert.ok(
+    statusGuardIndex !== -1 && statusGuardIndex < checkoutIndex && checkoutIndex < resetIndex,
+    'DEV dirty worktree guard must run before destructive checkout/reset'
+  );
   assert.match(development, /DEV_RELEASE_HEAD_MISMATCH/);
   assert.match(development, /AI_TASK_DEV_EXPECTED_SHA=/);
   assert.match(development, /git reset --hard/);
