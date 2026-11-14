@@ -1,3 +1,4 @@
+import "./lib/runtime-session-secret";
 import app from "./app";
 import { logger } from "./lib/logger";
 import { startAiCoreSourceReconciliationRuntime } from "./lib/ai-core-source-reconciliation";
