@@ -211,7 +211,7 @@ router.post("/auth/google", async (req: Request, res: Response): Promise<void> =
         .from(usersTable)
         .where(sql`lower(btrim(${usersTable.email})) = ${email}`)
         .limit(2);
-      const uniqueProfile = selectUniqueActiveGoogleDevProfile(matchingProfiles);
+      const uniqueProfile = selectUniqueActiveGoogleDevProfile(matchingProfiles, USER_ROLES);
       if (!uniqueProfile) {
         res.status(403).json({ error: "Google account is not registered, active and unambiguous" });
         return;
