@@ -243,10 +243,15 @@ router.post("/ai-tasks/:id/gpt02-replace-historical-reference", requireAuth,
       if (!updated)return {updated:false,reason:"TASK_MODIFIED_CONCURRENTLY"};
       await tx.insert(auditLogsTable).values({
         action:"gpt02_e2e_instruction_replaced",module:"ai_tasks",
-        entityType:"ai_task",entityId:taskId,companyId,userId:req.user!.id,
+        // Legacy audit_logs.user_id is INTEGER while Google Super Admin IDs
+        // are text subjects. Never coerce the subject to a numeric FK.
+        // Preserve the verified acting identity in the immutable audit body.
+        entityType:"ai_task",entityId:taskId,companyId,userId:null,
         userEmail:req.user!.email,userName:req.user!.name,
         before:JSON.stringify({title:task.title,description:task.description}),
         after:JSON.stringify({
+          actorIdentity:{version:1,id:String(req.user!.id),
+            email:req.user!.email.trim().toLowerCase(),role:"super_admin"},
           title:accepted.title,description:accepted.description,
           picAssignmentAuditId:accepted.auditId,operatorApprovalGranted:false,
           dispatchPermitted:false,commandDispatched:false,

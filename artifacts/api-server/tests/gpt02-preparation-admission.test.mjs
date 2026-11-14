@@ -191,3 +191,16 @@ test('existing GPT02 lifecycle gate and worker fallback gate are unchanged',asyn
   assert.ok(route.includes('GPT02_LIFECYCLE_PRE_DISPATCH_PROOF_REQUIRED'));
   assert.ok(route.includes('GPT02_PREPARED_HUB_CORE_REQUIRES_AUTHORIZED_ISSUER'));
 });
+
+test('audited replacement preserves Google subject without inserting it into integer audit FK',async()=>{
+  const route=await readFile(new URL('../src/routes/gpt02-preparation.ts',import.meta.url),'utf8');
+  const p=route.indexOf('action:"gpt02_e2e_instruction_replaced"');
+  assert.ok(p>0,'AUDITED_TASK_REPAIR_ROUTE_REQUIRED');
+  const section=route.slice(p,p+1100);
+  assert.match(section,/entityType:"ai_task",entityId:taskId,companyId,userId:null/);
+  assert.match(section,/actorIdentity:\{version:1,id:String\(req\.user!\.id\)/);
+  assert.match(section,/email:req\.user!\.email\.trim\(\)\.toLowerCase\(\),role:"super_admin"/);
+  assert.doesNotMatch(section,/userId:req\.user!\.id/);
+  assert.match(section,/operatorApprovalGranted:false/);
+  assert.match(section,/dispatchPermitted:false/);
+});
