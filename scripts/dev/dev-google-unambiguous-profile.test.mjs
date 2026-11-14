@@ -1,7 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { selectUniqueActiveGoogleDevProfile } from "../../artifacts/api-server/src/lib/google-dev-profile-match.ts";
+import {
+  selectUniqueActiveGoogleDevProfile,
+  trustedGoogleDevProfilePin,
+  profileMatchesTrustedGoogleDevPin,
+} from "../../artifacts/api-server/src/lib/google-dev-profile-match.ts";
 
 const source = readFileSync(
   new URL("../../artifacts/api-server/src/routes/auth.ts", import.meta.url), "utf8",
@@ -53,4 +57,41 @@ test("existing DEV passwordless route and PROD Google claims remain unchanged", 
   assert.match(passwordless, /!devPasswordlessLoginEnabled/);
   assert.match(source, /const metadata = authUser\.app_metadata \?\? \{\}/);
   assert.match(source, /registeredUser\.role === "super_admin" && verifiedGoogleOAuthAt !== null/);
+});
+
+test("binding is absent by default and any partial or malformed metadata is invalid", () => {
+  assert.equal(trustedGoogleDevProfilePin({ provider: "google" }, roles), "absent");
+  assert.equal(trustedGoogleDevProfilePin(undefined, roles), "absent");
+  assert.equal(trustedGoogleDevProfilePin({ ai_task_user_id: active.id }, roles), "invalid");
+  assert.equal(trustedGoogleDevProfilePin({ ai_task_user_id: active.id, ai_task_role: "super_admin" }, roles), "invalid");
+  assert.equal(trustedGoogleDevProfilePin({ ai_task_user_id: active.id, ai_task_role: "admin", ai_task_company_id: "@NULL@" }, roles), "invalid");
+  assert.equal(trustedGoogleDevProfilePin({ ai_task_user_id: "../bad-path", ai_task_role: "super_admin", ai_task_company_id: "@NULL@" }, roles), "invalid");
+  assert.equal(trustedGoogleDevProfilePin({ ai_task_user_id: active.id, ai_task_role: "super_admin", ai_task_company_id: "default" }, roles), "invalid");
+});
+test("trusted app_metadata can bind exactly matching ID, role and nullable company", () => {
+  const pin = trustedGoogleDevProfilePin({ provider: "google", ai_task_user_id: active.id, ai_task_role: "super_admin", ai_task_company_id: "@NULL@" }, roles);
+  assert.notEqual(pin, "absent");
+  assert.notEqual(pin, "invalid");
+  assert.equal(profileMatchesTrustedGoogleDevPin(active, pin), true);
+  assert.equal(profileMatchesTrustedGoogleDevPin({ ...active, id: "another-id" }, pin), false);
+  assert.equal(profileMatchesTrustedGoogleDevPin({ ...active, role: "staff" }, pin), false);
+  assert.equal(profileMatchesTrustedGoogleDevPin({ ...active, companyId: 2 }, pin), false);
+  assert.equal(profileMatchesTrustedGoogleDevPin(null, pin), false);
+});
+test("pinned integer company cannot silently become nullable company", () => {
+  const pin = trustedGoogleDevProfilePin({ ai_task_user_id: active.id, ai_task_role: "super_admin", ai_task_company_id: "2" }, roles);
+  assert.notEqual(pin, "invalid");
+  assert.notEqual(pin, "absent");
+  assert.equal(profileMatchesTrustedGoogleDevPin({ ...active, companyId: 2 }, pin), true);
+  assert.equal(profileMatchesTrustedGoogleDevPin(active, pin), false);
+});
+test("duplicate lookup uses only verified Auth Admin metadata and exact TEXT row before JWT", () => {
+  assert.match(devGoogle, /trustedGoogleDevProfilePin\(authUser\.app_metadata, USER_ROLES\)/);
+  assert.match(devGoogle, /if \(pin === "invalid"\)/);
+  assert.match(devGoogle, /if \(matchingProfiles\.length > 1\)/);
+  assert.match(devGoogle, /\$\{usersTable\.id\}::text = \$\{pin\.id\}/);
+  assert.match(devGoogle, /selectUniqueActiveGoogleDevProfile\(pinnedProfiles, USER_ROLES\)/);
+  assert.match(devGoogle, /profileMatchesTrustedGoogleDevPin\(uniqueProfile, pin\)/);
+  assert.ok(devGoogle.indexOf("profileMatchesTrustedGoogleDevPin(uniqueProfile, pin)") < devGoogle.indexOf("const token = signToken"));
+  assert.doesNotMatch(devGoogle, /authUser\.user_metadata\.ai_task_user_id/);
 });
