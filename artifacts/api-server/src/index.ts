@@ -19,6 +19,10 @@ app.listen(port, host, (err) => {
   }
 
   logger.info({ host, port }, "Server listening");
-  startAiCoreSourceReconciliationRuntime();
-  startAiJobWhatsAppDeliveryReconciliation();
+  // Blue/green DEV previews must not start a second reconciler/WA worker.
+  // Normal DEV keeps both workers whenever the opt-out flag is absent.
+  if (process.env.DISABLE_BACKGROUND_SCHEDULERS !== "true") {
+    startAiCoreSourceReconciliationRuntime();
+    startAiJobWhatsAppDeliveryReconciliation();
+  }
 });
