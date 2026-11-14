@@ -40,6 +40,8 @@ jobs:
           bash scripts/dev/test-hostinger-dev-sha-pin-isolated.sh
       - name: Verify DEV VPS inventory is read-only and scoped
         run: node --test scripts/dev/vps-storage-readonly.test.mjs
+      - name: Verify VPS Storage requires recent Google identity and active Super Admin
+        run: node --experimental-strip-types --test scripts/dev/vps-storage-google-session-contract.test.mjs
       - name: API short-link unit regression
         run: pnpm --filter @workspace/api-server run test:short-links
       - name: Verify read-only bridge GET cannot mutate lifecycle

@@ -8,6 +8,9 @@ export interface AuthUser {
   role: UserRole;
   companyId: string;
   name: string;
+  /** Issued only by the Supabase Google-identity exchange, not DEV email login. */
+  authSource?: "supabase_google_identity";
+  authVerifiedAt?: number;
 }
 
 declare global {
