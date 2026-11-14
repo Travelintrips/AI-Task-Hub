@@ -44,5 +44,11 @@ test("Google OAuth fragment is still exchanged for the app session", () => {
   assert.match(authContextSource, /hash\.get\("access_token"\)/);
   assert.match(authContextSource, /apiGoogleLogin\(supabaseAccessToken\)/);
   assert.match(authContextSource, /history\.replaceState/);
+  const strippedAt = authContextSource.indexOf("window.history.replaceState(");
+  const exchangedAt = authContextSource.indexOf("await apiGoogleLogin(supabaseAccessToken)");
+  assert.ok(strippedAt >= 0 && exchangedAt >= 0 && strippedAt < exchangedAt,
+    "OAuth fragment must be cleared before the async exchange begins");
+  assert.equal(authContextSource.split("window.history.replaceState(").length - 1, 1,
+    "Fragment should be cleared exactly once for each OAuth bootstrap");
   assert.match(authApiSource, /authFetch\("\/api\/auth\/google"/);
 });
