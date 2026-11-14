@@ -129,16 +129,32 @@ export class Gpt02CoreTaskPreparer {
   let client,started=false;
   try{
    client=await this.#pool.connect();
+   // GET readiness and its disabled UI button are not authorization. Check
+   // this very same TLS session inside the transaction used by direct POST.
+   const stream=client.connection?.stream;
+   if(!stream||stream.authorized!==true||stream.encrypted!==true)
+     deny('PINNED_TLS_PREPARER_SESSION_REQUIRED');
    await client.query('BEGIN');started=true;
    await client.query("SET LOCAL statement_timeout='5s'");
    await client.query("SET LOCAL lock_timeout='2s'");
    const identity=(await client.query(`SELECT current_user AS login,session_user AS session,
-     r.rolcanlogin AND NOT(r.rolsuper OR r.rolbypassrls OR r.rolcreaterole OR r.rolcreatedb OR r.rolreplication) AS limited,
+     r.rolcanlogin AS can_login,
+     r.rolcanlogin AND NOT(r.rolsuper OR r.rolbypassrls OR r.rolcreaterole OR
+       r.rolcreatedb OR r.rolreplication OR r.rolinherit) AS limited,
+     r.rolconnlimit AS connection_limit,
+     (r.rolvaliduntil IS NOT NULL AND r.rolvaliduntil>clock_timestamp() AND
+       r.rolvaliduntil<=clock_timestamp()+INTERVAL '10 minutes') AS short_lived,
      NOT EXISTS(SELECT 1 FROM pg_auth_members m WHERE m.member=r.oid) AS no_membership,
      NOT has_database_privilege(current_user,current_database(),'CREATE') AS no_db_create
      FROM pg_roles r WHERE r.rolname=current_user`)).rows[0];
+   // A direct POST must not bypass a stale/successful readiness GET.
+   // Check the bounded live login before touching the SECURITY DEFINER routine.
    if(!identity||identity.login!==ROLE||identity.session!==ROLE||identity.limited!==true||
-      identity.no_membership!==true||identity.no_db_create!==true)deny('UNSAFE_PREPARER_DATABASE_IDENTITY');
+      identity.no_membership!==true||identity.no_db_create!==true)
+     deny('UNSAFE_PREPARER_DATABASE_IDENTITY');
+   if(identity.can_login!==true||identity.connection_limit!==1||
+      identity.short_lived!==true)
+     deny('DEV_PREPARER_SHORT_LIVED_LOGIN_REQUIRED');
    // Probe OID privilege directly from pg_catalog: qualified regclass name
    // resolution itself may raise 42501 when a restricted login has no schema USAGE.
    // Missing catalog objects are treated as unsafe, never as permission denied.

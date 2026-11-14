@@ -48,3 +48,28 @@ Before a real one-time Core PENDING/Hub prepared reservation, require a
 separately approved short-lived dedicated SCRAM credential, pinned CA and
 server-side identity proof; then an authenticated Super Admin request.
 Never promote chat text or an old PIC audit to signed dispatch consent.
+
+
+## Review correction: POST cannot bypass the short-lived account gate
+
+Independent PR #182 review identified a direct-POST bypass: an account with
+unlimited lifetime was rejected by the diagnostic GET but could have reached
+COMMIT inside the preparation POST. Fixed in the actual
+Gpt02CoreTaskPreparer.prepare transaction (not only in the UI):
+
+- Verify this exact PostgreSQL client has authenticated, encrypted TLS before
+  even starting a transaction.
+- Inside the same BEGIN transaction that invokes prepare_core_task, query
+  PostgreSQL's authenticated current_user/session_user, restricted role flags
+  including NOINHERIT, session connection limit = 1, and server-side
+  rolvaliduntil > clock_timestamp() and <= clock_timestamp()+10 minutes.
+- Fail closed and ROLLBACK before SECURITY DEFINER invocation on any mismatch,
+  even when the caller bypasses the browser and sends a direct POST.
+- Preserve all existing direct DML, catalog/schema, Core/Hub, task, and
+  no-command / no-dispatch checks.
+
+Injected untrusted synthetic LOGIN, unbounded TTL, wrong role, unverified TLS
+and noinherit cases are explicitly tested in
+artifacts/api-server/tests/gpt02-core-task-preparation.test.mjs. This is
+source-only; it does not create a password, enable LOGIN, connect to PROD,
+generate a command, or dispatch a worker.
