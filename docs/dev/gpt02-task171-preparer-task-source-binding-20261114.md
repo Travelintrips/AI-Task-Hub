@@ -146,3 +146,31 @@ the old SHA guard intentionally rejects a second run.
 
 This verifies one database hardening step, NOT authorization for Task #171
 worker dispatch. UI/API source remains PR #181 DRAFT, unmerged/undeployed.
+
+## DEV evidence-reader service restoration and resilient retry
+
+On 14 Nov 2026, the DEV-only trusted Hub/Core evidence reader crashed on
+INDEPENDENT_READ_FAILED_CLOSED_ECONNREFUSED after Supabase direct
+db.xssrfshdrtdfupgqwfdw.supabase.co:5432 temporarily rejected connections.
+Systemd's original StartLimitBurst=3 in 60s exhausted retries and left the
+reader failed. No issuer or worker was involved. Encrypted systemd credentials
+were unchanged and never exposed.
+
+After independent network reachability checks, the read-only service was
+restarted successfully. Unix-socket GET /health returned ok=true,
+readerReady=true, twoSessionsVerified=true, signingPermitted=false,
+dispatchPermitted=false. No Task #171 preparation or command ran.
+
+To avoid requiring repeated manual restarts for transient network outages, a
+narrow systemd drop-in was installed:
+ /etc/systemd/system/gpt02-issue159-reader.service.d/20-retry-readonly-after-connection-loss.conf
+
+Versioned counterpart:
+ deploy/hostinger/gpt02-issue159-reader-retry-readonly.conf
+
+The drop-in changes ONLY StartLimitIntervalSec=0 and RestartSec=60s,
+preserves Restart=on-failure, and does not alter credentials, run mode,
+socket ACLs, code, signing or dispatch. systemd-analyze verify PASS,
+daemon-reload PASS, reader remained active and healthy. To roll back,
+remove this one drop-in, run systemctl daemon-reload, and verify the unit;
+no credential or application change is needed.
