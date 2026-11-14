@@ -6,7 +6,10 @@ export type PreparedCoreTask = Readonly<{
 }>;
 export declare function createCoreTaskPreparer(args:{
   env:NodeJS.ProcessEnv;PoolClass:new (config:unknown)=>unknown
-}):{preparer:{prepare(input:{
+}):{preparer:{
+  verifyReadiness():Promise<Readonly<{verified:true;readOnly:true;
+    operatorApprovalGranted:false;issuerGrantReady:false;dispatchPermitted:false}>>;
+  prepare(input:{
     companyId:string;hubTaskId:number;projectName:string;
     repository:string;branch:string;instruction:string
   }):Promise<PreparedCoreTask>};close():Promise<void>};

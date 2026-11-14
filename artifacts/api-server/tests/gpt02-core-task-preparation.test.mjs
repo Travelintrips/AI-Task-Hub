@@ -86,7 +86,7 @@ const env={NODE_ENV:'development',APP_ENV:'development',GPT02_CORE_PREP_DEV_PROJ
  GPT02_CORE_PREP_DATABASE_URL_DEV:`postgresql://gpt02_core_prep_login.${ref}:synthetic@aws-1-ap-southeast-2.pooler.supabase.com:5432/postgres`};
 test('candidate connector pins CST-DEV, dedicated identity, session-port and TLS',()=>{
  const config=corePreparationPoolConfig(env);
- assert.equal(config.max,2);assert.equal(config.ssl.rejectUnauthorized,true);
+ assert.equal(config.max,1);assert.equal(config.ssl.rejectUnauthorized,true);
  assert.equal(config.ssl.ca,pinnedCa);
  assert.ok(config.connectionString.includes(`gpt02_core_prep_login.${ref}`));
 });

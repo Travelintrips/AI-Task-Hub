@@ -1,7 +1,7 @@
 /**
  * DEV-only, non-dispatching Core CODING task preparation candidate.
- * NOT mounted by any route or worker. Requires an independently authenticated,
- * scoped Core preparer LOGIN and live schema migration before activation.
+ * Called only by the Super Admin DEV prepare-only route; this is never
+ * a native issuer, signer, lease or worker dispatch implementation.
  */
 import { X509Certificate } from 'node:crypto';
 const EXPECTED_DEV_REF='xssrfshdrtdfupgqwfdw';
@@ -56,7 +56,7 @@ export function corePreparationPoolConfig(env){
  if(!['postgresql:','postgres:'].includes(url.protocol)||url.hostname!==host||url.port!=='5432'||
    url.pathname!=='/postgres'||user!==`${ROLE}.${project}`||!url.password||url.search||url.hash)
    deny('PREPARER_DSN_SCOPE_MISMATCH');
- return {connectionString:raw,ssl:{ca:pinnedCa,rejectUnauthorized:true},max:2,
+ return {connectionString:raw,ssl:{ca:pinnedCa,rejectUnauthorized:true},max:1,
    connectionTimeoutMillis:5000,statement_timeout:5000,idleTimeoutMillis:10000,
    application_name:'gpt02-core-preparation-DEV-only'};
 }
@@ -68,6 +68,62 @@ export function corePreparationPoolConfig(env){
 export class Gpt02CoreTaskPreparer {
  #pool;
  constructor({pool}){if(!pool||typeof pool.connect!=='function')deny('DEDICATED_PREPARER_POOL_REQUIRED');this.#pool=pool;}
+ async verifyReadiness(){
+  let client,started=false;
+  try{
+   client=await this.#pool.connect();
+   // Only a pinned TLS session with an actual PostgreSQL login qualifies.
+   const stream=client.connection?.stream;
+   if(!stream||stream.authorized!==true||stream.encrypted!==true)
+     deny('PINNED_TLS_PREPARER_SESSION_REQUIRED');
+   await client.query('BEGIN READ ONLY');started=true;
+   const r=(await client.query(`SELECT current_user AS login,session_user AS session,
+     current_setting('transaction_read_only') AS read_only,
+     p.rolcanlogin AND NOT(p.rolsuper OR p.rolbypassrls OR p.rolcreaterole
+       OR p.rolcreatedb OR p.rolreplication OR p.rolinherit) AS limited,
+     p.rolconnlimit AS connection_limit,p.rolvaliduntil AS valid_until,
+     NOT EXISTS(SELECT 1 FROM pg_auth_members m WHERE m.member=p.oid) AS no_membership,
+     NOT has_database_privilege(current_user,current_database(),'CREATE') AS no_db_create
+     FROM pg_roles p WHERE p.rolname=current_user`)).rows[0];
+   const until=r?.valid_until instanceof Date?r.valid_until.getTime():
+      typeof r?.valid_until==='string'?Date.parse(r.valid_until):NaN;
+   if(r?.login!==ROLE||r?.session!==ROLE||r?.read_only!=='on'||
+      r?.limited!==true||r?.no_membership!==true||r?.no_db_create!==true||
+      r?.connection_limit!==1||!Number.isFinite(until)||
+      until<=Date.now()||until-Date.now()>10*60_000)
+     deny('DEV_PREPARER_AUTHENTICATED_ROLE_NOT_SCOPED');
+   const direct=(await client.query(`SELECT
+     COALESCE((SELECT has_table_privilege(current_user,c.oid,
+        'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+        FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+        WHERE n.nspname='ai_platform' AND c.relname='ai_coding_bridge_commands'),true)
+        AS can_dispatch,
+     COALESCE((SELECT has_table_privilege(current_user,c.oid,
+        'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+        FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+        WHERE n.nspname='ai_platform' AND c.relname='ai_coding_tasks'),true)
+        AS can_core_write,
+     COALESCE((SELECT has_table_privilege(current_user,c.oid,
+        'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+        FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+        WHERE n.nspname='public' AND c.relname='ai_execution_jobs'),true)
+        AS can_hub_write`)).rows[0];
+   if(!direct||direct.can_dispatch!==false||direct.can_core_write!==false||
+      direct.can_hub_write!==false)
+     deny('DIRECT_LEDGER_WRITE_OR_COMMAND_AUTHORITY_FORBIDDEN');
+   await client.query('ROLLBACK');started=false;
+   return Object.freeze({
+      verified:true,readOnly:true,operatorApprovalGranted:false,
+      issuerGrantReady:false,dispatchPermitted:false
+   });
+  }catch(e){
+   if(client&&started)try{await client.query('ROLLBACK')}catch{}
+   if(e instanceof CorePreparationError)throw e;
+   deny('PREPARER_READ_ONLY_CONNECTION_UNAVAILABLE');
+  }finally{
+   if(client)client.release(true);
+  }
+ }
  async prepare(input){
   const params=validateCorePreparationInput(input);
   let client,started=false;
