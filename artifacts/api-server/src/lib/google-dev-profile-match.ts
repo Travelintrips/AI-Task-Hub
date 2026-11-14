@@ -9,8 +9,12 @@ export function selectUniqueActiveGoogleDevProfile<
 >(matches: readonly T[], allowedRoles: readonly string[]): T | null {
   if (matches.length !== 1) return null;
   const profile = matches[0];
+  // Preserve existing unique-email CST-DEV login for the legacy "admin"
+  // role. It is NOT accepted as a privileged canonical pin or added to the
+  // application's role hierarchy; duplicates still fail closed.
+  const recognized = allowedRoles.includes(profile.role) || profile.role === "admin";
   return profile.isActive === true && profile.loginStatus === "active" &&
-    allowedRoles.includes(profile.role) ? profile : null;
+    recognized ? profile : null;
 }
 
 /**
