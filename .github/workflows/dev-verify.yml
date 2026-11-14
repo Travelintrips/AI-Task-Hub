@@ -32,6 +32,12 @@ jobs:
           cache: pnpm
       - name: Install
         run: pnpm install --frozen-lockfile
+      - name: Verify Hostinger DEV exact-SHA release gate (isolated, no deploy)
+        run: |
+          node --test scripts/dev/verify-hostinger-dev-ci-run.test.mjs
+          bash -n deploy/hostinger/deploy.sh
+          bash -n scripts/dev/test-hostinger-dev-sha-pin-isolated.sh
+          bash scripts/dev/test-hostinger-dev-sha-pin-isolated.sh
       - name: API short-link unit regression
         run: pnpm --filter @workspace/api-server run test:short-links
       - name: Verify read-only bridge GET cannot mutate lifecycle
