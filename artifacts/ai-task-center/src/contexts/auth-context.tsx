@@ -31,6 +31,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const supabaseAccessToken = hash.get("access_token");
 
       if (supabaseAccessToken) {
+        // Strip Supabase tokens from the URL before any asynchronous network
+        // request. The access token stays only in this local bootstrap scope.
+        window.history.replaceState(null, "", window.location.pathname + window.location.search);
         try {
           const { token: t, user: u } = await apiGoogleLogin(supabaseAccessToken);
           if (cancelled) return;
@@ -43,7 +46,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setToken(null);
           setUser(null);
         } finally {
-          window.history.replaceState(null, "", window.location.pathname + window.location.search);
           if (!cancelled) setLoading(false);
         }
         return;
