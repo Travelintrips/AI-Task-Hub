@@ -37,7 +37,7 @@ test("Google OAuth entrypoint remains visible on DEV and PROD", () => {
 test("existing DEV email passwordless and PROD password input remain untouched", () => {
   assert.match(loginSource, /await login\(email, isDevPasswordless \? "" : password\)/);
   assert.match(loginSource, /\{!isDevPasswordless && \(\s*<div className="space-y-2">/);
-  assert.match(loginSource, /type="password"/);
+  assert.match(loginSource, /type=\{showPassword \? "text" : "password"\}/);
 });
 
 test("Google OAuth fragment is still exchanged for the app session", () => {
