@@ -40,11 +40,11 @@ openssl req -x509 -newkey rsa:2048 -sha256 -nodes -days 1 \
  -addext "basicConstraints=critical,CA:TRUE" \
  -keyout "$work/key.pem" -out "$work/cert.pem" >/dev/null 2>&1
 chmod 0644 "$work/cert.pem"
+chmod 0600 "$work/key.pem"
 docker run --rm --network none --read-only --user root:root \
  --cap-drop ALL --cap-add CHOWN \
  --mount "type=bind,src=$work/key.pem,dst=/tmp/offline-db.key" \
  --entrypoint chown postgres:16-alpine postgres:postgres /tmp/offline-db.key
-chmod 0600 "$work/key.pem"
 openssl verify -CAfile "$work/cert.pem" "$work/cert.pem" >/dev/null
 echo SYNTHETIC_CA_CERT_GENERATED=PASS
 docker network create --internal --driver bridge "$net" >/dev/null
