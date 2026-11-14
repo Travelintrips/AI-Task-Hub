@@ -46,6 +46,8 @@ jobs:
         run: node --experimental-strip-types --test scripts/dev/vps-identity-reader-contract.test.mjs
       - name: Verify VPS identity reader RLS on disposable PostgreSQL 16
         run: bash scripts/dev/test-vps-identity-reader-postgres16.sh
+      - name: Verify source VPS identity reader TLS and RLS on synthetic PostgreSQL 16
+        run: timeout --kill-after=10s 240s bash scripts/dev/test-vps-identity-reader-node-pg16.sh
       - name: API short-link unit regression
         run: pnpm --filter @workspace/api-server run test:short-links
       - name: Verify read-only bridge GET cannot mutate lifecycle
