@@ -5,10 +5,10 @@
  * ordinary passwordless login or production OAuth.
  */
 export function selectUniqueActiveGoogleDevProfile<
-  T extends { isActive: boolean | null; loginStatus: string | null },
->(matches: readonly T[]): T | null {
+  T extends { isActive: boolean | null; loginStatus: string | null; role: string },
+>(matches: readonly T[], allowedRoles: readonly string[]): T | null {
   if (matches.length !== 1) return null;
   const profile = matches[0];
-  return profile.isActive === true && profile.loginStatus === "active"
-    ? profile : null;
+  return profile.isActive === true && profile.loginStatus === "active" &&
+    allowedRoles.includes(profile.role) ? profile : null;
 }
