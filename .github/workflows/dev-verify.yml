@@ -52,6 +52,8 @@ jobs:
         run: timeout --kill-after=10s 240s bash scripts/dev/test-vps-identity-reader-node-pg16.sh
       - name: Verify blue-green DEV cannot start duplicate WA/Core background workers
         run: node --test scripts/dev/ai-task-background-worker-cutover-gate.test.mjs
+      - name: Verify isolated DEV never auto-creates Storage buckets
+        run: node --test scripts/dev/ai-task-storage-bucket-preview-gate.test.mjs
       - name: API short-link unit regression
         run: pnpm --filter @workspace/api-server run test:short-links
       - name: Verify read-only bridge GET cannot mutate lifecycle
