@@ -47,6 +47,18 @@ if [ ! -d "$APP_ROOT/.git" ]; then
 fi
 
 cd "$APP_ROOT"
+# Both GitHub Actions and manual DEV deployment must preserve local work.
+# Do not print filenames: they may contain sensitive work-in-progress.
+if [ "$TARGET" = "development" ]; then
+  DEV_DIRTY_WORKTREE="$(git status --porcelain=v1 --untracked-files=all)" || {
+    echo "DEV_RELEASE_WORKTREE_STATUS_UNAVAILABLE" >&2
+    exit 1
+  }
+  if [ -n "$DEV_DIRTY_WORKTREE" ]; then
+    echo "DEV_RELEASE_DIRTY_WORKTREE_BLOCKED" >&2
+    exit 1
+  fi
+fi
 git fetch origin "$BRANCH"
 
 # Development release workflows pin a CI-verified SHA, even if develop moves

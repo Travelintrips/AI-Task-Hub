@@ -340,6 +340,11 @@ jobs:
                git clone --branch develop --single-branch https://github.com/Travelintrips/AI-Task-Hub.git \"\$APP_ROOT\"; \
              fi; \
              cd \"\$APP_ROOT\"; \
+             DEV_DIRTY_WORKTREE=\"\$(git status --porcelain=v1 --untracked-files=all)\"; \
+             if [ -n \"\$DEV_DIRTY_WORKTREE\" ]; then \
+               echo 'DEV_RELEASE_DIRTY_WORKTREE_BLOCKED'; \
+               exit 1; \
+             fi; \
              git fetch origin develop; \
              test \"\$(git rev-parse origin/develop)\" = \"$EXPECTED_SHA\" || { echo 'DEV_RELEASE_SHA_CHANGED'; exit 1; }; \
              git checkout -B develop origin/develop; \

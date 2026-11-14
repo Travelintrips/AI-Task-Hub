@@ -14,7 +14,13 @@ mkdir -p "$tmp/bin" "$tmp/app/.git"
 
 cat > "$tmp/bin/git" <<'GIT'
 #!/usr/bin/env bash
-if [[ "${1:-}" == "rev-parse" ]]; then
+if [[ "${1:-}" == "status" ]]; then
+  if [[ "${MOCK_DEV_DIRTY:-false}" == true ]]; then
+    printf ' M local-dev-changes\n'
+  fi
+elif [[ "${1:-}" == "checkout" || "${1:-}" == "reset" ]]; then
+  echo 'GIT_MUTATION_REACHED' >&2
+elif [[ "${1:-}" == "rev-parse" ]]; then
   printf '%s\n' "${MOCK_ORIGIN_SHA:-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb}"
 fi
 exit 0
@@ -34,6 +40,7 @@ run_dev() {
     AI_TASK_COMPOSE_ENV="$tmp/compose.env" \
     AI_TASK_DEV_EXPECTED_SHA="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" \
     MOCK_ORIGIN_SHA="$1" \
+    MOCK_DEV_DIRTY="${2:-false}" \
     bash "$DEPLOY_SCRIPT" development
 }
 
@@ -49,6 +56,16 @@ grep -q 'DEV_RELEASE_EXPECTED_SHA_REQUIRED' <<<"$missing_output"
 grep -q 'DEV_RELEASE_EXPECTED_SHA_REQUIRED' <<<"$bad_output"
 ! grep -q 'UNEXPECTED_DOCKER_EXECUTED' <<<"$missing_output"
 ! grep -q 'UNEXPECTED_DOCKER_EXECUTED' <<<"$bad_output"
+
+# Dirty checkout must fail before git checkout/reset even with a valid SHA.
+set +e
+dirty_output="$(run_dev aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa true 2>&1)"
+dirty_status=$?
+set -e
+[[ "$dirty_status" -ne 0 ]] || { echo 'DIRTY_DEV_CHECKOUT_ACCEPTED' >&2; exit 1; }
+grep -q 'DEV_RELEASE_DIRTY_WORKTREE_BLOCKED' <<<"$dirty_output"
+! grep -q 'GIT_MUTATION_REACHED' <<<"$dirty_output"
+! grep -q 'UNEXPECTED_DOCKER_EXECUTED' <<<"$dirty_output"
 
 set +e
 wrong_output="$(run_dev bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb 2>&1)"
