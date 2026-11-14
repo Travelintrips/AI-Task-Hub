@@ -44,6 +44,8 @@ jobs:
         run: node --experimental-strip-types --test scripts/dev/vps-storage-google-session-contract.test.mjs
       - name: Verify VPS identity uses a dedicated least-privilege DEV reader
         run: node --experimental-strip-types --test scripts/dev/vps-identity-reader-contract.test.mjs
+      - name: Verify VPS identity reader RLS on disposable PostgreSQL 16
+        run: bash scripts/dev/test-vps-identity-reader-postgres16.sh
       - name: API short-link unit regression
         run: pnpm --filter @workspace/api-server run test:short-links
       - name: Verify read-only bridge GET cannot mutate lifecycle
