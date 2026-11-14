@@ -200,7 +200,11 @@ router.post("/auth/google", async (req: Request, res: Response): Promise<void> =
       (authUser.identities ?? []).some((identity) => identity.provider === "google");
 
     if (!email || !authUser.email_confirmed_at || !hasGoogleIdentity) {
-      res.status(401).json    if (!isProduction) {
+      res.status(401).json({ error: "Verified Google account required" });
+      return;
+    }
+
+    if (!isProduction) {
       // Reuse verified Supabase Auth app_metadata, as existing PROD OAuth does.
       // Never trust user_metadata or infer the preferred role from a duplicate.
       const pin = trustedGoogleDevProfilePin(authUser.app_metadata, USER_ROLES);
@@ -241,7 +245,6 @@ router.post("/auth/google", async (req: Request, res: Response): Promise<void> =
       }
       // Keep the original API response and signed JWT field shape unchanged.
       const { loginStatus: _loginStatus, ...registeredUser } = uniqueProfile;
-st { loginStatus: _loginStatus, ...registeredUser } = uniqueProfile;
 
       await db
         .update(usersTable)
