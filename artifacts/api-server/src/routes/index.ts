@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import healthRouter from "./health";
+import vpsStorageRouter from "./vps-storage";
 import jobBridgeRouter from "./job-bridge";
 
 import tasksRouter from "./tasks";
@@ -92,6 +93,7 @@ router.use(authRouter);
 
 // Application routes
 router.use(healthRouter);
+router.use(vpsStorageRouter);
 router.use(jobBridgeRouter);
 
 router.use(tasksRouter);

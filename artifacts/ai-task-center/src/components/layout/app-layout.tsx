@@ -48,6 +48,7 @@ import {
   FileCheck,
   Cpu,
   PhoneCall,
+  HardDrive,
 } from "lucide-react";
 import { NotificationsBell } from "@/components/notifications-bell";
 import { useAuth } from "@/contexts/auth-context";
@@ -100,6 +101,9 @@ export function AppLayout({ children }: { children: ReactNode }) {
     { name: "Notifikasi",  href: "/notifications",     icon: Bell },
     { name: "Portal",      href: "/portal",            icon: Globe },
     { name: "Audit Log",   href: "/audit-log",         icon: ShieldCheck },
+    ...(user?.role === "super_admin"
+      ? [{ name: "Penyimpanan VPS", href: "/vps-storage", icon: HardDrive }]
+      : []),
     { name: "Analitik",    href: "/analytics",         icon: BarChart2 },
     { name: "Notif WA",    href: "/wa-notifications",  icon: BellRing },
     { name: "Penerima Notif", href: "/notification-receivers", icon: PhoneCall },
