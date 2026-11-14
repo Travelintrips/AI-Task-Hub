@@ -38,6 +38,8 @@ jobs:
           bash -n deploy/hostinger/deploy.sh
           bash -n scripts/dev/test-hostinger-dev-sha-pin-isolated.sh
           bash scripts/dev/test-hostinger-dev-sha-pin-isolated.sh
+      - name: Verify DEV VPS inventory is read-only and scoped
+        run: node --test scripts/dev/vps-storage-readonly.test.mjs
       - name: API short-link unit regression
         run: pnpm --filter @workspace/api-server run test:short-links
       - name: Verify read-only bridge GET cannot mutate lifecycle

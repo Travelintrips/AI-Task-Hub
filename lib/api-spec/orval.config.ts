@@ -57,6 +57,9 @@ export default defineConfig({
       prettier: true,
       override: {
         zod: {
+          // Pin Zod 3-compatible output for the workspace's installed zod@3.x.
+          // Orval 8.21 otherwise emits zod.looseObject (Zod 4-only).
+          version: 3,
           coerce: {
             query: ['boolean', 'number', 'string'],
             param: ['boolean', 'number', 'string'],
