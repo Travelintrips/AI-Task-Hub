@@ -52,6 +52,7 @@ import {
 } from "lucide-react";
 import { NotificationsBell } from "@/components/notifications-bell";
 import { useAuth } from "@/contexts/auth-context";
+import { isVpsStorageDevHost } from "@/lib/vps-storage-dev-host";
 import { Button } from "@/components/ui/button";
 import { Link as WouterLink } from "wouter";
 
@@ -101,7 +102,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
     { name: "Notifikasi",  href: "/notifications",     icon: Bell },
     { name: "Portal",      href: "/portal",            icon: Globe },
     { name: "Audit Log",   href: "/audit-log",         icon: ShieldCheck },
-    ...(user?.role === "super_admin"
+    ...(user?.role === "super_admin" && isVpsStorageDevHost()
       ? [{ name: "Penyimpanan VPS", href: "/vps-storage", icon: HardDrive }]
       : []),
     { name: "Analitik",    href: "/analytics",         icon: BarChart2 },

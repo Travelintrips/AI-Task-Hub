@@ -46,7 +46,17 @@ test('route is Super Admin and DEV-only, with explicit disabled-by-default flag'
 
 test('frontend uses current auth provider token and disables deletion', () => {
   const page = readFileSync('artifacts/ai-task-center/src/pages/vps-storage.tsx', 'utf8');
-  assert.match(page, /useAuth\(\)/);
-  assert.doesNotMatch(page, /localStorage\.getItem\("auth_token"\)/);
+  assert.match(page, /useGetVpsStorageInventory\(/);
+  assert.doesNotMatch(page, /\bfetch\(/);
+  assert.doesNotMatch(page, /type Inventory/);
+  assert.match(page, /isVpsStorageDevHost\(/);
   assert.match(page, /<button disabled/);
+  const layout = readFileSync('artifacts/ai-task-center/src/components/layout/app-layout.tsx', 'utf8');
+  const app = readFileSync('artifacts/ai-task-center/src/App.tsx', 'utf8');
+  assert.match(layout, /super_admin" && isVpsStorageDevHost\(/);
+  assert.match(app, /isVpsStorageDevHost\(\) \? <VpsStoragePage/);
+  const spec = readFileSync('lib/api-spec/openapi.yaml', 'utf8');
+  const client = readFileSync('lib/api-client-react/src/generated/api.ts', 'utf8');
+  assert.match(spec, /operationId: getVpsStorageInventory/);
+  assert.match(client, /export function useGetVpsStorageInventory/);
 });

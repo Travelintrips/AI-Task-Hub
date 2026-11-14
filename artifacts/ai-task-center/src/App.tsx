@@ -13,6 +13,7 @@ import Tasks from "@/pages/tasks";
 import TaskDetail from "@/pages/task-detail";
 import AiTaskBoard from "@/pages/ai-task-board";
 import VpsStoragePage from "@/pages/vps-storage";
+import { isVpsStorageDevHost } from "@/lib/vps-storage-dev-host";
 import AiTaskDetail from "@/pages/ai-task-detail";
 import Messages from "@/pages/messages";
 import AiCoreChatPage from "@/pages/ai-core-chat";
@@ -125,7 +126,7 @@ function AppRouter() {
         <Route path="/tasks">{() => { window.location.replace("/ai-tasks"); return null; }}</Route>
         <Route path="/tasks/:id">{(params) => { window.location.replace(`/ai-tasks/${params.id}`); return null; }}</Route>
         <Route path="/ai-tasks" component={AiTaskBoard} />
-        <Route path="/vps-storage" component={VpsStoragePage} />
+        <Route path="/vps-storage">{() => isVpsStorageDevHost() ? <VpsStoragePage /> : <NotFound />}</Route>
         <Route path="/ai-tasks/:id" component={AiTaskDetail} />
         <Route path="/ai-core-chat" component={AiCoreChatPage} />
         <Route path="/messages" component={Messages} />
