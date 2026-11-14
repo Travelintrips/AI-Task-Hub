@@ -2,6 +2,8 @@ import { Router, type IRouter, type Request, type Response } from "express";
 import { eq, asc } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
+import jwt from "jsonwebtoken";
+import { recentGoogleOAuthEvidenceAt } from "../lib/vps-storage-google-session";
 import { createClient } from "@supabase/supabase-js";
 import { db, usersTable, type UserRole, USER_ROLES } from "@workspace/db";
 import { signToken, requireAuth, requireRole, type AuthUser } from "../middleware/auth";
@@ -214,12 +216,28 @@ router.post("/auth/google", async (req: Request, res: Response): Promise<void> =
         .set({ lastLoginAt: new Date() })
         .where(eq(usersTable.id, registeredUser.id));
 
+      // getUser(accessToken) above already validated the exact Supabase token.
+      // Its AMR plus the Google identity's last-sign-in timestamp must show
+      // recent actual Google OAuth, not merely a historically linked provider.
+      const decoded = registeredUser.role === "super_admin" ? jwt.decode(accessToken) : null;
+      const authMethods = decoded && typeof decoded === "object" ? decoded.amr : undefined;
+      const verifiedGoogleOAuthAt = recentGoogleOAuthEvidenceAt(
+        authMethods, authUser.identities, linkedProviders,
+      );
+
       const token = signToken({
         id: registeredUser.id,
         email: registeredUser.email,
         role: registeredUser.role as UserRole,
         companyId: registeredUser.companyId,
         name: registeredUser.name,
+        ...(registeredUser.role === "super_admin" && verifiedGoogleOAuthAt !== null
+          ? {
+              authSource: "supabase_google_identity" as const,
+              authSupabaseId: authUser.id,
+              authVerifiedAt: verifiedGoogleOAuthAt,
+            }
+          : {}),
       });
 
       logger.info(
