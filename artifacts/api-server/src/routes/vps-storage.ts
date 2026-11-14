@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { readFile, stat } from "node:fs/promises";
 import { isAbsolute } from "node:path";
+import { GetVpsStorageInventoryResponse } from "@workspace/api-zod";
 import { requireAuth, requireRole } from "../middleware/auth";
 
 const router: IRouter = Router();
@@ -50,7 +51,9 @@ router.get("/system/vps-storage", requireAuth, requireRole("super_admin"), async
         }),
       };
     });
-    res.status(200).json({ generatedAt: inventory.generatedAt, readOnly: true, categories });
+    res.status(200).json(GetVpsStorageInventoryResponse.parse({
+      generatedAt: inventory.generatedAt, readOnly: true, categories,
+    }));
   } catch {
     res.status(503).json({ error: "Inventaris tidak tersedia atau tidak valid" });
   }

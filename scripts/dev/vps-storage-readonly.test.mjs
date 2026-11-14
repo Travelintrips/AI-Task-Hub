@@ -42,6 +42,7 @@ test('route is Super Admin and DEV-only, with explicit disabled-by-default flag'
   assert.match(route, /APP_ENV !== "development"/);
   assert.match(route, /VPS_STORAGE_INVENTORY_READONLY_ENABLED !== "true"/);
   assert.doesNotMatch(route, /router\.(post|put|patch|delete)\(/i);
+  assert.match(route, /GetVpsStorageInventoryResponse\.parse\(/);
 });
 
 test('frontend uses current auth provider token and disables deletion', () => {
@@ -59,4 +60,11 @@ test('frontend uses current auth provider token and disables deletion', () => {
   const client = readFileSync('lib/api-client-react/src/generated/api.ts', 'utf8');
   assert.match(spec, /operationId: getVpsStorageInventory/);
   assert.match(client, /export function useGetVpsStorageInventory/);
+  const generator = JSON.parse(readFileSync('lib/api-spec/package.json', 'utf8'));
+  assert.equal(generator.devDependencies.orval, '8.9.1',
+    'do not silently regenerate existing API with a behavior-changing tool version');
+  assert.doesNotMatch(client, /const withQueryKey =/);
+  assert.match(client, /enabled: !!\(id\)/);
+  assert.match(client, /return \{ \.\.\.query, queryKey: queryOptions\.queryKey \};/);
+
 });
