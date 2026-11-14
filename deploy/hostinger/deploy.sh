@@ -19,6 +19,15 @@ case "$TARGET" in
     ;;
 esac
 
+# Never allow an unpinned development deployment, including direct shell use.
+# GitHub Actions performs the independent exact-SHA full-CI proof beforehand;
+# this local check is a necessary pin, not a signed proof by itself.
+if [ "$TARGET" = "development" ] &&
+   [[ ! "${AI_TASK_DEV_EXPECTED_SHA:-}" =~ ^[a-f0-9]{40}$ ]]; then
+  echo "DEV_RELEASE_EXPECTED_SHA_REQUIRED" >&2
+  exit 1
+fi
+
 APP_ROOT="${AI_TASK_APP_ROOT:-$DEFAULT_APP_ROOT}"
 COMPOSE_ENV="${AI_TASK_COMPOSE_ENV:-$DEFAULT_COMPOSE_ENV}"
 REPO_URL="${AI_TASK_REPO_URL:-https://github.com/Travelintrips/AI-Task-Hub.git}"
@@ -39,8 +48,25 @@ fi
 
 cd "$APP_ROOT"
 git fetch origin "$BRANCH"
+
+# Development release workflows pin a CI-verified SHA, even if develop moves
+# between the initial SSH checkout and this script's own git refresh.
+# This is opt-in for DEV; production source checkout remains unchanged.
+if [ "$TARGET" = "development" ]; then
+  if [ "$(git rev-parse "origin/$BRANCH")" != "$AI_TASK_DEV_EXPECTED_SHA" ]; then
+    echo "DEV_RELEASE_SHA_CHANGED_DURING_DEPLOY" >&2
+    exit 1
+  fi
+fi
+
 git checkout -B "$BRANCH" "origin/$BRANCH"
 git reset --hard "origin/$BRANCH"
+
+if [ "$TARGET" = "development" ] &&
+   [ "$(git rev-parse HEAD)" != "$AI_TASK_DEV_EXPECTED_SHA" ]; then
+  echo "DEV_RELEASE_HEAD_MISMATCH_AFTER_CHECKOUT" >&2
+  exit 1
+fi
 
 set -a
 . "$COMPOSE_ENV"
