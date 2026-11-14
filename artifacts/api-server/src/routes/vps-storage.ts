@@ -1,8 +1,7 @@
 import { Router, type IRouter } from "express";
 import { readFile, stat } from "node:fs/promises";
 import { isAbsolute } from "node:path";
-import { eq } from "drizzle-orm";
-import { db, usersTable } from "@workspace/db";
+import { readActiveVpsSuperAdmin } from "../lib/vps-storage-readonly-db";
 import { hasRecentGoogleVerifiedVpsSession } from "../lib/vps-storage-google-session";
 import { GetVpsStorageInventoryResponse } from "@workspace/api-zod";
 import { requireAuth, requireRole } from "../middleware/auth";
@@ -26,20 +25,14 @@ router.get("/system/vps-storage", requireAuth, requireRole("super_admin"), async
     res.status(403).json({ error: "Recent Google-verified Super Admin identity required" });
     return;
   }
-  try {
-    const [activeAdmin] = await db.select({
-      id: usersTable.id, email: usersTable.email, companyId: usersTable.companyId,
-      role: usersTable.role, isActive: usersTable.isActive,
-    }).from(usersTable).where(eq(usersTable.id, req.user!.id)).limit(1);
-    if (!activeAdmin || !activeAdmin.isActive || activeAdmin.role !== "super_admin" ||
-        String(activeAdmin.id) !== String(req.user!.id) ||
-        activeAdmin.email.trim().toLowerCase() !== req.user!.email.trim().toLowerCase() ||
-        String(activeAdmin.companyId) !== String(req.user!.companyId)) {
-      res.status(403).json({ error: "Active Super Admin account mismatch" });
-      return;
-    }
-  } catch {
-    res.status(503).json({ error: "Super Admin identity read-back unavailable" });
+  // This readback must not use the shared DEV postgres/BYPASSRLS pool.
+  const readback = await readActiveVpsSuperAdmin(req.user);
+  if (readback === "unavailable") {
+    res.status(503).json({ error: "Least-privilege DEV identity reader unavailable" });
+    return;
+  }
+  if (readback !== "match") {
+    res.status(403).json({ error: "Active Super Admin identity mismatch" });
     return;
   }
   const source = process.env.VPS_STORAGE_INVENTORY_PATH;
