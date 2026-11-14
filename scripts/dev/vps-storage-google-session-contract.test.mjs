@@ -105,10 +105,12 @@ test("only verified Supabase Google exchange may mint limited application JWT cl
 test("inventory rechecks active matching DEV account and remains GET-only", () => {
   const route = readFileSync("artifacts/api-server/src/routes/vps-storage.ts", "utf8");
   assert.ok(route.includes("hasRecentGoogleVerifiedVpsSession(req.user)"));
-  assert.ok(route.includes("usersTable.isActive"));
-  assert.ok(route.includes('activeAdmin.role !== "super_admin"'));
-  assert.ok(route.includes("activeAdmin.email.trim().toLowerCase()"));
-  assert.ok(route.includes("activeAdmin.companyId"));
+  const reader = readFileSync("artifacts/api-server/src/lib/vps-storage-readonly-db.ts", "utf8");
+  assert.ok(route.includes("readActiveVpsSuperAdmin(req.user)"));
+  assert.ok(reader.includes("AND role = 'super_admin' AND is_active IS TRUE AND status = 'active'"));
+  assert.ok(reader.includes("lower(btrim(email)) = $2::text"));
+  assert.ok(reader.includes("COALESCE(company_id::text, '@NULL@') = $3::text"));
+  assert.ok(reader.includes("BEGIN READ ONLY"));
   for (const method of ["post", "put", "patch", "delete"]) {
     assert.ok(!route.includes("router."+method+"("));
   }
