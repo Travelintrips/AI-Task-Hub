@@ -20,10 +20,28 @@ const handoffEqual = [
   "AI_CORE_JOB_WA_GATEWAY_URL",
 ];
 
+/** Release preflight: the *actually served* login bundle must strip OAuth
+ * URL fragments before its first async Google token exchange. This is scoped
+ * to the known AI Task Vite bundle shape and fails closed on unknown shapes.
+ * No token or credential is present in the JS asset.
+ */
+export function googleOauthFragmentIsClearedBeforeExchange(bundle) {
+  if (typeof bundle !== "string") return false;
+  const marker = '.get("access_token")';
+  const first = bundle.indexOf(marker);
+  if (first < 0 || bundle.indexOf(marker, first + marker.length) !== -1)
+    return false;
+  const bootstrap = bundle.slice(first, first + 750);
+  const cleared = bootstrap.indexOf("history.replaceState(");
+  const exchanged = bootstrap.indexOf("await ");
+  return cleared > 0 && exchanged > 0 && cleared < exchanged;
+}
+
 export function checkDevCutoverConfig({
   live = {}, candidate = {}, mode, oldBackendStopped = false,
   privateInternalNetwork = false, candidatePublishedPorts = 0,
   candidateReadOnlyRoot = false,
+  publicLoginBundle, candidateLoginBundle,
 } = {}) {
   const failures = [];
   const fail = (code) => failures.push(code);
@@ -66,6 +84,12 @@ export function checkDevCutoverConfig({
         !candidateReadOnlyRoot)
       fail("PREVIEW_NETWORK_ISOLATION_INCOMPLETE");
   } else {
+    // PR189's login-only Nginx overlay is independent of the API container.
+    // Backend parity cannot declare a release safe with the old login asset.
+    if (!googleOauthFragmentIsClearedBeforeExchange(publicLoginBundle))
+      fail("PUBLIC_LOGIN_OVERLAY_OAUTH_STALE");
+    if (!googleOauthFragmentIsClearedBeforeExchange(candidateLoginBundle))
+      fail("CANDIDATE_LOGIN_OAUTH_STALE");
     if (!oldBackendStopped)
       fail("OLD_WORKER_NOT_STOPPED");
     if (candidate.PUBLIC_APP_BASE_URL !== DEV_ORIGIN)
