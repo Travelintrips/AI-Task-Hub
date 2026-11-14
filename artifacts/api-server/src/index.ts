@@ -6,6 +6,16 @@ import { startAiJobWhatsAppDeliveryReconciliation } from "./lib/ai-job-wa-delive
 const rawPort = process.env["PORT"] ?? "8080";
 const host = process.env["HOST"]?.trim() || "127.0.0.1";
 
+// Real DEV/PROD must never issue JWTs with the shared source fallback secret.
+// Unit/synthetic test modes remain unchanged; no runtime config is modified here.
+if (process.env.NODE_ENV === "development" || process.env.NODE_ENV === "production") {
+  const secret = process.env.SESSION_SECRET;
+  if (!secret || secret.trim().length < 32 ||
+      secret === "fallback-secret-change-in-production") {
+    throw new Error("SESSION_SECRET must be a non-default value of at least 32 characters before the API can listen");
+  }
+}
+
 const port = Number(rawPort);
 
 if (Number.isNaN(port) || port <= 0) {
