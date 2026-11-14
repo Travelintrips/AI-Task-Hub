@@ -115,6 +115,8 @@ jobs:
         run: |
           node --test artifacts/api-server/tests/gpt02-core-task-preparation.test.mjs
           node --test artifacts/api-server/tests/gpt02-preparation-admission.test.mjs
+          node --test artifacts/api-server/tests/gpt02-preparer-readiness.test.mjs
+          node --test artifacts/api-server/tests/gpt02-preparer-connection-readonly.test.mjs
           node --test scripts/dev/gpt02-reader-retry-readonly-contract.test.mjs
       - name: Validate persisted-task instruction bound to dedicated GPT02 Core preparer (no dispatch)
         run: |

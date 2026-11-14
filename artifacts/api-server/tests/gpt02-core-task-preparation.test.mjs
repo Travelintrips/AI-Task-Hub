@@ -5,12 +5,16 @@ import {Gpt02CoreTaskPreparer,validateCorePreparationInput as validate,corePrepa
 const request={companyId:'default',hubTaskId:137,projectName:'GPT02 DEV coding lifecycle',
  repository:'Travelintrips/Core-AI-Foundation',branch:'develop',instruction:'PREPARE ONLY, never issue a command.'};
 const ids={core_task_id:'11111111-1111-4111-8111-111111111111',command_candidate_id:'22222222-2222-4222-8222-222222222222',attempt_id:'33333333-3333-4333-8333-333333333333',hub_execution_id:'44444444-4444-4444-8444-444444444444',created:true,dispatch_permitted:false};
-const login={login:'gpt02_core_prep_login',session:'gpt02_core_prep_login',limited:true,no_membership:true,no_db_create:true};
+const login={login:'gpt02_core_prep_login',session:'gpt02_core_prep_login',
+ can_login:true,connection_limit:1,short_lived:true,
+ limited:true,no_membership:true,no_db_create:true};
 const acl={can_dispatch:false,direct_core_write:false,direct_preparation_write:false,direct_hub_write:false};
 const actualSchema={hub_operator_id_text:true,hub_numeric_company_nullable:true,hub_tenant_text:true,audit_email_text:true,core_task_uuid:true,hub_execution_uuid:true,hub_task_id_integer_nullable:true,hub_command_uuid_nullable:true,hub_external_id_text:true,hub_source_text:true,hub_status_text:true,hub_metadata_jsonb:true};
 function harness({identity=login,permissions=acl,schema=actualSchema,rows=[ids],errorAt=null}={}){
  const statements=[];let destroyed=false;
- const client={async query(sql,params){statements.push({sql,params});if(errorAt&&sql.includes(errorAt))throw Error('synthetic secret must never surface');
+ const client={
+ connection:{stream:{authorized:true,encrypted:true}},
+ async query(sql,params){statements.push({sql,params});if(errorAt&&sql.includes(errorAt))throw Error('synthetic secret must never surface');
   if(sql.includes('current_user AS login'))return {rows:[identity]};
   if(sql.includes('has_table_privilege'))return {rows:[permissions]};
   if(sql.includes('catalog_rows'))return {rows:[{catalog_rows:12,compatible:Object.values(schema).every(Boolean)}]};
@@ -29,6 +33,12 @@ test('atomic Core PENDING task plus prepared Hub execution never dispatches',asy
   ['default',137,'GPT02 DEV coding lifecycle','Travelintrips/Core-AI-Foundation','develop',request.instruction]
  ]);
  assert.ok(h.statements.some(x=>x.sql==='BEGIN')&&h.statements.some(x=>x.sql==='COMMIT'));
+ assert.ok(h.statements.some(x=>x.sql.includes("r.rolvaliduntil>clock_timestamp()")&&
+   x.sql.includes("INTERVAL '10 minutes'")&&
+   x.sql.includes('r.rolconnlimit AS connection_limit')));
+ assert.ok(h.statements.some(x=>x.sql.includes('r.rolinherit')));
+ assert.ok(h.statements.findIndex(x=>x.sql.includes('r.rolvaliduntil>clock_timestamp()'))<
+   h.statements.findIndex(x=>x.sql.includes('gpt02_stage.prepare_core_task')));
  assert.equal(h.isDestroyed(),true);
 });
 test('prepared existing attempt is never a fresh grant or new task',async()=>{
@@ -55,6 +65,35 @@ test('wrong login, membership, admin grants or direct DML all fail closed with r
   assert.equal(h.statements.some(x=>x.sql.includes('gpt02_stage.prepare_core_task')),false);
   assert.equal(h.statements.some(x=>x.sql==='ROLLBACK'),true);assert.equal(h.isDestroyed(),true);
  }
+});
+test('direct POST cannot prepare when role has no short-lived LOGIN or one-session limit',async()=>{
+ for(const change of [
+  {can_login:false}, {connection_limit:0}, {connection_limit:2},
+  {short_lived:false}, {short_lived:null}, {short_lived:undefined},
+ ]){
+  const h=harness({identity:{...login,...change}});
+  await assert.rejects(h.preparer.prepare(request),
+    e=>e.code==='DEV_PREPARER_SHORT_LIVED_LOGIN_REQUIRED');
+  assert.equal(h.statements.some(x=>x.sql.includes('gpt02_stage.prepare_core_task')),false);
+  assert.ok(h.statements.some(x=>x.sql==='ROLLBACK'));
+  assert.equal(h.isDestroyed(),true);
+ }
+});
+test('direct POST rejects unverified TLS before any database query',async()=>{
+ let issued=false,closed=false;
+ const p=new Gpt02CoreTaskPreparer({pool:{async connect(){
+  return {connection:{stream:{authorized:false,encrypted:true}},
+    async query(){issued=true;throw Error('must never query')},
+    release(v){closed=v}};
+ }}});
+ await assert.rejects(p.prepare(request),e=>e.code==='PINNED_TLS_PREPARER_SESSION_REQUIRED');
+ assert.equal(issued,false);
+ assert.equal(closed,true);
+});
+test('direct POST rejects noinherit violation',async()=>{
+ const h=harness({identity:{...login,limited:false}});
+ await assert.rejects(h.preparer.prepare(request),e=>e.code==='UNSAFE_PREPARER_DATABASE_IDENTITY');
+ assert.equal(h.statements.some(x=>x.sql.includes('gpt02_stage.prepare_core_task')),false);
 });
 test('wrong hosted user/company/tenant/core column shape blocks preparer before any SQL write',async()=>{
  for(const key of Object.keys(actualSchema)){
@@ -86,7 +125,7 @@ const env={NODE_ENV:'development',APP_ENV:'development',GPT02_CORE_PREP_DEV_PROJ
  GPT02_CORE_PREP_DATABASE_URL_DEV:`postgresql://gpt02_core_prep_login.${ref}:synthetic@aws-1-ap-southeast-2.pooler.supabase.com:5432/postgres`};
 test('candidate connector pins CST-DEV, dedicated identity, session-port and TLS',()=>{
  const config=corePreparationPoolConfig(env);
- assert.equal(config.max,2);assert.equal(config.ssl.rejectUnauthorized,true);
+ assert.equal(config.max,1);assert.equal(config.ssl.rejectUnauthorized,true);
  assert.equal(config.ssl.ca,pinnedCa);
  assert.ok(config.connectionString.includes(`gpt02_core_prep_login.${ref}`));
 });

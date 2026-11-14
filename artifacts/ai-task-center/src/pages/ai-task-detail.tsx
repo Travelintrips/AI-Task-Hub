@@ -619,6 +619,7 @@ export default function AiTaskDetail() {
     isFetching: gpt02PreparationReadinessFetching } = useQuery<{
       taskId:number;preparationEligible:boolean;historicalRepairAvailable:boolean;
       featureEnabled:boolean;canRequestPreparation:boolean;reason:string;
+      preparerRoleReady:boolean;dedicatedConnectionVerified:boolean;
       readOnly:true;commandDispatched:false;operatorApprovalGranted:false;
       dispatchPermitted:false;issuerGrantReady:false;
     }>({
@@ -1267,6 +1268,12 @@ export default function AiTaskDetail() {
                   "Status persiapan tidak tersedia; tindakan tetap ditahan." :
                 gpt02PreparationReadiness.reason==="FRESH_TASK_INSTRUCTION_REQUIRED" ?
                   "Instruksi masih berupa referensi lama. Gunakan koreksi ber-audit di atas terlebih dahulu." :
+                gpt02PreparationReadiness.reason==="GPT02_PREPARER_LOGIN_LOCKED" ?
+                  "Akun preparer khusus masih NOLOGIN; belum boleh membuat Core Task." :
+                gpt02PreparationReadiness.reason==="GPT02_PREPARER_PASSWORD_VERIFIER_MISSING" ?
+                  "Autentikasi akun preparer belum tersedia; diperlukan kredensial khusus yang terverifikasi." :
+                gpt02PreparationReadiness.reason==="GPT02_PREPARER_INDEPENDENT_AUTH_NOT_VERIFIED" ?
+                  "Autentikasi TLS dan izin akun preparer belum terverifikasi. Persiapan tetap dikunci." :
                 gpt02PreparationReadiness.reason==="GPT02_CORE_PREPARATION_NOT_ENABLED" ?
                   "Instruksi sudah memenuhi pemeriksaan, tetapi layanan persiapan khusus DEV belum diaktifkan." :
                 gpt02PreparationReadiness.reason==="READY_FOR_PREPARATION_ONLY" ?

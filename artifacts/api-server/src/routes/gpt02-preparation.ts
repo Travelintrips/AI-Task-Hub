@@ -10,8 +10,32 @@ import {
   assessGpt02PreparationAdmission, assessGpt02HistoricalInstructionRepair,
 } from "../lib/gpt02-preparation-admission.mjs";
 import { createCoreTaskPreparer } from "../lib/gpt02-core-task-preparation.mjs";
+import { assessGpt02PreparerCatalog } from "../lib/gpt02-preparer-readiness.mjs";
 
 const router: IRouter = Router();
+
+// Catalog inspection uses the server's authenticated DEV DB connection, not
+// a role state claimed by a request body. No credential or password hash is
+// returned to the UI; only fail-closed readiness metadata is exposed.
+async function readDedicatedPreparerCatalog(){
+ const result=await db.execute(sql`SELECT
+   r.rolname AS "role",r.rolcanlogin AS "canLogin",
+   a.rolpassword IS NOT NULL AS "passwordVerifierReady",
+   r.rolconnlimit AS "connectionLimit",r.rolvaliduntil AS "validUntil",
+   r.rolsuper AS "superuser",r.rolbypassrls AS "bypassRls",
+   r.rolcreaterole AS "createRole",r.rolcreatedb AS "createDb",
+   r.rolreplication AS "replication",r.rolinherit AS "inherit",
+   (SELECT count(*)::integer FROM pg_stat_activity s
+       WHERE s.usename=r.rolname) AS "activeSessions",
+   (SELECT count(*)::integer FROM pg_auth_members m
+       WHERE m.member=r.oid) AS "memberships",
+   has_database_privilege(r.oid,current_database(),'CREATE') AS "canCreateDatabase"
+   FROM pg_roles r LEFT JOIN pg_authid a ON a.oid=r.oid
+   WHERE r.rolname='gpt02_core_prep_login'`);
+ const row=result.rows[0]??null;
+ return assessGpt02PreparerCatalog(row as Parameters<typeof assessGpt02PreparerCatalog>[0]);
+}
+
 
 // Shared server-derived readback: the GET readiness and POST admission must
 // assess precisely the same persisted task, PIC and audit facts.
@@ -73,13 +97,37 @@ router.get("/ai-tasks/:id/gpt02-preparation-readiness", requireAuth,
       req.user?{id:req.user.id,email:req.user.email,role:req.user.role}:null);
     if (!facts) {res.sendStatus(404);return;}
     const featureEnabled=process.env.GPT02_CORE_PREPARATION_ENABLED==="true";
+    const catalog=facts.preparation.eligible?await readDedicatedPreparerCatalog():
+      {catalogReady:false,reason:facts.preparation.reason,dispatchPermitted:false};
+    let dedicatedConnectionVerified=false;
+    // A feature flag and PostgreSQL catalog cannot prove that the *separate*
+    // preparer credential is genuinely authenticated. Only a real pinned-TLS
+    // READ ONLY identity/privilege proof enables the one-shot UI button.
+    if(featureEnabled&&facts.preparation.eligible&&catalog.catalogReady){
+      let factory:ReturnType<typeof createCoreTaskPreparer>|undefined;
+      try{
+        factory=createCoreTaskPreparer({env:process.env,PoolClass:Pool});
+        const proof=await factory.preparer.verifyReadiness();
+        dedicatedConnectionVerified=proof.verified===true&&
+          proof.readOnly===true&&proof.dispatchPermitted===false;
+      }catch{
+        dedicatedConnectionVerified=false;
+      }finally{
+        if(factory)await factory.close();
+      }
+    }
+    const canRequestPreparation=featureEnabled&&facts.preparation.eligible&&
+      catalog.catalogReady&&dedicatedConnectionVerified;
     res.status(200).json({
       taskId,preparationEligible:facts.preparation.eligible,
       historicalRepairAvailable:facts.historicalRepair.eligible,
-      featureEnabled,
-      canRequestPreparation:featureEnabled&&facts.preparation.eligible,
+      featureEnabled,preparerRoleReady:catalog.catalogReady,
+      dedicatedConnectionVerified,canRequestPreparation,
       reason:!facts.preparation.eligible?facts.preparation.reason:
-        featureEnabled?"READY_FOR_PREPARATION_ONLY":"GPT02_CORE_PREPARATION_NOT_ENABLED",
+        !catalog.catalogReady?catalog.reason:
+        !featureEnabled?"GPT02_CORE_PREPARATION_NOT_ENABLED":
+        !dedicatedConnectionVerified?"GPT02_PREPARER_INDEPENDENT_AUTH_NOT_VERIFIED":
+          "READY_FOR_PREPARATION_ONLY",
       readOnly:true,commandDispatched:false,operatorApprovalGranted:false,
       dispatchPermitted:false,issuerGrantReady:false,
     });
