@@ -1,9 +1,10 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { eq, asc } from "drizzle-orm";
+import { eq, asc, getTableColumns, sql } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import { recentGoogleOAuthEvidenceAt } from "../lib/vps-storage-google-session";
+import { selectUniqueActiveGoogleDevProfile } from "../lib/google-dev-profile-match";
 import { createClient } from "@supabase/supabase-js";
 import { db, usersTable, type UserRole, USER_ROLES } from "@workspace/db";
 import { signToken, requireAuth, requireRole, type AuthUser } from "../middleware/auth";
@@ -200,16 +201,23 @@ router.post("/auth/google", async (req: Request, res: Response): Promise<void> =
     }
 
     if (!isProduction) {
-      const [registeredUser] = await db
-        .select()
+      // CST-DEV has TEXT user IDs, nullable email/company and no unique normalized
+      // email constraint. Never select the first matching row and inherit its role.
+      const matchingProfiles = await db
+        .select({
+          ...getTableColumns(usersTable),
+          loginStatus: sql<string>`"users"."status"`,
+        })
         .from(usersTable)
-        .where(eq(usersTable.email, email))
-        .limit(1);
-
-      if (!registeredUser || !registeredUser.isActive) {
-        res.status(403).json({ error: "Google account is not registered or is inactive" });
+        .where(sql`lower(btrim(${usersTable.email})) = ${email}`)
+        .limit(2);
+      const uniqueProfile = selectUniqueActiveGoogleDevProfile(matchingProfiles);
+      if (!uniqueProfile) {
+        res.status(403).json({ error: "Google account is not registered, active and unambiguous" });
         return;
       }
+      // Preserve the original API response fields and existing signed JWT shape.
+      const { loginStatus: _loginStatus, ...registeredUser } = uniqueProfile;
 
       await db
         .update(usersTable)
