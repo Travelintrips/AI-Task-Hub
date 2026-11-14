@@ -44,6 +44,8 @@ jobs:
         run: node --experimental-strip-types --test scripts/dev/vps-storage-google-session-contract.test.mjs
       - name: Verify DEV Google login is visible while passwordless email stays available
         run: node --test scripts/dev/vps-storage-google-login-entrypoint.test.mjs
+      - name: Verify authenticated /login redirects without changing login or GPT02 guards
+        run: node --test scripts/dev/ai-task-authenticated-login-route.test.mjs
       - name: Verify VPS identity uses a dedicated least-privilege DEV reader
         run: node --experimental-strip-types --test scripts/dev/vps-identity-reader-contract.test.mjs
       - name: Verify VPS identity reader RLS on disposable PostgreSQL 16
