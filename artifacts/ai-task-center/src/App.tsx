@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Switch, Route, Router as WouterRouter } from "wouter";
+import { Switch, Route, Redirect, Router as WouterRouter } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -116,6 +116,12 @@ function AppRouter() {
 
   if (!isAuthenticated) {
     return <Login />;
+  }
+
+  // A signed-in user visiting the login URL should see the dashboard,
+  // not the authenticated router's NotFound page.
+  if (window.location.pathname === "/login") {
+    return <Redirect to="/" replace />;
   }
 
   return (
