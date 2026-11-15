@@ -46,6 +46,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setToken(null);
           setUser(null);
         } finally {
+          // A second scrub after the async exchange protects against
+          // browsers restoring the callback fragment during navigation.
+          // Keep the first scrub above: never wait for the network to clear it.
+          if (window.location.hash.includes("access_token=")) {
+            window.history.replaceState(null, "", window.location.pathname + window.location.search);
+          }
           if (!cancelled) setLoading(false);
         }
         return;
