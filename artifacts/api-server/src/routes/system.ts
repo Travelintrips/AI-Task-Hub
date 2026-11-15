@@ -11,8 +11,28 @@ import { eq, desc, sql, and, inArray } from "drizzle-orm";
 import { requireAuth, getCompanyId } from "../middleware/auth";
 import { logger } from "../lib/logger";
 import { sendFonnte, normalizePhone } from "../lib/fonnte";
+import { jobWaConfig, probeJobWaDevGateway } from "../lib/ai-job-wa-gateway";
+import { summarizeWhatsAppOnboarding } from "../lib/onboarding-wa-readiness.mjs";
 
 const router: IRouter = Router();
+
+// Only the default CST-DEV tenant may use the dedicated AI Core DEV gateway
+// as a WhatsApp setup signal. This probe is GET-only; never sends a message.
+async function readDevGatewayStatus(companyId: string) {
+  if (process.env.NODE_ENV !== "development" ||
+      process.env.APP_ENV !== "development" ||
+      companyId !== "default") return null;
+
+  if (!jobWaConfig().ready) {
+    return { configured: false, operational: false, onlineWorkers: 0 };
+  }
+  const state = await probeJobWaDevGateway();
+  return {
+    configured: true,
+    operational: state.operational === true,
+    onlineWorkers: state.onlineWorkers,
+  };
+}
 
 // ── GET /api/system/whatsapp-health ───────────────────────────────────────────
 
@@ -36,6 +56,7 @@ router.get("/system/whatsapp-health", requireAuth, async (req: Request, res: Res
     const fonnteConfigured = !!fonnteToken;
     const metaConfigured = !!waToken && !!waPhoneId;
     const webhookConfigured = !!waVerifyToken;
+    const devGateway = await readDevGatewayStatus(companyId);
 
     // Last inbound WA message
     const [lastTask] = await db
@@ -80,7 +101,7 @@ router.get("/system/whatsapp-health", requireAuth, async (req: Request, res: Res
 
     // Overall status
     let status: "healthy" | "partial" | "not_configured";
-    if (fonnteConfigured) {
+    if (fonnteConfigured || devGateway?.operational === true) {
       status = "healthy";
     } else if (metaConfigured) {
       status = "partial";
@@ -100,6 +121,7 @@ router.get("/system/whatsapp-health", requireAuth, async (req: Request, res: Res
           phoneNumberId: waPhoneId ?? null,
           tokenMasked: waToken ? `••••••••${waToken.slice(-4)}` : null,
         },
+        ...(devGateway ? { aiCoreDev: devGateway } : {}),
       },
       webhook: {
         configured: webhookConfigured,
@@ -114,9 +136,12 @@ router.get("/system/whatsapp-health", requireAuth, async (req: Request, res: Res
         messages24h,
       },
       issues: [
-        ...(!fonnteConfigured ? ["FONNTE_TOKEN belum dikonfigurasi — pesan WA tidak akan terkirim"] : []),
-        ...(!metaConfigured ? ["Meta WhatsApp API belum dikonfigurasi"] : []),
-        ...(!webhookConfigured ? ["Webhook verify token belum di-set"] : []),
+        ...(!fonnteConfigured && !devGateway?.operational
+          ? ["Fonnte belum dikonfigurasi — pengiriman melalui Fonnte tidak tersedia"] : []),
+        ...(!metaConfigured && !devGateway?.operational
+          ? ["Meta WhatsApp API belum dikonfigurasi"] : []),
+        ...(!webhookConfigured && !devGateway?.operational
+          ? ["Webhook verify token belum di-set"] : []),
       ],
       checkedAt: new Date().toISOString(),
     });
@@ -148,10 +173,16 @@ router.get("/system/onboarding-status", requireAuth, async (req: Request, res: R
     const profileDone = Object.values(profileFields).filter(Boolean).length;
     const profilePct = Math.round((profileDone / 4) * 100);
 
-    // WhatsApp configured
+    // Distinguish DEV AI Core Gateway from Fonnte/Meta. A verified DEV gateway
+    // may complete DEV onboarding, but never signals PROD readiness.
     const fonnteOk = !!(settings?.fonnteToken ?? process.env.FONNTE_TOKEN);
     const metaOk = !!(settings?.whatsappToken ?? process.env.WHATSAPP_TOKEN);
-    const waPct = fonnteOk ? 100 : metaOk ? 50 : 0;
+    const devGateway = await readDevGatewayStatus(companyId);
+    const waProgress = summarizeWhatsAppOnboarding({
+      fonnteConfigured: fonnteOk,
+      metaConfigured: metaOk,
+      devGatewayOperational: devGateway?.operational === true,
+    });
 
     // Helper: db.execute() may return {rows:[...]} or raw array depending on driver version
     function safeRows(r: unknown): Record<string, unknown>[] {
@@ -172,7 +203,7 @@ router.get("/system/onboarding-status", requireAuth, async (req: Request, res: R
     // Customers with phone
     const custResult = await db.execute(sql`
       SELECT COUNT(*) AS total, COUNT(CASE WHEN whatsapp IS NOT NULL THEN 1 END) AS with_wa
-      FROM customers WHERE company_id = ${companyId}
+      FROM customers WHERE company_id::text = ${companyId}
     `).catch(() => ({ rows: [{ total: 0, with_wa: 0 }] }));
     const custRow = safeRows(custResult)[0] ?? {};
 
@@ -190,7 +221,14 @@ router.get("/system/onboarding-status", requireAuth, async (req: Request, res: R
 
     const steps = {
       company_profile: { done: profilePct === 100, pct: profilePct, fields: profileFields },
-      whatsapp: { done: waPct === 100, pct: waPct, fonnteConfigured: fonnteOk, metaConfigured: metaOk },
+      whatsapp: {
+        done: waProgress.done,
+        pct: waProgress.pct,
+        fonnteConfigured: fonnteOk,
+        metaConfigured: metaOk,
+        devGatewayOperational: devGateway?.operational === true,
+        operationalChannel: waProgress.operationalChannel,
+      },
       team: { done: teamCount >= 1, count: teamCount },
       customers: { done: parseInt(String(custRow.total ?? "0"), 10) >= 1, total: parseInt(String(custRow.total ?? "0"), 10), withPhone: parseInt(String(custRow.with_wa ?? "0"), 10) },
       fleet: { done: fleetCount >= 1, count: fleetCount },
@@ -205,7 +243,7 @@ router.get("/system/onboarding-status", requireAuth, async (req: Request, res: R
       overallPct,
       companyId,
       steps,
-      readyForProduction: overallPct >= 70 && steps.whatsapp.done && steps.company_profile.done,
+      readyForProduction: overallPct >= 70 && waProgress.productionChannelReady && steps.company_profile.done,
       checkedAt: new Date().toISOString(),
     });
   } catch (err) {
