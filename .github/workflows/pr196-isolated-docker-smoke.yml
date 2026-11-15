@@ -22,6 +22,8 @@ jobs:
     timeout-minutes: 35
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
       - name: Confirm exact source and no secret context
         shell: bash
         run: |
@@ -116,6 +118,32 @@ jobs:
           }
           console.log("IMAGE_RUNTIME_PASS health=200 protected=401/401 login_js=200 oauth_fragment_safe=true no_send=true no_dispatch=true");
           NODE
+      - name: Save exact-source verified OCI image for private offline staging
+        shell: bash
+        env:
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA" || { echo "SOURCE_SHA_MISMATCH"; exit 1; }
+          docker image inspect ai-task-pr196:synthetic >/dev/null
+          docker save ai-task-pr196:synthetic | gzip -1 > /tmp/ai-task-pr196-image.tar.gz
+          printf '%s\n' "$EXPECTED_HEAD_SHA" > /tmp/ai-task-pr196-image.sha
+          cd /tmp
+          sha256sum ai-task-pr196-image.tar.gz > ai-task-pr196-image.tar.gz.sha256
+          test -s ai-task-pr196-image.tar.gz
+          sha256sum --check ai-task-pr196-image.tar.gz.sha256
+          echo "EXACT_SOURCE_IMAGE_ARCHIVE_READY"
+      - name: Upload CI-verified image archive for staging (not deployment)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-task-pr196-oci-${{ github.event.pull_request.head.sha }}
+          path: |
+            /tmp/ai-task-pr196-image.tar.gz
+            /tmp/ai-task-pr196-image.sha
+            /tmp/ai-task-pr196-image.tar.gz.sha256
+          compression-level: 0
+          retention-days: 2
+          if-no-files-found: error
       - name: Confirm image run did not touch any live environment
         shell: bash
         run: echo "Synthetic image test completed on GitHub runner; no secrets, network, or deployment used."
