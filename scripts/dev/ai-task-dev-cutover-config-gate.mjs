@@ -80,6 +80,26 @@ export function checkDevCutoverConfig({
       fail("PREVIEW_SCHEDULERS_RUNNING");
     if (candidate.AI_CORE_JOB_WA_ENABLED !== "false")
       fail("PREVIEW_WA_WORKER_RUNNING");
+    // A disabled scheduler is not a read-only database identity. The hosted
+    // Supabase pooler did not enforce PGOPTIONS or URL "options", so previews
+    // must use an ephemeral synthetic DB, never a writable CST-DEV connection.
+    const syntheticDbHosts = new Set(["synthetic-pg", "qa-postgres"]);
+    for (const key of ["SUPABASE_DATABASE_URL_DEV", "SUPABASE_DATABASE_URL", "DATABASE_URL"]) {
+      const uri = candidate[key];
+      if (uri === undefined || uri === null || uri === "") continue;
+      let synthetic = false;
+      if (typeof uri === "string") {
+        try {
+          const parsed = new URL(uri);
+          synthetic =
+            (parsed.protocol === "postgresql:" || parsed.protocol === "postgres:") &&
+            syntheticDbHosts.has(parsed.hostname) && parsed.pathname === "/smoke";
+        } catch { /* malformed database config must fail closed */ }
+      }
+      if (!synthetic) fail("PREVIEW_NON_SYNTHETIC_DATABASE_" + key);
+    }
+    if (candidate.SUPABASE_SERVICE_ROLE_KEY_DEV || candidate.SUPABASE_SERVICE_ROLE_KEY)
+      fail("PREVIEW_SERVICE_ROLE_CREDENTIALS_FORBIDDEN");
     if (!privateInternalNetwork || candidatePublishedPorts !== 0 ||
         !candidateReadOnlyRoot)
       fail("PREVIEW_NETWORK_ISOLATION_INCOMPLETE");
