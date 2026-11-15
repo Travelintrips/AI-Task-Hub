@@ -52,6 +52,17 @@ const uiVerified = Object.freeze({
   candidateLoginBundle: correctedLoginBundle,
   trustedCstDevPublishableKey: cstDevKey,
   cstDevAuthProbe: officialAuthProof,
+  handoffNetworks: ["ai-task-development_default", "cst-wa-ai-core-dev-private"],
+  devWaGatewayProbe: {
+    network: "cst-wa-ai-core-dev-private",
+    httpStatus: 200,
+    onlineWorkers: 1,
+    overallDegraded: false,
+  },
+  waBacklogAudit: {
+    projectRef: "xssrfshdrtdfupgqwfdw",
+    staleRetryablePendingCount: 0,
+  },
 });
 
 const previewArgs = Object.freeze({
@@ -249,4 +260,58 @@ test("handoff must have independently checked current CST-DEV Auth and Google", 
     });
     assert.ok(result.failures.includes("HANDOFF_CST_DEV_AUTH_PROOF_REQUIRED"));
   }
+});
+
+test("handoff refuses missing private WA gateway connection or PROD/Redis network exposure", () => {
+  const networkCases = [
+    undefined, [],
+    ["ai-task-development_default"],
+    ["cst-wa-ai-core-dev-private"],
+    ["ai-task-development_default", "cst-wa-gateway-dev_wa-dev"],
+    ["ai-task-development_default", "cst-wa-ai-core-dev-private", "cst-wa-gateway_default"],
+  ];
+  for (const networks of networkCases) {
+    const result = checkDevCutoverConfig({
+      live, candidate: handoff, mode: "handoff", oldBackendStopped: true,
+      ...uiVerified, handoffNetworks: networks,
+    });
+    assert.ok(result.failures.includes("HANDOFF_WA_PRIVATE_NETWORK_REQUIRED"));
+  }
+});
+test("handoff needs real private DEV gateway reachability and an online worker", () => {
+  const probeCases = [
+    undefined,
+    { network: "cst-wa-ai-core-dev-private", httpStatus: 500, onlineWorkers: 1, overallDegraded: false },
+    { network: "cst-wa-ai-core-dev-private", httpStatus: 200, onlineWorkers: 0, overallDegraded: false },
+    { network: "cst-wa-ai-core-dev-private", httpStatus: 200, onlineWorkers: 1, overallDegraded: true },
+    { network: "cst-wa-gateway-dev_wa-dev", httpStatus: 200, onlineWorkers: 1, overallDegraded: false },
+  ];
+  for (const probe of probeCases) {
+    const result = checkDevCutoverConfig({
+      live, candidate: handoff, mode: "handoff", oldBackendStopped: true,
+      ...uiVerified, devWaGatewayProbe: probe,
+    });
+    assert.ok(result.failures.includes("HANDOFF_WA_GATEWAY_PROBE_REQUIRED"));
+  }
+});
+test("handoff must not silently replay a stale pending WA digest from CST-DEV", () => {
+  const audits = [
+    undefined,
+    { projectRef: "xssrfshdrtdfupgqwfdw", staleRetryablePendingCount: 1 },
+    { projectRef: "other-project", staleRetryablePendingCount: 0 },
+    { projectRef: "xssrfshdrtdfupgqwfdw", staleRetryablePendingCount: -1 },
+    { projectRef: "xssrfshdrtdfupgqwfdw", staleRetryablePendingCount: null },
+  ];
+  for (const audit of audits) {
+    const result = checkDevCutoverConfig({
+      live, candidate: handoff, mode: "handoff", oldBackendStopped: true,
+      ...uiVerified, waBacklogAudit: audit,
+    });
+    assert.ok(result.failures.includes("HANDOFF_STALE_WA_OUTBOX_REVIEW_REQUIRED"));
+  }
+  const safe = checkDevCutoverConfig({
+    live, candidate: handoff, mode: "handoff", oldBackendStopped: true,
+    ...uiVerified,
+  });
+  assert.deepEqual(safe, { ok: true, failures: [] });
 });
