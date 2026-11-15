@@ -77,6 +77,37 @@ test("preview denies any second WA/Core worker or unsafe storage/DB startup", ()
     }).ok, false, key);
   }
 });
+test("preview forbids live DEV writable pooler credentials even with schedulers OFF", () => {
+  for (const key of ["SUPABASE_DATABASE_URL_DEV", "SUPABASE_DATABASE_URL", "DATABASE_URL"]) {
+    for (const url of [
+      "postgresql://postgres.xssrfshdrtdfupgqwfdw:synthetic@aws-1-ap-southeast-2.pooler.supabase.com:5432/postgres",
+      "postgresql://postgres@db.xssrfshdrtdfupgqwfdw.supabase.co:5432/postgres?options=-c%20default_transaction_read_only%3Don",
+      "postgresql://synthetic-reader@127.0.0.1:5432/postgres",
+      "malformed not-a-database-url",
+    ]) {
+      const output = checkDevCutoverConfig({
+        ...previewArgs, candidate: { ...preview, [key]: url },
+      });
+      assert.ok(output.failures.includes("PREVIEW_NON_SYNTHETIC_DATABASE_" + key), key);
+    }
+  }
+});
+test("preview permits only disposable smoke database locators and no service role", () => {
+  for (const host of ["synthetic-pg", "qa-postgres"]) {
+    const output = checkDevCutoverConfig({
+      ...previewArgs,
+      candidate: { ...preview, SUPABASE_DATABASE_URL_DEV: "postgresql://postgres@"+host+":5432/smoke" },
+    });
+    assert.deepEqual(output, { ok: true, failures: [] });
+  }
+  for (const key of ["SUPABASE_SERVICE_ROLE_KEY_DEV", "SUPABASE_SERVICE_ROLE_KEY"]) {
+    const output = checkDevCutoverConfig({
+      ...previewArgs, candidate: { ...preview, [key]: "synthetic-privileged-key" },
+    });
+    assert.ok(output.failures.includes("PREVIEW_SERVICE_ROLE_CREDENTIALS_FORBIDDEN"), key);
+  }
+});
+
 test("preview denies publicly exposed or writable-root containers", () => {
   for (const patch of [
     { privateInternalNetwork: false },
