@@ -56,6 +56,8 @@ jobs:
         run: node --test scripts/dev/ai-task-background-worker-cutover-gate.test.mjs
       - name: Verify DEV cutover configuration parity and single WA worker handoff
         run: node --test scripts/dev/ai-task-dev-cutover-config-gate.test.mjs
+      - name: Verify DEV onboarding reflects operational AI Core Gateway without PROD readiness
+        run: node --test scripts/dev/onboarding-dev-gateway-contract.test.mjs
       - name: Verify DEV and PROD startup reject fallback session secrets
         run: node --test scripts/dev/ai-task-session-secret-cutover-gate.test.mjs
       - name: Verify isolated DEV never auto-creates Storage buckets
