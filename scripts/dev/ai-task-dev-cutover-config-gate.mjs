@@ -42,6 +42,7 @@ export function checkDevCutoverConfig({
   candidateReadOnlyRoot = false,
   publicLoginBundle, candidateLoginBundle,
   trustedCstDevPublishableKey, cstDevAuthProbe,
+  handoffNetworks, devWaGatewayProbe, waBacklogAudit,
 } = {}) {
   const failures = [];
   const fail = (code) => failures.push(code);
@@ -120,6 +121,31 @@ export function checkDevCutoverConfig({
       fail("HANDOFF_SCHEDULERS_DISABLED");
     if (candidate.AI_CORE_JOB_WA_ENABLED !== "true")
       fail("HANDOFF_WA_WORKER_DISABLED");
+    // WA Gateway DEV is only reachable over its existing dedicated internal
+    // network, not the legacy ai-task-development_default network alone.
+    // Never attach the successor to the WA Redis/worker bridge or PROD bridge.
+    const requiredNetworks = [
+      "ai-task-development_default", "cst-wa-ai-core-dev-private",
+    ];
+    const receivedNetworks = Array.isArray(handoffNetworks)
+      ? new Set(handoffNetworks) : new Set();
+    if (receivedNetworks.size !== requiredNetworks.length ||
+        requiredNetworks.some(name => !receivedNetworks.has(name)))
+      fail("HANDOFF_WA_PRIVATE_NETWORK_REQUIRED");
+    if (devWaGatewayProbe?.network !== "cst-wa-ai-core-dev-private" ||
+        devWaGatewayProbe?.httpStatus !== 200 ||
+        !Number.isInteger(devWaGatewayProbe?.onlineWorkers) ||
+        devWaGatewayProbe.onlineWorkers < 1 ||
+        devWaGatewayProbe?.overallDegraded !== false)
+      fail("HANDOFF_WA_GATEWAY_PROBE_REQUIRED");
+    // The live DEV outbox includes a stale, retryable WA_DIGEST. Connecting
+    // a new worker to the healthy gateway may auto-send it. Do not replay or
+    // mutate that message implicitly as part of a backend swap. Require a
+    // separate current, read-only CST-DEV queue audit with zero stale entries.
+    if (waBacklogAudit?.projectRef !== "xssrfshdrtdfupgqwfdw" ||
+        !Number.isInteger(waBacklogAudit?.staleRetryablePendingCount) ||
+        waBacklogAudit.staleRetryablePendingCount !== 0)
+      fail("HANDOFF_STALE_WA_OUTBOX_REVIEW_REQUIRED");
     // The active DEV's legacy anon JWT was minted for the wrong Supabase
     // project: do NOT preserve it simply because the old container has it.
     // The operator must pin the official current CST-DEV publishable key from
