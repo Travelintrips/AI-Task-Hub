@@ -191,5 +191,7 @@ jobs:
         run: pnpm run typecheck
       - name: Build
         run: pnpm run build
+      - name: Verify PR196 integrated DEV runtime with synthetic credentials (no live DB)
+        run: node --test scripts/dev/ai-task-pr196-synthetic-runtime-smoke.test.mjs
       - name: Verify Pino worker image portability
         run: pnpm --filter @workspace/api-server run test:build-portability
