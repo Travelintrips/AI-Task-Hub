@@ -1,0 +1,121 @@
+name: PR196 Isolated Docker image smoke (no deployment)
+
+on:
+  pull_request:
+    branches: [develop]
+    paths:
+      - '.github/workflows/pr196-isolated-docker-smoke.yml'
+      - 'Dockerfile'
+      - 'artifacts/**'
+      - 'lib/**'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+
+permissions:
+  contents: read
+
+jobs:
+  image-smoke:
+    if: github.head_ref == 'test/dev-pr193-pr195-integrated-20261115'
+    name: Build and run image in synthetic air-gapped container
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - name: Confirm exact source and no secret context
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_EVENT_NAME" = "pull_request"
+          test "$GITHUB_HEAD_REF" = "test/dev-pr193-pr195-integrated-20261115"
+          git diff --check
+      - name: Build OCI image on GitHub runner only
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --file Dockerfile --tag ai-task-pr196:synthetic .
+      - name: Run image with no network, secrets, published ports, or mutable root filesystem
+        shell: bash
+        run: |
+          set -euo pipefail
+          container="ai-task-pr196-synthetic"
+          trap 'docker logs --tail 45 "$container" || true; docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
+          docker run --detach --name "$container" \
+            --network none --read-only --tmpfs /tmp:rw,nosuid,nodev,size=32m \
+            --cap-drop ALL --security-opt no-new-privileges \
+            --pids-limit 128 --memory 1024m --memory-swap 1024m \
+            --env NODE_ENV=development \
+            --env APP_ENV=development \
+            --env HOST=127.0.0.1 \
+            --env PORT=8080 \
+            --env SESSION_SECRET=pr196-synthetic-only-32-plus-character-secret-no-real-auth \
+            --env PUBLIC_APP_BASE_URL=http://127.0.0.1:8080 \
+            --env CORS_ALLOWED_ORIGINS=http://127.0.0.1:8080 \
+            --env SUPABASE_DATABASE_URL_DEV=postgresql://fake:fake@synthetic-pg:5432/smoke \
+            --env DB_SSL=false \
+            --env DB_CONNECTION_TIMEOUT_MS=500 \
+            --env SUPABASE_URL_DEV=https://synthetic.invalid \
+            --env AI_CORE_JOB_WA_ENABLED=false \
+            --env DISABLE_BACKGROUND_SCHEDULERS=true \
+            --env GPT02_CORE_PREPARATION_ENABLED=false \
+            --env RUN_STARTUP_MIGRATIONS=false \
+            --env DISABLE_STORAGE_BUCKET_AUTO_CREATE=true \
+            --env VPS_STORAGE_INVENTORY_READONLY_ENABLED=false \
+            --env LOG_LEVEL=error \
+            ai-task-pr196:synthetic >/dev/null
+
+          test "$(docker inspect --format '{{.HostConfig.NetworkMode}}' "$container")" = none
+          test "$(docker inspect --format '{{.HostConfig.ReadonlyRootfs}}' "$container")" = true
+          test -z "$(docker port "$container")"
+          ready=false
+          for i in $(seq 1 40); do
+            if test "$(docker inspect --format '{{.State.Running}}' "$container")" != true; then
+              echo "IMAGE_EXITED_BEFORE_HEALTHY"
+              exit 1
+            fi
+            if docker exec "$container" node -e \
+              "fetch('http://127.0.0.1:8080/api/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))" >/dev/null 2>&1; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          test "$ready" = true || { echo "IMAGE_HEALTH_NOT_READY"; exit 1; }
+
+          docker exec -i "$container" node - <<'NODE'
+          const origin = "http://127.0.0.1:8080";
+          async function verify(path, expected) {
+            const r = await fetch(origin + path, { signal: AbortSignal.timeout(3000) });
+            if (r.status !== expected) throw Error(path + " expected=" + expected + " got=" + r.status);
+            return r;
+          }
+          await verify("/api/healthz", 200);
+          await verify("/api/system/onboarding-status", 401);
+          await verify("/api/system/whatsapp-health", 401);
+          const html = await (await verify("/", 200)).text();
+          const asset = html.match(/<script[^>]+src=["']([^"']+\.js(?:\?[^"']*)?)["']/i)?.[1];
+          if (!asset) throw Error("MISSING_COMPILED_LOGIN_BUNDLE");
+          const url = new URL(asset, origin);
+          const script = await fetch(url, { signal: AbortSignal.timeout(7000) });
+          if (script.status !== 200) throw Error("BUNDLE_HTTP_" + script.status);
+          const js = await script.text();
+          const tokenMarker = '.get("access_token")';
+          const start = js.indexOf(tokenMarker);
+          if (start < 0 || js.indexOf(tokenMarker, start + tokenMarker.length) >= 0) {
+            throw Error("OAUTH_EXCHANGE_MARKER_INVALID");
+          }
+          const window = js.slice(start, start + 750);
+          const clear = window.indexOf("history.replaceState(");
+          const awaitIndex = window.indexOf("await ");
+          if (!(clear > 0 && awaitIndex > clear)) throw Error("OAUTH_FRAGMENT_NOT_CLEARED_BEFORE_EXCHANGE");
+          if (process.env.AI_CORE_JOB_WA_ENABLED !== "false" ||
+              process.env.DISABLE_BACKGROUND_SCHEDULERS !== "true" ||
+              process.env.GPT02_CORE_PREPARATION_ENABLED !== "false" ||
+              process.env.RUN_STARTUP_MIGRATIONS !== "false") {
+            throw Error("SYNTHETIC_SAFETY_FLAGS_MISMATCH");
+          }
+          console.log("IMAGE_RUNTIME_PASS health=200 protected=401/401 login_js=200 oauth_fragment_safe=true no_send=true no_dispatch=true");
+          NODE
+      - name: Confirm image run did not touch any live environment
+        shell: bash
+        run: echo "Synthetic image test completed on GitHub runner; no secrets, network, or deployment used."
