@@ -10,7 +10,7 @@ const live = Object.freeze({
   AI_CORE_JOB_WA_ENABLED: "true",
   SESSION_SECRET: "synthetic-opaque-active-dev-session-secret-12345",
   SUPABASE_DATABASE_URL_DEV: "synthetic-only-database-url-for-dev",
-  SUPABASE_ANON_KEY_DEV: "synthetic-anon-key",
+  SUPABASE_ANON_KEY_DEV: "synthetic-wrong-project-legacy-anon-key",
   SUPABASE_SERVICE_ROLE_KEY_DEV: "synthetic-service-key",
   AI_CORE_DEV_BASE_URL: "https://example.invalid/dev-core",
   AI_CORE_DEV_CHECKPOINT_PUBLIC_KEY_DER_B64: "synthetic-public-signature",
@@ -27,8 +27,14 @@ const preview = Object.freeze({
   VPS_STORAGE_INVENTORY_READONLY_ENABLED: "false",
   GPT02_CORE_PREPARATION_ENABLED: "false",
 });
+const cstDevKey = "sb_publishable_synthetic-cst-dev-pinned-key-not-real";
+const officialAuthProof = Object.freeze({
+  projectRef: "xssrfshdrtdfupgqwfdw",
+  httpStatus: 200,
+  googleEnabled: true,
+});
 const handoff = Object.freeze({
-  ...live, RUN_STARTUP_MIGRATIONS: "false",
+  ...live, SUPABASE_ANON_KEY_DEV: cstDevKey, RUN_STARTUP_MIGRATIONS: "false",
   DISABLE_STORAGE_BUCKET_AUTO_CREATE: "true",
   DISABLE_BACKGROUND_SCHEDULERS: "false",
   VPS_STORAGE_INVENTORY_READONLY_ENABLED: "false",
@@ -44,6 +50,8 @@ const correctedLoginBundle =
 const uiVerified = Object.freeze({
   publicLoginBundle: correctedLoginBundle,
   candidateLoginBundle: correctedLoginBundle,
+  trustedCstDevPublishableKey: cstDevKey,
+  cstDevAuthProbe: officialAuthProof,
 });
 
 const previewArgs = Object.freeze({
@@ -91,7 +99,7 @@ test("handoff must wait for old worker stop, then preserve all active secrets an
 test("handoff refuses changed session signing secret, Google auth, DB or WA integrations", () => {
   for (const key of [
     "SESSION_SECRET", "SUPABASE_DATABASE_URL_DEV",
-    "SUPABASE_URL_DEV", "SUPABASE_ANON_KEY_DEV", "SUPABASE_SERVICE_ROLE_KEY_DEV",
+    "SUPABASE_URL_DEV", "SUPABASE_SERVICE_ROLE_KEY_DEV",
     "AI_CORE_DEV_BASE_URL", "AI_CORE_DEV_CHECKPOINT_PUBLIC_KEY_DER_B64",
     "AI_CORE_JOB_WA_API_TOKEN", "AI_CORE_JOB_WA_GATEWAY_URL",
   ]) {
@@ -166,4 +174,48 @@ test("bundle shape audit is fail-closed on ambiguity or missing token exchange",
   assert.equal(googleOauthFragmentIsClearedBeforeExchange(""), false);
   assert.equal(googleOauthFragmentIsClearedBeforeExchange(undefined), false);
   assert.equal(googleOauthFragmentIsClearedBeforeExchange(correctedLoginBundle+correctedLoginBundle), false);
+});
+
+test("handoff replaces wrong-project public anon key only with official CST-DEV publishable key", () => {
+  const baseline = checkDevCutoverConfig({
+    live, candidate: handoff, mode: "handoff", ...uiVerified, oldBackendStopped: true,
+  });
+  assert.deepEqual(baseline, { ok: true, failures: [] });
+  assert.notEqual(handoff.SUPABASE_ANON_KEY_DEV, live.SUPABASE_ANON_KEY_DEV,
+    "Known-bad public DEV key must not be copied to the successor");
+
+  for (const wrong of [
+    live.SUPABASE_ANON_KEY_DEV,
+    "sb_publishable_other-project-synthetic",
+    "",
+    undefined,
+  ]) {
+    const failed = checkDevCutoverConfig({
+      live, candidate: { ...handoff, SUPABASE_ANON_KEY_DEV: wrong },
+      mode: "handoff", ...uiVerified, oldBackendStopped: true,
+    });
+    assert.ok(failed.failures.includes("HANDOFF_CST_DEV_PUBLISHABLE_KEY_MISMATCH"));
+  }
+});
+test("handoff must have independently checked current CST-DEV Auth and Google", () => {
+  const proofs = [
+    null, undefined,
+    { ...officialAuthProof, projectRef: "wrong-project" },
+    { ...officialAuthProof, httpStatus: 401 },
+    { ...officialAuthProof, googleEnabled: false },
+  ];
+  for (const proof of proofs) {
+    const result = checkDevCutoverConfig({
+      live, candidate: handoff, mode: "handoff",
+      ...uiVerified, cstDevAuthProbe: proof, oldBackendStopped: true,
+    });
+    assert.ok(result.failures.includes("HANDOFF_CST_DEV_AUTH_PROOF_REQUIRED"));
+  }
+  for (const wrongKey of [null, "synthetic-old-anon", "sb_publishable_short"]) {
+    const result = checkDevCutoverConfig({
+      live, candidate: handoff, mode: "handoff",
+      ...uiVerified, trustedCstDevPublishableKey: wrongKey, oldBackendStopped: true,
+    });
+    assert.ok(result.failures.includes("HANDOFF_CST_DEV_AUTH_PROOF_REQUIRED"));
+  }
 });
