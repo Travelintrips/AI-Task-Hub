@@ -12,7 +12,6 @@ const handoffEqual = [
   "SESSION_SECRET",
   "SUPABASE_DATABASE_URL_DEV",
   "SUPABASE_URL_DEV",
-  "SUPABASE_ANON_KEY_DEV",
   "SUPABASE_SERVICE_ROLE_KEY_DEV",
   "AI_CORE_DEV_BASE_URL",
   "AI_CORE_DEV_CHECKPOINT_PUBLIC_KEY_DER_B64",
@@ -42,6 +41,7 @@ export function checkDevCutoverConfig({
   privateInternalNetwork = false, candidatePublishedPorts = 0,
   candidateReadOnlyRoot = false,
   publicLoginBundle, candidateLoginBundle,
+  trustedCstDevPublishableKey, cstDevAuthProbe,
 } = {}) {
   const failures = [];
   const fail = (code) => failures.push(code);
@@ -100,6 +100,26 @@ export function checkDevCutoverConfig({
       fail("HANDOFF_SCHEDULERS_DISABLED");
     if (candidate.AI_CORE_JOB_WA_ENABLED !== "true")
       fail("HANDOFF_WA_WORKER_DISABLED");
+    // The active DEV's legacy anon JWT was minted for the wrong Supabase
+    // project: do NOT preserve it simply because the old container has it.
+    // The operator must pin the official current CST-DEV publishable key from
+    // Supabase management, and independently probe the exact CST-DEV Auth
+    // endpoint with that key (HTTP 200 and Google enabled) before handoff.
+    const validKey =
+      typeof trustedCstDevPublishableKey === "string" &&
+      trustedCstDevPublishableKey.startsWith("sb_publishable_") &&
+      trustedCstDevPublishableKey.length >= 30;
+    const liveProof =
+      cstDevAuthProbe?.projectRef === "xssrfshdrtdfupgqwfdw" &&
+      cstDevAuthProbe?.httpStatus === 200 &&
+      cstDevAuthProbe?.googleEnabled === true;
+    if (!validKey || !liveProof) {
+      fail("HANDOFF_CST_DEV_AUTH_PROOF_REQUIRED");
+    } else if (candidate.SUPABASE_ANON_KEY_DEV !== trustedCstDevPublishableKey) {
+      fail("HANDOFF_CST_DEV_PUBLISHABLE_KEY_MISMATCH");
+    }
+    // Keep all other working DEV identities (including the independent
+    // service-role key), the same session signer, Core and WA integrations.
     for (const key of handoffEqual) {
       if (!live[key] || !candidate[key] || live[key] !== candidate[key])
         fail("HANDOFF_PARITY_" + key);
