@@ -1,11 +1,14 @@
 import pg from "pg";
 import { logger } from "./logger";
+import { assertProductionConnectionAllowed } from "@workspace/db/production-connection-policy";
 
 const isProduction = process.env.NODE_ENV === "production";
 const databaseEnvName = isProduction
   ? "SUPABASE_DATABASE_URL"
   : "SUPABASE_DATABASE_URL_DEV";
 const connectionString = process.env[databaseEnvName]?.trim();
+
+assertProductionConnectionAllowed(connectionString);
 
 if (!connectionString) {
   logger.warn(

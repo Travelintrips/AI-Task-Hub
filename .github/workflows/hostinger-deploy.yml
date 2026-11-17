@@ -42,6 +42,8 @@ jobs:
         run: pnpm --filter @workspace/api-server test:short-links
       - name: Unified job bridge tests
         run: pnpm --filter @workspace/api-server test:job-bridge
+      - name: Production database login policy tests
+        run: pnpm --filter @workspace/api-server test:production-db-policy
 
   deploy-production:
     needs: verify
