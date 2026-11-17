@@ -183,4 +183,233 @@ SELECT (SELECT count(*) FROM gpt02_stage.core_preparations WHERE hub_task_id=171
  (SELECT count(*) FROM ai_platform.ai_coding_runs)::text;")
 [[ "$COUNTS" == '1:1:1:0:0' ]] || { echo "FAIL:LEDGER_COUNTS_UNEXPECTED_$COUNTS";exit 2; }
 echo 'PASS:ONE_CORE_ONE_HUB_ZERO_COMMAND_ZERO_RUN_ZERO_FINAL_ACK'
+# Network-isolated second phase: validate real prepared Hub/Core evidence
+# through two independent, scoped PostgreSQL TLS readers.
+COREID=$(docker exec "$PG" psql -X -U postgres -d gpt02_core_preparation_isolated -Atc "SELECT core_task_id FROM gpt02_stage.core_preparations WHERE hub_task_id=171")
+CMDID=$(docker exec "$PG" psql -X -U postgres -d gpt02_core_preparation_isolated -Atc "SELECT command_candidate_id FROM gpt02_stage.core_preparations WHERE hub_task_id=171")
+ATTEMPTID=$(docker exec "$PG" psql -X -U postgres -d gpt02_core_preparation_isolated -Atc "SELECT attempt_id FROM gpt02_stage.core_preparations WHERE hub_task_id=171")
+[[ "$COREID" =~ ^[a-f0-9-]{36}$ && "$CMDID" =~ ^[a-f0-9-]{36}$ && "$ATTEMPTID" =~ ^[a-f0-9-]{36}$ ]] || { echo INVALID_SYNTHETIC_IDS; exit 2; }
+HUBPASS=$(openssl rand -hex 24)
+COREPASS=$(openssl rand -hex 24)
+docker exec -i "$PG" psql -X -v ON_ERROR_STOP=1 -U postgres -d gpt02_core_preparation_isolated >/dev/null <<SQL
+ALTER TABLE public.users ADD COLUMN status text NOT NULL DEFAULT 'active';
+ALTER TABLE ai_platform.internal_users ADD COLUMN email text NOT NULL DEFAULT 'admin@example.invalid';
+CREATE ROLE gpt02_hub_evidence_reader LOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS
+ NOCREATEDB NOCREATEROLE NOREPLICATION CONNECTION LIMIT 1
+ PASSWORD '$HUBPASS' VALID UNTIL '$EXPIRY';
+CREATE ROLE gpt02_core_evidence_reader LOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS
+ NOCREATEDB NOCREATEROLE NOREPLICATION CONNECTION LIMIT 1
+ PASSWORD '$COREPASS' VALID UNTIL '$EXPIRY';
+ALTER ROLE gpt02_hub_evidence_reader SET default_transaction_read_only = on;
+ALTER ROLE gpt02_core_evidence_reader SET default_transaction_read_only = on;
+GRANT CONNECT ON DATABASE gpt02_core_preparation_isolated TO
+ gpt02_hub_evidence_reader,gpt02_core_evidence_reader;
+GRANT USAGE ON SCHEMA public,gpt02_stage TO gpt02_hub_evidence_reader;
+GRANT USAGE ON SCHEMA ai_platform TO gpt02_core_evidence_reader;
+GRANT SELECT (company_id,hub_task_id,member_id,member_audit_id,operator_subject,
+  core_task_id,hub_execution_id,command_candidate_id,attempt_id,expires_at)
+ ON gpt02_stage.core_preparations TO gpt02_hub_evidence_reader;
+GRANT SELECT (id,company_id,assigned_to_id,assigned_to,status,title)
+ ON public.ai_tasks TO gpt02_hub_evidence_reader;
+GRANT SELECT (id,company_id,name,is_active) ON public.team_members TO gpt02_hub_evidence_reader;
+GRANT SELECT (id,role,is_active,status,company_id,email) ON public.users TO gpt02_hub_evidence_reader;
+GRANT SELECT (id,company_id,entity_id,action,after,user_email)
+ ON public.audit_logs TO gpt02_hub_evidence_reader;
+GRANT SELECT (id,company_id,task_id,status,command_id,worker_id,assigned_client_id,metadata)
+ ON public.ai_execution_jobs TO gpt02_hub_evidence_reader;
+GRANT SELECT (id,status) ON ai_platform.ai_coding_tasks TO gpt02_core_evidence_reader;
+GRANT SELECT (task_id) ON ai_platform.ai_coding_runs TO gpt02_core_evidence_reader;
+GRANT SELECT (task_id) ON ai_platform.ai_coding_bridge_commands TO gpt02_core_evidence_reader;
+GRANT SELECT (id,email,role,status,must_change_password)
+ ON ai_platform.internal_users TO gpt02_core_evidence_reader;
+ALTER TABLE ai_platform.internal_users ENABLE ROW LEVEL SECURITY;
+CREATE POLICY p_test_171_prep ON gpt02_stage.core_preparations
+ FOR SELECT TO gpt02_hub_evidence_reader USING (company_id='default' AND hub_task_id=171);
+CREATE POLICY p_test_171_task ON public.ai_tasks
+ FOR SELECT TO gpt02_hub_evidence_reader USING (company_id='default' AND id=171);
+CREATE POLICY p_test_171_team ON public.team_members
+ FOR SELECT TO gpt02_hub_evidence_reader USING (company_id='default' AND id=5);
+CREATE POLICY p_test_171_user ON public.users
+ FOR SELECT TO gpt02_hub_evidence_reader USING (id='google_fixture_super_admin' AND company_id IS NULL);
+CREATE POLICY p_test_171_audit ON public.audit_logs
+ FOR SELECT TO gpt02_hub_evidence_reader USING (company_id='default' AND entity_id='171' AND id=2171);
+CREATE POLICY p_test_171_job ON public.ai_execution_jobs
+ FOR SELECT TO gpt02_hub_evidence_reader USING (company_id='default' AND task_id=171);
+CREATE POLICY p_test_171_core ON ai_platform.ai_coding_tasks
+ FOR SELECT TO gpt02_core_evidence_reader USING (id='$COREID'::uuid);
+CREATE POLICY p_test_171_runs ON ai_platform.ai_coding_runs
+ FOR SELECT TO gpt02_core_evidence_reader USING (task_id='$COREID'::uuid);
+CREATE POLICY p_test_171_commands ON ai_platform.ai_coding_bridge_commands
+ FOR SELECT TO gpt02_core_evidence_reader USING (task_id='$COREID'::uuid);
+CREATE POLICY p_test_171_core_owner ON ai_platform.internal_users
+ FOR SELECT TO gpt02_core_evidence_reader USING (id=77 AND email='admin@example.invalid');
+SQL
+docker exec "$PG" psql -X -U postgres -d template1 -v ON_ERROR_STOP=1 \
+ -c 'ALTER DATABASE postgres RENAME TO gpt02_fixture_bootstrap' >/dev/null
+docker exec "$PG" psql -X -U postgres -d template1 -v ON_ERROR_STOP=1 \
+ -c 'ALTER DATABASE gpt02_core_preparation_isolated RENAME TO postgres' >/dev/null
+cat > "$WORK/presign.mjs" <<'JS'
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {createRequire} from 'node:module';
+import {createGpt02PreSignFactReader} from '/app/artifacts/api-server/src/lib/gpt02-presign-facts-readonly.mjs';
+const require=createRequire('/app/artifacts/api-server/package.json');
+const {Pool}=require('pg');
+const ssl={ca:readFileSync('/tls/ca.crt','utf8'),rejectUnauthorized:true};
+const opts=(user,password)=>({
+ host:'pg',port:5432,database:'postgres',user,password,ssl,max:1,
+ connectionTimeoutMillis:5000,options:'-c default_transaction_read_only=on'
+});
+const hubPool=new Pool(opts('gpt02_hub_evidence_reader',process.env.HUB_PASS));
+const corePool=new Pool(opts('gpt02_core_evidence_reader',process.env.CORE_PASS));
+try{
+ const preSign=createGpt02PreSignFactReader({hubPool,corePool});
+ const query={companyId:'default',hubTaskId:171,
+  commandCandidateId:process.env.SYNTHETIC_CMD,
+  attemptId:process.env.SYNTHETIC_ATTEMPT};
+ const f=await preSign(query);
+ assert.equal(f.prepared.hubTaskId,171);
+ assert.equal(f.prepared.coreTaskId,process.env.SYNTHETIC_CORE);
+ assert.equal(f.job.taskId,171);
+ assert.equal(f.job.status,'prepared');
+ assert.equal(f.core.status,'PENDING');
+ assert.equal(f.core.commandCount,0);
+ assert.equal(f.core.runCount,0);
+ assert.equal(f.trustedReadProof.separateBackends,true);
+ assert.equal(f.trustedReadProof.clientTlsVerified,true);
+ assert.equal(f.trustedReadProof.readOnly,true);
+ assert.equal(f.trustedReadProof.dispatchPermitted,false);
+ console.log('PASS:REAL_PRESIGN_READER_TWO_INDEPENDENT_SCOPED_TLS_BACKENDS');
+ await assert.rejects(preSign({...query,hubTaskId:172}),
+   e=>e.code==='PRESIGN_HUB_PREPARATION_NOT_UNIQUE');
+ console.log('PASS:OTHER_TASK_PRE_SIGN_DENIED');
+ await assert.rejects(preSign({...query,commandCandidateId:'11111111-1111-4111-8111-111111111111'}),
+   e=>e.code==='PRESIGN_HUB_PREPARATION_NOT_UNIQUE');
+ console.log('PASS:WRONG_COMMAND_PRE_SIGN_DENIED');
+ await assert.rejects(preSign({...query,companyId:'other'}),
+   e=>e.code==='UNTRUSTED_TASK_IDENTITY');
+ console.log('PASS:CROSS_COMPANY_PRE_SIGN_DENIED');
+ console.log('SYNTHETIC_PRESIGN_FACTS_B64='+Buffer.from(JSON.stringify(f)).toString('base64'));
+}finally{await Promise.all([hubPool.end(),corePool.end()]);}
+JS
+chmod 644 "$WORK/presign.mjs"
+docker run --rm --network "$NET" --read-only --user 1000:1000 --cap-drop ALL \
+ --security-opt no-new-privileges --entrypoint node \
+ --mount "type=bind,src=$WORK/certs,dst=/tls,readonly" \
+ --mount "type=bind,src=$WORK/presign.mjs,dst=/tmp/gpt02-synthetic-presign.mjs,readonly" \
+ "${SOURCE_MOUNT[@]}" \
+ -e "HUB_PASS=$HUBPASS" -e "CORE_PASS=$COREPASS" \
+ -e "SYNTHETIC_CMD=$CMDID" -e "SYNTHETIC_ATTEMPT=$ATTEMPTID" -e "SYNTHETIC_CORE=$COREID" \
+ "$IMAGE" /tmp/gpt02-synthetic-presign.mjs >"$WORK/presign.out"
+grep '^PASS:' "$WORK/presign.out"
+python3 - "$WORK/presign.out" "$WORK/presign-facts.json" <<'PY'
+import sys,base64,json
+from pathlib import Path
+lines=Path(sys.argv[1]).read_text().splitlines()
+values=[l.split('=',1)[1] for l in lines if l.startswith('SYNTHETIC_PRESIGN_FACTS_B64=')]
+if len(values)!=1:raise RuntimeError('ONE_NATIVE_PRESIGN_PACKET_REQUIRED')
+f=json.loads(base64.b64decode(values[0],validate=True))
+assert f['trustedReadProof']['dispatchPermitted'] is False
+Path(sys.argv[2]).write_text(json.dumps(f,separators=(',',':')))
+PY
+# Validate native presign facts against the installed approval Python validator
+# when running on the authorized VPS. GitHub CI runs the Node/PG checks above.
+if [[ -f /opt/ai-coding-standalone-dev/gpt02_issue159_approval_request_refresh.py ]];then
+ PYTHONPATH=/opt/ai-coding-standalone-dev python3 - "$WORK/presign-facts.json" "$CMDID" "$ATTEMPTID" <<'PY'
+import json,sys,copy,time
+from gpt02_issue159_approval_request_refresh import _verify_pre_sign_facts,RefreshDenied
+from pathlib import Path
+f=json.loads(Path(sys.argv[1]).read_text())
+now=f['observedAt']
+assert abs(int(time.time()*1000)-now)<12000
+claims={'companyId':'default','taskId':171,'commandId':sys.argv[2],
+ 'attemptId':sys.argv[3],'superAdminId':'google_fixture_super_admin',
+ 'expiresAt':now+240000}
+expiry=_verify_pre_sign_facts(f,claims,now)
+assert expiry>claims['expiresAt']+1000
+print('PASS:ACTUAL_APPROVAL_PYTHON_VERIFIER_ACCEPTS_NATIVE_PRESIGN_FACTS')
+other=copy.deepcopy(f)
+other['hubAssignment']['actorId']='wrong-super-admin'
+try:_verify_pre_sign_facts(other,claims,now)
+except RefreshDenied as e:
+ assert e.code=='ISSUE159_PRESIGN_LINEAGE_MISMATCH',e.code
+ print('PASS:APPROVAL_PYTHON_DENIES_CHANGED_SUPER_ADMIN_AUDIT')
+else:raise RuntimeError('FORGED_HUB_ADMIN_ACCEPTED')
+PY
+else
+ echo SKIP:CORE_AI_APPROVAL_PYTHON_MODULE_NOT_IN_THIS_TEST_RUNNER
+fi
+echo PASS:SYNTHETIC_PRESIGN_FLOW_ENDED_WITH_NO_SIGNER_OR_DISPATCH
+if [[ -f /opt/ai-coding-standalone-dev/prepare_gpt02_issue159_approval_request.py ]] && [[ "$(id -u)" == 0 ]];then
+ PYTHONPATH=/opt/ai-coding-standalone-dev python3 - "$WORK" "$WORK/presign-facts.json" "$CMDID" "$ATTEMPTID" <<'PY'
+import json,sys,sqlite3,os
+from pathlib import Path
+from unittest.mock import patch
+import prepare_gpt02_issue159_approval_request as p
+import gpt02_issue159_approval_request_refresh as r
+root=Path(sys.argv[1])
+facts=json.loads(Path(sys.argv[2]).read_text())
+command,attempt=sys.argv[3],sys.argv[4]
+db=root/'synthetic-approval.sqlite'
+out=root/'synthetic-pending.json'
+con=sqlite3.connect(str(db))
+con.executescript("""
+ CREATE TABLE admin_identities(user_id TEXT PRIMARY KEY,role TEXT NOT NULL,enabled INTEGER NOT NULL);
+ CREATE TABLE gpt02_issue159_admin_operator_links(
+  auth_user_id TEXT PRIMARY KEY,hub_operator_id TEXT NOT NULL UNIQUE,
+  email TEXT NOT NULL,enabled INTEGER NOT NULL);
+ CREATE TABLE gpt02_issue159_approval_intents(
+  task_id INTEGER,command_id TEXT,attempt_id TEXT);
+ INSERT INTO admin_identities VALUES('synthetic-auth-user','super_admin',1);
+ INSERT INTO gpt02_issue159_admin_operator_links VALUES(
+  'synthetic-auth-user','google_fixture_super_admin','admin@example.invalid',1);
+""")
+con.commit();con.close()
+os.chmod(db,0o600)
+def native_facts(query):
+ assert query=={'companyId':'default','hubTaskId':171,
+   'commandCandidateId':command,'attemptId':attempt}
+ return facts
+with patch.object(p,'LIVE_DB',str(db)), \
+     patch.object(p,'LIVE_OUTPUT',str(out)), \
+     patch.object(r,'_socket_fact_reader',native_facts):
+ result=p.prepare(str(db),str(out),171,command,attempt,
+   now_ms=facts['observedAt'],operational=True)
+ assert result['pendingRequestCreated'] is True
+ assert result['signingPermitted'] is False
+ assert result['authorizationGranted'] is False
+ assert result['dispatchPermitted'] is False
+ assert out.is_file() and (out.stat().st_mode&0o777)==0o600
+ claims=json.loads(out.read_text())['claims']
+ assert claims['taskId']==171 and claims['commandId']==command
+ assert claims['attemptId']==attempt
+ assert claims['superAdminId']=='google_fixture_super_admin'
+ print('PASS:EXISTING_APPROVAL_CREATOR_PUBLISHES_ONE_SYNTHETIC_PENDING_PACKET')
+ try:
+  p.prepare(str(db),str(out),171,command,attempt,
+    now_ms=facts['observedAt'],operational=True)
+ except RuntimeError as e:
+  assert str(e)=='ISSUE159_PENDING_REQUEST_ALREADY_EXISTS',str(e)
+  print('PASS:APPROVAL_CREATOR_REJECTS_DUPLICATE_PENDING_PACKET')
+ else:raise RuntimeError('DUPLICATE_PENDING_PUBLISHED')
+ out.unlink()
+ changed=json.loads(json.dumps(facts))
+ changed['core']['commandCount']=1
+ with patch.object(r,'_socket_fact_reader',lambda _:changed):
+  try:
+   p.prepare(str(db),str(out),171,command,attempt,
+    now_ms=facts['observedAt'],operational=True)
+  except RuntimeError as e:
+   assert str(e)=='ISSUE159_FRESH_TRUSTED_PRESIGN_REQUIRED',str(e)
+   print('PASS:APPROVAL_CREATOR_DENIES_UNTRUSTED_CORE_COMMAND_DRIFT')
+  else:raise RuntimeError('CHANGED_CORE_PROOF_CREATED_PACKET')
+ assert not out.exists()
+ with sqlite3.connect('file:'+str(db)+'?mode=ro',uri=True) as c:
+  assert c.execute('select count(*) from gpt02_issue159_approval_intents').fetchone()[0]==0
+ print('PASS:DISPOSABLE_APPROVAL_LEDGER_REMAINS_EMPTY')
+PY
+else
+ echo SKIP:PYTHON_APPROVAL_CREATOR_NOT_AVAILABLE_OR_NOT_ROOT
+fi
+
 echo 'ISOLATED_REAL_MODULE_TLS_ATOMIC_TASK171_TEST_PASS_NO_HOSTED_EFFECTS'
