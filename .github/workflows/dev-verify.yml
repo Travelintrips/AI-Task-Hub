@@ -142,6 +142,11 @@ jobs:
           node --test artifacts/api-server/tests/gpt02-preparer-readiness.test.mjs
           node --test artifacts/api-server/tests/gpt02-preparer-connection-readonly.test.mjs
           node --test scripts/dev/gpt02-reader-retry-readonly-contract.test.mjs
+      - name: Verify existing GPT02 preparer module with isolated authenticated TLS (no dispatch)
+        run: |
+          bash -n scripts/dev/test-gpt02-preparer-synthetic-tls-readiness-isolated.sh
+          docker pull node:24-bookworm-slim
+          GPT02_TEST_DEV_IMAGE=node:24-bookworm-slim timeout --kill-after=10s 180s bash scripts/dev/test-gpt02-preparer-synthetic-tls-readiness-isolated.sh
       - name: Validate persisted-task instruction bound to dedicated GPT02 Core preparer (no dispatch)
         run: |
           node --test scripts/dev/gpt02-preparer-instruction-bound-wrapper.contract.test.mjs
