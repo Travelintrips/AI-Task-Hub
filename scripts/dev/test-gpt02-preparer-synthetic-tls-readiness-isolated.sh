@@ -38,7 +38,8 @@ printf 'subjectAltName=DNS:pg\nextendedKeyUsage=serverAuth\n' > "$WORK/server.ex
 openssl x509 -req -days 1 -sha256 -in "$WORK/server.csr" \
   -CA "$WORK/certs/ca.crt" -CAkey "$WORK/ca.key" -CAcreateserial \
   -extfile "$WORK/server.ext" -out "$WORK/certs/server.crt" >/dev/null 2>&1
-chown 70:70 "$WORK/certs/server.key"
+# Keep the synthetic key mode strict; do not require privileged host chown.
+# Set the PostgreSQL certificate owner INSIDE the disposable container only.
 chmod 600 "$WORK/certs/server.key"
 chmod 644 "$WORK/certs/server.crt" "$WORK/certs/ca.crt"
 docker network create --internal "$NET" >/dev/null
@@ -47,9 +48,16 @@ docker run -d --name "$PG" --network "$NET" --network-alias pg \
   -e POSTGRES_USER=fixture_root -e POSTGRES_DB=postgres \
   -e "POSTGRES_PASSWORD=$ROOT_PASSWORD" \
   -e POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256 \
-  postgres:16-alpine \
-  -c ssl=on -c ssl_cert_file=/tls/server.crt -c ssl_key_file=/tls/server.key \
-  -c ssl_ca_file=/tls/ca.crt >/dev/null
+  --entrypoint sh postgres:16-alpine -ec '
+    cp /tls/server.key /tmp/gpt02-fixture-server.key
+    cp /tls/server.crt /tmp/gpt02-fixture-server.crt
+    chown postgres:postgres /tmp/gpt02-fixture-server.key
+    chmod 600 /tmp/gpt02-fixture-server.key
+    exec docker-entrypoint.sh postgres \
+      -c ssl=on -c ssl_cert_file=/tmp/gpt02-fixture-server.crt \
+      -c ssl_key_file=/tmp/gpt02-fixture-server.key \
+      -c ssl_ca_file=/tls/ca.crt
+  ' >/dev/null
 ready=false
 for i in $(seq 1 45); do
   logs=$(docker logs "$PG" 2>&1 || true)
