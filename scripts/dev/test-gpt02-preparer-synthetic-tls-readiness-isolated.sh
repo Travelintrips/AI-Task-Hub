@@ -8,6 +8,15 @@ WORK=$(mktemp -d /tmp/aitask-gpt02-pinned-tls.XXXXXX)
 NET="gpt02-tls-isolated-$$"
 PG="gpt02-tls-pg-$$"
 IMAGE="${GPT02_TEST_DEV_IMAGE:-ai-task-hub:dev-pr196-9c839deb-stage}"
+# In the CI runner test the checked-out module with Node 24 and the already
+# installed dependencies; on the VPS the default uses the exact deployed OCI image.
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+SOURCE_MOUNT=()
+if [[ "$IMAGE" == node:24-bookworm-slim ]]; then
+  [[ -f "$ROOT/artifacts/api-server/src/lib/gpt02-core-task-preparation.mjs" ]] || { echo TEST_SOURCE_MODULE_MISSING >&2; exit 2; }
+  [[ -f "$ROOT/artifacts/api-server/node_modules/pg/package.json" ]] || { echo TEST_SOURCE_PG_MODULE_MISSING >&2; exit 2; }
+  SOURCE_MOUNT=(--mount "type=bind,src=$ROOT,dst=/app,readonly")
+fi
 ROOT_PASSWORD=$(openssl rand -hex 24)
 LOGIN_PASSWORD=$(openssl rand -hex 24)
 cleanup() {
@@ -110,6 +119,7 @@ run_node(){
     --security-opt no-new-privileges --entrypoint node \
     --mount "type=bind,src=$WORK/certs,dst=/tls,readonly" \
     --mount "type=bind,src=$WORK/verify.mjs,dst=/tmp/gpt02-tls-smoke.mjs,readonly" \
+    "${SOURCE_MOUNT[@]}" \
     -e "FIXTURE_PASSWORD=$LOGIN_PASSWORD" \
     "$IMAGE" /tmp/gpt02-tls-smoke.mjs "$case_name"
 }
