@@ -147,6 +147,10 @@ jobs:
           bash -n scripts/dev/test-gpt02-preparer-synthetic-tls-readiness-isolated.sh
           docker pull node:24-bookworm-slim
           GPT02_TEST_DEV_IMAGE=node:24-bookworm-slim timeout --kill-after=10s 180s bash scripts/dev/test-gpt02-preparer-synthetic-tls-readiness-isolated.sh
+      - name: Verify expired GPT02 preparation cannot be replayed or refreshed (isolated)
+        run: |
+          bash -n scripts/dev/test-gpt02-expired-preparation-no-reprepare-isolated.sh
+          timeout --kill-after=10s 180s bash scripts/dev/test-gpt02-expired-preparation-no-reprepare-isolated.sh
       - name: Verify Task171 synthetic atomic Hub/Core preparation over pinned TLS (no dispatch)
         run: |
           bash -n scripts/dev/test-gpt02-preparer-tls-atomic-task171-isolated.sh
