@@ -9,7 +9,8 @@
     "start": "node --enable-source-maps ./dist/index.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:short-links": "node ./tests/run-payment-proof-short-link-tests.mjs",
-    "test:job-bridge": "node ./tests/run-job-bridge-tests.mjs"
+    "test:job-bridge": "node ./tests/run-job-bridge-tests.mjs",
+    "test:production-db-policy": "node ./tests/run-production-connection-policy-tests.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.2",

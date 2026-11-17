@@ -1,6 +1,7 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import * as schema from "./schema";
+import { assertProductionConnectionAllowed } from "./production-connection-policy";
 
 const { Pool } = pg;
 const isProduction = process.env.NODE_ENV === "production";
@@ -14,6 +15,8 @@ if (!connectionString) {
     `${databaseEnvName} must be set for ${isProduction ? "production" : "development"}.`,
   );
 }
+
+assertProductionConnectionAllowed(connectionString);
 
 const intEnv = (name: string, fallback: number): number => {
   const value = Number(process.env[name]);
