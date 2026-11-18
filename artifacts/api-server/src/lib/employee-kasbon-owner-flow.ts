@@ -540,7 +540,6 @@ export async function tryHandleEmployeeKasbonOwnerApproval(input: HandleInput): 
         advanceNumber: kasbon.advanceNumber,
         employeeName: kasbon.employeeName,
         amount: kasbon.amount,
-        purpose: kasbon.purpose,
         ownerName: owner.name ?? meta.ownerName,
       }), input.fonnteDevice ?? null);
       notifySentAt = new Date().toISOString();
