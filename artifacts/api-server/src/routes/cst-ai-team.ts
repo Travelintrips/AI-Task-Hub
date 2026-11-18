@@ -1,10 +1,10 @@
 import { randomUUID, createHash } from "node:crypto";
 import { Router, type IRouter, type Request, type Response } from "express";
 import { and, desc, eq, inArray, like, sql } from "drizzle-orm";
-import { db, aiExecutionJobsTable as jobs, aiExecutionEventsTable as events } from "@workspace/db";
+import { db, aiExecutionJobsTable as jobs, aiExecutionEventsTable as events, aiTasksTable as tasks } from "@workspace/db";
 import { requireAuth } from "../middleware/auth";
 import { logger } from "../lib/logger";
-import { canReadDevTeam, canRunDevTeam, canaryVerdict, canaryLedgerVerdict, projectCanaryStatus, projectIndependentTeamGate, TEAM_SOURCE, TEAM_ROLES, type TeamRole } from "../lib/cst-ai-team-contract";
+import { canReadDevTeam, canRunDevTeam, canaryVerdict, canaryLedgerVerdict, projectCstOperationalTaskBinding, projectCanaryStatus, projectIndependentTeamGate, TEAM_SOURCE, TEAM_ROLES, type TeamRole } from "../lib/cst-ai-team-contract";
 import { fetchCstTeamAgentReadiness } from "../lib/cst-ai-team-agent-readiness";
 import { EXTERNAL_REVIEW_SOURCE, EXTERNAL_REVIEW_PROOF, EXTERNAL_REVIEW_SCENARIO, EXTERNAL_TEAM_AGENTS, canRunExternalReview, isExternalReviewStart, parseExternalObservation, checkExternalObservation, projectExternalObservations, validatePriorReviewEvidence, projectExternalReviewStatus, parseExternalReviewFailure, EXTERNAL_QA_LOCAL_FALLBACK, externalObservationWorkerId } from "../lib/cst-ai-team-external-review";
 
@@ -108,13 +108,17 @@ router.get("/cst-ai-team/monitor", requireAuth, async (req: Request, res: Respon
       // separate from local canaries and never gain completion by projection.
       db.select({
         id: jobs.id, taskId: jobs.taskId, title: jobs.title, status: jobs.status,
+        companyId: jobs.companyId, taskCompanyId: tasks.companyId,
+        source: jobs.source, externalId: jobs.externalId,
         progress: jobs.progress, commandId: jobs.commandId,
         resultSummary: jobs.resultSummary, completedAt: jobs.completedAt,
         assignedClientId: jobs.assignedClientId, workerId: jobs.workerId,
         errorMessage: jobs.errorMessage, callbackVerified: jobs.callbackVerified,
         attestationVerified: jobs.attestationVerified, finalAckVerified: jobs.finalAckVerified,
         createdAt: jobs.createdAt,
-      }).from(jobs).where(and(
+      }).from(jobs).innerJoin(tasks, and(
+        eq(jobs.taskId, tasks.id), eq(tasks.companyId, company),
+      )).where(and(
         eq(jobs.companyId, company),
         eq(jobs.source, "AI_TASK"),
         like(jobs.title, "[INTERNAL-E2E]%"),
@@ -124,8 +128,7 @@ router.get("/cst-ai-team/monitor", requireAuth, async (req: Request, res: Respon
     res.setHeader("Cache-Control", "no-store");
     res.json({ companyId: company, roles: TEAM_ROLES, runs: runs.filter(Boolean),
       agentReadiness, operationalProbes, independentTeamGate, canRunCanary: canRunDevTeam(),
-      operationalTaskBinding: { verified: false,
-        reason: "NO_VERIFIED_OPERATIONAL_TASK_COMPANY_AND_WORKER_CALLBACK" },
+      operationalTaskBinding: projectCstOperationalTaskBinding(company, operationalProbes),
       mode: "DEV_PRESENCE_AND_LOCAL_CANARY_ONLY", authority: "NO_GPT02_DISPATCH_NO_PROD" });
   } catch (err) {
     logger.error({ err }, "CST team monitor read failed");

@@ -31,6 +31,7 @@ type IndependentTeamGate = {
 };
 type OperationalProbe = {
  id: string; taskId: number | null; title: string | null; status: string;
+ companyId: string; taskCompanyId: string | null; source: string; externalId: string;
  progress: number; commandId: string | null; resultSummary: string | null; completedAt: string | null;
  assignedClientId: string | null; workerId: string | null; errorMessage: string | null;
  callbackVerified: boolean; attestationVerified: boolean; finalAckVerified: boolean;
@@ -53,7 +54,8 @@ type ExternalReviewList = {companyId: string; mode: string; reviews: ExternalRev
 type Monitor = {
  companyId: string; roles: Role[]; runs: Run[]; mode: string; authority: string;
  agentReadiness: AgentReadiness; operationalProbes?: OperationalProbe[]; independentTeamGate?: IndependentTeamGate; canRunCanary: boolean;
- operationalTaskBinding: {verified:boolean; reason:string};
+ operationalTaskBinding: {verified:boolean; workerCallbackVerified:boolean;
+  taskId:number|null; independentFinalAckVerified:boolean; reason:string};
 };
 const roles = [
  { id: "coding", name: "Agen Coding", note: "Kontrak source dan ledger", Icon: Code2 },
@@ -119,7 +121,9 @@ export default function CstAiTeamMonitor() {
     Hasil PASS bukan tanda tangan GPT02, Final ACK, transaksi PROD, maupun coding lintas repo.
     Tugas operasional yang tersimpan dengan companyId berbeda tidak boleh otomatis dipetakan ke Company 1.</p>
   </div>
-  {query.data?.operationalTaskBinding?.verified !== true && <p role="status" className="rounded-lg border border-amber-200 p-3 text-sm text-amber-900">Belum ada bukti bahwa task operasional terikat ke Company 1, worker yang sah, callback, dan verifikasi QA. Status canary tidak dihitung sebagai tugas operasional selesai.</p>}
+  {query.data?.operationalTaskBinding?.verified !== true && <p role="status" className="rounded-lg border border-amber-200 p-3 text-sm text-amber-900">{query.data?.operationalTaskBinding?.workerCallbackVerified
+    ? <>Task #{query.data.operationalTaskBinding.taskId} Company 1 — callback worker terverifikasi. Attestation dan Final ACK independen belum tersedia; status E2E tetap BLOCKED.</>
+    : <>Belum ada bukti bahwa task operasional terikat ke Company 1 dengan callback worker sah. Status canary tidak dihitung sebagai tugas operasional selesai.</>}</p>}
   {query.isError && <div role="alert" className="rounded-lg border border-red-300 p-4 text-sm text-red-700">{(query.error as Error).message}</div>}
   {mutation.isError && <div role="alert" className="rounded-lg border border-red-300 p-4 text-sm text-red-700">{(mutation.error as Error).message}</div>}
   <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
@@ -205,9 +209,16 @@ export default function CstAiTeamMonitor() {
    {probes.length === 0 && <p className="mt-3 text-sm text-muted-foreground">Belum ada bukti pengujian worker operasional yang cocok.</p>}
    <div className="mt-3 space-y-3">{probes.map(probe => {
     const workerCallbackPass = probe.status === "completed" &&
+      probe.companyId === "1" && probe.taskCompanyId === "1" &&
+      probe.source === "AI_TASK" && Number.isSafeInteger(probe.taskId) &&
+      probe.externalId === `ai-task:1:${probe.taskId}` &&
       Boolean(probe.commandId) && Boolean(probe.workerId) &&
+      probe.assignedClientId === "openclaw-pc-worker-dev" &&
       probe.workerId === probe.assignedClientId && probe.callbackVerified;
-    const trusted = workerCallbackPass && probe.attestationVerified && probe.finalAckVerified;
+    const trusted = workerCallbackPass && probe.attestationVerified && probe.finalAckVerified &&
+      query.data?.operationalTaskBinding?.verified === true &&
+      query.data?.operationalTaskBinding?.independentFinalAckVerified === true &&
+      query.data?.operationalTaskBinding?.taskId === probe.taskId;
     return <div key={probe.id} className="rounded-lg border p-3">
      <div className="flex flex-wrap items-center justify-between gap-2">
       <div><p className="text-sm font-semibold">Task #{probe.taskId ?? "—"} · {probe.title || "Tanpa judul"}</p>

@@ -162,3 +162,30 @@ operational release gate and the independently signed QA Final ACK stay false.
 The isolated PostgreSQL16 E2E mutates only synthetic fixture rows to verify
 that both fake signatures and wrong preceding worker IDs are rejected before
 QA acceptance, and restores clean rows to prove the normal flow still passes.
+
+### Company-1 operational callback lineage vs signed E2E
+
+The monitor's `operationalTaskBinding` readback now distinguishes actual bounded
+worker callback from a *trusted* GPT02 Final ACK. It joins the existing
+`ai_execution_jobs.task_id` to its canonical `ai_tasks.id`, requiring both
+job and parent task to have `company_id='1'`. A missing parent, a parent from
+Company 3, or an orphan ledger record cannot appear in Company-1 operational
+probes even if its callback and Final ACK columns were set to true.
+
+The read-only callback projection further requires canonical
+`source='AI_TASK'`, `external_id='ai-task:1:<taskId>'`, a completed job with a
+command ID, the explicit bounded `openclaw-pc-worker-dev` assignment, an exact
+worker ID match, and `callback_verified=true`. This is **worker callback only**.
+The monitor reports `workerCallbackVerified=true` for task #181 when those
+facts exist, while its `verified` and `independentFinalAckVerified` remain
+`false`. A single ledger boolean alone must never grant signed GPT02 E2E.
+
+The UI shows a callback-only status separately from independent attestation;
+the green "E2E terverifikasi" indicator additionally requires a separate
+verified independent Final ACK binding. For synthetic regression, the disposable
+PostgreSQL16 fixture includes Company-1 task #181 callback-only, a failed task
+#178, a forged Company-1 job that points to a Company-3 parent task, and an
+orphan job without a parent; only correctly scoped jobs may appear.
+
+This fixes an inaccurate static monitor reason and does not create, approve,
+sign, dispatch, repeat, or backfill any real task. No PROD writes.

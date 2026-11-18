@@ -21,6 +21,8 @@ ROOT = Path(__file__).resolve().parents[2]
 LOG = Path("/tmp/cst-ai-team-canary-runtime-20261118.log")
 EVIDENCE = Path("/tmp/cst-ai-team-canary-evidence-20261118.json")
 SQL = """
+CREATE TABLE ai_tasks (id integer PRIMARY KEY, company_id text NOT NULL);
+INSERT INTO ai_tasks(id,company_id) VALUES (178,'1'),(181,'1'),(179,'3');
 CREATE TABLE ai_execution_jobs (
  id uuid PRIMARY KEY, company_id text NOT NULL DEFAULT 'default',
  task_id integer, source text NOT NULL, external_id text NOT NULL UNIQUE,
@@ -80,6 +82,28 @@ VALUES
  'f3371023-1b15-4907-abaf-deff8b0a01ff',
  'completed', 100, 'pong from synthetic DEV worker',
  true, false, false);
+-- A forged Company-1 job whose parent belongs to Company 3 must never appear.
+INSERT INTO ai_execution_jobs
+(id, company_id, task_id, source, external_id, idempotency_key, title,
+ assigned_client_id, worker_id, command_id, status, progress,
+ callback_verified, attestation_verified, final_ack_verified)
+VALUES
+('00000000-0000-4000-8000-000000000182', '1', 179, 'AI_TASK',
+ 'ai-task:1:179', 'test:task:182',
+ '[INTERNAL-E2E] forged cross-company parent must not display',
+ 'openclaw-pc-worker-dev', 'openclaw-pc-worker-dev',
+ 'f3371023-1b15-4907-abaf-deff8b0a0182', 'completed',100, true,true,true);
+-- A job without an actual parent task must never appear.
+INSERT INTO ai_execution_jobs
+(id, company_id, task_id, source, external_id, idempotency_key, title,
+ assigned_client_id, worker_id, command_id, status, progress,
+ callback_verified, attestation_verified, final_ack_verified)
+VALUES
+('00000000-0000-4000-8000-000000000183', '1', 999, 'AI_TASK',
+ 'ai-task:1:999', 'test:task:183',
+ '[INTERNAL-E2E] orphan parent cannot grant callback authority',
+ 'openclaw-pc-worker-dev', 'openclaw-pc-worker-dev',
+ 'f3371023-1b15-4907-abaf-deff8b0a0183', 'completed',100, true,true,true);
 -- Same title format in Company 3 must never appear or promote Company 1.
 INSERT INTO ai_execution_jobs
 (id, company_id, task_id, source, external_id, idempotency_key, title,
@@ -206,7 +230,15 @@ def main():
                 if data.get("canRunCanary") is not True: raise AssertionError("CANARY_DEV_FLAG_NOT_ON")
                 binding = data.get("operationalTaskBinding", {})
                 proof["operationalTaskBindingVerified"] = binding.get("verified")
-                if binding.get("verified") is not False: raise AssertionError("FALSE_OPERATIONAL_TASK_BINDING")
+                if (binding.get("verified"),binding.get("workerCallbackVerified"),
+                    binding.get("taskId"),binding.get("independentFinalAckVerified"),
+                    binding.get("reason")) != (
+                      False, True, 181, False,
+                      "WORKER_CALLBACK_VERIFIED_SIGNED_E2E_NOT_ESTABLISHED"):
+                    raise AssertionError("WORKER_CALLBACK_LINEAGE_NOT_SEPARATED_FROM_SIGNED_E2E")
+                proof["company1WorkerCallbackBinding"]={"taskId":181,
+                    "callbackVerified":True,"verifiedSignedE2E":False,
+                    "independentFinalAckVerified":False}
                 capacity = data.get("independentTeamGate", {})
                 proof["independentTeamCapacity"] = {
                     key: capacity.get(key) for key in

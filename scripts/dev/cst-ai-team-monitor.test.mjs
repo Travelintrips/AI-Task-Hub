@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { canReadDevTeam, canRunDevTeam, canaryVerdict, canaryLedgerVerdict, projectCanaryStatus, projectIndependentTeamGate, CANARY_STALE_AFTER_MS } from "../../artifacts/api-server/src/lib/cst-ai-team-contract.ts";
+import { canReadDevTeam, canRunDevTeam, canaryVerdict, canaryLedgerVerdict, projectCstOperationalTaskBinding, projectCanaryStatus, projectIndependentTeamGate, CANARY_STALE_AFTER_MS } from "../../artifacts/api-server/src/lib/cst-ai-team-contract.ts";
 
 const base = new URL("../../artifacts/api-server/src/routes/cst-ai-team.ts", import.meta.url);
 const route = readFileSync(base, "utf8");
@@ -24,10 +24,45 @@ test("read-only monitor stays visible to existing DEV Super Admin even when cana
   assert.match(route,/allow\(req, res, true\)/);
 });
 test("canary cannot claim a real AI Task completion without tenant and worker lineage", () => {
-  assert.match(route, /operationalTaskBinding: \{ verified: false/);
-  assert.match(route, /NO_VERIFIED_OPERATIONAL_TASK_COMPANY_AND_WORKER_CALLBACK/);
+  assert.match(route, /operationalTaskBinding: projectCstOperationalTaskBinding\(company, operationalProbes\)/);
+  assert.match(route, /innerJoin\(tasks, and\(/);
+  assert.match(route, /eq\(jobs\.taskId, tasks\.id\)/);
+  assert.match(route, /eq\(tasks\.companyId, company\)/);
   assert.match(frontend, /task operasional terikat ke Company 1/);
   assert.match(frontend, /companyId berbeda tidak boleh otomatis dipetakan/);
+});
+
+test("Company-1 #181 worker callback is accurately reported without granting GPT02 Final ACK", () => {
+  const matching = { taskId:181, companyId:"1", taskCompanyId:"1", source:"AI_TASK",
+    externalId:"ai-task:1:181",status:"completed",commandId:"11111111-1111-4111-8111-111111111111",
+    assignedClientId:"openclaw-pc-worker-dev",workerId:"openclaw-pc-worker-dev",
+    callbackVerified:true,attestationVerified:false,finalAckVerified:false };
+  assert.deepEqual(projectCstOperationalTaskBinding("1",[matching]), {
+    verified:false,workerCallbackVerified:true,taskId:181,independentFinalAckVerified:false,
+    reason:"WORKER_CALLBACK_VERIFIED_SIGNED_E2E_NOT_ESTABLISHED",
+  });
+  const no = projectCstOperationalTaskBinding("1",[]);
+  assert.equal(no.workerCallbackVerified,false);
+  assert.equal(no.verified,false);
+  for(const changed of [
+    {companyId:"3"},{taskCompanyId:"3"},{taskCompanyId:null},
+    {source:"cst-ai-team-dev-canary"},{externalId:"ai-task:3:181"},
+    {externalId:"ai-task:1:178"},{status:"failed"},
+    {commandId:null},{assignedClientId:"openclaw-vps-main"},
+    {workerId:"openclaw-vps-main"},{callbackVerified:false},
+    {taskId:null},{taskId:0},{taskId:181.1},
+  ]) {
+    assert.equal(projectCstOperationalTaskBinding("1",[{...matching,...changed}]).workerCallbackVerified,false,
+      `reject ${JSON.stringify(changed)}`);
+  }
+  assert.equal(projectCstOperationalTaskBinding("3",[matching]).workerCallbackVerified,false);
+  // Even manually toggled flags cannot self-attest independent GPT02 approval.
+  const forgedFlags=projectCstOperationalTaskBinding("1",[{
+    ...matching,attestationVerified:true,finalAckVerified:true,
+  }]);
+  assert.equal(forgedFlags.workerCallbackVerified,true);
+  assert.equal(forgedFlags.verified,false);
+  assert.equal(forgedFlags.independentFinalAckVerified,false);
 });
 
 test("actual worker readiness is separate from four-role diagnostic PASS", () => {
@@ -116,6 +151,10 @@ test("internal E2E worker probes are read-only, tenant-scoped and separate from 
   assert.match(frontend, /GAGAL — periksa ledger/);
   assert.match(frontend, /const workerCallbackPass = probe.status === "completed"/);
   assert.match(frontend, /probe.workerId === probe.assignedClientId && probe.callbackVerified/);
+  assert.match(frontend, /probe.taskCompanyId === "1"/);
+  assert.match(frontend, /probe.externalId === `ai-task:1:\$\{probe.taskId\}`/);
+  assert.match(frontend, /probe.assignedClientId === "openclaw-pc-worker-dev"/);
+  assert.match(frontend, /operationalTaskBinding\?\.independentFinalAckVerified === true/);
   assert.match(frontend, /const trusted = workerCallbackPass && probe.attestationVerified && probe.finalAckVerified/);
   assert.match(frontend, /WORKER SELESAI — callback PASS/);
   assert.match(frontend, /bukti attestation dan Final ACK independen belum tersedia/);
@@ -123,7 +162,7 @@ test("internal E2E worker probes are read-only, tenant-scoped and separate from 
   assert.match(route, /commandId: jobs.commandId/);
   assert.match(frontend, /Tugas gagal tidak boleh diulang/);
   // A diagnostic canary must still be explicitly barred from granting authority.
-  assert.match(route, /operationalTaskBinding: \{ verified: false/);
+  assert.match(route, /operationalTaskBinding: projectCstOperationalTaskBinding\(company, operationalProbes\)/);
 });
 
 test("four independent workers require real leases, handoff and verified QA Final ACK", () => {

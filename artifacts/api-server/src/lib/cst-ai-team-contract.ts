@@ -72,6 +72,42 @@ export function canaryLedgerVerdict(records: Array<{
     (record.payload as Record<string, unknown>).proofLevel === "DEV_LOCAL_CANARY_NOT_SIGNED");
 }
 
+/** Read-only operational job/parent binding. A verified callback is not GPT02
+ * attestation, independent QA, signed issuer approval or Final ACK.
+ * Job and parent task tenant must agree, including exact external lineage.
+ */
+export type CstOperationalProbe = {
+  taskId: number | null; companyId: string; taskCompanyId: string | null;
+  source: string; externalId: string; status: string;
+  commandId: string | null; assignedClientId: string | null;
+  workerId: string | null; callbackVerified: boolean;
+  attestationVerified: boolean; finalAckVerified: boolean;
+};
+export type CstOperationalTaskBinding = {
+  verified: false; workerCallbackVerified: boolean; taskId: number | null;
+  independentFinalAckVerified: false;
+  reason: "WORKER_CALLBACK_VERIFIED_SIGNED_E2E_NOT_ESTABLISHED" |
+          "NO_VERIFIED_OPERATIONAL_TASK_COMPANY_AND_WORKER_CALLBACK";
+};
+export function projectCstOperationalTaskBinding(
+  companyId: string, probes: CstOperationalProbe[],
+): CstOperationalTaskBinding {
+  const match = probes.find(job =>
+    companyId === "1" && job.companyId === companyId &&
+    job.taskCompanyId === companyId && job.source === "AI_TASK" &&
+    Number.isSafeInteger(job.taskId) && (job.taskId ?? 0) > 0 &&
+    job.externalId === `ai-task:${companyId}:${job.taskId}` &&
+    job.status === "completed" && Boolean(job.commandId) &&
+    job.assignedClientId === "openclaw-pc-worker-dev" &&
+    job.workerId === job.assignedClientId && job.callbackVerified === true);
+  if (!match) return { verified: false, workerCallbackVerified: false,
+    taskId: null, independentFinalAckVerified: false,
+    reason: "NO_VERIFIED_OPERATIONAL_TASK_COMPANY_AND_WORKER_CALLBACK" };
+  return { verified: false, workerCallbackVerified: true, taskId: match.taskId,
+    independentFinalAckVerified: false,
+    reason: "WORKER_CALLBACK_VERIFIED_SIGNED_E2E_NOT_ESTABLISHED" };
+}
+
 /** Read-only global Core capacity, NEVER proof that Company-1 has four agents.
  * A successful canary or an active coding-worker lease cannot grant execution,
  * worker-role authority, independent QA review, or an external Final ACK.
