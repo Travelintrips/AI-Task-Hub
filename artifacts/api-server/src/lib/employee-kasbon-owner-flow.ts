@@ -142,11 +142,18 @@ export function isOwnerKasbonApprovalReply(text: string): boolean {
   return text.trim().toLowerCase() === "ok";
 }
 
+function formatNeededDate(value: string): string {
+  const match = value.match(/^(20\d\d)-(0[1-9]|1[0-2])-([0-2]\d|3[01])$/);
+  if (!match) return value || "-";
+  const [, year, month, day] = match;
+  const months = ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
+  return `${Number(day)} ${months[Number(month) - 1]} ${year}`;
+}
+
 function buildOwnerRequest(taskNumber: string, fields: Record<string, unknown>): string {
   const amount = money(fields.amount);
   const employee = fieldText(fields, "employee_name", "employee", "name") || "-";
-  const purpose = fieldText(fields, "purpose") || "-";
-  const neededDate = fieldText(fields, "needed_date") || "-";
+  const neededDate = formatNeededDate(fieldText(fields, "needed_date") || "-");
   const repay = fieldText(fields, "repayment_method") || "Potong Penuh";
   const installment = money(fields.installment_amount);
   return [
@@ -169,7 +176,6 @@ function buildApprovedNotification(params: {
   advanceNumber: string;
   employeeName: string;
   amount: number;
-  purpose: string;
   ownerName: string | null;
 }): string {
   return [
@@ -311,7 +317,7 @@ async function createApprovedKasbon(params: {
   if (!amount) throw new Error("KASBON_AMOUNT_INVALID");
 
   const requestedName = fieldText(params.fields, "employee_name", "employee", "name");
-  const purpose = fieldText(params.fields, "purpose");
+  const purpose = fieldText(params.fields, "purpose") || "Kasbon karyawan";
   const requestedPhone = normalizePhone(
     fieldText(params.fields, "phone", "employee_phone") || params.requesterPhone,
   );
