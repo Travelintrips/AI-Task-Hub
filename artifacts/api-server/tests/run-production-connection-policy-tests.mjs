@@ -78,6 +78,24 @@ function evaluate(code, env, events) {
     },
     process: { env, platform: process.platform },
     __dbPolicyProbe: events,
+    // The new opt-in DEV TLS helper imports Node built-ins at module load.
+    // Keep the VM test disconnected from disk and network, and prove existing
+    // PROD/unflagged DEV paths never try to read a certificate.
+    require: (specifier) => {
+      if (specifier === "node:crypto") {
+        return { X509Certificate: class { constructor() {
+          throw new Error("Certificate parsing unavailable in offline PROD fixture");
+        } } };
+      }
+      if (specifier === "node:fs") {
+        const deny = () => {
+          if (events) events.fileAccess = (events.fileAccess ?? 0) + 1;
+          throw new Error("Filesystem access forbidden in PROD policy fixture");
+        };
+        return { lstatSync: deny, readFileSync: deny };
+      }
+      throw new Error("Unexpected Node module in offline PROD policy fixture");
+    },
     console: { error: (...args) => events?.logs.push(args) },
   }, { timeout: 1000 });
   return module.exports;
@@ -163,6 +181,7 @@ for (const [kind, code] of Object.entries(actualModules)) {
       assert.equal(events.releases, kind === "raw" ? 1 : 0, label);
       assert.equal(events.drizzle, kind === "primary" ? 1 : 0, label);
     }
+    assert.equal(events.fileAccess ?? 0, 0, label + " must never read a CA file on original paths");
     assert.equal(events.queries, 0, label + " makes no database query");
     moduleChecks += 1;
   }
