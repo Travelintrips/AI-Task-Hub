@@ -43,6 +43,25 @@ CREATE TABLE ai_execution_events (
  payload jsonb NOT NULL DEFAULT '{}'::jsonb,
  created_at timestamptz NOT NULL DEFAULT now()
 );
+-- A failed Company-1 worker task must remain failed in the monitor.
+INSERT INTO ai_execution_jobs
+(id, company_id, task_id, source, external_id, idempotency_key, title,
+ assigned_client_id, status, error_message)
+VALUES
+('00000000-0000-4000-8000-000000000178', '1', 178, 'AI_TASK',
+ 'ai-task:1:178', 'test:task:178',
+ '[INTERNAL-E2E] bounded worker ping', 'openclaw-pc-worker-dev',
+ 'failed', 'AI_CORE_COMMAND_HTTP_403');
+-- Same title format in Company 3 must never appear or promote Company 1.
+INSERT INTO ai_execution_jobs
+(id, company_id, task_id, source, external_id, idempotency_key, title,
+ assigned_client_id, worker_id, status, callback_verified, attestation_verified, final_ack_verified)
+VALUES
+('00000000-0000-4000-8000-000000000179', '3', 179, 'AI_TASK',
+ 'ai-task:3:179', 'test:task:179',
+ '[INTERNAL-E2E] other tenant synthetic success',
+ 'openclaw-pc-worker-dev', 'openclaw-pc-worker-dev',
+ 'completed', true, true, true);
 """
 def free_port():
     sock = socket.socket()
@@ -159,6 +178,12 @@ def main():
                 binding = data.get("operationalTaskBinding", {})
                 proof["operationalTaskBindingVerified"] = binding.get("verified")
                 if binding.get("verified") is not False: raise AssertionError("FALSE_OPERATIONAL_TASK_BINDING")
+                probes = data.get("operationalProbes", [])
+                if len(probes) != 1 or probes[0].get("taskId") != 178 or probes[0].get("status") != "failed":
+                    raise AssertionError("WORKER_PROBE_TENANT_SCOPE_OR_FAILURE_MISMATCH")
+                if any(probes[0].get(k) is not False for k in ("callbackVerified", "attestationVerified", "finalAckVerified")):
+                    raise AssertionError("FAILED_WORKER_FALSE_ACK")
+                proof["operationalProbeScope"] = "COMPANY_1_FAILED_ONLY"
                 if (proof["readinessStatus"],proof["readinessReason"]) != ("unavailable","BRIDGE_NOT_CONFIGURED"):
                     raise AssertionError("READINESS_NOT_FAIL_CLOSED")
                 proof["runStatus"]=run.get("status")
