@@ -62,3 +62,27 @@ A copy of the validated **public** CA has been placed at `/run/credentials/ai-ta
 **Next admission gate:** independently approved secret custody and role LOGIN (no passwords in chat or logs), verified TLS as the actual role, negative tenant and permission E2E using the dedicated credential, staged PR207 artifact deployment with rollback. Only then consider a DEV operational PASS.
 
 Links: [PR #207](https://github.com/Travelintrips/AI-Task-Hub/pull/207), [Issue #203](https://github.com/Travelintrips/AI-Task-Hub/issues/203).
+
+
+## 4. Hardened release acceptance (further code audit)
+
+- The dedicated candidate SSL helper now pins the independent DER SHA-256
+  `807025ad50d4ed219d2c9c7d299c004f824eb00cf7f65afef607d07b72e6cafa`,
+  requires `X509Certificate.ca=true`, and rejects an unrelated *valid* CA.
+  The public root certificate (not secret) is checked in as a unit-test fixture.
+- Setting `AI_TASK_DEV_ISOLATED_E2E=true` now causes the existing DB pools
+  to **fail startup before opening PostgreSQL** unless
+  `AI_TASK_DEV_REQUIRE_VERIFIED_TLS=true`,
+  `DISABLE_BACKGROUND_SCHEDULERS=true`,
+  `RUN_STARTUP_MIGRATIONS=false`,
+  `NODE_ENV=development` and `APP_ENV=development`.
+  Any missing/wrong CA, pooler target or role also fails closed.
+  The official PR196 DEV and PROD, which do **not** set this candidate flag,
+  retain their previous connection behavior; they have NOT been redeployed.
+- Credential provisioning through the connected remote-command channel was
+  blocked by access safety checks. No workaround/alternate privileged secret
+  transfer was attempted. **Do not claim a new password or successful LOGIN.**
+  An authorized secret-provisioning channel is needed before an actual
+  authenticated PostgreSQL E2E.
+- Source tests/CI provide *code* evidence only; no new live DB credentials,
+  LOGIN rights, business writes, signer/issuer or dispatch changed.
