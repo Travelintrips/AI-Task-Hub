@@ -185,7 +185,6 @@ function buildApprovedNotification(params: {
     `No. Kasbon BizPortal: *${params.advanceNumber}*`,
     `Karyawan: *${params.employeeName}*`,
     `Nominal: *${idr(params.amount)}*`,
-    `Keperluan: ${params.purpose || "-"}`,
     `Disetujui oleh: *${params.ownerName || "Owner"}*`,
     "",
     "*Status: Disetujui owner — menunggu pencairan.*",
