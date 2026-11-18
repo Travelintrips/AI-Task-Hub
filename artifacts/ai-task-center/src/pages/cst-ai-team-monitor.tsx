@@ -24,6 +24,7 @@ type AgentReadiness = {
 };
 type OperationalProbe = {
  id: string; taskId: number | null; title: string | null; status: string;
+ progress: number; commandId: string | null; resultSummary: string | null; completedAt: string | null;
  assignedClientId: string | null; workerId: string | null; errorMessage: string | null;
  callbackVerified: boolean; attestationVerified: boolean; finalAckVerified: boolean;
  createdAt: string;
@@ -130,9 +131,10 @@ export default function CstAiTeamMonitor() {
    <p className="mt-1 text-xs text-muted-foreground">Hanya execution ledger AI_TASK Company 1 berjudul [INTERNAL-E2E]. Tidak dicampur dengan hasil canary. Tugas gagal tidak boleh diulang memakai parent yang sama.</p>
    {probes.length === 0 && <p className="mt-3 text-sm text-muted-foreground">Belum ada bukti pengujian worker operasional yang cocok.</p>}
    <div className="mt-3 space-y-3">{probes.map(probe => {
-    const trusted = probe.status === "completed" &&
-      Boolean(probe.workerId) && probe.workerId === probe.assignedClientId &&
-      probe.callbackVerified && probe.attestationVerified && probe.finalAckVerified;
+    const workerCallbackPass = probe.status === "completed" &&
+      Boolean(probe.commandId) && Boolean(probe.workerId) &&
+      probe.workerId === probe.assignedClientId && probe.callbackVerified;
+    const trusted = workerCallbackPass && probe.attestationVerified && probe.finalAckVerified;
     return <div key={probe.id} className="rounded-lg border p-3">
      <div className="flex flex-wrap items-center justify-between gap-2">
       <div><p className="text-sm font-semibold">Task #{probe.taskId ?? "—"} · {probe.title || "Tanpa judul"}</p>
@@ -140,11 +142,15 @@ export default function CstAiTeamMonitor() {
       <span className={"rounded-full px-2 py-1 text-xs font-semibold " +
        (trusted ? "bg-emerald-100 text-emerald-800" :
         probe.status === "failed" ? "bg-rose-100 text-rose-800" : "bg-amber-100 text-amber-800")}>
-       {trusted ? "E2E terverifikasi" : probe.status === "failed" ? "GAGAL — belum dieksekusi" : "BELUM TERVERIFIKASI"}
+       {trusted ? "E2E terverifikasi" : workerCallbackPass ? "WORKER SELESAI — callback PASS" :
+        probe.status === "failed" ? "GAGAL — periksa ledger" : "BELUM TERVERIFIKASI"}
       </span>
      </div>
-     <p className="mt-2 text-xs text-muted-foreground">Worker dipilih: {probe.assignedClientId || "—"} · Worker ACK: {probe.workerId || "belum ada"}</p>
+     <p className="mt-2 text-xs text-muted-foreground">Worker dipilih: {probe.assignedClientId || "—"} · Worker tercatat: {probe.workerId || "belum ada"}</p>
+     <p className="text-xs text-muted-foreground">Command: {probe.commandId || "belum ada"} · Progress: {probe.progress}%</p>
+     {workerCallbackPass && probe.resultSummary && <p className="mt-2 text-sm">Hasil worker: {probe.resultSummary}</p>}
      <p className="text-xs text-muted-foreground">Callback: {String(probe.callbackVerified)} · Attestation: {String(probe.attestationVerified)} · Final ACK: {String(probe.finalAckVerified)}</p>
+     {workerCallbackPass && !trusted && <p className="mt-2 text-xs text-amber-800">Worker berhasil menyelesaikan tugas terbatas; bukti attestation dan Final ACK independen belum tersedia. Ini bukan izin GPT02 atau PROD.</p>}
      {probe.errorMessage && <p className="mt-2 text-xs text-red-700">Penyebab: {probe.errorMessage}</p>}
      {probe.taskId && <a className="mt-2 inline-block text-xs underline" href={"/ai-tasks/" + probe.taskId}>Buka detail dan rekonsiliasi task</a>}
     </div>;
