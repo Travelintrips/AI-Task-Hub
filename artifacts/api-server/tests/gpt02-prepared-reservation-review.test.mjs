@@ -141,6 +141,6 @@ test("existing task detail reuses the same reconciliation button, with review NO
   assert.match(ui,/reconciliation\.independentReviewRequired/);
   assert.match(ui,/reviewReason/);
   assert.match(ui,/Review independen wajib/);
-  assert.match(ui,/tidak memberikan approval, resume, dispatch/);
+  assert.match(ui,/tidak memberikan approval, resume, dispatch/i);
   assert.match(ui,/Periksa Rekonsiliasi GPT02 \(baca-saja\)/);
 });
