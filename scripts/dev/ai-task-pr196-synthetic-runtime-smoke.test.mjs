@@ -34,7 +34,9 @@ test("PR196 built DEV API + Google login bundle run safely without live services
     PORT: String(port),
     HOST: "127.0.0.1",
     SESSION_SECRET: "synthetic-test-only-pr196-never-used-for-real-sessions-20261115",
-    PUBLIC_APP_BASE_URL: origin,
+    // Exercise the DEV-only email-login policy without actually routing to the real site.
+    PUBLIC_APP_BASE_URL: "https://dev-ai-task.cstlogistic.co.id",
+    DEV_PASSWORDLESS_LOGIN: "true",
     CORS_ALLOWED_ORIGINS: origin,
     SUPABASE_DATABASE_URL_DEV: "postgresql://fake:fake@127.0.0.1:65432/smoke",
     DB_SSL: "false",
@@ -79,6 +81,30 @@ test("PR196 built DEV API + Google login bundle run safely without live services
     assert.ok(health, "Synthetic API health failed: " + output);
     assert.equal(health.status, 200);
     assert.equal((await health.json()).status, "ok");
+
+    for (const emailLoginBody of [
+      { email: "nonexistent-readonly-fixture@example.invalid" },
+      { email: "nonexistent-readonly-fixture@example.invalid", password: "fixture-not-real" },
+    ]) {
+      const loginReply = await fetch(origin + "/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(emailLoginBody),
+        redirect: "manual",
+        signal: AbortSignal.timeout(3000),
+      });
+      assert.equal(loginReply.status, 403, "DEV email login must fail before any DB request or JWT minting");
+      const body = await loginReply.json();
+      assert.equal(body.error, "Verified Google login required on DEV");
+      assert.equal("token" in body, false, "No JWT may be issued");
+    }
+    const googleStart = await fetch(origin + "/api/auth/google/start", {
+      redirect: "manual", signal: AbortSignal.timeout(3000),
+    });
+    assert.equal(googleStart.status, 302, "Existing Google OAuth remains available");
+    const loginRedirect = new URL(googleStart.headers.get("location"));
+    assert.equal(loginRedirect.hostname, "synthetic.invalid", "Never contact real OAuth during test");
+    assert.equal(loginRedirect.searchParams.get("provider"), "google");
 
     for (const endpoint of ["/api/system/onboarding-status", "/api/system/whatsapp-health"]) {
       const response = await fetch(origin + endpoint, {
