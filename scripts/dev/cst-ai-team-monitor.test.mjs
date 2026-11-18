@@ -73,3 +73,16 @@ test("canary is restricted to read-only diagnostics and does not claim signed fi
   assert.match(frontend,/bukan empat GPT mandiri/);
   assert.match(frontend,/verifiedComplete/);
 });
+
+test("internal E2E worker probes are read-only, tenant-scoped and separate from canary PASS", () => {
+  assert.match(route, /eq\(jobs\.companyId, company\)/);
+  assert.match(route, /eq\(jobs\.source, "AI_TASK"\)/);
+  assert.match(route, /like\(jobs\.title, "\[INTERNAL-E2E\]%"\)/);
+  assert.match(route, /operationalProbes/);
+  assert.match(frontend, /Tugas worker nyata — internal E2E DEV/);
+  assert.match(frontend, /callbackVerified && probe\.attestationVerified && probe\.finalAckVerified/);
+  assert.match(frontend, /GAGAL — belum dieksekusi/);
+  assert.match(frontend, /Tugas gagal tidak boleh diulang/);
+  // A diagnostic canary must still be explicitly barred from granting authority.
+  assert.match(route, /operationalTaskBinding: \{ verified: false/);
+});
