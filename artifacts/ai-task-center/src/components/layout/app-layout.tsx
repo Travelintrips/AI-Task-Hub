@@ -62,6 +62,9 @@ export function AppLayout({ children }: { children: ReactNode }) {
 
   const navigation = [
     { name: "Dashboard",    href: "/",          icon: LayoutDashboard },
+    ...(user?.role === "super_admin" && isVpsStorageDevHost()
+      ? [{ name: "CST AI Team Monitor", href: "/cst-ai-team", icon: Activity }]
+      : []),
     // AI Tasks and Job Registry remain available by direct route, but Dashboard
     // is the single monitoring entry in the sidebar. No underlying feature is removed.
     { name: "Messages",     href: "/messages",  icon: MessageSquare },

@@ -82,6 +82,7 @@ import unifiedExecutionTimelineRouter from "./unified-execution-timeline";
 import eventsRouter from "./events";
 import { extractUser } from "../middleware/auth";
 import chatgptRegistrationRouter from "./chatgpt-registration";
+import cstAiTeamRouter from "./cst-ai-team";
 
 const router: IRouter = Router();
 
@@ -107,6 +108,7 @@ router.use(whatsappRouter);
 router.use(taskStorageRouter);
 router.use(aiTasksRouter);
 router.use(executionsRouter);
+router.use(cstAiTeamRouter);
 router.use(gpt02PreparationRouter);
 router.use(unifiedExecutionTimelineRouter);
 router.use(eventsRouter);

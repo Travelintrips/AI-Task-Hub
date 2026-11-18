@@ -1,0 +1,46 @@
+{
+  "attestationVerified": false,
+  "authGuards": {
+    "anonymous": 401,
+    "staff": 403,
+    "wrongCompany": 403
+  },
+  "callbackVerified": false,
+  "credentialsSynthetic": true,
+  "end": "2026-11-18T09:37:11Z",
+  "finalAckVerified": false,
+  "health": "HTTP_200_OK",
+  "mode": "synthetic_isolated_postgres16_and_local_node",
+  "monitorHttp": 200,
+  "noProd": true,
+  "nodeEnv": "development",
+  "postHttp": 202,
+  "postgresTemporary": true,
+  "result": "ISOLATED_CANARY_E2E_PASS",
+  "roles": [
+    {
+      "ok": true,
+      "role": "security",
+      "status": "completed"
+    },
+    {
+      "ok": true,
+      "role": "coding",
+      "status": "completed"
+    },
+    {
+      "ok": true,
+      "role": "infrastructure",
+      "status": "completed"
+    },
+    {
+      "ok": true,
+      "role": "qa",
+      "status": "completed"
+    }
+  ],
+  "runId": "fc7eeb58-9502-4cde-a92a-1f2f909d190b",
+  "runStatus": "completed",
+  "start": "2026-11-18T09:37:05Z",
+  "verifiedComplete": true
+}
