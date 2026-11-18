@@ -57,6 +57,7 @@ async function fetchIndependentTeamGate() {
       registered_coding_workers: number;
       active_leased_coding_workers: number;
       recorded_ai_handoffs: number;
+      available_ollama_coding_slots: number;
     }>`
       SELECT
         (SELECT count(*)::int FROM ai_platform.ai_workers
@@ -66,7 +67,22 @@ async function fetchIndependentTeamGate() {
             AND lease_expires_at > now()
             AND status IN ('online','idle','busy')) AS active_leased_coding_workers,
         (SELECT count(*)::int
-          FROM ai_platform.ai_coding_workstream_ai_handoffs) AS recorded_ai_handoffs
+          FROM ai_platform.ai_coding_workstream_ai_handoffs) AS recorded_ai_handoffs,
+        (SELECT coalesce(sum(greatest(1 - running_jobs, 0)), 0)::int
+          FROM ai_platform.ai_workers
+          WHERE provider_slug = 'ollama'
+            AND status IN ('online', 'idle', 'busy')
+            AND lease_expires_at > now()
+            AND (
+              (runtime_kind = 'ollama_worker'
+                AND endpoint_url IS NOT NULL
+                AND capabilities @> '["ollama_inference","coding_ai_execution"]'::jsonb)
+              OR
+              (runtime_kind = 'ollama_remote_pull'
+                AND endpoint_url IS NULL
+                AND capabilities @> '["ollama_inference"]'::jsonb)
+            )
+        ) AS available_ollama_coding_slots
     `);
     const row = result.rows[0];
     if (!row) return projectIndependentTeamGate(null);
@@ -74,6 +90,7 @@ async function fetchIndependentTeamGate() {
       registeredCodingWorkers: Number(row.registered_coding_workers),
       activeLeasedCodingWorkers: Number(row.active_leased_coding_workers),
       recordedAiHandoffs: Number(row.recorded_ai_handoffs),
+      availableOllamaCodingSlots: Number(row.available_ollama_coding_slots),
     });
   } catch {
     return projectIndependentTeamGate(null);
