@@ -1,6 +1,6 @@
 import { logger } from "./logger";
 import { employeeKasbonGatewayConfigured, readRecentEmployeeKasbonInbound } from "./employee-kasbon-wa-gateway";
-import { tryHandleEmployeeKasbonOwnerApproval } from "./employee-kasbon-owner-flow";
+import { tryHandleEmployeeKasbonOwnerApproval } from "./employee-kasbon-owner-flow";\nimport { handleEmployeeKasbonConversationInbound } from "./employee-kasbon-conversation";
 
 const POLL_MS = 3_000;
 const SEEN_MAX = 1_000;
@@ -27,10 +27,19 @@ async function poll(): Promise<void> {
     const identity = item.providerMessageId || item.messageId;
     if (!identity || !remember(identity)) continue;
     const text = String(item.body ?? "").trim();
-    if (text.toLowerCase() !== "ok") continue;
-    await tryHandleEmployeeKasbonOwnerApproval({
+    if (!text) continue;
+    if (text.toLowerCase() === "ok") {
+      await tryHandleEmployeeKasbonOwnerApproval({
+        phone: item.peer,
+        text,
+        companyId: "default",
+      });
+      continue;
+    }
+    await handleEmployeeKasbonConversationInbound({
       phone: item.peer,
       text,
+      inboundId: identity,
       companyId: "default",
     });
   }
