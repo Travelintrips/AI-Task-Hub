@@ -426,10 +426,7 @@ export async function tryHandleEmployeeKasbonOwnerApproval(input: HandleInput): 
   const candidates = await db
     .select()
     .from(aiTasksTable)
-    .where(and(
-      eq(aiTasksTable.requiredAction, WAITING_ACTION),
-      sql`${aiTasksTable.adminNotes} LIKE '%"${sql.raw("kind")}"%'`,
-    ))
+    .where(eq(aiTasksTable.requiredAction, WAITING_ACTION))
     .orderBy(desc(aiTasksTable.updatedAt))
     .limit(5);
 
