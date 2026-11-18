@@ -103,6 +103,24 @@ function idr(value: number): string {
   return "Rp " + new Intl.NumberFormat("id-ID").format(value);
 }
 
+async function sendKasbonMessage(
+  phone: string,
+  message: string,
+  fonnteDevice?: string | null,
+): Promise<void> {
+  if (
+    process.env.NODE_ENV !== "production" &&
+    process.env.EMPLOYEE_KASBON_NOTIFICATION_DRY_RUN === "true"
+  ) {
+    logger.info(
+      { phoneSuffix: normalizePhone(phone).slice(-4), messagePreview: message.slice(0, 100) },
+      "employee-kasbon: DEV dry-run notification",
+    );
+    return;
+  }
+  await sendKasbonMessage(phone, message, fonnteDevice ?? null);
+}
+
 export function isOwnerKasbonApprovalReply(text: string): boolean {
   return text.trim().toLowerCase() === "ok";
 }
@@ -260,7 +278,7 @@ export async function queueEmployeeKasbonOwnerApproval(input: QueueInput): Promi
     });
   });
 
-  await sendFonnte(ownerPhone, buildOwnerRequest(taskNumber, input.fields), input.fonnteDevice ?? null);
+  await sendKasbonMessage(ownerPhone, buildOwnerRequest(taskNumber, input.fields), input.fonnteDevice ?? null);
   return { queued: true };
 }
 
@@ -468,7 +486,7 @@ export async function tryHandleEmployeeKasbonOwnerApproval(input: HandleInput): 
   if (matching.length === 0) return false;
   if (matching.length > 1) {
     const refs = matching.map((task) => task.taskNumber || `TASK-${task.id}`).join(", ");
-    await sendFonnte(
+    await sendKasbonMessage(
       ownerPhone,
       `Ada lebih dari satu pengajuan kasbon menunggu persetujuan (${refs}). Mohon balas pada pesan pengajuan yang dimaksud agar approval tidak ambigu.`,
       input.fonnteDevice ?? null,
@@ -498,7 +516,7 @@ export async function tryHandleEmployeeKasbonOwnerApproval(input: HandleInput): 
       senderName: "AI Task",
       comment: `Owner sudah menyetujui, tetapi pencatatan BizPortal belum berhasil: ${error instanceof Error ? error.message : String(error)}`,
     }).catch(() => {});
-    await sendFonnte(
+    await sendKasbonMessage(
       ownerPhone,
       `✅ Persetujuan ${taskNumber} sudah diterima. Pencatatan ke BizPortal belum berhasil dan akan tetap memakai pengajuan yang sama; tidak perlu mengirim OK ulang.`,
       input.fonnteDevice ?? null,
@@ -521,7 +539,7 @@ export async function tryHandleEmployeeKasbonOwnerApproval(input: HandleInput): 
       purpose: kasbon.purpose,
       ownerName: ownerActor.name ?? meta.ownerName,
     });
-    await sendFonnte(notifyPhone, message, input.fonnteDevice ?? null);
+    await sendKasbonMessage(notifyPhone, message, input.fonnteDevice ?? null);
     notifySentAt = new Date().toISOString();
   }
 
@@ -555,14 +573,14 @@ export async function tryHandleEmployeeKasbonOwnerApproval(input: HandleInput): 
     });
   });
 
-  await sendFonnte(
+  await sendKasbonMessage(
     ownerPhone,
     `✅ ${taskNumber} disetujui dan sudah tercatat di BizPortal sebagai *${kasbon.advanceNumber}*. Status: menunggu pencairan.`,
     input.fonnteDevice ?? null,
   );
 
   if (meta.requesterPhone) {
-    await sendFonnte(
+    await sendKasbonMessage(
       meta.requesterPhone,
       `✅ Pengajuan kasbon Anda telah disetujui owner dan tercatat di BizPortal dengan nomor *${kasbon.advanceNumber}*. Status saat ini: menunggu pencairan.`,
       input.fonnteDevice ?? null,
