@@ -125,3 +125,38 @@ readiness, functional scheduler coverage, or business E2E PASS. Never
 enable PROD/signer/issuer/dispatch or financial writers through this
 launcher. Other Supavisor failed-auth events are tracked separately in
 AI Task Hub issues #203 and #204.
+
+
+## Official PR196 container identity audit — isolated E2E gate
+
+Independent read-only VPS inspection on 18 Nov 2026 confirmed the official,
+healthy PR196 DEV container uses Supabase CST-DEV as `postgres.<project>`
+over the **5432 session pooler**, with `DISABLE_BACKGROUND_SCHEDULERS=false`
+and `RUN_STARTUP_MIGRATIONS=false`. The actual `GET /api/readyz`
+responds HTTP 200 with `database: ok`. This is a successful current privileged
+DEV DB readiness check, **not** proof of least-privilege role authentication or
+tenant-scoped E2E. This container was deliberately left unchanged.
+
+`scripts/ops/ai-task-dev-runtime-identity-gate.mjs` adds an **offline,
+source-only**, fail-closed release preflight specifically for a proposed
+**isolated** DEV E2E candidate. It requires a distinct,
+independently provisioned `ai_task_operational_dev` role on the CST-DEV 6543
+transaction pooler, `development` env, schedulers and startup migrations off,
+and no explicit TLS disable. The existing identity-reader `NOLOGIN` and
+the legacy `ai_task_hostinger` BYPASSRLS role are explicitly rejected.
+
+This candidate role **does not yet exist**. The checker does not create
+accounts, grant access, test a password, verify TLS certificates, change
+live runtime, or issue any authorization. Even a format PASS leaves
+`tlsAuthenticated=false`, `rlsIsolationProven=false`, and
+`e2eAuthorized=false`. CI tests all refusal cases using only fictional
+credentials, with no database connection or secret output.
+
+**Required independent gates before an actual DEV deployment:** approve
+per-company least-privilege role/RLS grants and separate secret custody,
+verify actual TLS certificate chain (not merely URL syntax), run a strictly
+bounded live authenticated SELECT/negative tenant test, check application
+writer operations under isolated reversible QA, verify rollback, then choose
+a release. Do not remove the legacy systemd block merely because the syntax
+checker passes. Do not copy PR196's current privileged credential to the new
+candidate. DEV source checks must not be conflated with a live E2E PASS.
