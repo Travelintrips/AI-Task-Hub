@@ -13,6 +13,9 @@ const APPROVED_POOLER_HOST = /^aws-[0-9]+-[a-z0-9-]+\.pooler\.supabase\.com$/;
 
 export function assessIsolatedDevRuntime(env) {
   const blockers = [];
+  if (env.AI_TASK_DEV_ISOLATED_E2E !== 'true') {
+    blockers.push('ISOLATED_E2E_MODE_NOT_ENABLED');
+  }
   if (env.NODE_ENV !== 'development' || env.APP_ENV !== 'development') {
     blockers.push('NON_DEV_ENVIRONMENT');
   }
