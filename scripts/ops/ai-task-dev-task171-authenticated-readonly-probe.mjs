@@ -38,21 +38,30 @@ const client = new Client({
   application_name: "ai-task-dev-task171-one-shot-readonly",
 });
 password = undefined;
+let phase = "CONNECT";
 try {
   await client.connect();
+  phase = "BEGIN";
   await client.query("BEGIN READ ONLY");
+  phase = "ROLE";
   const role = await client.query("SELECT current_user AS name, current_setting('row_security') AS rls");
   if (role.rows[0]?.name !== expectedRole || role.rows[0]?.rls !== "on") throw Error("ROLE");
+  phase = "TASK_SCOPE";
   const rows = await client.query("SELECT id, company_id FROM public.ai_tasks WHERE id = ANY($1::integer[]) ORDER BY id", [[171,135,136,167]]);
   if (rows.rows.length !== 1 || rows.rows[0].id !== 171 || rows.rows[0].company_id !== "default") throw Error("TASK_BOUNDARY");
+  phase = "TENANT_SCOPE";
   const foreign = await client.query("SELECT count(id)::integer AS n FROM public.ai_tasks WHERE company_id <> 'default'");
   if (foreign.rows[0]?.n !== 0) throw Error("TENANT_BOUNDARY");
+  phase = "COLUMN_PRIVILEGES";
   const rights = await client.query("SELECT has_column_privilege(current_user,'public.ai_tasks','title','SELECT') AS title, has_table_privilege(current_user,'public.ai_tasks','UPDATE') AS update_allowed, has_table_privilege(current_user,'public.ai_tasks','INSERT') AS insert_allowed, has_table_privilege(current_user,'public.ai_tasks','DELETE') AS delete_allowed");
   if (Object.values(rights.rows[0] || {}).some(Boolean)) throw Error("PRIVILEGES");
+  phase = "ROLLBACK";
   await client.query("ROLLBACK");
   process.stdout.write("AI_TASK_DEV_AUTH_TLS_RLS_READONLY_PASS\n");
 } catch {
-  process.stdout.write("AI_TASK_DEV_AUTH_TLS_RLS_READONLY_FAIL\n");
+  // Only an allowlisted phase is printed. Never expose raw SQL errors,
+  // PostgreSQL connection details, usernames, or credentials.
+  process.stdout.write("AI_TASK_DEV_AUTH_TLS_RLS_READONLY_FAIL_" + phase + "\n");
   process.exitCode = 1;
   try { await client.query("ROLLBACK"); } catch {}
 } finally {
