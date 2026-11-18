@@ -18,6 +18,14 @@ if [[ ! -r "$ENV_FILE" ]]; then
   echo "AI_TASK_DEV_ENV_NOT_READABLE — launch denied" >&2
   exit 78
 fi
+# Do not even parse a DEV credential until the isolated release is approved.
+# This independent gate also applies to @reboot and direct launcher invocations,
+# which do not pass through systemd RefuseManualStart.
+RELEASE_MARKER="/etc/ai-task-dev-authorized-reader-and-release.ready"
+if [[ ! -f "$RELEASE_MARKER" || -L "$RELEASE_MARKER" ]]; then
+  echo "AI_TASK_DEV_RELEASE_NOT_AUTHORIZED — launch denied" >&2
+  exit 78
+fi
 set -a
 . "$ENV_FILE"
 set +a
@@ -30,7 +38,7 @@ set +a
 const raw = process.env.SUPABASE_DATABASE_URL_DEV ?? "";
 let target;
 try {
-  if (process.env.NODE_ENV !== "development" || process.env.APP_ENV === "production") {
+  if (process.env.NODE_ENV !== "development" || process.env.APP_ENV !== "development") {
     throw Error("ENV");
   }
   target = new URL(raw);
@@ -38,14 +46,18 @@ try {
   const project = "xssrfshdrtdfupgqwfdw";
   const inProject = `${target.hostname} ${user}`.includes(project);
   const scheme = target.protocol === "postgresql:" || target.protocol === "postgres:";
+  // pg-connection-string honors user/host/port query overrides. Never let
+  // URL parsing succeed on a different effective role or database target.
+  const exactDatabase = target.pathname === "/postgres";
+  const noOverrides = !target.search && !target.hash;
   // Exactly one authorized reader identity for this legacy isolated launcher.
   // Its Supabase role currently has NOLOGIN, so no real service may run until
   // the approved provisioning workflow supplies a working scoped credential.
   const expectedUser = "ai_task_vps_identity_reader_dev." + project;
   const exactReader = user === expectedUser;
   const pooler = /^aws-[0-9]+-[a-z0-9-]+\.pooler\.supabase\.com$/.test(target.hostname)
-    && (target.port || "5432") === "6543";
-  if (!scheme || !inProject || !exactReader || !pooler || !target.password) throw Error("ROLE");
+    && target.port === "6543";
+  if (!scheme || !inProject || !exactReader || !pooler || !target.password || !exactDatabase || !noOverrides) throw Error("ROLE");
 } catch {
   console.error("AI_TASK_DEV_DB_IDENTITY_UNAPPROVED — no database request, launch denied");
   process.exit(78);
