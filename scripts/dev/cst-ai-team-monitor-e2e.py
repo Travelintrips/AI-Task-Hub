@@ -103,7 +103,7 @@ def main():
                 "postgres:16-alpine",timeout=30)
         created = True
         for _ in range(40):
-            ready = subprocess.run(["docker","exec",pg_name,"pg_isready","-U","canary","-d","cst_team_canary"],
+            ready = subprocess.run(["docker","exec",pg_name,"pg_isready","-h","127.0.0.1","-U","canary","-d","cst_team_canary"],
                                    stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
             if ready.returncode == 0: break
             time.sleep(0.3)
