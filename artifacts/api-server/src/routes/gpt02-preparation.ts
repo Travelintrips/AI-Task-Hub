@@ -11,6 +11,7 @@ import {
 } from "../lib/gpt02-preparation-admission.mjs";
 import { createCoreTaskPreparer } from "../lib/gpt02-core-task-preparation.mjs";
 import { assessGpt02PreparerCatalog } from "../lib/gpt02-preparer-readiness.mjs";
+import { hasRecentVerifiedGpt02DevGoogleOperator } from "../lib/gpt02-google-auth-gate.mjs";
 
 const router: IRouter = Router();
 
@@ -151,6 +152,11 @@ router.post("/ai-tasks/:id/gpt02-prepare", requireAuth,
   if (req.user?.role !== "super_admin") {
     res.status(403).json({error:"SUPER_ADMIN_REQUIRED",dispatchPermitted:false}); return;
   }
+  // Old email-only DEV JWTs are not a verified Google Super Admin session.
+  if (!hasRecentVerifiedGpt02DevGoogleOperator(req.user)) {
+    res.status(403).json({error:"GPT02_FRESH_GOOGLE_OPERATOR_REQUIRED",dispatchPermitted:false});
+    return;
+  }
   const origin = req.get("origin"),host=req.get("host");
   try {
     const parsed=new URL(origin ?? "");
@@ -231,6 +237,10 @@ router.post("/ai-tasks/:id/gpt02-replace-historical-reference", requireAuth,
   }
   if (req.user?.role!=="super_admin") {
     res.status(403).json({error:"SUPER_ADMIN_REQUIRED",dispatchPermitted:false});return;
+  }
+  if (!hasRecentVerifiedGpt02DevGoogleOperator(req.user)) {
+    res.status(403).json({error:"GPT02_FRESH_GOOGLE_OPERATOR_REQUIRED",dispatchPermitted:false});
+    return;
   }
   try {
     const origin=new URL(req.get("origin")??"");
