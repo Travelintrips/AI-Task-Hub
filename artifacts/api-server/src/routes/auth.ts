@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import { recentGoogleOAuthEvidenceAt } from "../lib/vps-storage-google-session";
+import { hasRecentVerifiedGpt02DevGoogleOperator } from "../lib/gpt02-google-auth-gate.mjs";
 import {
   selectUniqueActiveGoogleDevProfile,
   trustedGoogleDevProfilePin,
@@ -426,6 +427,40 @@ router.post("/auth/gpt02/operator-identity-preflight", requireAuth,
 router.post("/auth/logout", (_req: Request, res: Response): void => {
   res.json({ message: "Logged out. Please clear your token on the client." });
 });
+
+// DEV-only, read-only assessment of the *existing signed application session*.
+// Never reads browser storage, accepts raw provider tokens, mints new JWTs,
+// refreshes credentials, creates approvals, or initiates any GPT02 command.
+// This proves only the app JWT's existing recent-Google claim, not a new
+// independent Supabase OAuth event or command-bound consent.
+router.get("/auth/gpt02/operator-session-readiness", requireAuth,
+  (req: Request, res: Response): void => {
+    res.setHeader("Cache-Control", "no-store");
+    if (process.env.NODE_ENV !== "development" || process.env.APP_ENV !== "development") {
+      res.sendStatus(404);
+      return;
+    }
+    if (req.user?.role !== "super_admin") {
+      res.status(403).json({error:"SUPER_ADMIN_REQUIRED",readOnly:true,
+        operatorApprovalRecorded:false,dispatchPermitted:false});
+      return;
+    }
+    const googleProofFresh=hasRecentVerifiedGpt02DevGoogleOperator(req.user);
+    res.json({
+      googleProofFresh,
+      requiresFreshGoogleLogin: !googleProofFresh,
+      proofSource: "signed_app_session",
+      readOnly: true,
+      operatorApprovalRecorded: false,
+      commandBoundConsentVerified: false,
+      issuerLeaseGranted: false,
+      dispatchPermitted: false,
+      resumePermitted: false,
+      statusChanged: false,
+    });
+  });
+
+// ───────────────────────────────────────────────────────────────────────────────
 
 // ─── GET /auth/me ──────────────────────────────────────────────────────────────
 
