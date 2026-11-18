@@ -764,7 +764,31 @@ export async function processIncomingMessage({
       companyId,
     );
 
-    // 2. Route as WA command first — if handled, skip AI pipeline
+    // 2. Employee-kasbon owner approval has priority over generic WA commands.
+    // It only consumes an exact OK from the configured/resolved owner when a
+    // single employee-kasbon task is waiting for that owner.
+    if (messageType === "text" && messageText) {
+      const { tryHandleEmployeeKasbonOwnerApproval } = await import("../lib/employee-kasbon-owner-flow");
+      const handledKasbonApproval = await tryHandleEmployeeKasbonOwnerApproval({
+        phone: from,
+        text: messageText,
+        companyId,
+        fonnteDevice: fonnteDevice ?? null,
+      }).catch((err) => {
+        logger.error({ err, from }, "employee-kasbon owner approval: uncaught error");
+        return false;
+      });
+      if (handledKasbonApproval) {
+        await db
+          .update(whatsappMessagesTable)
+          .set({ processed: true, aiProcessed: true })
+          .where(eq(whatsappMessagesTable.id, savedMsg.id))
+          .catch(() => {});
+        return;
+      }
+    }
+
+    // 2a. Route as WA command — if handled, skip AI pipeline
     if (messageType === "text" && messageText) {
       const { routeWaCommand } = await import("../lib/wa-command-router");
       const handled = await routeWaCommand(from, messageText, companyId).catch((err) => {
