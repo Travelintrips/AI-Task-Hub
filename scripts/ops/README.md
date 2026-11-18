@@ -24,11 +24,24 @@ unrelated PID-file occupant is never killed; already-running instances are
 left intact; background schedulers and startup DDL are OFF; secret/DSN values
 must not be passed as command arguments or logged.
 
+The **existing PostgreSQL pool**, rather than each scheduler separately, now
+has a small DEV-only fail-closed authentication circuit in
+`lib/db/src/dev-auth-circuit.ts`. If pg.Pool.connect or the callback form
+used by pg.Pool.query receives `28P01`, `28000` or a Supavisor
+`auth_error` breaker, that process locally refuses subsequent connection
+attempts with a fixed, redacted code. A transient network failure or a
+non-authentication breaker does not latch. Restart must be deliberate after
+the authorized credential is corrected; there is no automatic reset/retry.
+When `NODE_ENV=production`, the Pool method is **unchanged**, not wrapped.
+An idle Pool client error also triggers the same DEV-only latch.
+
 This launcher is used only for isolated QA and is not executed automatically
-by the GitHub CI. CI runs a pure, offline identity parser fixture with seven
-cases. The actual VPS script has separately been verified to exit 78 with
-current invalid admin credentials **without spawning Node, calling
-PostgreSQL, writing its application log or modifying the stale PID file**.
+by the GitHub CI. CI runs seven offline identity parser fixtures and eleven
+offline tests of the DEV pool circuit (including actual pg.Pool.query
+callback plumbing without a network connection). The actual VPS script has
+separately been verified to exit 78 with current invalid admin credentials
+**without spawning Node, calling PostgreSQL, writing its application log or
+modifying the stale PID file**.
 
 ## Remaining operational acceptance
 
