@@ -6,6 +6,8 @@ const project='xssrfshdrtdfupgqwfdw';
 const base = () => ({
   NODE_ENV:'development', APP_ENV:'development',
   DISABLE_BACKGROUND_SCHEDULERS:'true', RUN_STARTUP_MIGRATIONS:'false',
+  AI_TASK_DEV_REQUIRE_VERIFIED_TLS:'true',
+  AI_TASK_DEV_DB_CA_CERT_PATH:'/run/credentials/ai-task-dev/supabase-ca.pem',
   SUPABASE_DATABASE_URL_DEV:'postgresql://ai_task_operational_dev.'+project+':not-a-real-secret@aws-0-ap-southeast-2.pooler.supabase.com:6543/postgres',
 });
 const check = (change, expected) => {
@@ -58,3 +60,6 @@ test('unexpected database name is rejected',()=>
   check({SUPABASE_DATABASE_URL_DEV:base().SUPABASE_DATABASE_URL_DEV.replace('/postgres','/foreign_db')},'UNAPPROVED_DATABASE_NAME'));
 test('URL fragments are rejected rather than ignored by a driver',()=>
   check({SUPABASE_DATABASE_URL_DEV:base().SUPABASE_DATABASE_URL_DEV+'#bad'},'UNAPPROVED_DATABASE_URL_PARAMETERS'));
+
+test('verified TLS mode is mandatory for candidate E2E',()=>check({AI_TASK_DEV_REQUIRE_VERIFIED_TLS:'false'},'CERTIFICATE_VERIFICATION_NOT_CONFIGURED'));
+test('Supabase approved CA custody path is mandatory for candidate E2E',()=>check({AI_TASK_DEV_DB_CA_CERT_PATH:'/tmp/untrusted.pem'},'CERTIFICATE_VERIFICATION_NOT_CONFIGURED'));
