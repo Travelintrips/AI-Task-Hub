@@ -1,4 +1,5 @@
 import { logger } from "./logger";
+import { pinCstDevBoundedWorkerTarget } from "./cst-dev-worker-pin";
 
 const DEFAULT_DEV_BASE_URL = "https://dev.cstlogistic.co.id/api";
 
@@ -67,6 +68,7 @@ export async function submitAiTaskCommand(input: {
         correlationId: input.correlationId,
         companyId: input.companyId,
         aiTaskId: input.taskId,
+        ...(pinCstDevBoundedWorkerTarget(input) ? { explicitWorkerTarget: true } : {}),
       },
     }),
   });
