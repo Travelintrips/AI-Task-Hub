@@ -35,6 +35,8 @@ test("actual worker readiness is separate from four-role diagnostic PASS", () =>
   assert.match(route,/agentReadiness, operationalProbes, canRunCanary: canRunDevTeam\(\)/);
   assert.match(frontend,/PRESENCE_ONLY_NOT_EXECUTION_PROOF/);
   assert.match(frontend,/Online bukan bukti tugas selesai/);
+  assert.match(frontend,/Heartbeat aktif — belum eligible/);
+  assert.match(frontend,/Kondisi: \{worker.reportedHealth\}/);
   assert.match(frontend,/Status worker belum dapat diverifikasi/);
   assert.match(frontend,/Uji DEV terkunci/);
 });
