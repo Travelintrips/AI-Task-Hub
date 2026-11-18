@@ -98,3 +98,87 @@ test("app startup side effects require explicit APP_ENV; PROD and DEV unchanged"
   assert.equal(app.split("startFleetScheduler();").length - 1, 1);
   assert.equal(app.split("startExecutiveBriefingScheduler();").length - 1, 1);
 });
+
+function evaluateAppStartup(env) {
+  const src = ts.createSourceFile("app.ts", app, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  assert.equal(src.parseDiagnostics.length, 0);
+  let envDecl, migrationDecl, schedulerIf;
+  for (const node of src.statements) {
+    if (ts.isVariableStatement(node)) {
+      for (const decl of node.declarationList.declarations) {
+        const name = decl.name.getText(src);
+        if (name === "hasExplicitAppEnv") envDecl = decl;
+        if (name === "shouldRunStartupMigrations") migrationDecl = decl;
+      }
+    }
+    if (ts.isIfStatement(node) &&
+        node.expression.getText(src).includes("DISABLE_BACKGROUND_SCHEDULERS")) {
+      schedulerIf = node;
+    }
+  }
+  assert.ok(envDecl?.initializer && migrationDecl?.initializer && schedulerIf);
+  const collected = [];
+  const sandbox = { process: { env }, logger: { warn() {} }, setInterval: () => { collected.push("interval"); } };
+  const starts = [
+    "startFollowUpScheduler", "startOrderSyncScheduler",
+    "startEscalationScheduler", "startIntelScheduler",
+    "startFleetScheduler", "startExecutiveBriefingScheduler",
+  ];
+  for (const name of starts) sandbox[name] = () => collected.push(name);
+  const js = "const hasExplicitAppEnv = " + envDecl.initializer.getText(src)
+    + ";\n" + schedulerIf.getText(src)
+    + "\nconst shouldRunStartupMigrations = " + migrationDecl.initializer.getText(src)
+    + ";\n__qa_migrate(shouldRunStartupMigrations);";
+  let migration;
+  sandbox.__qa_migrate = (value) => { migration = value; };
+  new Script(js).runInNewContext(sandbox, { timeout: 1500 });
+  return { collected, migration };
+}
+
+test("app orphan without APP_ENV does not create ANY timer, scheduler, or startup DDL", () => {
+  const out = evaluateAppStartup({
+    NODE_ENV: "development",
+    RUN_STARTUP_MIGRATIONS: "true",
+  });
+  assert.deepEqual(out.collected, []);
+  assert.equal(out.migration, false);
+});
+
+test("app with invalid APP_ENV stays inert even with stale DB env and migrations=true", () => {
+  const out = evaluateAppStartup({
+    APP_ENV: "preview", NODE_ENV: "development",
+    RUN_STARTUP_MIGRATIONS: "true",
+    SUPABASE_DATABASE_URL_DEV: "synthetic-stale-pooler",
+  });
+  assert.deepEqual(out.collected, []);
+  assert.equal(out.migration, false);
+});
+
+test("official explicit DEV keeps exactly six schedulers and two timers", () => {
+  const out = evaluateAppStartup({
+    APP_ENV: "development", NODE_ENV: "development",
+    RUN_STARTUP_MIGRATIONS: "false",
+  });
+  assert.equal(out.collected.length, 8);
+  assert.equal(out.collected.filter(x => x === "interval").length, 2);
+  assert.equal(out.migration, false);
+});
+
+test("official explicit PROD behavior remains unchanged", () => {
+  const out = evaluateAppStartup({
+    APP_ENV: "production", NODE_ENV: "production",
+    RUN_STARTUP_MIGRATIONS: "false",
+  });
+  assert.equal(out.collected.length, 8);
+  assert.equal(out.migration, false);
+});
+
+test("explicit DEV still permits existing opt-in migrations only", () => {
+  const out = evaluateAppStartup({
+    APP_ENV: "development", NODE_ENV: "development",
+    RUN_STARTUP_MIGRATIONS: "true",
+    DISABLE_BACKGROUND_SCHEDULERS: "true",
+  });
+  assert.deepEqual(out.collected, []);
+  assert.equal(out.migration, true);
+});
