@@ -34,10 +34,13 @@ test("Google OAuth entrypoint remains visible on DEV and PROD", () => {
   }
 });
 
-test("existing DEV email passwordless and PROD password input remain untouched", () => {
-  assert.match(loginSource, /await login\(email, isDevPasswordless \? "" : password\)/);
-  assert.match(loginSource, /\{!isDevPasswordless && \(\s*<div className="space-y-2">/);
+test("DEV UI only offers verified Google; PROD password form remains", () => {
+  assert.match(loginSource, /await login\(email, password\)/);
+  assert.match(loginSource, /\{!isDevPasswordless && \(<\>/);
+  assert.match(loginSource, /<form onSubmit=\{handleSubmit\}/);
   assert.match(loginSource, /type=\{showPassword \? "text" : "password"\}/);
+  assert.match(loginSource, /Email saja bukan OTP dan tidak memberikan akses/);
+  assert.doesNotMatch(loginSource, /isDevPasswordless \? "" : password/);
 });
 
 test("Google OAuth fragment is still exchanged for the app session", () => {
