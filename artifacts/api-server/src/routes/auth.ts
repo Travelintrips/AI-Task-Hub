@@ -95,10 +95,19 @@ router.post("/auth/setup", async (req: Request, res: Response): Promise<void> =>
 // ─── POST /auth/login ──────────────────────────────────────────────────────────
 
 router.post("/auth/login", async (req: Request, res: Response): Promise<void> => {
+  // Public DEV email-only login is not an OTP challenge or verified identity.
+  // Do not mint a JWT just because an email exists, particularly for Super
+  // Admin. Reuse the existing verified Supabase Google OAuth route instead.
+  // Keep production password login completely unchanged.
+  if (devPasswordlessLoginEnabled) {
+    res.status(403).json({ error: "Verified Google login required on DEV" });
+    return;
+  }
+
   const { email, password } = req.body as { email?: string; password?: string };
 
-  if (!email || (!devPasswordlessLoginEnabled && !password)) {
-    res.status(400).json({ error: devPasswordlessLoginEnabled ? "email is required" : "email and password are required" });
+  if (!email || !password) {
+    res.status(400).json({ error: "email and password are required" });
     return;
   }
 
@@ -109,17 +118,15 @@ router.post("/auth/login", async (req: Request, res: Response): Promise<void> =>
       .where(eq(usersTable.email, email.toLowerCase().trim()))
       .limit(1);
 
-    if (!user || !user.isActive || (!devPasswordlessLoginEnabled && !user.passwordHash)) {
+    if (!user || !user.isActive || !user.passwordHash) {
       res.status(401).json({ error: "Invalid credentials" });
       return;
     }
 
-    if (!devPasswordlessLoginEnabled) {
-      const valid = await bcrypt.compare(password!, user.passwordHash);
-      if (!valid) {
-        res.status(401).json({ error: "Invalid credentials" });
-        return;
-      }
+    const valid = await bcrypt.compare(password, user.passwordHash);
+    if (!valid) {
+      res.status(401).json({ error: "Invalid credentials" });
+      return;
     }
 
     await db
@@ -135,7 +142,7 @@ router.post("/auth/login", async (req: Request, res: Response): Promise<void> =>
       name: user.name,
     });
 
-    logger.info({ userId: user.id, role: user.role, companyId: user.companyId, passwordless: devPasswordlessLoginEnabled }, "User logged in");
+    logger.info({ userId: user.id, role: user.role, companyId: user.companyId, passwordless: false }, "User logged in");
 
     res.json({ token, user: safeUser(user) });
   } catch (err) {
