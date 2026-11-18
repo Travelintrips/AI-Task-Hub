@@ -40,11 +40,23 @@ export function resolveAiTaskDbSsl(
     read: () => readFileSync(AI_TASK_DEV_CA_PATH, "utf8"),
   },
 ): false | { rejectUnauthorized: boolean; ca?: string; servername?: string } {
-  // Original behavior, byte-for-byte equivalent in PROD and existing DEV.
+  // Preserve PROD and the already healthy unflagged official PR196 DEV.
   const legacy = env.DB_SSL === "false" ? false : { rejectUnauthorized: false };
-  if (env.NODE_ENV === "production" || env.AI_TASK_DEV_REQUIRE_VERIFIED_TLS !== "true") {
-    return legacy;
+  if (env.NODE_ENV === "production") return legacy;
+
+  // A candidate E2E launch cannot silently omit the TLS admission flag or
+  // run scheduled jobs/migrations before isolated privileges are approved.
+  if (env.AI_TASK_DEV_ISOLATED_E2E === "true") {
+    if (env.NODE_ENV !== "development" || env.APP_ENV !== "development" ||
+        env.DISABLE_BACKGROUND_SCHEDULERS !== "true" ||
+        env.RUN_STARTUP_MIGRATIONS !== "false") {
+      throw terminalError("AI_TASK_DEV_ISOLATED_RUNTIME_NOT_APPROVED");
+    }
+    if (env.AI_TASK_DEV_REQUIRE_VERIFIED_TLS !== "true") {
+      throw terminalError("AI_TASK_DEV_TLS_REQUIRED");
+    }
   }
+  if (env.AI_TASK_DEV_REQUIRE_VERIFIED_TLS !== "true") return legacy;
 
   if (env.NODE_ENV !== "development" || env.APP_ENV !== "development" || env.DB_SSL === "false") {
     throw terminalError("AI_TASK_DEV_TLS_ENV_NOT_APPROVED");
