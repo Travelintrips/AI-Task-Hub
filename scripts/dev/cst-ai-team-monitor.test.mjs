@@ -32,7 +32,7 @@ test("canary cannot claim a real AI Task completion without tenant and worker li
 
 test("actual worker readiness is separate from four-role diagnostic PASS", () => {
   assert.match(route,/fetchCstTeamAgentReadiness\(\)/);
-  assert.match(route,/agentReadiness, canRunCanary: canRunDevTeam\(\)/);
+  assert.match(route,/agentReadiness, operationalProbes, canRunCanary: canRunDevTeam\(\)/);
   assert.match(frontend,/PRESENCE_ONLY_NOT_EXECUTION_PROOF/);
   assert.match(frontend,/Online bukan bukti tugas selesai/);
   assert.match(frontend,/Status worker belum dapat diverifikasi/);
