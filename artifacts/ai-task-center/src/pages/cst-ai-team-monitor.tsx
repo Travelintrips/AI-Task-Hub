@@ -22,6 +22,12 @@ type AgentReadiness = {
  status: "available" | "unavailable"; mode: "PRESENCE_ONLY_NOT_EXECUTION_PROOF";
  checkedAt: string | null; workers: WorkerPresence[]; reason?: string;
 };
+type IndependentTeamGate = {
+ mode: "READ_ONLY_GLOBAL_CAPACITY_NOT_AUTHORITY";
+ status: "blocked" | "unavailable"; checkedAt: string;
+ registeredCodingWorkers: number | null; activeLeasedCodingWorkers: number | null;
+ recordedAiHandoffs: number | null; verifiedIndependentTeam: false; blockers: string[];
+};
 type OperationalProbe = {
  id: string; taskId: number | null; title: string | null; status: string;
  progress: number; commandId: string | null; resultSummary: string | null; completedAt: string | null;
@@ -31,7 +37,7 @@ type OperationalProbe = {
 };
 type Monitor = {
  companyId: string; roles: Role[]; runs: Run[]; mode: string; authority: string;
- agentReadiness: AgentReadiness; operationalProbes?: OperationalProbe[]; canRunCanary: boolean;
+ agentReadiness: AgentReadiness; operationalProbes?: OperationalProbe[]; independentTeamGate?: IndependentTeamGate; canRunCanary: boolean;
  operationalTaskBinding: {verified:boolean; reason:string};
 };
 const roles = [
@@ -72,6 +78,7 @@ export default function CstAiTeamMonitor() {
   onSuccess:(data) => {setSelected(data.id); void queryClient.invalidateQueries({queryKey:["cst-ai-team"]});}});
  const runs = query.data?.runs || [];
  const agentReadiness = query.data?.agentReadiness;
+ const independentTeamGate = query.data?.independentTeamGate;
  const probes = query.data?.operationalProbes || [];
  const current = runs.find(r => r.id === selected) || runs[0];
  return <div className="mx-auto max-w-7xl space-y-6 p-6 md:p-8">
@@ -127,6 +134,25 @@ export default function CstAiTeamMonitor() {
    </> : <p className="mt-3 text-sm text-amber-800">
      Status worker belum dapat diverifikasi dari bridge. {agentReadiness?.reason || "Belum ada pembacaan."} Tidak dinyatakan PASS.
    </p>}
+  </section>
+  <section className="rounded-xl border bg-card p-4 md:p-5">
+   <h2 className="text-lg font-semibold">Kesiapan tim AI independen — Core DEV</h2>
+   <p className="mt-1 text-xs text-muted-foreground">Kapasitas global worker dan handoff Core AI yang sudah ada. Ini bukan bukti bahwa task Company 1 sudah diberikan kepada empat agen independen.</p>
+   <p className="mt-3 text-sm font-semibold">BELUM SIAP — belum ada empat receipt agen independen dan Final ACK QA</p>
+   {independentTeamGate?.status === "blocked" ? <>
+    <p className="mt-1 text-xs text-muted-foreground">Diperiksa: {when(independentTeamGate.checkedAt)} · Baca-saja · Tidak mengaktifkan worker</p>
+    <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+     {[
+       {label:"Coding worker terdaftar",value:independentTeamGate.registeredCodingWorkers},
+       {label:"Coding worker ber-lease aktif",value:independentTeamGate.activeLeasedCodingWorkers},
+       {label:"Handoff AI tersimpan",value:independentTeamGate.recordedAiHandoffs},
+     ].map(item=><div className="rounded-lg border p-3" key={item.label}>
+      <p className="text-xs text-muted-foreground">{item.label}</p>
+      <p className="mt-1 text-xl font-semibold">{item.value ?? "—"}</p>
+     </div>)}
+    </div>
+    <p className="mt-3 text-xs text-muted-foreground">Blokir: {independentTeamGate.blockers.join(" · ")}</p>
+   </> : <p className="mt-3 text-sm text-muted-foreground">Kapasitas Core AI belum dapat dibaca. Status tetap terblokir; tidak dianggap sebagai nol atau PASS.</p>}
   </section>
   <section className="rounded-xl border bg-card p-4 md:p-5">
    <h2 className="text-lg font-semibold">Tugas worker nyata — internal E2E DEV</h2>
