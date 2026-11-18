@@ -1,6 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { logger } from "./logger";
-import { sendFonnte } from "./fonnte";
 
 const FLOW_KIND = "employee_kasbon_owner_wa_v1";
 const WAITING_ACTION = "employee_kasbon_owner_ok";
@@ -135,6 +134,7 @@ async function sendKasbonMessage(
     );
     return;
   }
+  const { sendFonnte } = await import("./fonnte");
   await sendFonnte(phone, message, fonnteDevice ?? null);
 }
 
