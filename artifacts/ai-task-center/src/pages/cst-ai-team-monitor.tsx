@@ -26,7 +26,8 @@ type IndependentTeamGate = {
  mode: "READ_ONLY_GLOBAL_CAPACITY_NOT_AUTHORITY";
  status: "blocked" | "unavailable"; checkedAt: string;
  registeredCodingWorkers: number | null; activeLeasedCodingWorkers: number | null;
- recordedAiHandoffs: number | null; verifiedIndependentTeam: false; blockers: string[];
+ recordedAiHandoffs: number | null; availableOllamaCodingSlots: number | null;
+ verifiedIndependentTeam: false; blockers: string[];
 };
 type OperationalProbe = {
  id: string; taskId: number | null; title: string | null; status: string;
@@ -141,10 +142,11 @@ export default function CstAiTeamMonitor() {
    <p className="mt-3 text-sm font-semibold">BELUM SIAP — belum ada empat receipt agen independen dan Final ACK QA</p>
    {independentTeamGate?.status === "blocked" ? <>
     <p className="mt-1 text-xs text-muted-foreground">Diperiksa: {when(independentTeamGate.checkedAt)} · Baca-saja · Tidak mengaktifkan worker</p>
-    <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+    <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
      {[
        {label:"Coding worker terdaftar",value:independentTeamGate.registeredCodingWorkers},
        {label:"Coding worker ber-lease aktif",value:independentTeamGate.activeLeasedCodingWorkers},
+       {label:"Slot model Ollama coding siap",value:independentTeamGate.availableOllamaCodingSlots},
        {label:"Handoff AI tersimpan",value:independentTeamGate.recordedAiHandoffs},
      ].map(item=><div className="rounded-lg border p-3" key={item.label}>
       <p className="text-xs text-muted-foreground">{item.label}</p>
@@ -152,6 +154,7 @@ export default function CstAiTeamMonitor() {
      </div>)}
     </div>
     <p className="mt-3 text-xs text-muted-foreground">Blokir: {independentTeamGate.blockers.join(" · ")}</p>
+    <p className="mt-2 text-xs text-muted-foreground">Slot model ini khusus jalur coding Ollama Core AI. Heartbeat OpenClaw maupun Ollama lokal PC tidak otomatis memenuhi kontrak tersebut.</p>
    </> : <p className="mt-3 text-sm text-muted-foreground">Kapasitas Core AI belum dapat dibaca. Status tetap terblokir; tidak dianggap sebagai nol atau PASS.</p>}
   </section>
   <section className="rounded-xl border bg-card p-4 md:p-5">
