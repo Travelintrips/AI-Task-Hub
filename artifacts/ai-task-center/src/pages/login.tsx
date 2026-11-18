@@ -21,7 +21,7 @@ export default function Login() {
     e.preventDefault();
     setLoading(true);
     try {
-      await login(email, isDevPasswordless ? "" : password);
+      await login(email, password);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Login gagal";
       toast({ title: "Login gagal", description: msg, variant: "destructive" });
@@ -44,7 +44,7 @@ export default function Login() {
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-lg">Masuk</CardTitle>
-            <CardDescription>{isDevPasswordless ? "Masuk dengan Google atau email yang terdaftar" : "Gunakan email dan password yang terdaftar"}</CardDescription>
+            <CardDescription>{isDevPasswordless ? "Masuk dengan akun Google yang terverifikasi" : "Gunakan email dan password yang terdaftar"}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <Button
@@ -56,6 +56,7 @@ export default function Login() {
             >
               Masuk dengan Google
             </Button>
+            {!isDevPasswordless && (<>
             <div className="flex items-center gap-3">
               <div className="h-px flex-1 bg-border" />
               <span className="text-xs text-muted-foreground">atau</span>
@@ -105,11 +106,12 @@ export default function Login() {
                 {loading ? "Memproses..." : "Masuk"}
               </Button>
             </form>
+            </>)}
           </CardContent>
         </Card>
 
         <div className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">
-          {isDevPasswordless ? "DEV: masuk dengan Google atau gunakan email aktif tanpa password." : "Gunakan akun Google perusahaan atau email/password yang sudah terdaftar."}
+          {isDevPasswordless ? "DEV: gunakan Google yang terverifikasi. Email saja bukan OTP dan tidak memberikan akses." : "Gunakan akun Google perusahaan atau email/password yang sudah terdaftar."}
         </div>
         <p className="text-center text-xs text-muted-foreground">
           Belum ada akun admin?{" "}
