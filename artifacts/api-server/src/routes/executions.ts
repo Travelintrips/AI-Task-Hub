@@ -21,6 +21,7 @@ import { isAttestedCheckpointResponse, verifiedContinuation } from "../lib/verif
 import { hasVerifiedSourceFinalAck } from "../lib/verified-source-final-ack";
 import { evaluateGpt02LineageEvidence } from "../lib/gpt02-lineage-gate";
 import { assessGpt02PreparedReservationReview } from "../lib/gpt02-prepared-reservation-review.mjs";
+import { hasRecentVerifiedGpt02DevGoogleOperator } from "../lib/gpt02-google-auth-gate.mjs";
 import { hasExplicitSopFailure } from "../lib/verified-sop-outcome";
 import { logger } from "../lib/logger";
 import { formatAiJobWhatsApp, jobWaConfig, notifyAiJobTransition } from "../lib/ai-job-whatsapp";
@@ -1035,6 +1036,11 @@ router.post("/ai-tasks/:id/gpt02-adopt-existing", requireAuth, async (req: Reque
   if (req.user?.role !== "super_admin") {
     res.status(403).json({ error: "SUPER_ADMIN_REQUIRED" }); return;
   }
+  if (!hasRecentVerifiedGpt02DevGoogleOperator(req.user)) {
+    res.setHeader("Cache-Control","no-store");
+    res.status(403).json({error:"GPT02_FRESH_GOOGLE_OPERATOR_REQUIRED",dispatchPermitted:false});
+    return;
+  }
   const taskId = Number(req.params.id);
   const companyId = getCompanyIdForWrite(req);
   if (!Number.isSafeInteger(taskId) || taskId < 1) {
@@ -1442,6 +1448,11 @@ router.post("/ai-tasks/:id/gpt02-assign-pic", requireAuth, async (req: Request, 
   if (req.user?.role !== "super_admin") {
     res.status(403).json({error:"SUPER_ADMIN_REQUIRED"}); return;
   }
+  if (!hasRecentVerifiedGpt02DevGoogleOperator(req.user)) {
+    res.setHeader("Cache-Control","no-store");
+    res.status(403).json({error:"GPT02_FRESH_GOOGLE_OPERATOR_REQUIRED",dispatchPermitted:false});
+    return;
+  }
   const taskId=Number(req.params.id);
   const memberId=(req.body as Record<string,unknown>)?.["memberId"];
   if (!Number.isSafeInteger(taskId) || taskId<=0 ||
@@ -1523,6 +1534,11 @@ router.post("/ai-tasks/:id/gpt02-confirm-recovery-pic", requireAuth,
   }
   if (req.user?.role !== "super_admin") {
     res.status(403).json({error:"SUPER_ADMIN_REQUIRED"}); return;
+  }
+  if (!hasRecentVerifiedGpt02DevGoogleOperator(req.user)) {
+    res.setHeader("Cache-Control","no-store");
+    res.status(403).json({error:"GPT02_FRESH_GOOGLE_OPERATOR_REQUIRED",dispatchPermitted:false});
+    return;
   }
   // Browser-only same-origin POST; credentialed cross-origin writes fail closed.
   const origin=req.get("origin"),host=req.get("host");
