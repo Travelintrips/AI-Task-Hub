@@ -4,7 +4,7 @@ import { and, desc, eq, inArray, like, sql } from "drizzle-orm";
 import { db, aiExecutionJobsTable as jobs, aiExecutionEventsTable as events } from "@workspace/db";
 import { requireAuth } from "../middleware/auth";
 import { logger } from "../lib/logger";
-import { canReadDevTeam, canRunDevTeam, canaryVerdict, projectCanaryStatus, projectIndependentTeamGate, TEAM_SOURCE, TEAM_ROLES, type TeamRole } from "../lib/cst-ai-team-contract";
+import { canReadDevTeam, canRunDevTeam, canaryVerdict, canaryLedgerVerdict, projectCanaryStatus, projectIndependentTeamGate, TEAM_SOURCE, TEAM_ROLES, type TeamRole } from "../lib/cst-ai-team-contract";
 import { fetchCstTeamAgentReadiness } from "../lib/cst-ai-team-agent-readiness";
 
 const router: IRouter = Router();
@@ -29,10 +29,7 @@ async function fetchRun(runId: string, company: string) {
     id: e.id, role: e.phase, status: e.status, at: e.createdAt,
     message: e.message, evidence: e.eventType === "team.completed" || e.eventType === "team.failed" ? e.payload : null,
   }));
-  const confirmed = canaryVerdict(steps.filter(s => s.evidence).map(s => ({
-    role: s.role ?? "", status: s.status ?? "",
-    ok: (s.evidence as Record<string, unknown>)?.ok === true,
-  })));
+  const confirmed = canaryLedgerVerdict(history);
   const projected = projectCanaryStatus(run.status, run.createdAt);
   return {
     id: run.id, companyId: run.companyId, title: run.title,

@@ -37,9 +37,39 @@ export function projectCanaryStatus(
 }
 
 export function canaryVerdict(evidence: Array<{role: string; status: string; ok: boolean}>): boolean {
-  return TEAM_ROLES.every(role => evidence.some(e =>
-    e.role === role && e.status === "completed" && e.ok)) &&
-    !evidence.some(e => e.status === "failed");
+  // Exactly one successful terminal proof per role. Duplicate, unknown and
+  // conflicting rows must not inflate the number of verified canary roles.
+  if (evidence.length !== TEAM_ROLES.length) return false;
+  const seen = new Set<string>();
+  for (const record of evidence) {
+    if (!TEAM_ROLES.includes(record.role as TeamRole) || seen.has(record.role) ||
+        record.status !== "completed" || record.ok !== true) return false;
+    seen.add(record.role);
+  }
+  return seen.size === TEAM_ROLES.length;
+}
+
+/** Validate persisted diagnostic receipts, NOT any GPT02 external signature.
+ * Reject manually forged/mislabeled rows, duplicate terminal events and any
+ * attempt to turn canary evidence into signed execution authority.
+ */
+export function canaryLedgerVerdict(records: Array<{
+  eventType: string; phase: string | null; status: string | null;
+  workerId: string | null; signatureVerified: boolean;
+  payload: unknown;
+}>): boolean {
+  const terminal = records.filter(record =>
+    record.eventType === "team.completed" || record.eventType === "team.failed");
+  return canaryVerdict(terminal.map(record => ({
+    role: record.phase ?? "", status: record.status ?? "",
+    ok: typeof record.payload === "object" && record.payload !== null &&
+      (record.payload as Record<string, unknown>).ok === true,
+  }))) && terminal.every(record =>
+    record.eventType === "team.completed" &&
+    record.workerId === `cst-team-dev-${record.phase}` &&
+    record.signatureVerified === false &&
+    typeof record.payload === "object" && record.payload !== null &&
+    (record.payload as Record<string, unknown>).proofLevel === "DEV_LOCAL_CANARY_NOT_SIGNED");
 }
 
 /** Read-only global Core capacity, NEVER proof that Company-1 has four agents.

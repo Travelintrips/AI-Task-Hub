@@ -249,6 +249,41 @@ def main():
             raise AssertionError("ROLE_EVIDENCE_INCOMPLETE")
         if any(proof[k] for k in ("callbackVerified","attestationVerified","finalAckVerified")):
             raise AssertionError("UNAUTHORIZED_ACK_FLAGS")
+        # Adversarial regression on disposable PostgreSQL only: a completed job
+        # must lose its diagnostic PASS when the terminal evidence is tampered.
+        command("docker", "exec", pg_name, "psql", "-v", "ON_ERROR_STOP=1", "-U", "canary",
+                "-d", "cst_team_canary", "-c", """
+                  UPDATE ai_execution_events SET worker_id='forged-external-agent'
+                  WHERE execution_id='%s'::uuid AND phase='qa' AND event_type='team.completed'
+                """ % jobid)
+        tampered_status, tampered = http(api_port, path="/api/cst-ai-team/monitor?companyId=1",
+                                        jwt=make_jwt(jwt_secret))
+        tampered_run = next((x for x in tampered.get("runs",[]) if x["id"] == jobid), None)
+        if tampered_status != 200 or not tampered_run or tampered_run.get("verifiedComplete") is not False:
+            raise AssertionError("FORGED_TERMINAL_EVIDENCE_FALSE_PASS")
+        proof["forgedWorkerRejected"] = True
+        command("docker", "exec", pg_name, "psql", "-v", "ON_ERROR_STOP=1", "-U", "canary",
+                "-d", "cst_team_canary", "-c", """
+                  UPDATE ai_execution_events SET worker_id='cst-team-dev-qa'
+                  WHERE execution_id='%s'::uuid AND phase='qa' AND event_type='team.completed'
+                """ % jobid)
+        command("docker", "exec", pg_name, "psql", "-v", "ON_ERROR_STOP=1", "-U", "canary",
+                "-d", "cst_team_canary", "-c", """
+                  INSERT INTO ai_execution_events (
+                    execution_id, task_id, company_id, event_id, event_type, phase,
+                    status, message, worker_id, signature_verified, payload)
+                  SELECT execution_id, task_id, company_id, gen_random_uuid()::text,
+                    event_type, phase, status, message, worker_id, signature_verified, payload
+                  FROM ai_execution_events
+                  WHERE execution_id='%s'::uuid AND phase='coding' AND event_type='team.completed'
+                  LIMIT 1
+                """ % jobid)
+        duplicate_status, duplicated = http(api_port, path="/api/cst-ai-team/monitor?companyId=1",
+                                            jwt=make_jwt(jwt_secret))
+        duplicate_run = next((x for x in duplicated.get("runs",[]) if x["id"] == jobid), None)
+        if duplicate_status != 200 or not duplicate_run or duplicate_run.get("verifiedComplete") is not False:
+            raise AssertionError("DUPLICATE_TERMINAL_EVIDENCE_FALSE_PASS")
+        proof["duplicateReceiptRejected"] = True
         proof["result"]="ISOLATED_CANARY_E2E_PASS"
     except Exception as err:
         proof["result"]="FAIL"

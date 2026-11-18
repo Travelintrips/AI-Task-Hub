@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { canReadDevTeam, canRunDevTeam, canaryVerdict, projectCanaryStatus, projectIndependentTeamGate, CANARY_STALE_AFTER_MS } from "../../artifacts/api-server/src/lib/cst-ai-team-contract.ts";
+import { canReadDevTeam, canRunDevTeam, canaryVerdict, canaryLedgerVerdict, projectCanaryStatus, projectIndependentTeamGate, CANARY_STALE_AFTER_MS } from "../../artifacts/api-server/src/lib/cst-ai-team-contract.ts";
 
 const base = new URL("../../artifacts/api-server/src/routes/cst-ai-team.ts", import.meta.url);
 const route = readFileSync(base, "utf8");
@@ -49,6 +49,36 @@ test("all four role evidence required; no skipped or failed role can PASS", () =
   assert.equal(canaryVerdict([...all,{role:"security",status:"failed",ok:false}]),false);
   assert.equal(canaryVerdict(all.map(x=>x.role==="qa"?{...x,ok:false}:x)),false);
 });
+test("diagnostic PASS rejects duplicate, unknown, spoofed, or extra role records", () => {
+  const good = ["coding", "infrastructure", "security", "qa"].map(role =>
+    ({ role, status: "completed", ok: true }));
+  assert.equal(canaryVerdict(good), true);
+  assert.equal(canaryVerdict([...good, good[0]]), false, "duplicate cannot inflate PASS");
+  assert.equal(canaryVerdict([...good.slice(0, 3), good[0]]), false, "duplicate cannot replace QA");
+  assert.equal(canaryVerdict([...good, {role: "external", status: "completed", ok: true}]), false);
+  assert.equal(canaryVerdict(good.map(r => r.role === "qa" ? {...r, ok: false} : r)), false);
+  assert.equal(canaryVerdict([]), false);
+});
+
+test("persisted diagnostic receipts require canonical worker IDs, unsigned proof level and unique terminal evidence", () => {
+  const completed = ["coding", "infrastructure", "security", "qa"].map(role => ({
+    eventType: "team.completed", phase: role, status: "completed",
+    workerId: `cst-team-dev-${role}`, signatureVerified: false,
+    payload: { ok: true, proofLevel: "DEV_LOCAL_CANARY_NOT_SIGNED" },
+  }));
+  const started = completed.map(r => ({...r, eventType: "team.started", status: "started", payload: {}}));
+  assert.equal(canaryLedgerVerdict([...started, ...completed]), true);
+  assert.equal(canaryLedgerVerdict([...completed, completed[0]]), false, "duplicate completion");
+  assert.equal(canaryLedgerVerdict(completed.map((r,i) => i === 1 ? {...r, workerId: "wrong-worker"} : r)), false);
+  assert.equal(canaryLedgerVerdict(completed.map((r,i) => i === 2 ? {...r, signatureVerified: true} : r)), false);
+  assert.equal(canaryLedgerVerdict(completed.map((r,i) => i === 3 ? {...r, payload: {ok: true, proofLevel: "GPT02_SIGNED"}} : r)), false);
+  assert.equal(canaryLedgerVerdict(completed.map((r,i) => i === 0 ? {...r, eventType:"team.failed",status:"failed"} : r)), false);
+  assert.equal(canaryLedgerVerdict(completed.map((r,i) => i === 0 ? {...r, payload:null} : r)), false);
+  assert.match(route, /canaryLedgerVerdict\(history\)/);
+  assert.match(route, /run.status === "completed" && confirmed/);
+  assert.match(route, /proofLevel: "DEV_LOCAL_CANARY_NOT_SIGNED"/);
+});
+
 test("stale or interrupted canary is BLOCKED rather than falsely running or PASS", () => {
   const start = new Date("2026-11-18T10:00:00Z");
   const now = start.getTime() + CANARY_STALE_AFTER_MS + 1;
