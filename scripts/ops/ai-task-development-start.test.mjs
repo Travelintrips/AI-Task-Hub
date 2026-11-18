@@ -12,8 +12,8 @@ assert.ok(body, "Launcher must execute the versioned offline role gate before an
 
 const ref = "xssrfshdrtdfupgqwfdw";
 const validHost = "aws-0-ap-southeast-1.pooler.supabase.com";
-function result({ role, port = 6543, host = validHost, env = "development" }) {
-  const connection = `postgresql://${role}:fixture_only@${host}:${port}/postgres`;
+function result({ role, port = 6543, host = validHost, env = "development", query = "", database = "postgres" }) {
+  const connection = `postgresql://${role}:fixture_only@${host}:${port}/${database}${query}`;
   const response = spawnSync(process.execPath, ["-e", body[1]], {
     env: { NODE_ENV: env, APP_ENV: "development", SUPABASE_DATABASE_URL_DEV: connection },
     encoding: "utf8",
@@ -31,7 +31,7 @@ test("refuses old admin postgres pooler identity without a network call", () => 
 test("rejects elevated AI Task Hostinger role and cannot borrow its credentials", () => {
   assert.equal(result({ role: `ai_task_hostinger.${ref}` }), 78);
 });
-test("permits only the syntactic shape of the CST-DEV dedicated reader", () => {
+test("Node guard permits only reader syntax; independent release marker is still mandatory", () => {
   assert.equal(result({ role: `ai_task_vps_identity_reader_dev.${ref}` }), 0);
 });
 test("does not accept a session-pooler port as the approved isolated path", () => {
@@ -47,4 +47,26 @@ test("launcher contains fail-closed scheduler and startup DDL flags", () => {
   assert.match(launcher, /export DISABLE_BACKGROUND_SCHEDULERS=true/);
   assert.match(launcher, /export RUN_STARTUP_MIGRATIONS=false/);
   assert.match(launcher, /flock -x 9/);
+});
+
+test("query-string user override cannot switch effective login to postgres", () => {
+  assert.equal(result({ role: 'ai_task_vps_identity_reader_dev.' + ref, query: '?user=postgres.' + ref }), 78);
+});
+test("query-string host/port overrides cannot redirect connection", () => {
+  assert.equal(result({ role: 'ai_task_vps_identity_reader_dev.' + ref, query: '?host=unsafe.example&port=5432' }), 78);
+});
+test("query TLS-disable cannot undermine the isolated release preflight", () => {
+  assert.equal(result({ role: 'ai_task_vps_identity_reader_dev.' + ref, query: '?sslmode=disable' }), 78);
+});
+test("foreign database names and URL fragments are rejected", () => {
+  assert.equal(result({ role: 'ai_task_vps_identity_reader_dev.' + ref, database: 'otherdb' }), 78);
+  assert.equal(result({ role: 'ai_task_vps_identity_reader_dev.' + ref, query: '#frag' }), 78);
+});
+test("independent release-marker guard stops @reboot/direct launch before reading credentials", () => {
+  const markerPos = launcher.indexOf('RELEASE_MARKER="/etc/ai-task-dev-authorized-reader-and-release.ready"');
+  const envPos = launcher.indexOf('set -a');
+  const nodePos = launcher.indexOf('"$NODE" <<');
+  assert.ok(markerPos > 0 && markerPos < envPos && envPos < nodePos);
+  assert.match(launcher, /\[\[ ! -f "\$RELEASE_MARKER" \|\| -L "\$RELEASE_MARKER" \]\]/);
+  assert.match(launcher, /AI_TASK_DEV_RELEASE_NOT_AUTHORIZED/);
 });
