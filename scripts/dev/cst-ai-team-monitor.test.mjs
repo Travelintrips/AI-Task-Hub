@@ -100,16 +100,19 @@ test("four independent workers require real leases, handoff and verified QA Fina
   const now = new Date("2026-11-18T15:00:00Z");
   const blocked = projectIndependentTeamGate({
     registeredCodingWorkers: 4, activeLeasedCodingWorkers: 0, recordedAiHandoffs: 0,
+    availableOllamaCodingSlots: 0,
   }, now);
   assert.equal(blocked.status, "blocked");
   assert.equal(blocked.verifiedIndependentTeam, false);
   assert.deepEqual(blocked.blockers, [
     "FOUR_ACTIVE_CODING_WORKERS_NOT_VERIFIED",
     "NO_PERSISTED_MULTIWORKER_HANDOFF",
+    "OLLAMA_CODING_CAPACITY_NOT_READY",
     "FOUR_DISTINCT_AGENT_RECEIPTS_AND_INDEPENDENT_QA_FINAL_ACK_NOT_VERIFIED",
   ]);
   const presentNotVerified = projectIndependentTeamGate({
     registeredCodingWorkers: 4, activeLeasedCodingWorkers: 4, recordedAiHandoffs: 4,
+    availableOllamaCodingSlots: 4,
   }, now);
   assert.equal(presentNotVerified.verifiedIndependentTeam, false);
   assert.deepEqual(presentNotVerified.blockers, [
@@ -121,6 +124,7 @@ test("four independent workers require real leases, handoff and verified QA Fina
   assert.deepEqual(unavailable.blockers, ["CORE_CAPACITY_READBACK_UNAVAILABLE"]);
   assert.equal(projectIndependentTeamGate({
     registeredCodingWorkers: 2, activeLeasedCodingWorkers: 3, recordedAiHandoffs: 0,
+    availableOllamaCodingSlots: 0,
   }).status, "unavailable");
 });
 
@@ -132,10 +136,30 @@ test("independent team capacity uses existing global Core tables read-only, no t
   assert.match(query, /ai_platform\.ai_workers/);
   assert.match(query, /ai_platform\.ai_coding_workstream_ai_handoffs/);
   assert.match(query, /lease_expires_at > now\(\)/);
+  assert.match(query, /available_ollama_coding_slots/);
+  assert.match(query, /runtime_kind = 'ollama_worker'/);
+  assert.match(query, /runtime_kind = 'ollama_remote_pull'/);
+  assert.match(frontend, /Slot model Ollama coding siap/);
   assert.doesNotMatch(query, /CREATE TABLE|ALTER TABLE|GRANT |INSERT INTO|DELETE FROM|db\.update\(|db\.insert\(/);
   assert.match(route, /fetchIndependentTeamGate\(\)/);
   assert.match(frontend, /Kesiapan tim AI independen — Core DEV/);
   assert.match(frontend, /Kapasitas global worker/);
   assert.match(frontend, /BELUM SIAP — belum ada empat receipt agen independen/);
   assert.match(frontend, /Kapasitas Core AI belum dapat dibaca/);
+});
+
+test("Ollama coding capacity is separate from a healthy OpenClaw heartbeat", () => {
+  const report = projectIndependentTeamGate({
+    registeredCodingWorkers: 4, activeLeasedCodingWorkers: 4,
+    recordedAiHandoffs: 4, availableOllamaCodingSlots: 0,
+  });
+  assert.equal(report.verifiedIndependentTeam, false);
+  assert.deepEqual(report.blockers, [
+    "OLLAMA_CODING_CAPACITY_NOT_READY",
+    "FOUR_DISTINCT_AGENT_RECEIPTS_AND_INDEPENDENT_QA_FINAL_ACK_NOT_VERIFIED",
+  ]);
+  assert.equal(projectIndependentTeamGate({
+    registeredCodingWorkers: 4, activeLeasedCodingWorkers: 0,
+    recordedAiHandoffs: 0, availableOllamaCodingSlots: -1,
+  }).status, "unavailable");
 });
