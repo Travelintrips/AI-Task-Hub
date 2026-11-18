@@ -66,6 +66,16 @@ function evaluate(code, env, events) {
   const module = { exports: {} };
   vm.runInNewContext(code, {
     module, exports: module.exports, URL,
+    // Native modules are imported by the DEV-only TLS helper; production
+    // policy tests must never read host files or rely on the test runner CA.
+    require: id => {
+      if (id === "node:crypto") return { X509Certificate: class {} };
+      if (id === "node:fs") return {
+        lstatSync: () => { throw Error("Unexpected certificate stat in policy test"); },
+        readFileSync: () => { throw Error("Unexpected certificate read in policy test"); },
+      };
+      throw Error("Unexpected module in policy test: " + id);
+    },
     process: { env, platform: process.platform },
     __dbPolicyProbe: events,
     console: { error: (...args) => events?.logs.push(args) },
