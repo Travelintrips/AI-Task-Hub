@@ -81,7 +81,6 @@ function prompt(step: Step): string {
   switch (step) {
     case "employee_name": return "Baik. Siapa nama karyawan yang mengajukan kasbon? Mohon tulis nama sesuai data karyawan di BizPortal.";
     case "amount": return "Berapa nominal kasbon yang diajukan? Contoh: Rp500.000.";
-    case "purpose": return "Kasbon tersebut untuk keperluan apa?";
     case "needed_date": return "Kapan kasbon dibutuhkan? Balas *hari ini* atau tulis tanggal dengan format *DD-MM-YYYY*, contoh *18-11-2026*.";
     case "repayment_method": return "Cara pengembaliannya bagaimana? Balas *Potong Penuh* atau *Cicilan*.";
     case "installment_amount": return "Berapa nominal cicilan per periode? Contoh: Rp500.000.";
