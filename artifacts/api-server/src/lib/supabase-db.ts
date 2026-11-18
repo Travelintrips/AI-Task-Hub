@@ -2,6 +2,7 @@ import pg from "pg";
 import { logger } from "./logger";
 import { assertProductionConnectionAllowed } from "@workspace/db/production-connection-policy";
 import { installDevDbAuthCircuit, sharedDevDbAuthScope } from "@workspace/db/dev-auth-circuit";
+import { resolveAiTaskDbSsl } from "@workspace/db/dev-verified-tls";
 
 const isProduction = process.env.NODE_ENV === "production";
 const databaseEnvName = isProduction
@@ -24,7 +25,7 @@ export const supabasePool = connectionString
       max: 5,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 5000,
-      ssl: process.env.DB_SSL === "false" ? false : { rejectUnauthorized: false },
+      ssl: resolveAiTaskDbSsl(connectionString, process.env),
     })
   : null;
 
