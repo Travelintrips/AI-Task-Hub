@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { canReadDevTeam, canRunDevTeam, canaryVerdict, projectCanaryStatus, CANARY_STALE_AFTER_MS } from "../../artifacts/api-server/src/lib/cst-ai-team-contract.ts";
+import { canReadDevTeam, canRunDevTeam, canaryVerdict, projectCanaryStatus, projectIndependentTeamGate, CANARY_STALE_AFTER_MS } from "../../artifacts/api-server/src/lib/cst-ai-team-contract.ts";
 
 const base = new URL("../../artifacts/api-server/src/routes/cst-ai-team.ts", import.meta.url);
 const route = readFileSync(base, "utf8");
@@ -32,7 +32,7 @@ test("canary cannot claim a real AI Task completion without tenant and worker li
 
 test("actual worker readiness is separate from four-role diagnostic PASS", () => {
   assert.match(route,/fetchCstTeamAgentReadiness\(\)/);
-  assert.match(route,/agentReadiness, operationalProbes, canRunCanary: canRunDevTeam\(\)/);
+  assert.match(route,/agentReadiness, operationalProbes, independentTeamGate, canRunCanary: canRunDevTeam\(\)/);
   assert.match(frontend,/PRESENCE_ONLY_NOT_EXECUTION_PROOF/);
   assert.match(frontend,/Online bukan bukti tugas selesai/);
   assert.match(frontend,/Heartbeat aktif — belum eligible/);
@@ -94,4 +94,48 @@ test("internal E2E worker probes are read-only, tenant-scoped and separate from 
   assert.match(frontend, /Tugas gagal tidak boleh diulang/);
   // A diagnostic canary must still be explicitly barred from granting authority.
   assert.match(route, /operationalTaskBinding: \{ verified: false/);
+});
+
+test("four independent workers require real leases, handoff and verified QA Final ACK", () => {
+  const now = new Date("2026-11-18T15:00:00Z");
+  const blocked = projectIndependentTeamGate({
+    registeredCodingWorkers: 4, activeLeasedCodingWorkers: 0, recordedAiHandoffs: 0,
+  }, now);
+  assert.equal(blocked.status, "blocked");
+  assert.equal(blocked.verifiedIndependentTeam, false);
+  assert.deepEqual(blocked.blockers, [
+    "FOUR_ACTIVE_CODING_WORKERS_NOT_VERIFIED",
+    "NO_PERSISTED_MULTIWORKER_HANDOFF",
+    "FOUR_DISTINCT_AGENT_RECEIPTS_AND_INDEPENDENT_QA_FINAL_ACK_NOT_VERIFIED",
+  ]);
+  const presentNotVerified = projectIndependentTeamGate({
+    registeredCodingWorkers: 4, activeLeasedCodingWorkers: 4, recordedAiHandoffs: 4,
+  }, now);
+  assert.equal(presentNotVerified.verifiedIndependentTeam, false);
+  assert.deepEqual(presentNotVerified.blockers, [
+    "FOUR_DISTINCT_AGENT_RECEIPTS_AND_INDEPENDENT_QA_FINAL_ACK_NOT_VERIFIED",
+  ]);
+  const unavailable = projectIndependentTeamGate(null, now);
+  assert.equal(unavailable.status, "unavailable");
+  assert.equal(unavailable.activeLeasedCodingWorkers, null);
+  assert.deepEqual(unavailable.blockers, ["CORE_CAPACITY_READBACK_UNAVAILABLE"]);
+  assert.equal(projectIndependentTeamGate({
+    registeredCodingWorkers: 2, activeLeasedCodingWorkers: 3, recordedAiHandoffs: 0,
+  }).status, "unavailable");
+});
+
+test("independent team capacity uses existing global Core tables read-only, no tenant task promotion", () => {
+  const query = route.slice(
+    route.indexOf("async function fetchIndependentTeamGate()"),
+    route.indexOf('router.get("/cst-ai-team/monitor"'),
+  );
+  assert.match(query, /ai_platform\.ai_workers/);
+  assert.match(query, /ai_platform\.ai_coding_workstream_ai_handoffs/);
+  assert.match(query, /lease_expires_at > now\(\)/);
+  assert.doesNotMatch(query, /CREATE TABLE|ALTER TABLE|GRANT |INSERT INTO|DELETE FROM|db\.update\(|db\.insert\(/);
+  assert.match(route, /fetchIndependentTeamGate\(\)/);
+  assert.match(frontend, /Kesiapan tim AI independen — Core DEV/);
+  assert.match(frontend, /Kapasitas global worker/);
+  assert.match(frontend, /BELUM SIAP — belum ada empat receipt agen independen/);
+  assert.match(frontend, /Kapasitas Core AI belum dapat dibaca/);
 });
