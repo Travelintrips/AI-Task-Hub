@@ -185,3 +185,88 @@ The isolated candidate gate also rejects all URL query parameters,
 fragments, and non-`/postgres` database names. These are **format-only**
 controls: they cannot establish real credential validity, TLS certificate
 validation, RLS tenant isolation or E2E execution rights.
+
+
+## CST-DEV role and verified TLS preflight — staged 18 November 2026
+
+This is the next isolated, reversible step **after** the legacy-launcher
+guard. It does **not** reactivate that service or release any business writer.
+
+### Actual database migrations on CST-DEV only
+
+Two migrations were applied once to Supabase project
+`xssrfshdrtdfupgqwfdw`:
+
+- `stage_ai_task_operational_dev_nologin_no_grants_20261118` — created
+  `ai_task_operational_dev` with `NOLOGIN NOSUPERUSER NOBYPASSRLS
+  NOCREATEDB NOCREATEROLE NOREPLICATION NOINHERIT`, no password.
+- `stage_ai_task_operational_dev_task171_readonly_policy_20261118` —
+  explicit `USAGE` on schema `public`; column-level
+  `SELECT(id,company_id,status,task_number,created_at)` on
+  `public.ai_tasks`; one RLS SELECT policy for this role:
+  `company_id='default' AND id=171`. No writer privileges.
+  
+Do not reapply these migrations. The role and policy were verified through
+catalog readbacks: role remains NOLOGIN, zero sessions, zero parent roles,
+zero BYPASSRLS, no full-table SELECT/INSERT/UPDATE/DELETE; permitted SELECT
+columns and one exact RLS policy are present. `title` is not readable.
+The administrator gained automatic role ADMIN membership with SET=false,
+which is **not** an authenticated `SET ROLE` or a live tenant test.
+
+`public.ai_tasks` currently contains rows in both company scopes
+`default` and `1`. Negative company-isolation proof under the actual
+dedicated LOGIN is **pending**. Do not widen the policy to all default
+tasks or other business tables before evaluating exact application queries
+and independent company scope.
+
+### DEV candidate TLS (source-only until release)
+
+Both existing database pools now call
+`resolveAiTaskDbSsl` in `lib/db/src/dev-verified-tls.ts`. Existing
+PROD and unflagged DEV behavior is preserved; the stricter check applies
+**only** when the isolated DEV candidate explicitly sets:
+
+- `NODE_ENV=development`, `APP_ENV=development`
+- `AI_TASK_DEV_REQUIRE_VERIFIED_TLS=true`
+- `AI_TASK_DEV_DB_CA_CERT_PATH=/run/credentials/ai-task-dev/supabase-ca.pem`
+- `DISABLE_BACKGROUND_SCHEDULERS=true`
+- `RUN_STARTUP_MIGRATIONS=false`
+- A separately provisioned role `ai_task_operational_dev.<project>`
+  using the CST-DEV transaction pooler port 6543, with no URL query
+  override parameters
+
+A real, authenticated **Supabase project CA certificate** must be obtained
+from Dashboard > Database Settings > SSL Configuration and placed at the
+approved mount path by an authorized operator. Missing or malformed CA,
+symlink, non-DEV environment, foreign user/host/port, query overrides and
+explicit SSL off fail closed **before connection**. Valid CA plus the strict
+SSL object turns on Node's CA and hostname validation. The sample legacy
+public certificate URL returned HTTP 404 and must not be treated as a
+trusted replacement. Do not pin an untrusted peer certificate observed via
+OpenSSL; a system trust-store-only probe returned a self-signed-chain
+failure.
+
+The new role is intentionally NOLOGIN, the CA path is not provisioned on
+VPS, and the code has **not been deployed to the live PR196 container**.
+The official PR196 still uses its original privileged DEV session-pooler
+configuration and remains healthy. New code gates have source CI PASS
+(see GitHub Actions on this PR); that is not live TLS/RLS/business E2E.
+
+### Next authorized execution gates
+
+1. Verify the CA from the project-owned dashboard against the **exact**
+   Supavisor hostname, including a wrong-hostname negative test, *without*
+   submitting a database password.
+2. Approve separate DEV-only secret custody, activate the staged role
+   with only role-appropriate permissions, and test a single bounded TLS
+   PostgreSQL login (no deliberate wrong-password retries).
+3. Verify the allowed Task171 SELECT and deny another company/task and all
+   unexpected writes using **real role-authenticated** SQL transactions.
+4. Expand application permissions narrowly and tenant-safely only after
+   mapping the actual query/write surfaces, run a reversible isolated E2E,
+   and keep signer/issuer/dispatch OFF until separately approved.
+5. Stage the exact PR commit in a separate DEV container with rollback and
+   evidence; only after full DEV PASS consider merging/deploying changes.
+
+No change to PROD, AI Task PR196 live, Customer Portal, Payroll, signer,
+issuer or dispatch was made by these migrations.
