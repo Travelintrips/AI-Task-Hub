@@ -19,7 +19,7 @@ test("passwordless login never becomes GPT02 command approval",()=>{
  assert.match(gate,/creationPermitted:false/);
 });
 test("regular password login continues to validate credentials when DEV flag is off",()=>{
- assert.match(source,/bcrypt\.compare\(password!, user\.passwordHash\)/);
+ assert.match(source,/bcrypt\.compare\(password, user\.passwordHash\)/);
  const auth=source.slice(source.indexOf('router.post("/auth/login"'),source.indexOf('// ─── Google Sign-In'));
  assert.ok(auth.indexOf("bcrypt.compare") < auth.indexOf("const token = signToken"));
 });
