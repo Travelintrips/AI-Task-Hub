@@ -4,7 +4,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { db, aiExecutionJobsTable as jobs, aiExecutionEventsTable as events } from "@workspace/db";
 import { requireAuth } from "../middleware/auth";
 import { logger } from "../lib/logger";
-import { canRunDevTeam, canaryVerdict, TEAM_SOURCE, TEAM_ROLES, type TeamRole } from "../lib/cst-ai-team-contract";
+import { canRunDevTeam, canaryVerdict, projectCanaryStatus, TEAM_SOURCE, TEAM_ROLES, type TeamRole } from "../lib/cst-ai-team-contract";
 
 const router: IRouter = Router();
 const active = new Set<string>();
@@ -32,11 +32,14 @@ async function fetchRun(runId: string, company: string) {
     role: s.role ?? "", status: s.status ?? "",
     ok: (s.evidence as Record<string, unknown>)?.ok === true,
   })));
+  const projected = projectCanaryStatus(run.status, run.createdAt);
   return {
-    id: run.id, companyId: run.companyId, title: run.title, status: run.status, progress: run.progress,
+    id: run.id, companyId: run.companyId, title: run.title,
+    status: projected.status, progress: run.progress,
     createdAt: run.createdAt, completedAt: run.completedAt,
-    resultSummary: run.resultSummary, errorMessage: run.errorMessage, steps,
-    verifiedComplete: run.status === "completed" && confirmed,
+    resultSummary: run.resultSummary,
+    errorMessage: projected.stale ? "CANARY_INTERRUPTED_OR_STALE" : run.errorMessage, steps,
+    verifiedComplete: !projected.stale && run.status === "completed" && confirmed,
     proofLevel: "DEV_LOCAL_CANARY_NOT_SIGNED",
     callbackVerified: run.callbackVerified, attestationVerified: run.attestationVerified,
     finalAckVerified: run.finalAckVerified,

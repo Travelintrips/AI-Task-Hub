@@ -6,6 +6,20 @@ export function canRunDevTeam(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.CST_AI_TEAM_DEV_ENABLED === "true" &&
     env.APP_ENV === "development" && env.NODE_ENV === "development";
 }
+/** A restarted API must never show an abandoned in-progress canary forever. */
+export const CANARY_STALE_AFTER_MS = 120_000;
+export function projectCanaryStatus(
+  status: string,
+  createdAt: Date | string | null,
+  nowMs: number = Date.now(),
+): { status: string; stale: boolean } {
+  const createdMs = createdAt == null ? Number.NaN : new Date(createdAt).getTime();
+  const stale = status === "processing" && (
+    !Number.isFinite(createdMs) || nowMs - createdMs > CANARY_STALE_AFTER_MS
+  );
+  return { status: stale ? "blocked" : status, stale };
+}
+
 export function canaryVerdict(evidence: Array<{role: string; status: string; ok: boolean}>): boolean {
   return TEAM_ROLES.every(role => evidence.some(e =>
     e.role === role && e.status === "completed" && e.ok)) &&

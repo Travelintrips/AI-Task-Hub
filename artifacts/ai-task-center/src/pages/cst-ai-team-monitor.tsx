@@ -30,10 +30,12 @@ async function callApi<T>(path: string, init?: RequestInit): Promise<T> {
  return res.json() as Promise<T>;
 }
 function pill(status: string) {
- const text = status === "completed" ? "PASS" : status === "failed" ? "FAIL" :
+ const text = status === "completed" ? "PASS diagnostik" : status === "failed" ? "FAIL" :
+   status === "blocked" ? "BLOCKED" :
    status === "started" || status === "processing" ? "Berjalan" : "Belum uji";
  const klass = status === "completed" ? "bg-emerald-100 text-emerald-800" :
    status === "failed" ? "bg-rose-100 text-rose-800" :
+   status === "blocked" ? "bg-amber-100 text-amber-800" :
    status === "started" || status === "processing" ? "bg-blue-100 text-blue-800" : "bg-slate-100 text-slate-700";
  return <span className={"rounded-full px-2.5 py-1 text-xs font-semibold " + klass}>{text}</span>;
 }
@@ -71,7 +73,7 @@ export default function CstAiTeamMonitor() {
   <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
    {[
     {name:"Uji tersimpan",value:String(runs.length),caption:"12 terbaru"},
-    {name:"PASS dengan bukti",value:String(runs.filter(r => r.verifiedComplete).length),caption:"Wajib 4/4 role PASS"},
+    {name:"PASS diagnostik dengan bukti",value:String(runs.filter(r => r.verifiedComplete).length),caption:"Wajib 4/4 pemeriksaan PASS"},
     {name:"Izin operasional",value:"TERKUNCI",caption:"Tidak ada signing / dispatch / PROD"},
    ].map(item => <div key={item.name} className="rounded-xl border bg-card p-4">
      <p className="text-xs text-muted-foreground">{item.name}</p><p className="mt-2 text-2xl font-bold">{item.value}</p>

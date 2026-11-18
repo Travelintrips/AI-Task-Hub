@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { canRunDevTeam, canaryVerdict } from "../../artifacts/api-server/src/lib/cst-ai-team-contract.ts";
+import { canRunDevTeam, canaryVerdict, projectCanaryStatus, CANARY_STALE_AFTER_MS } from "../../artifacts/api-server/src/lib/cst-ai-team-contract.ts";
 
 const base = new URL("../../artifacts/api-server/src/routes/cst-ai-team.ts", import.meta.url);
 const route = readFileSync(base, "utf8");
@@ -24,6 +24,17 @@ test("all four role evidence required; no skipped or failed role can PASS", () =
   assert.equal(canaryVerdict([...all,{role:"security",status:"failed",ok:false}]),false);
   assert.equal(canaryVerdict(all.map(x=>x.role==="qa"?{...x,ok:false}:x)),false);
 });
+test("stale or interrupted canary is BLOCKED rather than falsely running or PASS", () => {
+  const start = new Date("2026-11-18T10:00:00Z");
+  const now = start.getTime() + CANARY_STALE_AFTER_MS + 1;
+  assert.deepEqual(projectCanaryStatus("processing", start, now), { status:"blocked", stale:true });
+  assert.deepEqual(projectCanaryStatus("processing", null, now), { status:"blocked", stale:true });
+  assert.deepEqual(projectCanaryStatus("processing", start, start.getTime() + CANARY_STALE_AFTER_MS), { status:"processing", stale:false });
+  assert.deepEqual(projectCanaryStatus("completed", start, now), { status:"completed", stale:false });
+  assert.match(route, /CANARY_INTERRUPTED_OR_STALE/);
+  assert.match(frontend, /PASS diagnostik/);
+});
+
 test("existing JWT and explicit company guard protect reads and writes", () => {
   assert.match(route,/router\.get\("\/cst-ai-team\/monitor", requireAuth/);
   assert.match(route,/router\.post\("\/cst-ai-team\/runs", requireAuth/);
