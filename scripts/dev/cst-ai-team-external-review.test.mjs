@@ -5,6 +5,7 @@ import {
   canRunExternalReview, isExternalReviewStart, parseExternalObservation,
   checkExternalObservation, projectExternalObservations, projectExternalReviewStatus,
   parseExternalReviewFailure, EXTERNAL_REVIEW_STALE_AFTER_MS, EXTERNAL_TEAM_AGENTS,
+  EXTERNAL_QA_LOCAL_FALLBACK, externalObservationWorkerId,
   EXTERNAL_REVIEW_PROOF, EXTERNAL_REVIEW_SOURCE,
 } from '../../artifacts/api-server/src/lib/cst-ai-team-external-review.ts';
 
@@ -82,7 +83,8 @@ test('routes are scoped, require auth, fixed sources, single role event id and a
 
 const frontend=readFileSync(new URL('../../artifacts/ai-task-center/src/pages/cst-ai-team-monitor.tsx',import.meta.url),'utf8');
 test('dashboard separates operator text observations from live worker and signed Final ACK proof',()=>{
-  assert.match(frontend,/Review empat profil OpenClaw — observasi operator DEV/);
+  assert.match(frontend,/Review empat peran — observasi operator DEV/);
+  assert.match(frontend,/Observasi OpenClaw dan Ollama lokal diberi label asal berbeda/);
   assert.match(frontend,/\/api\/cst-ai-team\/external-reviews\?companyId=1/);
   assert.match(frontend,/TIDAK TERVERIFIKASI secara kriptografis/);
   assert.match(frontend,/Status operasional: BLOCKED/);
@@ -130,4 +132,35 @@ test('dashboard displays missing QA and timeout or failure reason rather than pe
   assert.match(ui,/review\.failureReason/);
   assert.match(ui,/review\.expired/);
   assert.match(ui,/Status operasional: BLOCKED/);
+});
+
+test('only QA may use the distinct DELL native Ollama diagnostic identity',()=>{
+  const local={...body('qa'),...EXTERNAL_QA_LOCAL_FALLBACK};
+  assert.deepEqual(parseExternalObservation(local),local);
+  assert.equal(checkExternalObservation(local,challenge),true);
+  assert.equal(externalObservationWorkerId(local),'ollama-local:DELL:ollama-local-qa');
+  const original=body('qa');
+  assert.equal(externalObservationWorkerId(original),'openclaw:DELL:dell-browser');
+  for(const role of ['coding','infrastructure','security']) {
+    assert.equal(parseExternalObservation({...body(role),...EXTERNAL_QA_LOCAL_FALLBACK}),null);
+  }
+  assert.equal(parseExternalObservation({...local,host:'Travelintrips'}),null);
+  assert.equal(parseExternalObservation({...local,agentId:'other-agent'}),null);
+  assert.deepEqual(parseExternalObservation({...local,agentId:'dell-browser'}),body('qa'));
+});
+test('local model QA receipt is separately labeled and never becomes signed Final ACK',()=>{
+  const old=event('qa');
+  const local={...old,workerId:'ollama-local:DELL:ollama-local-qa'};
+  const records=['coding','infrastructure','security'].map(event);
+  const valid=projectExternalObservations([...records,local],challenge);
+  assert.equal(valid.internallyConsistent,true);
+  assert.equal(valid.qaReviewRecorded,true);
+  assert.equal(valid.operationalVerified,false);
+  assert.equal(valid.independentFinalAckVerified,false);
+  assert.equal(projectExternalObservations([...records,{...local,workerId:'openclaw:DELL:ollama-local-qa'}],challenge).internallyConsistent,false);
+  assert.equal(projectExternalObservations([...records,{...local,workerId:'ollama-local:DELL:dell-browser'}],challenge).internallyConsistent,false);
+  assert.equal(projectExternalObservations([...records,local,old],challenge).internallyConsistent,false);
+  assert.match(route,/externalObservationWorkerId\(observation\)/);
+  assert.match(route,/sourceKind: \(e\.workerId/);
+  assert.match(frontend,/item\.sourceKind/);
 });

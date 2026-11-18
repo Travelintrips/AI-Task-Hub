@@ -333,6 +333,34 @@ def main():
            "replayRejected":True,"earlyQaRejected":True,"wrongChallengeRejected":True,
            "unauthorizedAccessRejected":True,"crossCompanyRejected":True,"notSigned":True,
            "operationalVerified":False}
+        # Alternate QA origin: direct local Ollama is not the dell-browser OpenClaw profile.
+        local_http,local_review=http(api_port,"POST",rpath,make_jwt(jwt_secret),
+                           {"scenario":"operator_collected_read_only_review"})
+        if local_http!=201 or local_review.get("qaLocalFallback")!={"host":"DELL","agentId":"ollama-local-qa"}:
+            raise AssertionError("LOCAL_QA_FALLBACK_NOT_EXPLICIT")
+        local_id,local_challenge=local_review["id"],local_review["challenge"]
+        local_path="/api/cst-ai-team/external-reviews/"+local_id+"/observations?companyId=1"
+        for role in ("coding","infrastructure","security"):
+            saved=item(role);saved["challenge"]=local_challenge
+            st,_=http(api_port,"POST",local_path,make_jwt(jwt_secret),saved)
+            if st!=201:raise AssertionError("LOCAL_QA_PRIOR_ROLE_FAILED_"+role)
+        native_qa=item("qa");native_qa["challenge"]=local_challenge
+        native_qa["agentId"]="ollama-local-qa"
+        native_qa["result"]="BLOCKED";native_qa["summaryCode"]="MISSING_FINAL_ACK"
+        st,_=http(api_port,"POST",local_path,make_jwt(jwt_secret),native_qa)
+        if st!=201:raise AssertionError("LOCAL_QA_OBSERVATION_NOT_RECORDED")
+        st,readback=http(api_port,path=rpath,jwt=make_jwt(jwt_secret))
+        local_row=next((r for r in readback.get("reviews",[]) if r.get("id")==local_id),None)
+        local_obs=next((r for r in (local_row or {}).get("observations",[]) if r.get("role")=="qa"),None)
+        if st!=200 or not local_row or not local_row.get("internallyConsistent") or \
+           not local_obs or local_obs.get("sourceKind")!="ollama-local" or \
+           local_obs.get("agentId")!="ollama-local-qa" or \
+           local_row.get("operationalVerified") is not False or \
+           local_row.get("independentFinalAckVerified") is not False:
+            raise AssertionError("LOCAL_QA_ORIGIN_CONFUSED_WITH_OPENCLAW_OR_SIGNED_FINAL")
+        proof["localModelQaAlternative"]={"id":local_id,"qaSource":"ollama-local",
+            "roleCount":len(local_row["recordedRoles"]),"internallyConsistent":True,
+            "operationalVerified":False,"independentFinalAckVerified":False}
         # QA-provider failure: retain only three actual-shaped records; never invent QA.
         code,partial=http(api_port,"POST",rpath,make_jwt(jwt_secret),
                         {"scenario":"operator_collected_read_only_review"})

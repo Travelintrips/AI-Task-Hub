@@ -89,6 +89,22 @@ scope, worker identity, idempotency, and the unsigned proof label are retained.
 Neither an operator-closed review nor a timed-out review is an autonomous
 handoff, agent attestation, or verified GPT02 Final ACK.
 
-The synthetic PG16 E2E covers one 4/4 complete **unattested** review, one
-3/4 review blocked because QA provider is unavailable, and one stale review.
+The QA role has one explicitly labeled optional **local model** observation:
+`DELL / ollama-local-qa`, sourced only from the local Ollama API (currently
+`qwen2.5:3b`). It is **not** the `DELL / dell-browser` OpenClaw profile and
+must be recorded with `worker_id=ollama-local:DELL:ollama-local-qa`, not an
+OpenClaw worker identity. This is an operator-collected diagnostic fallback,
+not unattended routing or a verified signed QA receipt. It does not change
+provider credentials, the configured OpenClaw profile or AI Core worker
+eligibility. Unknown hosts/agents and attempts to use that QA identity for
+Coding/Infrastructure/Security are rejected.
+
+A direct native Ollama local QA evaluation returned `QA_BLOCKED` for missing
+leases, handoffs and Final ACK. The OpenClaw embedded/isolated QA route still
+timed out, so the direct model capability does not imply OpenClaw readiness.
+
+The synthetic PG16 E2E covers one 4/4 complete **unattested** OpenClaw-profile
+review, one 4/4 operator-collected review using the clearly labeled local
+Ollama QA alternative, one 3/4 review blocked because QA provider is
+unavailable, and one stale review.
 All remain `operationalVerified=false` and `independentFinalAckVerified=false`.

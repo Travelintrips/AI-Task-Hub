@@ -37,7 +37,7 @@ type OperationalProbe = {
  createdAt: string;
 };
 type ExternalReviewObservation = {
- role: Role; host: string | null; agentId: string | null;
+ role: Role; host: string | null; agentId: string | null; sourceKind: string | null;
  result: string | null; summaryCode: string | null; at: string; signatureVerified: false;
 };
 type ExternalReview = {
@@ -178,8 +178,8 @@ export default function CstAiTeamMonitor() {
    </> : <p className="mt-3 text-sm text-muted-foreground">Kapasitas Core AI belum dapat dibaca. Status tetap terblokir; tidak dianggap sebagai nol atau PASS.</p>}
   </section>
   <section className="rounded-xl border bg-card p-4 md:p-5">
-   <h2 className="text-lg font-semibold">Review empat profil OpenClaw — observasi operator DEV</h2>
-   <p className="mt-1 text-xs text-muted-foreground">Sumber terpisah dari canary dan execution ledger AI_TASK. Hanya kode hasil serta hash bukti yang disimpan, bukan percakapan, kredensial, ataupun tanda tangan.</p>
+   <h2 className="text-lg font-semibold">Review empat peran — observasi operator DEV</h2>
+   <p className="mt-1 text-xs text-muted-foreground">Sumber terpisah dari canary dan execution ledger AI_TASK. Observasi OpenClaw dan Ollama lokal diberi label asal berbeda. Hanya kode hasil serta hash bukti yang disimpan, bukan percakapan, kredensial, ataupun tanda tangan.</p>
    <p className="mt-2 text-sm font-semibold text-amber-800">TIDAK TERVERIFIKASI secara kriptografis — tidak memberi izin dispatch, GPT02 atau PROD.</p>
    {externalQuery.isError && <p role="status" className="mt-3 text-sm text-amber-800">Endpoint pengumpulan review belum tersedia pada runtime DEV ini; belum ada bukti yang boleh dipromosikan.</p>}
    {!externalQuery.isError && externalReviews.length === 0 && <p className="mt-3 text-sm text-muted-foreground">Belum ada review operator yang tersimpan untuk Company 1.</p>}
@@ -192,7 +192,7 @@ export default function CstAiTeamMonitor() {
      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
       {review.observations.map((item,i) => <div key={item.role+String(i)} className="rounded-md border p-2">
         <p className="text-xs font-semibold">{item.role} · {item.result}</p>
-        <p className="mt-1 text-xs text-muted-foreground">{item.host}/{item.agentId}</p>
+        <p className="mt-1 text-xs text-muted-foreground">{item.sourceKind} · {item.host}/{item.agentId}</p>
         <p className="text-xs text-muted-foreground">{item.summaryCode} · {when(item.at)}</p>
        </div>)}
      </div>

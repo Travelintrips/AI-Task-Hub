@@ -6,7 +6,7 @@ import { requireAuth } from "../middleware/auth";
 import { logger } from "../lib/logger";
 import { canReadDevTeam, canRunDevTeam, canaryVerdict, canaryLedgerVerdict, projectCanaryStatus, projectIndependentTeamGate, TEAM_SOURCE, TEAM_ROLES, type TeamRole } from "../lib/cst-ai-team-contract";
 import { fetchCstTeamAgentReadiness } from "../lib/cst-ai-team-agent-readiness";
-import { EXTERNAL_REVIEW_SOURCE, EXTERNAL_REVIEW_PROOF, EXTERNAL_REVIEW_SCENARIO, EXTERNAL_TEAM_AGENTS, canRunExternalReview, isExternalReviewStart, parseExternalObservation, checkExternalObservation, projectExternalObservations, projectExternalReviewStatus, parseExternalReviewFailure } from "../lib/cst-ai-team-external-review";
+import { EXTERNAL_REVIEW_SOURCE, EXTERNAL_REVIEW_PROOF, EXTERNAL_REVIEW_SCENARIO, EXTERNAL_TEAM_AGENTS, canRunExternalReview, isExternalReviewStart, parseExternalObservation, checkExternalObservation, projectExternalObservations, projectExternalReviewStatus, parseExternalReviewFailure, EXTERNAL_QA_LOCAL_FALLBACK, externalObservationWorkerId } from "../lib/cst-ai-team-external-review";
 
 const router: IRouter = Router();
 const active = new Set<string>();
@@ -250,6 +250,7 @@ async function fetchExternalReview(runId: string, company: string) {
     observations: history.filter(e => e.eventType === "team.external.observed")
       .map(e => ({ role: e.phase, host: (e.workerId ?? "").split(":")[1] ?? null,
         agentId: (e.workerId ?? "").split(":")[2] ?? null,
+        sourceKind: (e.workerId ?? "").split(":")[0] ?? null,
         result: e.payload.result ?? null, summaryCode: e.payload.summaryCode ?? null,
         at: e.createdAt, signatureVerified: false })),
   };
@@ -279,7 +280,7 @@ router.post("/cst-ai-team/external-reviews", requireAuth, async (req: Request, r
     const [run] = await db.insert(jobs).values({ id, companyId:company,
       source:EXTERNAL_REVIEW_SOURCE, externalId:`external-review:${id}`,
       idempotencyKey:`external-review:${id}`,
-      title:"CST AI Team — operator-collected external OpenClaw review DEV",
+      title:"CST AI Team — operator-collected external review DEV",
       instruction:"Read-only observations only; no runtime dispatch or signing",
       workerType:"operator-collected-text-observations",status:"processing",startedAt:new Date(),
       metadata:{scenario:EXTERNAL_REVIEW_SCENARIO, reviewChallenge:challenge,
@@ -287,7 +288,8 @@ router.post("/cst-ai-team/external-reviews", requireAuth, async (req: Request, r
         noDispatch:true,noSigning:true,noProd:true},
     }).returning({id:jobs.id});
     res.status(201).json({id:run.id,companyId:company,challenge,
-      expectedAgents:EXTERNAL_TEAM_AGENTS,proofLevel:EXTERNAL_REVIEW_PROOF,
+      expectedAgents:EXTERNAL_TEAM_AGENTS,qaLocalFallback:EXTERNAL_QA_LOCAL_FALLBACK,
+      proofLevel:EXTERNAL_REVIEW_PROOF,
       operationalVerified:false,independentFinalAckVerified:false});
   } catch(err) { logger.error({err},"External review admission failed");
     res.status(500).json({error:"EXTERNAL_REVIEW_ADMISSION_FAILED"}); }
@@ -324,7 +326,7 @@ router.post("/cst-ai-team/external-reviews/:id/observations",requireAuth,async(r
     const [inserted]=await db.insert(events).values({
       executionId:id,companyId:company,eventId:`cst-external:${id}:${observation.role}`,
       eventType:"team.external.observed",phase:observation.role,status:"observed",
-      workerId:`openclaw:${observation.host}:${observation.agentId}`,
+      workerId:externalObservationWorkerId(observation),
       signatureVerified:false,message:"Operator-collected text observation — not agent attestation",
       payload:{operatorCollected:true,proofLevel:EXTERNAL_REVIEW_PROOF,
         challenge, result:observation.result,summaryCode:observation.summaryCode,

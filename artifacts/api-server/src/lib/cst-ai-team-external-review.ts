@@ -1,4 +1,4 @@
-/** DEV-only, operator-collected OpenClaw text observations. NOT agent attestation. */
+/** DEV-only, operator-collected OpenClaw/local-model observations. NOT agent attestation. */
 import { canRunDevTeam, TEAM_ROLES, type TeamRole } from "./cst-ai-team-contract.ts";
 
 export const EXTERNAL_REVIEW_SOURCE = "cst-ai-team-dev-external-review";
@@ -33,6 +33,19 @@ export const EXTERNAL_TEAM_AGENTS: Record<TeamRole, { host: string; agentId: str
   security: { host: "DELL", agentId: "dell-verifier" },
   qa: { host: "DELL", agentId: "dell-browser" },
 };
+/** Explicit read-only local-model alternative. NOT the OpenClaw dell-browser agent. */
+export const EXTERNAL_QA_LOCAL_FALLBACK = { host: "DELL", agentId: "ollama-local-qa" } as const;
+
+function allowedExternalProfiles(role: TeamRole): ReadonlyArray<{host: string; agentId: string}> {
+  return role === "qa" ? [EXTERNAL_TEAM_AGENTS.qa, EXTERNAL_QA_LOCAL_FALLBACK]
+    : [EXTERNAL_TEAM_AGENTS[role]];
+}
+
+export function externalObservationWorkerId(profile: Pick<ExternalObservation, "role" | "host" | "agentId">): string {
+  const kind = profile.role === "qa" && profile.host === EXTERNAL_QA_LOCAL_FALLBACK.host &&
+    profile.agentId === EXTERNAL_QA_LOCAL_FALLBACK.agentId ? "ollama-local" : "openclaw";
+  return `${kind}:${profile.host}:${profile.agentId}`;
+}
 
 export function canRunExternalReview(env: NodeJS.ProcessEnv = process.env): boolean {
   return canRunDevTeam(env) && env.CST_AI_TEAM_EXTERNAL_EVIDENCE_ENABLED === "true";
@@ -62,8 +75,9 @@ export function parseExternalObservation(input: unknown): ExternalObservation | 
   if (Object.keys(p).length !== OBSERVATION_KEYS.length ||
     !OBSERVATION_KEYS.every(key => Object.prototype.hasOwnProperty.call(p,key))) return null;
   if (typeof p.role !== "string" || !TEAM_ROLES.includes(p.role as TeamRole)) return null;
-  const profile = EXTERNAL_TEAM_AGENTS[p.role as TeamRole];
-  if (p.agentId !== profile.agentId || p.host !== profile.host ||
+  const validProfile = allowedExternalProfiles(p.role as TeamRole).some(profile =>
+    p.agentId === profile.agentId && p.host === profile.host);
+  if (!validProfile ||
       typeof p.challenge !== "string" ||
       !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(p.challenge) ||
       (typeof p.result !== "string" || !["PASS", "BLOCKED", "FAIL"].includes(p.result)) ||
@@ -75,8 +89,8 @@ export function parseExternalObservation(input: unknown): ExternalObservation | 
 
 /** These checks establish record consistency, not authenticity of an agent. */
 export function checkExternalObservation(input: ExternalObservation, challenge: string): boolean {
-  const expected = EXTERNAL_TEAM_AGENTS[input.role];
-  return input.host === expected.host && input.agentId === expected.agentId &&
+  return allowedExternalProfiles(input.role).some(expected =>
+    input.host === expected.host && input.agentId === expected.agentId) &&
     input.challenge === challenge;
 }
 
@@ -105,12 +119,12 @@ export function projectExternalObservations(
       valid = false; continue;
     }
     const p = r.payload as Record<string, unknown>;
-    const expected = EXTERNAL_TEAM_AGENTS[role as TeamRole];
-    if (r.workerId !== `openclaw:${expected.host}:${expected.agentId}` ||
-        p.proofLevel !== EXTERNAL_REVIEW_PROOF || p.challenge !== challenge ||
+    const expected = allowedExternalProfiles(role as TeamRole).find(profile =>
+      r.workerId === externalObservationWorkerId({role:role as TeamRole, ...profile}));
+    if (!expected || p.proofLevel !== EXTERNAL_REVIEW_PROOF || p.challenge !== challenge ||
         p.operatorCollected !== true ||
         !parseExternalObservation({
-          role, agentId: expected.agentId, host: expected.host,
+          role, agentId: expected?.agentId, host: expected?.host,
           challenge: p.challenge, result: p.result, summaryCode: p.summaryCode,
           responseSha256: p.responseSha256, sessionSha256: p.sessionSha256,
         })) { valid = false; continue; }
