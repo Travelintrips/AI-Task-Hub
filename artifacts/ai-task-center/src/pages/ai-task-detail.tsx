@@ -1231,7 +1231,12 @@ export default function AiTaskDetail() {
           <div>
             <Label className="text-xs text-slate-600">Tahapan lifecycle</Label>
             <div className="mt-1 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800">
-              {executionData?.execution ? `Execution: ${executionData.execution.status}` : gpt02PicOptions?.assignmentReady ? "PIC terhubung; izin runtime belum terverifikasi" : "Menunggu verifikasi PIC"}
+              {executionData?.execution
+                ? executionData.execution.status === "prepared"
+                  ? "Status: prepared — reservasi tercatat, bukan bukti worker berjalan"
+                  : `Execution: ${executionData.execution.status}`
+                : gpt02PicOptions?.assignmentReady
+                  ? "PIC terhubung; izin runtime belum terverifikasi" : "Menunggu verifikasi PIC"}
             </div>
             <p className="mt-1 text-xs text-slate-500">Tidak mengubah status bisnis sebelum bukti worker tersedia.</p>
           </div>
@@ -1266,6 +1271,8 @@ export default function AiTaskDetail() {
               {gpt02PreparationReadinessFetching ? "Memeriksa kesiapan persiapan..." :
                 gpt02PreparationReadinessError || !gpt02PreparationReadiness ?
                   "Status persiapan tidak tersedia; tindakan tetap ditahan." :
+                gpt02PreparationReadiness.reason==="EXISTING_EXECUTION_REQUIRES_INDEPENDENT_REVIEW" ?
+                  "Sudah ada reservasi eksekusi untuk Task ini. Persiapan ulang ditahan agar tidak menggandakan command. Perlu review independen terhadap bukti Hub/Core dan masa berlaku sebelum ada tindakan lanjutan; status prepared bukan izin dispatch." :
                 gpt02PreparationReadiness.reason==="FRESH_TASK_INSTRUCTION_REQUIRED" ?
                   "Instruksi masih berupa referensi lama. Gunakan koreksi ber-audit di atas terlebih dahulu." :
                 gpt02PreparationReadiness.reason==="GPT02_PREPARER_LOGIN_LOCKED" ?
