@@ -86,9 +86,10 @@ port 18081 and no connected client were present when this isolation was made;
 the official PR196 DEV container and AI Task PROD continued running.
 
 **To restore this legacy service in the future:** the approved operator
-must first confirm the exact pinned DEV release, verify credentials for the
-least-privilege `ai_task_vps_identity_reader_dev` and its real TLS/RLS
-authentication, then explicitly remove the temporary blocking drop-in,
+must first confirm the exact pinned DEV release, verify the designated
+operational DEV database identity has the minimal company-scoped permissions
+its workload actually needs, prove TLS authentication/RLS, and only then
+explicitly remove the temporary blocking drop-in,
 call `systemctl daemon-reload`, and enable/start only after its own
 independent DEV rollout checks are PASS. Do not create the marker or
 remove the guard simply to retry the stale `postgres` admin DSN.
@@ -99,10 +100,28 @@ PROD, signer, dispatch, Customer Portal, or Payroll.
 
 ## Remaining operational acceptance
 
-An authorized database administrator must provision and verify the
-restricted DEV role through an approved credential process. A successful
-syntactic check is **not** a TLS login, functional scheduler test or business
-E2E PASS. Do not use shared Customer Portal/Finance passwords as a substitute.
-Never enable PROD/signer/issuer/dispatch or financial writers through this
-launcher. The source of *other* generic Supavisor failed-authentication events
-remains under investigation in AI Task Hub issues #203 and #204.
+**Important capability audit, 18 Nov 2026 (Supabase CST-DEV, read-only):**
+The existing `ai_task_vps_identity_reader_dev` role is `NOLOGIN`,
+`NOBYPASSRLS`, has **zero grants to SELECT/INSERT/UPDATE/DELETE any AI Task
+business relation**, and can SELECT only two PostgreSQL extension statistics
+views. Therefore merely changing it to `LOGIN` would **not** produce a
+working AI Task application or E2E. The standalone launcher intentionally
+accepts only its syntactic identity for a restricted diagnostic/QA path,
+not a fully capable operational runtime.
+
+The other existing `ai_task_hostinger` role has `BYPASSRLS` and broad
+access to hundreds of relations, so **must not be substituted** for an
+isolated DEV operational runtime. An authorized database administrator must
+first approve a genuinely scoped DEV service identity with exactly the
+needed company-limited read/write permissions, RLS, TLS verification and
+no default superuser/BYPASSRLS rights. Reuse existing role/policy facilities
+rather than rebuilding data models; do not reuse Customer Portal/Finance
+credentials.
+
+Until approved credentials and an independently tested DEV release are
+ready, keep the legacy systemd guard in place and PR196 untouched.
+A syntactic connection-string check is **not** authenticated PostgreSQL
+readiness, functional scheduler coverage, or business E2E PASS. Never
+enable PROD/signer/issuer/dispatch or financial writers through this
+launcher. Other Supavisor failed-auth events are tracked separately in
+AI Task Hub issues #203 and #204.
