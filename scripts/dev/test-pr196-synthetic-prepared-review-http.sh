@@ -112,6 +112,37 @@ async function get(url,jwtText,expected) {
 (async()=>{
   await get(path,null,401);
   await get(path,token("staff"),403);
+  const identityPath="/api/auth/gpt02/operator-session-readiness";
+  await get(identityPath,null,401);
+  await get(identityPath,token("staff"),403);
+  const legacyIdentity=await get(identityPath,token("super_admin"),200);
+  assert.equal(legacyIdentity.googleProofFresh,false);
+  assert.equal(legacyIdentity.requiresFreshGoogleLogin,true);
+  assert.equal(legacyIdentity.readOnly,true);
+  assert.equal(legacyIdentity.operatorApprovalRecorded,false);
+  assert.equal(legacyIdentity.dispatchPermitted,false);
+  assert.equal("authSupabaseId" in legacyIdentity,false);
+  assert.equal("token" in legacyIdentity,false);
+  const googleClaims={
+    id:"synthetic-nonexistent-subject",email:"synthetic@example.invalid",
+    role:"super_admin",companyId:"default",name:"Synthetic reviewer",
+    authSource:"supabase_google_identity",
+    authSupabaseId:"12345678-1234-4234-8234-123456789abc",
+  };
+  const freshGoogle=jwt.sign({...googleClaims,authVerifiedAt:Date.now()},
+    process.env.SESSION_SECRET,{expiresIn:"2m"});
+  const freshIdentity=await get(identityPath,freshGoogle,200);
+  assert.equal(freshIdentity.googleProofFresh,true);
+  assert.equal(freshIdentity.requiresFreshGoogleLogin,false);
+  for(const flag of ["readOnly"])assert.equal(freshIdentity[flag],true);
+  for(const flag of ["operatorApprovalRecorded","commandBoundConsentVerified",
+    "issuerLeaseGranted","dispatchPermitted","resumePermitted","statusChanged"])
+    assert.equal(freshIdentity[flag],false,flag);
+  const staleGoogle=jwt.sign({...googleClaims,authVerifiedAt:Date.now()-11*60_000},
+    process.env.SESSION_SECRET,{expiresIn:"2m"});
+  const staleIdentity=await get(identityPath,staleGoogle,200);
+  assert.equal(staleIdentity.googleProofFresh,false);
+  console.log("PR196_NO_SECRET_GOOGLE_SESSION_STATUS_HTTP_PASS");
   const r=await get(path,token("super_admin"),200);
   assert.equal(r.taskId,171);
   assert.equal(r.status,"prepared");
