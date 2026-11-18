@@ -3,6 +3,7 @@ import pg from "pg";
 import * as schema from "./schema";
 import { assertProductionConnectionAllowed } from "./production-connection-policy";
 import { installDevDbAuthCircuit, sharedDevDbAuthScope } from "./dev-auth-circuit";
+import { resolveAiTaskDbSsl } from "./dev-verified-tls";
 
 const { Pool } = pg;
 const isProduction = process.env.NODE_ENV === "production";
@@ -26,7 +27,7 @@ const intEnv = (name: string, fallback: number): number => {
 
 export const pool = new Pool({
   connectionString,
-  ssl: process.env.DB_SSL === "false" ? false : { rejectUnauthorized: false },
+  ssl: resolveAiTaskDbSsl(connectionString, process.env),
   application_name: process.env.DB_APPLICATION_NAME?.trim() || "ai-task-hub",
   connectionTimeoutMillis: intEnv("DB_CONNECTION_TIMEOUT_MS", 10_000),
   idleTimeoutMillis: intEnv("DB_IDLE_TIMEOUT_MS", 30_000),
