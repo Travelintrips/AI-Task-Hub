@@ -11,7 +11,7 @@ export async function runReadonlyDevApiSmoke({ base = "http://127.0.0.1:18296", 
     throw new Error("AI_TASK_READONLY_SMOKE_LOOPBACK_REQUIRED");
   }
   const port = Number(base.slice(base.lastIndexOf(":") + 1));
-  if (port < 1 || port > 65535) throw new Error("AI_TASK_READONLY_SMOKE_PORT_INVALID");
+  if (port !== 18296) throw new Error("AI_TASK_READONLY_SMOKE_DEV_PORT_REQUIRED");
 
   const routes = [
     { path: "/api/readyz", status: 200 },
