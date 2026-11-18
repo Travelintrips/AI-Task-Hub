@@ -1,11 +1,13 @@
 /**
- * DEV-only PostgreSQL authentication circuit on the existing pg.Pool.
+ * DEV-only PostgreSQL authentication circuit on the EXISTING pg.Pool instances.
  *
- * Supavisor may block the shared VPS egress IP after concurrent bad-password
- * attempts. Before the first successful connection, allow just ONE cold-start
- * authentication handshake; queue all other pg.Pool.connect/query callers.
- * A terminal auth failure fails the queue locally and latches until a
- * deliberate process restart after credential repair. Production is a no-op.
+ * Supavisor can block every tenant behind a VPS's egress IP after concurrent
+ * bad-password attempts. The two existing AI Task pools share one DEV-only
+ * authorization handshake: before first success, only ONE connection to the
+ * database is attempted; all other callers queue without opening sockets.
+ *
+ * A permanent PostgreSQL auth failure latches locally until an intentional
+ * restart with corrected, approved credentials. PROD is an absolute no-op.
  */
 export function isTerminalDevDbAuthError(error: unknown): boolean {
   const seen = new Set<unknown>();
@@ -29,33 +31,45 @@ export function isTerminalDevDbAuthError(error: unknown): boolean {
 
 type PgConnectCallback = (error: unknown, ...rest: unknown[]) => void;
 type PgPoolConnectLike = { connect: (...args: any[]) => any };
-type ConnectionWaiter = { args: unknown[]; callback: PgConnectCallback };
+type ConnectionWaiter = { start: () => void; deny: () => void };
+
+export type DevDbAuthScope = {
+  blocked: boolean;
+  authenticated: boolean;
+  firstAttemptPending: boolean;
+  waiting: ConnectionWaiter[];
+};
+
+export function createDevDbAuthScope(): DevDbAuthScope {
+  return { blocked: false, authenticated: false, firstAttemptPending: false, waiting: [] };
+}
+
+/** Both real DEV database pools pass the SAME process-local scope instance. */
+export const sharedDevDbAuthScope = createDevDbAuthScope();
 
 /**
- * Preserve the real pg.Pool callback/promise contracts, including the
- * callback path used internally by Pool.query. No SQL or credentials inspected.
+ * Preserve pg.Pool callback and Promise contracts, including the path used by
+ * Pool.query. Optional scope supports two differently constructed Pool objects
+ * using the same PostgreSQL credential. Independent test pools use fresh scopes.
  */
 export function installDevDbAuthCircuit<T extends PgPoolConnectLike>(
   pool: T,
   enabled: boolean,
+  scope: DevDbAuthScope = createDevDbAuthScope(),
 ): { isBlocked: () => boolean; noteFailure: (error: unknown) => void } {
   if (!enabled) return { isBlocked: () => false, noteFailure: () => {} };
 
-  let blocked = false;
-  let authenticated = false;
-  let firstAttemptPending = false;
-  const waiting: ConnectionWaiter[] = [];
   const originalConnect = pool.connect.bind(pool);
   const closedError = () => new Error("AI_TASK_DEV_DB_AUTH_CIRCUIT_OPEN");
 
   const failWaiting = () => {
-    for (const waiter of waiting.splice(0)) {
-      queueMicrotask(() => waiter.callback(closedError()));
+    for (const waiter of scope.waiting.splice(0)) {
+      queueMicrotask(waiter.deny);
     }
   };
   const noteFailure = (error: unknown) => {
     if (isTerminalDevDbAuthError(error)) {
-      blocked = true;
+      scope.blocked = true;
       failWaiting();
     }
   };
@@ -68,46 +82,48 @@ export function installDevDbAuthCircuit<T extends PgPoolConnectLike>(
   };
 
   function drain(): void {
-    if (blocked) {
+    if (scope.blocked) {
       failWaiting();
       return;
     }
-    if (authenticated) {
-      for (const waiter of waiting.splice(0)) {
-        startConnect(waiter.args, waiter.callback);
-      }
-    } else if (!firstAttemptPending) {
-      const next = waiting.shift();
-      if (next) startConnect(next.args, next.callback);
+    if (scope.authenticated) {
+      // The first correct login establishes validity of the shared DEV DSN.
+      // After that, return to normal pg.Pool concurrency in both pools.
+      for (const waiter of scope.waiting.splice(0)) waiter.start();
+    } else if (!scope.firstAttemptPending) {
+      // A transient (non-auth) failure permits precisely one next handshake.
+      scope.waiting.shift()?.start();
     }
   }
 
   function startConnect(args: unknown[], callback: PgConnectCallback): void {
-    if (blocked) {
+    if (scope.blocked) {
       queueMicrotask(() => callback(closedError()));
       return;
     }
-    // The first socket decides whether this process is allowed to continue.
-    // This prevents a burst of 28P01 from simultaneous 30-second schedulers.
-    if (!authenticated && firstAttemptPending) {
-      waiting.push({ args, callback });
+    if (!scope.authenticated && scope.firstAttemptPending) {
+      scope.waiting.push({
+        start: () => startConnect(args, callback),
+        deny: () => callback(closedError()),
+      });
       return;
     }
-    const firstAttempt = !authenticated;
-    if (firstAttempt) firstAttemptPending = true;
+
+    const firstAttempt = !scope.authenticated;
+    if (firstAttempt) scope.firstAttemptPending = true;
     let completed = false;
     const finish: PgConnectCallback = (error, ...rest) => {
       if (completed) return;
       completed = true;
-      const finalError = error ? safeError(error) : blocked ? closedError() : null;
-      if (!finalError && firstAttempt) authenticated = true;
+      const finalError = error ? safeError(error) : scope.blocked ? closedError() : null;
+      if (!finalError && firstAttempt) scope.authenticated = true;
       if (finalError && !error) {
-        // Another idle Pool client could have tripped the latch during this
-        // in-flight handshake. Never let its newly acquired client escape.
+        // If a different pool raised an idle 28P01 mid-connect, never allow
+        // an already connected client to escape the now closed shared gate.
         const client = rest[0] as { release?: () => void } | undefined;
-        try { client?.release?.(); } catch { /* no secrets or pool state logged */ }
+        try { client?.release?.(); } catch { /* never log secrets */ }
       }
-      if (firstAttempt) firstAttemptPending = false;
+      if (firstAttempt) scope.firstAttemptPending = false;
       try {
         callback(finalError, ...(finalError ? [] : rest));
       } finally {
@@ -115,8 +131,8 @@ export function installDevDbAuthCircuit<T extends PgPoolConnectLike>(
       }
     };
     try {
-      // Intentionally invoke the original callback-based pg.Pool.connect.
-      // It is also what pg.Pool.query uses, so there is one shared gate.
+      // Real pg.Pool.query also calls this callback form. This makes all
+      // schedulers and both raw/Drizzle pools share a safe admission gate.
       originalConnect(...args, finish);
     } catch (error) {
       queueMicrotask(() => finish(error));
@@ -138,5 +154,5 @@ export function installDevDbAuthCircuit<T extends PgPoolConnectLike>(
     });
   }) as T["connect"];
 
-  return { isBlocked: () => blocked, noteFailure };
+  return { isBlocked: () => scope.blocked, noteFailure };
 }

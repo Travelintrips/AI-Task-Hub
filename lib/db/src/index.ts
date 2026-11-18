@@ -2,7 +2,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import * as schema from "./schema";
 import { assertProductionConnectionAllowed } from "./production-connection-policy";
-import { installDevDbAuthCircuit } from "./dev-auth-circuit";
+import { installDevDbAuthCircuit, sharedDevDbAuthScope } from "./dev-auth-circuit";
 
 const { Pool } = pg;
 const isProduction = process.env.NODE_ENV === "production";
@@ -37,7 +37,7 @@ export const pool = new Pool({
 // Supavisor auth circuit breaker. One terminal auth failure locks future
 // connect/query attempts locally until the operator fixes the credential
 // and starts the DEV process intentionally. Production remains unchanged.
-const devAuthCircuit = installDevDbAuthCircuit(pool, !isProduction);
+const devAuthCircuit = installDevDbAuthCircuit(pool, !isProduction, sharedDevDbAuthScope);
 
 // pg emits errors from idle clients on the pool. Without a listener, Node.js
 // treats these as uncaught EventEmitter errors and terminates the API process.

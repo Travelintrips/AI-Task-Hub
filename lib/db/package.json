@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./schema": "./src/schema/index.ts",
-    "./production-connection-policy": "./src/production-connection-policy.ts"
+    "./production-connection-policy": "./src/production-connection-policy.ts",
+    "./dev-auth-circuit": "./src/dev-auth-circuit.ts"
   },
   "scripts": {
     "push": "drizzle-kit push --config ./drizzle.config.ts",
