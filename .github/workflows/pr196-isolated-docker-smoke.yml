@@ -10,6 +10,8 @@ on:
       - 'lib/**'
       - 'pnpm-lock.yaml'
       - 'pnpm-workspace.yaml'
+      - 'scripts/dev/test-pr196-synthetic-prepared-review-http.sh'
+      - 'scripts/dev/fixtures/pr196-gpt02-prepared-review.sql'
 
 permissions:
   contents: read
@@ -118,6 +120,14 @@ jobs:
           }
           console.log("IMAGE_RUNTIME_PASS health=200 protected=401/401 login_js=200 oauth_fragment_safe=true no_send=true no_dispatch=true");
           NODE
+      - name: Verify exact PR196 image with ephemeral PostgreSQL 17 GPT02 review
+        shell: bash
+        env:
+          EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          bash -n scripts/dev/test-pr196-synthetic-prepared-review-http.sh
+          bash scripts/dev/test-pr196-synthetic-prepared-review-http.sh
+
       - name: Save exact-source verified OCI image for private offline staging
         shell: bash
         env:
