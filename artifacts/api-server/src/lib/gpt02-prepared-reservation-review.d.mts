@@ -58,5 +58,5 @@ export type PreparedReservationReport = {
 };
 export function assessGpt02PreparedReservationReview(
   job: PreparedReservationJob,
-  evidenceRows: readonly PreparedReservationEvidence[],
+  evidenceRows: readonly unknown[],
 ): PreparedReservationReport;
