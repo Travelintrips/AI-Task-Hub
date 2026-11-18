@@ -59,6 +59,8 @@ router.get("/cst-ai-team/monitor", requireAuth, async (req: Request, res: Respon
       // separate from local canaries and never gain completion by projection.
       db.select({
         id: jobs.id, taskId: jobs.taskId, title: jobs.title, status: jobs.status,
+        progress: jobs.progress, commandId: jobs.commandId,
+        resultSummary: jobs.resultSummary, completedAt: jobs.completedAt,
         assignedClientId: jobs.assignedClientId, workerId: jobs.workerId,
         errorMessage: jobs.errorMessage, callbackVerified: jobs.callbackVerified,
         attestationVerified: jobs.attestationVerified, finalAckVerified: jobs.finalAckVerified,
