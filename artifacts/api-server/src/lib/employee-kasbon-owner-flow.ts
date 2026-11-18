@@ -8,7 +8,7 @@ import {
 import { logger } from "./logger";
 import { sendFonnte } from "./fonnte";
 import { resolveWaRole } from "./wa-role-resolver";
-import { supabasePool } from "./supabase-db";
+import { createClient } from "@supabase/supabase-js";
 
 const FLOW_KIND = "employee_kasbon_owner_wa_v1";
 const WAITING_ACTION = "employee_kasbon_owner_ok";
@@ -279,7 +279,19 @@ async function createApprovedKasbon(params: {
   amount: number;
   purpose: string;
 }> {
-  if (!supabasePool) throw new Error("KASBON_BIZPORTAL_DB_NOT_CONFIGURED");
+  // This first implementation is intentionally DEV-only. PROD remains fail-closed
+  // until the DEV flow is proven end-to-end and explicitly promoted.
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("KASBON_OWNER_FLOW_PROD_DISABLED");
+  }
+  const supabaseUrl = process.env.SUPABASE_URL_DEV?.trim();
+  const serviceRole = process.env.SUPABASE_SERVICE_ROLE_KEY_DEV?.trim();
+  if (!supabaseUrl || !serviceRole) {
+    throw new Error("KASBON_BIZPORTAL_DEV_SUPABASE_NOT_CONFIGURED");
+  }
+  const supabase = createClient(supabaseUrl, serviceRole, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
 
   const amount = money(params.fields.amount);
   if (!amount) throw new Error("KASBON_AMOUNT_INVALID");
@@ -289,108 +301,42 @@ async function createApprovedKasbon(params: {
   const requestedPhone = normalizePhone(
     fieldText(params.fields, "phone", "employee_phone") || params.requesterPhone,
   );
-  const variants = phoneVariants(requestedPhone);
+  const variants = new Set(phoneVariants(requestedPhone));
 
-  const client = await supabasePool.connect();
-  try {
-    await client.query("BEGIN");
-    await client.query("SELECT pg_advisory_xact_lock($1::integer, $2::integer)", [7712, params.taskId]);
+  const { data: employees, error: employeeError } = await supabase
+    .from("employees")
+    .select("id,company_id,first_name,last_name,phone,status,deleted_at")
+    .eq("status", "active")
+    .is("deleted_at", null)
+    .limit(500);
+  if (employeeError) throw new Error(`KASBON_EMPLOYEE_READ_FAILED:${employeeError.code ?? "UNKNOWN"}`);
 
-    const employeeResult = await client.query(
-      `SELECT id, company_id, trim(concat_ws(' ', first_name, last_name)) AS employee_name,
-              regexp_replace(coalesce(phone,''), '[^0-9]', '', 'g') AS phone_digits
-         FROM public.employees
-        WHERE status='active' AND deleted_at IS NULL
-          AND (
-            regexp_replace(coalesce(phone,''), '[^0-9]', '', 'g') = ANY($1::text[])
-            OR ($2::text <> '' AND lower(trim(concat_ws(' ', first_name, last_name))) = lower($2::text))
-          )
-        ORDER BY CASE WHEN regexp_replace(coalesce(phone,''), '[^0-9]', '', 'g') = ANY($1::text[]) THEN 0 ELSE 1 END,
-                 id
-        LIMIT 3`,
-      [variants, requestedName],
-    );
-    if (employeeResult.rowCount !== 1) {
-      throw new Error(employeeResult.rowCount === 0 ? "KASBON_EMPLOYEE_NOT_FOUND" : "KASBON_EMPLOYEE_AMBIGUOUS");
+  const requestedNameNormalized = requestedName.trim().toLowerCase().replace(/\s+/g, " ");
+  const matches = (employees ?? []).filter((employee) => {
+    const employeePhone = normalizePhone(employee.phone);
+    const phoneMatch = Boolean(employeePhone) && variants.has(employeePhone);
+    const fullName = `${String(employee.first_name ?? "").trim()} ${String(employee.last_name ?? "").trim()}`
+      .trim().toLowerCase().replace(/\s+/g, " ");
+    const nameMatch = Boolean(requestedNameNormalized) && fullName === requestedNameNormalized;
+    return phoneMatch || nameMatch;
+  });
+  if (matches.length !== 1) {
+    throw new Error(matches.length === 0 ? "KASBON_EMPLOYEE_NOT_FOUND" : "KASBON_EMPLOYEE_AMBIGUOUS");
+  }
+  const employee = matches[0]!;
+
+  const advanceNumber = `AIK-${params.taskNumber}`.slice(0, 96);
+  const { data: existingRows, error: existingError } = await supabase
+    .from("cash_advances")
+    .select("id,advance_number,party_name,company_id,amount")
+    .eq("advance_number", advanceNumber)
+    .limit(1);
+  if (existingError) throw new Error(`KASBON_EXISTING_READ_FAILED:${existingError.code ?? "UNKNOWN"}`);
+  if ((existingRows ?? []).length === 1) {
+    const row = existingRows![0]!;
+    if (Number(row.amount) !== amount || Number(row.company_id) !== Number(employee.company_id)) {
+      throw new Error("KASBON_IDEMPOTENCY_CONFLICT");
     }
-    const employee = employeeResult.rows[0];
-
-    const advanceNumber = `AIK-${params.taskNumber}`.slice(0, 96);
-    const existing = await client.query(
-      `SELECT id, advance_number, party_name, company_id, amount::text
-         FROM public.cash_advances
-        WHERE advance_number=$1
-        LIMIT 1`,
-      [advanceNumber],
-    );
-    if (existing.rowCount === 1) {
-      const row = existing.rows[0];
-      if (Number(row.amount) !== amount || Number(row.company_id) !== Number(employee.company_id)) {
-        throw new Error("KASBON_IDEMPOTENCY_CONFLICT");
-      }
-      await client.query("COMMIT");
-      return {
-        id: Number(row.id),
-        advanceNumber: String(row.advance_number),
-        employeeName: String(row.party_name),
-        companyId: Number(row.company_id),
-        amount,
-        purpose,
-      };
-    }
-
-    const repaymentRaw = fieldText(params.fields, "repayment_method").toLowerCase();
-    const repaymentMethod = repaymentRaw.includes("cicil") ? "INSTALLMENT" : "ONE_TIME";
-    const installmentAmount = repaymentMethod === "INSTALLMENT"
-      ? money(params.fields.installment_amount)
-      : null;
-    if (repaymentMethod === "INSTALLMENT" && !installmentAmount) {
-      throw new Error("KASBON_INSTALLMENT_AMOUNT_REQUIRED");
-    }
-
-    const noteParts = [
-      `AI Task ${params.taskNumber}`,
-      "Persetujuan Owner via WhatsApp",
-      purpose ? `Keperluan: ${purpose}` : "",
-      fieldText(params.fields, "notes") ? `Catatan: ${fieldText(params.fields, "notes")}` : "",
-    ].filter(Boolean);
-
-    const inserted = await client.query(
-      `INSERT INTO public.cash_advances (
-          company_id, advance_number, type, advance_type, counterparty_type,
-          party_name, employee_id, amount, paid_amount, settled_amount,
-          remaining_amount, outstanding_amount, payment_method, date,
-          purpose, notes, status, lifecycle_status, approved_by, approved_at,
-          currency, source_system, repayment_method, installment_amount,
-          posting_status, reference_number
-        ) VALUES (
-          $1,$2,'kasbon','EMPLOYEE','employee',
-          $3,$4,$5,0,0,
-          $5,$5,'bank',$6,
-          $7,$8,'active','approved',$9,now(),
-          'IDR','ai_task_owner_wa',$10,$11,
-          'PENDING',$12
-        )
-        RETURNING id, advance_number, party_name, company_id, amount::text`,
-      [
-        Number(employee.company_id),
-        advanceNumber,
-        String(employee.employee_name),
-        Number(employee.id),
-        amount,
-        dateOnly(params.fields.needed_date),
-        purpose || null,
-        noteParts.join(" | "),
-        params.ownerName || params.ownerPhone,
-        repaymentMethod,
-        installmentAmount,
-        params.taskNumber,
-      ],
-    );
-    if (inserted.rowCount !== 1) throw new Error("KASBON_INSERT_FAILED");
-
-    const row = inserted.rows[0];
-    await client.query("COMMIT");
     return {
       id: Number(row.id),
       advanceNumber: String(row.advance_number),
@@ -399,12 +345,94 @@ async function createApprovedKasbon(params: {
       amount,
       purpose,
     };
-  } catch (error) {
-    await client.query("ROLLBACK").catch(() => {});
-    throw error;
-  } finally {
-    client.release();
   }
+
+  const repaymentRaw = fieldText(params.fields, "repayment_method").toLowerCase();
+  const repaymentMethod = repaymentRaw.includes("cicil") ? "INSTALLMENT" : "ONE_TIME";
+  const installmentAmount = repaymentMethod === "INSTALLMENT"
+    ? money(params.fields.installment_amount)
+    : null;
+  if (repaymentMethod === "INSTALLMENT" && !installmentAmount) {
+    throw new Error("KASBON_INSTALLMENT_AMOUNT_REQUIRED");
+  }
+
+  const employeeName =
+    `${String(employee.first_name ?? "").trim()} ${String(employee.last_name ?? "").trim()}`.trim();
+  const noteParts = [
+    `AI Task ${params.taskNumber}`,
+    "Persetujuan Owner via WhatsApp",
+    purpose ? `Keperluan: ${purpose}` : "",
+    fieldText(params.fields, "notes") ? `Catatan: ${fieldText(params.fields, "notes")}` : "",
+  ].filter(Boolean);
+
+  const payload = {
+    company_id: Number(employee.company_id),
+    advance_number: advanceNumber,
+    type: "kasbon",
+    advance_type: "EMPLOYEE",
+    counterparty_type: "employee",
+    party_name: employeeName,
+    employee_id: Number(employee.id),
+    amount,
+    paid_amount: 0,
+    settled_amount: 0,
+    remaining_amount: amount,
+    outstanding_amount: amount,
+    payment_method: "bank",
+    date: dateOnly(params.fields.needed_date),
+    purpose: purpose || null,
+    notes: noteParts.join(" | "),
+    status: "active",
+    lifecycle_status: "approved",
+    approved_by: params.ownerName || params.ownerPhone,
+    approved_at: new Date().toISOString(),
+    currency: "IDR",
+    source_system: "ai_task_owner_wa",
+    repayment_method: repaymentMethod,
+    installment_amount: installmentAmount,
+    posting_status: "PENDING",
+    reference_number: params.taskNumber,
+  };
+
+  const { data: inserted, error: insertError } = await supabase
+    .from("cash_advances")
+    .insert(payload)
+    .select("id,advance_number,party_name,company_id,amount")
+    .single();
+
+  if (insertError) {
+    // A concurrent retry may win the unique advance_number race. Re-read and
+    // accept only an identical canonical transaction.
+    if (insertError.code === "23505") {
+      const { data: raced, error: racedError } = await supabase
+        .from("cash_advances")
+        .select("id,advance_number,party_name,company_id,amount")
+        .eq("advance_number", advanceNumber)
+        .single();
+      if (!racedError && raced &&
+          Number(raced.amount) === amount &&
+          Number(raced.company_id) === Number(employee.company_id)) {
+        return {
+          id: Number(raced.id),
+          advanceNumber: String(raced.advance_number),
+          employeeName: String(raced.party_name),
+          companyId: Number(raced.company_id),
+          amount,
+          purpose,
+        };
+      }
+    }
+    throw new Error(`KASBON_INSERT_FAILED:${insertError.code ?? "UNKNOWN"}`);
+  }
+
+  return {
+    id: Number(inserted.id),
+    advanceNumber: String(inserted.advance_number),
+    employeeName: String(inserted.party_name),
+    companyId: Number(inserted.company_id),
+    amount,
+    purpose,
+  };
 }
 
 export async function tryHandleEmployeeKasbonOwnerApproval(input: HandleInput): Promise<boolean> {
