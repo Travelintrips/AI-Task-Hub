@@ -70,3 +70,25 @@ Regression: `node --experimental-strip-types --test scripts/dev/cst-ai-team-exte
 plus the existing synthetic PostgreSQL16 `scripts/dev/cst-ai-team-monitor-e2e.py`.
 The test injects only generated, synthetic credentials; no live DEV/PROD
 credentials are copied into test logs or fixture data.
+
+### Fail-closed QA-provider failures and stalled reviews
+
+If the fourth OpenClaw profile cannot respond, preserve the first three
+observations **without inventing a QA event**. The Super Admin may explicitly
+close the unfinished Company-1 review using
+`POST /api/cst-ai-team/external-reviews/:id/close?companyId=1` with exactly
+`{"reason":"QA_PROVIDER_LIMIT"}`, `{"reason":"QA_PROVIDER_AUTH_UNAVAILABLE"}`,
+or `{"reason":"REVIEW_INTERRUPTED"}`. This requires the same DEV-only
+admission flags and authenticated Super Admin. There are no free-form error
+fields or credentials. A second close or later observation is rejected.
+
+An abandoned `processing` review older than 10 minutes projects as `blocked`
+with `OPERATOR_REVIEW_TIMEOUT` in read-only monitoring, and its late writes
+are refused; the projection does not silently mutate the ledger. Company
+scope, worker identity, idempotency, and the unsigned proof label are retained.
+Neither an operator-closed review nor a timed-out review is an autonomous
+handoff, agent attestation, or verified GPT02 Final ACK.
+
+The synthetic PG16 E2E covers one 4/4 complete **unattested** review, one
+3/4 review blocked because QA provider is unavailable, and one stale review.
+All remain `operationalVerified=false` and `independentFinalAckVerified=false`.

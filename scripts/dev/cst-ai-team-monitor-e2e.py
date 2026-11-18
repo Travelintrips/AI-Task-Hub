@@ -333,6 +333,67 @@ def main():
            "replayRejected":True,"earlyQaRejected":True,"wrongChallengeRejected":True,
            "unauthorizedAccessRejected":True,"crossCompanyRejected":True,"notSigned":True,
            "operationalVerified":False}
+        # QA-provider failure: retain only three actual-shaped records; never invent QA.
+        code,partial=http(api_port,"POST",rpath,make_jwt(jwt_secret),
+                        {"scenario":"operator_collected_read_only_review"})
+        if code!=201:raise AssertionError("PARTIAL_OPERATOR_REVIEW_ADMISSION_FAILED")
+        partial_id,partial_challenge=partial["id"],partial["challenge"]
+        partial_path="/api/cst-ai-team/external-reviews/"+partial_id+"/observations?companyId=1"
+        for role in ("coding","infrastructure","security"):
+            evidence=item(role);evidence["challenge"]=partial_challenge
+            code,_=http(api_port,"POST",partial_path,make_jwt(jwt_secret),evidence)
+            if code!=201:raise AssertionError("PARTIAL_ROLE_NOT_RECORDED_"+role)
+        close_path="/api/cst-ai-team/external-reviews/"+partial_id+"/close?companyId=1"
+        invalid_close,_=http(api_port,"POST",close_path,make_jwt(jwt_secret),
+                             {"reason":"UNBOUNDED_RAW_PROVIDER_ERROR"})
+        anonymous_close,_=http(api_port,"POST",close_path,data={"reason":"QA_PROVIDER_LIMIT"})
+        wrong_company_close,_=http(api_port,"POST",
+          "/api/cst-ai-team/external-reviews/"+partial_id+"/close?companyId=3",
+          make_jwt(jwt_secret),{"reason":"QA_PROVIDER_LIMIT"})
+        if (invalid_close,anonymous_close,wrong_company_close)!=(400,401,403):
+            raise AssertionError("REVIEW_ABORT_ACCESS_NOT_SCOPED")
+        closed,closure=http(api_port,"POST",close_path,make_jwt(jwt_secret),
+                            {"reason":"QA_PROVIDER_LIMIT"})
+        duplicate_close,_=http(api_port,"POST",close_path,make_jwt(jwt_secret),
+                               {"reason":"QA_PROVIDER_LIMIT"})
+        late_qa=item("qa");late_qa["challenge"]=partial_challenge
+        late_qa_code,_=http(api_port,"POST",partial_path,make_jwt(jwt_secret),late_qa)
+        if (closed,duplicate_close,late_qa_code)!=(200,409,409):
+            raise AssertionError("QA_FAILURE_ABORT_NOT_TERMINAL")
+        state,response=http(api_port,path=rpath,jwt=make_jwt(jwt_secret))
+        partial_row=next((r for r in response.get("reviews",[]) if r["id"]==partial_id),None)
+        if state!=200 or not partial_row or partial_row.get("status")!="blocked" or \
+           partial_row.get("failureReason")!="QA_PROVIDER_LIMIT" or \
+           partial_row.get("qaReviewRecorded") is not False or \
+           partial_row.get("recordedRoles")!=["coding","infrastructure","security"] or \
+           partial_row.get("internallyConsistent") is not False or \
+           partial_row.get("independentFinalAckVerified") is not False:
+            raise AssertionError("PARTIAL_QA_BLOCKED_PROJECTION_FAILED")
+        proof["providerBlockedReview"]={"id":partial_id,"recordedRoles":3,
+           "qaReviewRecorded":False,"failureReason":"QA_PROVIDER_LIMIT",
+           "replayBlocked":True,"authorizationGuardsPass":True,
+           "independentFinalAckVerified":False}
+        # A stale run must appear blocked and reject more observations without writes.
+        code,old=http(api_port,"POST",rpath,make_jwt(jwt_secret),
+                      {"scenario":"operator_collected_read_only_review"})
+        if code!=201:raise AssertionError("STALE_REVIEW_ADMISSION_FAILED")
+        command("docker","exec",pg_name,"psql","-v","ON_ERROR_STOP=1","-U","canary",
+                "-d","cst_team_canary","-c", """
+                  UPDATE ai_execution_jobs SET created_at=now()-interval '11 minutes'
+                  WHERE id='%s'::uuid AND source='cst-ai-team-dev-external-review'
+                """ % old["id"])
+        stale_code,stale_listing=http(api_port,path=rpath,jwt=make_jwt(jwt_secret))
+        stale_row=next((r for r in stale_listing.get("reviews",[]) if r["id"]==old["id"]),None)
+        if stale_code!=200 or not stale_row or stale_row.get("status")!="blocked" or \
+           stale_row.get("expired") is not True or \
+           stale_row.get("failureReason")!="OPERATOR_REVIEW_TIMEOUT":
+            raise AssertionError("STALE_REVIEW_NOT_BLOCKED_ON_READ")
+        stale_observation=item("coding");stale_observation["challenge"]=old["challenge"]
+        stale_post,_=http(api_port,"POST", "/api/cst-ai-team/external-reviews/"+old["id"]+
+                         "/observations?companyId=1",make_jwt(jwt_secret),stale_observation)
+        if stale_post!=409:raise AssertionError("STALE_REVIEW_OBSERVATION_WRITTEN")
+        proof["staleReview"]={"projectedBlocked":True,"writeRejected":True,
+           "failureReason":"OPERATOR_REVIEW_TIMEOUT"}
         proof["result"]="ISOLATED_CANARY_E2E_PASS"
     except Exception as err:
         proof["result"]="FAIL"

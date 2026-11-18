@@ -41,7 +41,8 @@ type ExternalReviewObservation = {
  result: string | null; summaryCode: string | null; at: string; signatureVerified: false;
 };
 type ExternalReview = {
- id: string; createdAt: string; status: string; recordedRoles: Role[];
+ id: string; createdAt: string; status: string; expired: boolean;
+ failureReason: string | null; recordedRoles: Role[];
  internallyConsistent: boolean; operationalVerified: false;
  independentFinalAckVerified: false; qaReviewRecorded: boolean;
  evidenceType: "DEV_OPERATOR_COLLECTED_UNATTESTED";
@@ -186,6 +187,7 @@ export default function CstAiTeamMonitor() {
     <div key={review.id} className="rounded-lg border p-3">
      <p className="text-sm font-semibold">Review #{review.id.slice(0,8)} · {when(review.createdAt)}</p>
      <p className="mt-1 text-xs text-muted-foreground">Catatan {review.recordedRoles.length}/4 · QA tercatat: {String(review.qaReviewRecorded)} · Integritas format: {review.internallyConsistent ? "sesuai" : "tidak lengkap"}</p>
+     <p className="mt-1 text-xs text-amber-800">Status review: {review.status === "blocked" ? "BLOCKED" : "MENUNGGU OBSERVASI"}{review.failureReason ? " · " + review.failureReason : ""}. {review.expired ? "Review melewati batas waktu tanpa bukti QA." : ""}</p>
      <p className="mt-1 text-xs text-amber-800">Bukti operator, bukan Final ACK independen. Status operasional: BLOCKED.</p>
      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
       {review.observations.map((item,i) => <div key={item.role+String(i)} className="rounded-md border p-2">

@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import {
   canRunExternalReview, isExternalReviewStart, parseExternalObservation,
-  checkExternalObservation, projectExternalObservations, EXTERNAL_TEAM_AGENTS,
+  checkExternalObservation, projectExternalObservations, projectExternalReviewStatus,
+  parseExternalReviewFailure, EXTERNAL_REVIEW_STALE_AFTER_MS, EXTERNAL_TEAM_AGENTS,
   EXTERNAL_REVIEW_PROOF, EXTERNAL_REVIEW_SOURCE,
 } from '../../artifacts/api-server/src/lib/cst-ai-team-external-review.ts';
 
@@ -87,4 +88,46 @@ test('dashboard separates operator text observations from live worker and signed
   assert.match(frontend,/Status operasional: BLOCKED/);
   assert.match(frontend,/Belum ada review operator yang tersimpan/);
   assert.match(frontend,/tidak memberi izin dispatch/);
+});
+
+test('unfinished operator review becomes BLOCKED after bounded TTL without inventing QA',()=>{
+  const now=Date.parse('2026-11-18T17:00:00Z');
+  const created=new Date(now-EXTERNAL_REVIEW_STALE_AFTER_MS);
+  assert.deepEqual(projectExternalReviewStatus('processing',created,now),
+    {status:'processing',expired:false,failureReason:null});
+  const overdue=projectExternalReviewStatus('processing',created,now+1);
+  assert.equal(overdue.status,'blocked');
+  assert.equal(overdue.expired,true);
+  assert.equal(overdue.failureReason,'OPERATOR_REVIEW_TIMEOUT');
+  assert.equal(projectExternalReviewStatus('processing',null,now).status,'blocked');
+  assert.equal(projectExternalReviewStatus('blocked',created,now).expired,false);
+  assert.equal(projectExternalReviewStatus('completed',created,now).status,'completed');
+});
+test('failure code is allowlisted; no free-form text, credentials or PII in review abort',()=>{
+  for(const reason of ['QA_PROVIDER_LIMIT','QA_PROVIDER_AUTH_UNAVAILABLE','REVIEW_INTERRUPTED']){
+    assert.equal(parseExternalReviewFailure({reason}),reason);
+  }
+  assert.equal(parseExternalReviewFailure({reason:'PROD_RESTART'}),null);
+  assert.equal(parseExternalReviewFailure({reason:'QA_PROVIDER_LIMIT',accessToken:'private'}),null);
+  assert.equal(parseExternalReviewFailure({reason:12}),null);
+  assert.equal(parseExternalReviewFailure({}),null);
+  assert.equal(parseExternalReviewFailure(null),null);
+});
+test('only super admin Company1 may close an incomplete review, preserving unsigned status',()=>{
+  assert.match(route,/router\.post\("\/cst-ai-team\/external-reviews\/:id\/close",requireAuth/);
+  assert.match(route,/const company=allow\(req,res,true\)/);
+  assert.match(route,/eq\(jobs\.companyId,company\)/);
+  assert.match(route,/eq\(jobs\.source,EXTERNAL_REVIEW_SOURCE\)/);
+  assert.match(route,/eq\(jobs\.status,"processing"\)/);
+  assert.match(route,/parseExternalReviewFailure\(req\.body\)/);
+  assert.match(route,/REVIEW_TERMINAL_OR_EXPIRED/);
+  assert.match(route,/projectExternalReviewStatus\(run\.status,run\.createdAt\)\.expired/);
+  assert.match(route,/operationalVerified:false/);
+});
+const ui=readFileSync(new URL('../../artifacts/ai-task-center/src/pages/cst-ai-team-monitor.tsx',import.meta.url),'utf8');
+test('dashboard displays missing QA and timeout or failure reason rather than perpetual processing',()=>{
+  assert.match(ui,/Status review:/);
+  assert.match(ui,/review\.failureReason/);
+  assert.match(ui,/review\.expired/);
+  assert.match(ui,/Status operasional: BLOCKED/);
 });

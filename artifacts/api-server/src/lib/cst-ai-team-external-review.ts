@@ -4,6 +4,29 @@ import { canRunDevTeam, TEAM_ROLES, type TeamRole } from "./cst-ai-team-contract
 export const EXTERNAL_REVIEW_SOURCE = "cst-ai-team-dev-external-review";
 export const EXTERNAL_REVIEW_PROOF = "DEV_OPERATOR_COLLECTED_UNATTESTED";
 export const EXTERNAL_REVIEW_SCENARIO = "operator_collected_read_only_review";
+/** Incomplete operator-collected reviews must never appear running indefinitely. */
+export const EXTERNAL_REVIEW_STALE_AFTER_MS = 10 * 60 * 1000;
+export const EXTERNAL_REVIEW_FAILURE_REASONS = [
+  "QA_PROVIDER_LIMIT", "QA_PROVIDER_AUTH_UNAVAILABLE", "REVIEW_INTERRUPTED",
+] as const;
+export type ExternalReviewFailureReason = (typeof EXTERNAL_REVIEW_FAILURE_REASONS)[number];
+export function parseExternalReviewFailure(input: unknown): ExternalReviewFailureReason | null {
+  if (!input || typeof input !== "object" || Array.isArray(input)) return null;
+  const record = input as Record<string, unknown>;
+  if (Object.keys(record).length !== 1 || typeof record.reason !== "string") return null;
+  return EXTERNAL_REVIEW_FAILURE_REASONS.includes(record.reason as ExternalReviewFailureReason)
+    ? record.reason as ExternalReviewFailureReason : null;
+}
+export function projectExternalReviewStatus(
+  status: string, createdAt: Date | string | null, nowMs = Date.now(),
+): { status: string; expired: boolean; failureReason: string | null } {
+  if (status !== "processing") return {status, expired: false, failureReason: null};
+  const created = createdAt == null ? Number.NaN : new Date(createdAt).getTime();
+  const expired = !Number.isFinite(created) || nowMs - created > EXTERNAL_REVIEW_STALE_AFTER_MS;
+  return { status: expired ? "blocked" : "processing", expired,
+    failureReason: expired ? "OPERATOR_REVIEW_TIMEOUT" : null };
+}
+
 export const EXTERNAL_TEAM_AGENTS: Record<TeamRole, { host: string; agentId: string }> = {
   coding: { host: "Travelintrips", agentId: "main" },
   infrastructure: { host: "DELL", agentId: "dell-recovery" },

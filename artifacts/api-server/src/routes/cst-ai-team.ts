@@ -6,7 +6,7 @@ import { requireAuth } from "../middleware/auth";
 import { logger } from "../lib/logger";
 import { canReadDevTeam, canRunDevTeam, canaryVerdict, canaryLedgerVerdict, projectCanaryStatus, projectIndependentTeamGate, TEAM_SOURCE, TEAM_ROLES, type TeamRole } from "../lib/cst-ai-team-contract";
 import { fetchCstTeamAgentReadiness } from "../lib/cst-ai-team-agent-readiness";
-import { EXTERNAL_REVIEW_SOURCE, EXTERNAL_REVIEW_PROOF, EXTERNAL_REVIEW_SCENARIO, EXTERNAL_TEAM_AGENTS, canRunExternalReview, isExternalReviewStart, parseExternalObservation, checkExternalObservation, projectExternalObservations } from "../lib/cst-ai-team-external-review";
+import { EXTERNAL_REVIEW_SOURCE, EXTERNAL_REVIEW_PROOF, EXTERNAL_REVIEW_SCENARIO, EXTERNAL_TEAM_AGENTS, canRunExternalReview, isExternalReviewStart, parseExternalObservation, checkExternalObservation, projectExternalObservations, projectExternalReviewStatus, parseExternalReviewFailure } from "../lib/cst-ai-team-external-review";
 
 const router: IRouter = Router();
 const active = new Set<string>();
@@ -243,7 +243,9 @@ async function fetchExternalReview(runId: string, company: string) {
     eq(events.executionId, runId), eq(events.companyId, company),
   )).orderBy(events.createdAt);
   const integrity = projectExternalObservations(history, challenge);
-  return { id: run.id, createdAt: run.createdAt, status: run.status,
+  const projected = projectExternalReviewStatus(run.status, run.createdAt);
+  return { id: run.id, createdAt: run.createdAt, status: projected.status,
+    expired: projected.expired, failureReason: projected.failureReason ?? run.errorMessage,
     ...integrity,
     observations: history.filter(e => e.eventType === "team.external.observed")
       .map(e => ({ role: e.phase, host: (e.workerId ?? "").split(":")[1] ?? null,
@@ -305,7 +307,9 @@ router.post("/cst-ai-team/external-reviews/:id/observations",requireAuth,async(r
       eq(jobs.id,id),eq(jobs.companyId,company),eq(jobs.source,EXTERNAL_REVIEW_SOURCE),
     )).limit(1);
     if(!run){res.sendStatus(404);return;}
-    if(run.status!=="processing"){res.status(409).json({error:"REVIEW_TERMINAL"});return;}
+    if(run.status!=="processing" || projectExternalReviewStatus(run.status,run.createdAt).expired){
+      res.status(409).json({error:"REVIEW_TERMINAL_OR_EXPIRED"});return;
+    }
     const challenge=typeof run.metadata.reviewChallenge==="string"?run.metadata.reviewChallenge:"";
     if(!checkExternalObservation(observation,challenge)){
       res.status(403).json({error:"REVIEW_CHALLENGE_OR_AGENT_MISMATCH"});return;
@@ -340,5 +344,29 @@ router.post("/cst-ai-team/external-reviews/:id/observations",requireAuth,async(r
     res.status(500).json({error:"EXTERNAL_REVIEW_WRITE_FAILED"});}
 });
 
+/** Record a provider failure without inventing a missing QA receipt. */
+router.post("/cst-ai-team/external-reviews/:id/close",requireAuth,async(req:Request,res:Response)=>{
+  const company=allow(req,res,true); if(!company)return;
+  if(!canRunExternalReview()){res.sendStatus(404);return;}
+  const id=String(req.params.id??"");
+  if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)){
+    res.status(400).json({error:"INVALID_REVIEW_ID"});return;
+  }
+  const reason=parseExternalReviewFailure(req.body);
+  if(!reason){res.status(400).json({error:"INVALID_REVIEW_FAILURE_REASON"});return;}
+  try{
+    const [closed]=await db.update(jobs).set({status:"blocked",progress:0,
+      errorMessage:reason,completedAt:new Date(),updatedAt:new Date(),
+    }).where(and(eq(jobs.id,id),eq(jobs.companyId,company),
+      eq(jobs.source,EXTERNAL_REVIEW_SOURCE),eq(jobs.status,"processing")))
+      .returning({id:jobs.id});
+    if(!closed){res.status(409).json({error:"REVIEW_NOT_ACTIVE_OR_NOT_FOUND"});return;}
+    res.setHeader("Cache-Control","no-store");
+    res.json({id:closed.id,status:"blocked",reason,qaReviewRecorded:false,
+      proofLevel:EXTERNAL_REVIEW_PROOF,operationalVerified:false,
+      independentFinalAckVerified:false});
+  }catch(err){logger.error({err},"External review abort failed");
+    res.status(500).json({error:"EXTERNAL_REVIEW_ABORT_FAILED"});}
+});
 
 export default router;
