@@ -33,6 +33,11 @@ export function assessIsolatedDevRuntime(env) {
       const parsed = new URL(raw);
       const user = decodeURIComponent(parsed.username);
       if (!['postgres:', 'postgresql:'].includes(parsed.protocol)) blockers.push('UNSUPPORTED_DATABASE_SCHEME');
+      // pg-connection-string may override authority credentials/host/port
+      // using URL query keys. Reject every parameter/fragment, not just the
+      // obvious user=, host= and port= overrides.
+      if (parsed.search || parsed.hash) blockers.push('UNAPPROVED_DATABASE_URL_PARAMETERS');
+      if (parsed.pathname !== '/postgres') blockers.push('UNAPPROVED_DATABASE_NAME');
       // A new dedicated role must be provisioned separately and independently
       // verified. Do NOT turn the existing identity-reader NOLOGIN into a writer.
       if (user !== EXPECTED_OPERATING_IDENTITY) blockers.push('UNAPPROVED_DEV_DATABASE_ROLE');
