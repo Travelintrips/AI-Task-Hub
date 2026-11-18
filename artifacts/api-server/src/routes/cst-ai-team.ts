@@ -4,12 +4,13 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { db, aiExecutionJobsTable as jobs, aiExecutionEventsTable as events } from "@workspace/db";
 import { requireAuth } from "../middleware/auth";
 import { logger } from "../lib/logger";
-import { canRunDevTeam, canaryVerdict, projectCanaryStatus, TEAM_SOURCE, TEAM_ROLES, type TeamRole } from "../lib/cst-ai-team-contract";
+import { canReadDevTeam, canRunDevTeam, canaryVerdict, projectCanaryStatus, TEAM_SOURCE, TEAM_ROLES, type TeamRole } from "../lib/cst-ai-team-contract";
+import { fetchCstTeamAgentReadiness } from "../lib/cst-ai-team-agent-readiness";
 
 const router: IRouter = Router();
 const active = new Set<string>();
-function allow(req: Request, res: Response): string | null {
-  if (!canRunDevTeam()) { res.sendStatus(404); return null; }
+function allow(req: Request, res: Response, requireCanary = false): string | null {
+  if (!canReadDevTeam() || (requireCanary && !canRunDevTeam())) { res.sendStatus(404); return null; }
   if (req.user?.role !== "super_admin") { res.status(403).json({ error: "SUPER_ADMIN_REQUIRED" }); return null; }
   const company = req.query.companyId;
   if (company !== "1") {
@@ -51,10 +52,14 @@ router.get("/cst-ai-team/monitor", requireAuth, async (req: Request, res: Respon
     const rows = await db.select({ id: jobs.id }).from(jobs)
       .where(and(eq(jobs.companyId, company), eq(jobs.source, TEAM_SOURCE)))
       .orderBy(desc(jobs.createdAt)).limit(12);
-    const runs = await Promise.all(rows.map(r => fetchRun(r.id, company)));
+    const [runs, agentReadiness] = await Promise.all([
+      Promise.all(rows.map(r => fetchRun(r.id, company))),
+      fetchCstTeamAgentReadiness(),
+    ]);
     res.setHeader("Cache-Control", "no-store");
     res.json({ companyId: company, roles: TEAM_ROLES, runs: runs.filter(Boolean),
-      mode: "DEV_LOCAL_CANARY_ONLY", authority: "NO_GPT02_DISPATCH_NO_PROD" });
+      agentReadiness, canRunCanary: canRunDevTeam(),
+      mode: "DEV_PRESENCE_AND_LOCAL_CANARY_ONLY", authority: "NO_GPT02_DISPATCH_NO_PROD" });
   } catch (err) {
     logger.error({ err }, "CST team monitor read failed");
     res.status(500).json({ error: "TEAM_MONITOR_READ_FAILED" });
@@ -135,7 +140,7 @@ async function runCoordinatedCanary(id: string, company: string): Promise<void> 
   } finally { active.delete(company); }
 }
 router.post("/cst-ai-team/runs", requireAuth, async (req: Request, res: Response) => {
-  const company = allow(req, res); if (!company) return;
+  const company = allow(req, res, true); if (!company) return;
   if (req.body?.scenario !== "dev_read_only_canary" || Object.keys(req.body ?? {}).length !== 1) {
     res.status(400).json({ error: "ONLY_PREDEFINED_READ_ONLY_CANARY_SUPPORTED" }); return;
   }

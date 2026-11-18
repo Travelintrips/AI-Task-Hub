@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { canRunDevTeam, canaryVerdict, projectCanaryStatus, CANARY_STALE_AFTER_MS } from "../../artifacts/api-server/src/lib/cst-ai-team-contract.ts";
+import { canReadDevTeam, canRunDevTeam, canaryVerdict, projectCanaryStatus, CANARY_STALE_AFTER_MS } from "../../artifacts/api-server/src/lib/cst-ai-team-contract.ts";
 
 const base = new URL("../../artifacts/api-server/src/routes/cst-ai-team.ts", import.meta.url);
 const route = readFileSync(base, "utf8");
@@ -14,6 +14,22 @@ test("team monitor fails closed unless explicitly enabled in DEV", () => {
   assert.equal(canRunDevTeam({...env,APP_ENV:"production"}),false);
   assert.equal(canRunDevTeam({...env,NODE_ENV:"production"}),false);
   assert.equal(canRunDevTeam({...env,CST_AI_TEAM_DEV_ENABLED:"false"}),false);
+});
+test("read-only monitor stays visible to existing DEV Super Admin even when canary is OFF", () => {
+  const dev = {NODE_ENV:"development",APP_ENV:"development",CST_AI_TEAM_DEV_ENABLED:"false"};
+  assert.equal(canReadDevTeam(dev), true);
+  assert.equal(canRunDevTeam(dev), false);
+  assert.equal(canReadDevTeam({...dev,APP_ENV:"production"}), false);
+  assert.match(route,/requireCanary && !canRunDevTeam\(\)/);
+  assert.match(route,/allow\(req, res, true\)/);
+});
+test("actual worker readiness is separate from four-role diagnostic PASS", () => {
+  assert.match(route,/fetchCstTeamAgentReadiness\(\)/);
+  assert.match(route,/agentReadiness, canRunCanary: canRunDevTeam\(\)/);
+  assert.match(frontend,/PRESENCE_ONLY_NOT_EXECUTION_PROOF/);
+  assert.match(frontend,/Online bukan bukti tugas selesai/);
+  assert.match(frontend,/Status worker belum dapat diverifikasi/);
+  assert.match(frontend,/Uji DEV terkunci/);
 });
 test("all four role evidence required; no skipped or failed role can PASS", () => {
   const all = ["coding","infrastructure","security","qa"].map(role=>({role,status:"completed",ok:true}));

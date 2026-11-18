@@ -29,6 +29,11 @@ export function aiCoreBridgeConfigured(): boolean {
   return Boolean(safeBaseUrl() && bridgeToken());
 }
 
+/** Limited DEV registry readback. Reuses only the existing AI Task bridge identity. */
+export function fetchAiCoreTeamReadinessResponse(): Promise<Response> {
+  return bridgeFetch("/ai/coding/bridge/cst-team-readiness", { method: "GET" });
+}
+
 export function buildAiTaskExternalCommandId(companyId: string, taskId: number): string {
   const company = companyId.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 100) || "default";
   return `ai-task:${company}:${taskId}`;

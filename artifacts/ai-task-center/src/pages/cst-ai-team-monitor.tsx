@@ -13,7 +13,19 @@ type Run = {
  verifiedComplete: boolean; proofLevel: string; callbackVerified: boolean;
  attestationVerified: boolean; finalAckVerified: boolean; steps: Step[];
 };
-type Monitor = { companyId: string; roles: Role[]; runs: Run[]; mode: string; authority: string };
+type WorkerPresence = {
+ clientId: string; eligible: boolean; presenceState: "ACTIVE" | "UNAVAILABLE";
+ reportedHealth: "healthy" | "degraded" | "unknown";
+ lastSeenAt: string | null; leaseExpiresAt: string | null;
+};
+type AgentReadiness = {
+ status: "available" | "unavailable"; mode: "PRESENCE_ONLY_NOT_EXECUTION_PROOF";
+ checkedAt: string | null; workers: WorkerPresence[]; reason?: string;
+};
+type Monitor = {
+ companyId: string; roles: Role[]; runs: Run[]; mode: string; authority: string;
+ agentReadiness: AgentReadiness; canRunCanary: boolean;
+};
 const roles = [
  { id: "coding", name: "Agen Coding", note: "Kontrak source dan ledger", Icon: Code2 },
  { id: "infrastructure", name: "Agen Infrastruktur", note: "Health runtime DEV", Icon: Server },
@@ -51,6 +63,7 @@ export default function CstAiTeamMonitor() {
   {method:"POST", body:JSON.stringify({scenario:"dev_read_only_canary"})}),
   onSuccess:(data) => {setSelected(data.id); void queryClient.invalidateQueries({queryKey:["cst-ai-team"]});}});
  const runs = query.data?.runs || [];
+ const agentReadiness = query.data?.agentReadiness;
  const current = runs.find(r => r.id === selected) || runs[0];
  return <div className="mx-auto max-w-7xl space-y-6 p-6 md:p-8">
   <header className="flex flex-wrap items-start justify-between gap-4">
@@ -59,8 +72,8 @@ export default function CstAiTeamMonitor() {
     <p className="mt-2 text-sm text-muted-foreground">Pemantauan empat peran dari bukti ledger eksekusi nyata.</p></div>
    <div className="flex gap-2">
     <Button variant="outline" onClick={() => void query.refetch()} disabled={query.isFetching}><RefreshCw className="mr-2 h-4 w-4"/>Refresh</Button>
-    <Button disabled={!query.data || mutation.isPending || current?.status === "processing"}
-     onClick={() => mutation.mutate()}><PlayCircle className="mr-2 h-4 w-4"/>Uji koordinasi DEV</Button>
+    <Button disabled={!query.data?.canRunCanary || mutation.isPending || current?.status === "processing"}
+     onClick={() => mutation.mutate()}><PlayCircle className="mr-2 h-4 w-4"/>{query.data?.canRunCanary ? "Uji koordinasi DEV" : "Uji DEV terkunci"}</Button>
    </div>
   </header>
   <div className="flex gap-2 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
@@ -79,7 +92,30 @@ export default function CstAiTeamMonitor() {
      <p className="text-xs text-muted-foreground">{item.name}</p><p className="mt-2 text-2xl font-bold">{item.value}</p>
      <p className="mt-1 text-xs text-muted-foreground">{item.caption}</p></div>)}
   </div>
-  <section><h2 className="mb-3 text-lg font-semibold">Empat peran terkoordinasi</h2>
+  <section className="rounded-xl border bg-card p-4 md:p-5">
+   <h2 className="text-lg font-semibold">Worker AI Core DEV — status koneksi aktual</h2>
+   <p className="mt-1 text-xs text-muted-foreground">Data heartbeat dari registry AI Core yang sudah ada. Online bukan bukti tugas selesai, izin dispatch, atau Final ACK.</p>
+   {agentReadiness?.status === "available" ? <>
+    <p className="mt-2 text-xs text-muted-foreground">Diperiksa: {when(agentReadiness.checkedAt)} · Mode: baca-saja</p>
+    <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+     {agentReadiness.workers.map(worker =>
+      <div key={worker.clientId} className="rounded-lg border p-3">
+       <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-sm font-semibold">{worker.clientId}</span>
+        <span className={"rounded-full px-2 py-1 text-xs font-semibold " +
+         (worker.eligible ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800")}>
+          {worker.eligible ? "Online / eligible" : "Tidak siap"}
+        </span>
+       </div>
+       <p className="mt-2 text-xs text-muted-foreground">Heartbeat: {when(worker.lastSeenAt)}</p>
+       <p className="text-xs text-muted-foreground">Lease sampai: {when(worker.leaseExpiresAt)}</p>
+      </div>)}
+    </div>
+   </> : <p className="mt-3 text-sm text-amber-800">
+     Status worker belum dapat diverifikasi dari bridge. {agentReadiness?.reason || "Belum ada pembacaan."} Tidak dinyatakan PASS.
+   </p>}
+  </section>
+  <section><h2 className="mb-3 text-lg font-semibold">Empat peran uji diagnostik</h2>
    <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">{roles.map(role => {
     const steps = current?.steps.filter(s => s.role === role.id) || [];
     const latest = steps[steps.length-1];

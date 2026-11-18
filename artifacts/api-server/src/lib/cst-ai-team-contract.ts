@@ -2,9 +2,11 @@
 export const TEAM_SOURCE = "cst-ai-team-dev-canary";
 export const TEAM_ROLES = ["coding", "infrastructure", "security", "qa"] as const;
 export type TeamRole = typeof TEAM_ROLES[number];
+export function canReadDevTeam(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.APP_ENV === "development" && env.NODE_ENV === "development";
+}
 export function canRunDevTeam(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.CST_AI_TEAM_DEV_ENABLED === "true" &&
-    env.APP_ENV === "development" && env.NODE_ENV === "development";
+  return canReadDevTeam(env) && env.CST_AI_TEAM_DEV_ENABLED === "true";
 }
 /** A restarted API must never show an abandoned in-progress canary forever. */
 export const CANARY_STALE_AFTER_MS = 120_000;

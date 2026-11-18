@@ -153,6 +153,11 @@ def main():
             run = next((x for x in data.get("runs",[]) if x["id"] == jobid),None)
             if status==200 and run and run.get("status") in ("completed","failed"):
                 proof["monitorHttp"]=status
+                proof["readinessStatus"]=data.get("agentReadiness",{}).get("status")
+                proof["readinessReason"]=data.get("agentReadiness",{}).get("reason")
+                if data.get("canRunCanary") is not True: raise AssertionError("CANARY_DEV_FLAG_NOT_ON")
+                if (proof["readinessStatus"],proof["readinessReason"]) != ("unavailable","BRIDGE_NOT_CONFIGURED"):
+                    raise AssertionError("READINESS_NOT_FAIL_CLOSED")
                 proof["runStatus"]=run.get("status")
                 proof["verifiedComplete"]=run.get("verifiedComplete")
                 proof["roles"]=[{"role":x["role"],"status":x["status"],"ok":(x.get("evidence") or {}).get("ok")}
