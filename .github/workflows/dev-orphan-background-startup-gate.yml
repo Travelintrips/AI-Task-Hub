@@ -1,0 +1,58 @@
+name: AI Task DEV - Orphan Startup Fail-Closed Gate
+
+on:
+  pull_request:
+    branches:
+      - test/dev-pr193-pr195-integrated-20261115
+    paths:
+      - 'artifacts/api-server/src/app.ts'
+      - 'artifacts/api-server/src/index.ts'
+      - 'scripts/dev/ai-task-background-worker-cutover-gate.test.mjs'
+      - '.github/workflows/dev-orphan-background-startup-gate.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  orphan-background-guard:
+    name: DEV isolated orphan scheduler / migrations / storage guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NODE_ENV: test
+      APP_ENV: development
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: pnpm
+      - name: Exact dependency graph
+        run: pnpm install --frozen-lockfile
+      - name: Orphan inert, official DEV/PROD unchanged
+        run: |
+          node --test scripts/dev/ai-task-background-worker-cutover-gate.test.mjs
+      - name: Safety boundary is source-only and fail-closed
+        shell: bash
+        run: |
+          set -euo pipefail
+          app=artifacts/api-server/src/app.ts
+          index=artifacts/api-server/src/index.ts
+          grep -Fq 'process.env.APP_ENV === "development"' "$app"
+          grep -Fq 'process.env.APP_ENV === "production"' "$app"
+          grep -Fq 'const shouldRunStartupMigrations = hasExplicitAppEnv && (' "$app"
+          grep -Fq 'if (hasExplicitAppEnv) {' "$app"
+          grep -Fq 'if (process.env.APP_ENV === "development" || process.env.APP_ENV === "production")' "$index"
+          ! grep -Fq 'process.env.RUN_STARTUP_MIGRATIONS = "true"' "$app"
+          echo ORPHAN_STARTUP_SOURCE_GUARD_PASS
+      - name: Workspace TypeScript with generated DB declarations
+        run: pnpm run typecheck
+      - name: Original API production bundle builds (not deployed)
+        run: pnpm --filter @workspace/api-server run build
+      - name: No tracked source mutation during CI
+        run: |
+          git diff --exit-code --             artifacts/api-server/src/app.ts             artifacts/api-server/src/index.ts             scripts/dev/ai-task-background-worker-cutover-gate.test.mjs             pnpm-lock.yaml
