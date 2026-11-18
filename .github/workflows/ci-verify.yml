@@ -29,6 +29,8 @@ jobs:
         run: |
           bash -n scripts/ops/ai-task-development-start
           node --test scripts/ops/ai-task-development-start.test.mjs
+      - name: GPT02 expired preparation admission fail-closed (offline)
+        run: node --test scripts/ops/gpt02-dev-preparation-admission.test.mjs
       - name: DEV PostgreSQL auth circuit blocks retries with real pg.Pool semantics (offline)
         run: node --experimental-strip-types --test lib/db/src/dev-auth-circuit.test.mjs
       - name: Stale DEV systemd unit cannot restart without authorized role and release
