@@ -42,7 +42,7 @@ jobs:
         run: node --test scripts/dev/vps-storage-readonly.test.mjs
       - name: Verify VPS Storage requires recent Google identity and active Super Admin
         run: node --experimental-strip-types --test scripts/dev/vps-storage-google-session-contract.test.mjs
-      - name: Verify DEV Google login is visible while passwordless email stays available
+      - name: Verify DEV Google login remains and email-only UI fails closed
         run: node --test scripts/dev/vps-storage-google-login-entrypoint.test.mjs
       - name: Verify DEV Google OAuth refuses ambiguous or inactive profiles
         run: node --experimental-strip-types --test scripts/dev/dev-google-unambiguous-profile.test.mjs
@@ -102,7 +102,7 @@ jobs:
         run: node --test artifacts/api-server/tests/ai-task-child-tenant-scope.test.mjs
       - name: GPT02 new authorized DEV test must stay non-dispatching until signed gates
         run: node --test scripts/dev/gpt02-new-test-admission-readonly.test.cjs
-      - name: Preserve DEV passwordless dashboard and isolate GPT02 admission
+      - name: Deny unverified DEV email-only JWT and isolate GPT02 admission
         run: node --test scripts/dev/gpt02-dev-admin-login-hardening.test.cjs
       - name: Verify Google-backed GPT02 operator preflight cannot authorize commands
         run: node --test scripts/dev/gpt02-operator-identity-preflight.test.cjs
