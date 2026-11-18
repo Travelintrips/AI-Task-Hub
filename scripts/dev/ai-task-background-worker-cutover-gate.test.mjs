@@ -85,7 +85,7 @@ test("app startup side effects require explicit APP_ENV; PROD and DEV unchanged"
   assert.ok(app.includes('process.env.APP_ENV === "production"'));
   assert.ok(app.includes('const shouldRunStartupMigrations = hasExplicitAppEnv && ('));
   assert.ok(app.includes('if (hasExplicitAppEnv) {'));
-  const envGateIndex = app.indexOf('if (hasExplicitAppEnv) {');
+  const envGateIndex = app.lastIndexOf('if (hasExplicitAppEnv) {');
   const storageIndex = app.indexOf('ensurePaymentProofBucket().catch');
   const startIndex = app.indexOf('const shouldRunStartupMigrations');
   assert.ok(envGateIndex > startIndex && envGateIndex < storageIndex);
