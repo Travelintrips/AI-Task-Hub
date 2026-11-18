@@ -35,6 +35,8 @@ jobs:
         run: node --test scripts/ops/ai-task-development-systemd-guard.test.mjs
       - name: Isolated DEV runtime identity and no-secret preflight (offline)
         run: node --test scripts/ops/ai-task-dev-runtime-identity-gate.test.mjs
+      - name: PR196 private read-only API route contract (offline)
+        run: node --test scripts/ops/ai-task-dev-readonly-http-smoke.test.mjs
       - name: DEV verified TLS CA and hostname admission (offline, PROD no-op)
         run: node --experimental-strip-types --test lib/db/src/dev-verified-tls.test.mjs
       - run: pnpm run typecheck
