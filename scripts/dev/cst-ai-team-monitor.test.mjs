@@ -81,7 +81,14 @@ test("internal E2E worker probes are read-only, tenant-scoped and separate from 
   assert.match(route, /operationalProbes/);
   assert.match(frontend, /Tugas worker nyata — internal E2E DEV/);
   assert.match(frontend, /callbackVerified && probe\.attestationVerified && probe\.finalAckVerified/);
-  assert.match(frontend, /GAGAL — belum dieksekusi/);
+  assert.match(frontend, /GAGAL — periksa ledger/);
+  assert.match(frontend, /const workerCallbackPass = probe.status === "completed"/);
+  assert.match(frontend, /probe.workerId === probe.assignedClientId && probe.callbackVerified/);
+  assert.match(frontend, /const trusted = workerCallbackPass && probe.attestationVerified && probe.finalAckVerified/);
+  assert.match(frontend, /WORKER SELESAI — callback PASS/);
+  assert.match(frontend, /bukti attestation dan Final ACK independen belum tersedia/);
+  assert.match(route, /resultSummary: jobs.resultSummary/);
+  assert.match(route, /commandId: jobs.commandId/);
   assert.match(frontend, /Tugas gagal tidak boleh diulang/);
   // A diagnostic canary must still be explicitly barred from granting authority.
   assert.match(route, /operationalTaskBinding: \{ verified: false/);
