@@ -38,6 +38,7 @@ export type PreparedReservationReport = {
   matchCount: number;
   uniqueCommandMatch: false;
   archiveAvailable: false;
+  archiveChecked: false;
   commandId: string | null;
   sources: readonly [];
   callbackVerified: boolean;
