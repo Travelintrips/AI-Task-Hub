@@ -7,6 +7,7 @@
  */
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { X509Certificate } from "node:crypto";
 const require = createRequire(import.meta.url);
 const { Client } = require("/home/githubrunner/apps/ai-task/development/node_modules/.pnpm/pg@8.20.0/node_modules/pg");
 const expectedProject = "xssrfshdrtdfupgqwfdw";
@@ -14,15 +15,16 @@ const expectedRole = "ai_task_operational_dev";
 const host = process.env.AI_TASK_DEV_POOLER_HOST || "";
 const credsDir = process.env.CREDENTIALS_DIRECTORY || "";
 const hostOk = /^aws-[0-9]+-[a-z0-9-]+\.pooler\.supabase\.com$/.test(host);
-if (!hostOk || !credsDir.startsWith("/run/credentials/") || process.env.NODE_ENV === "production") {
+if (!hostOk || !credsDir.startsWith("/run/credentials/") || process.env.NODE_ENV !== "development" || process.env.AI_TASK_DEV_PROBE_ONLY !== "true") {
   process.stdout.write("AI_TASK_DEV_AUTH_NO_GO_CONFIG\n");
   process.exit(78);
 }
 let password, ca;
 try {
-  password = readFileSync(credsDir + "/operational-password", "utf8").replace(/\r?\n$/, "");
+  password = readFileSync(credsDir + "/ai-task-operational-dev-password", "utf8").replace(/\r?\n$/, "");
   ca = readFileSync(credsDir + "/supabase-ca.pem", "utf8");
-  if (!password || !ca.includes("BEGIN CERTIFICATE")) throw Error("MISSING_CREDENTIAL");
+  const caCert = new X509Certificate(ca);
+  if (!password || !caCert.ca || caCert.fingerprint256.replace(/:/g, "").toLowerCase() !== "807025ad50d4ed219d2c9c7d299c004f824eb00cf7f65afef607d07b72e6cafa") throw Error("INVALID_CREDENTIAL_OR_CA");
 } catch {
   process.stdout.write("AI_TASK_DEV_AUTH_NO_GO_CREDENTIAL_BINDING\n");
   process.exit(78);
