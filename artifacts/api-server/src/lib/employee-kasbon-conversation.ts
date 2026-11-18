@@ -8,7 +8,6 @@ const FLOW_KIND = "employee_kasbon_conversation_v1";
 type Step =
   | "employee_name"
   | "amount"
-  | "purpose"
   | "needed_date"
   | "repayment_method"
   | "installment_amount"
