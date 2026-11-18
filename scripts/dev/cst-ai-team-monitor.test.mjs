@@ -23,6 +23,13 @@ test("read-only monitor stays visible to existing DEV Super Admin even when cana
   assert.match(route,/requireCanary && !canRunDevTeam\(\)/);
   assert.match(route,/allow\(req, res, true\)/);
 });
+test("canary cannot claim a real AI Task completion without tenant and worker lineage", () => {
+  assert.match(route, /operationalTaskBinding: \{ verified: false/);
+  assert.match(route, /NO_VERIFIED_OPERATIONAL_TASK_COMPANY_AND_WORKER_CALLBACK/);
+  assert.match(frontend, /task operasional terikat ke Company 1/);
+  assert.match(frontend, /companyId berbeda tidak boleh otomatis dipetakan/);
+});
+
 test("actual worker readiness is separate from four-role diagnostic PASS", () => {
   assert.match(route,/fetchCstTeamAgentReadiness\(\)/);
   assert.match(route,/agentReadiness, canRunCanary: canRunDevTeam\(\)/);

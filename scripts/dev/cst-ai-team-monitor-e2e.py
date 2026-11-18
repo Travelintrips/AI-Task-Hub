@@ -156,6 +156,9 @@ def main():
                 proof["readinessStatus"]=data.get("agentReadiness",{}).get("status")
                 proof["readinessReason"]=data.get("agentReadiness",{}).get("reason")
                 if data.get("canRunCanary") is not True: raise AssertionError("CANARY_DEV_FLAG_NOT_ON")
+                binding = data.get("operationalTaskBinding", {})
+                proof["operationalTaskBindingVerified"] = binding.get("verified")
+                if binding.get("verified") is not False: raise AssertionError("FALSE_OPERATIONAL_TASK_BINDING")
                 if (proof["readinessStatus"],proof["readinessReason"]) != ("unavailable","BRIDGE_NOT_CONFIGURED"):
                     raise AssertionError("READINESS_NOT_FAIL_CLOSED")
                 proof["runStatus"]=run.get("status")

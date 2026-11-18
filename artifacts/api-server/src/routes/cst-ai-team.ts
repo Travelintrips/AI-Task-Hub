@@ -59,6 +59,8 @@ router.get("/cst-ai-team/monitor", requireAuth, async (req: Request, res: Respon
     res.setHeader("Cache-Control", "no-store");
     res.json({ companyId: company, roles: TEAM_ROLES, runs: runs.filter(Boolean),
       agentReadiness, canRunCanary: canRunDevTeam(),
+      operationalTaskBinding: { verified: false,
+        reason: "NO_VERIFIED_OPERATIONAL_TASK_COMPANY_AND_WORKER_CALLBACK" },
       mode: "DEV_PRESENCE_AND_LOCAL_CANARY_ONLY", authority: "NO_GPT02_DISPATCH_NO_PROD" });
   } catch (err) {
     logger.error({ err }, "CST team monitor read failed");

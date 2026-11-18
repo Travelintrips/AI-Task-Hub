@@ -25,6 +25,7 @@ type AgentReadiness = {
 type Monitor = {
  companyId: string; roles: Role[]; runs: Run[]; mode: string; authority: string;
  agentReadiness: AgentReadiness; canRunCanary: boolean;
+ operationalTaskBinding: {verified:boolean; reason:string};
 };
 const roles = [
  { id: "coding", name: "Agen Coding", note: "Kontrak source dan ledger", Icon: Code2 },
@@ -79,8 +80,10 @@ export default function CstAiTeamMonitor() {
   <div className="flex gap-2 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
    <AlertTriangle className="h-5 w-5 shrink-0"/>
    <p><strong>Mode canary DEV saja.</strong> Ini empat executor diagnostik terkoordinasi, bukan empat GPT mandiri atau izin deploy.
-    Hasil PASS bukan tanda tangan GPT02, Final ACK, transaksi PROD, maupun coding lintas repo.</p>
+    Hasil PASS bukan tanda tangan GPT02, Final ACK, transaksi PROD, maupun coding lintas repo.
+    Tugas operasional yang tersimpan dengan companyId berbeda tidak boleh otomatis dipetakan ke Company 1.</p>
   </div>
+  {query.data?.operationalTaskBinding?.verified !== true && <p role="status" className="rounded-lg border border-amber-200 p-3 text-sm text-amber-900">Belum ada bukti bahwa task operasional terikat ke Company 1, worker yang sah, callback, dan verifikasi QA. Status canary tidak dihitung sebagai tugas operasional selesai.</p>}
   {query.isError && <div role="alert" className="rounded-lg border border-red-300 p-4 text-sm text-red-700">{(query.error as Error).message}</div>}
   {mutation.isError && <div role="alert" className="rounded-lg border border-red-300 p-4 text-sm text-red-700">{(mutation.error as Error).message}</div>}
   <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
