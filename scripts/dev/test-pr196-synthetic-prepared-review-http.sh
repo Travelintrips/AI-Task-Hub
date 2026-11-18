@@ -129,6 +129,45 @@ async function get(url,jwtText,expected) {
     assert.equal(r[flag],false,flag);
   await get("/api/ai-tasks/171/gpt02-reconciliation?companyId=other",token("super_admin"),404);
   await get("/api/ai-tasks/172/gpt02-reconciliation?companyId=default",token("super_admin"),404);
+  // The old 7-day DEV email-only JWT may still exist in a browser. It must
+  // NEVER authorize new GPT02 edits, even when role=super_admin is signed.
+  // These are isolated JWT fixtures, not a real user's credentials.
+  const legacy=token("super_admin");
+  for(const endpoint of [
+    "/api/ai-tasks/171/gpt02-adopt-existing?companyId=default",
+    "/api/ai-tasks/171/gpt02-assign-pic?companyId=default",
+    "/api/ai-tasks/171/gpt02-confirm-recovery-pic?companyId=default",
+    "/api/ai-tasks/171/gpt02-prepare?companyId=default",
+    "/api/ai-tasks/171/gpt02-replace-historical-reference?companyId=default",
+  ]) {
+    const blocked=await fetch(base+endpoint,{
+      method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+legacy},
+      body:"{}",redirect:"manual",signal:AbortSignal.timeout(4000),
+    });
+    assert.equal(blocked.status,403,"Legacy JWT must be denied on "+endpoint);
+    const body=await blocked.json();
+    assert.equal(body.error,"GPT02_FRESH_GOOGLE_OPERATOR_REQUIRED",endpoint);
+    assert.equal(body.dispatchPermitted,false,endpoint);
+  }
+  console.log("PR196_LEGACY_EMAIL_ONLY_SUPERADMIN_JWT_WRITE_DENIED_PASS");
+  // Synthetic authenticated Google-shaped claims prove the gate can admit
+  // an identity, while the independent execution status still blocks writes.
+  const proven=jwt.sign({
+    id:"synthetic-nonexistent-subject",email:"synthetic@example.invalid",
+    role:"super_admin",companyId:"default",name:"Synthetic reviewer",
+    authSource:"supabase_google_identity",
+    authSupabaseId:"12345678-1234-4234-8234-123456789abc",
+    authVerifiedAt:Date.now(),
+  },process.env.SESSION_SECRET,{expiresIn:"2m"});
+  const noReplay=await fetch(base+"/api/ai-tasks/171/gpt02-adopt-existing?companyId=default",{
+    method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+proven},
+    body:"{}",redirect:"manual",signal:AbortSignal.timeout(4000),
+  });
+  assert.equal(noReplay.status,409);
+  const noReplayResponse=await noReplay.json();
+  assert.equal(noReplayResponse.error,"EXECUTION_NOT_ELIGIBLE");
+  console.log("PR196_FRESH_GOOGLE_SHAPED_SYNTHETIC_JWT_STILL_CANNOT_REPLAY_PASS");
+
   const badLogin=await fetch(base+"/api/auth/login",{method:"POST",
     headers:{"Content-Type":"application/json"},
     body:JSON.stringify({email:"synthetic@example.invalid"}),
