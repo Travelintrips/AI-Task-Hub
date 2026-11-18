@@ -41,3 +41,44 @@ export function canaryVerdict(evidence: Array<{role: string; status: string; ok:
     e.role === role && e.status === "completed" && e.ok)) &&
     !evidence.some(e => e.status === "failed");
 }
+
+/** Read-only global Core capacity, NEVER proof that Company-1 has four agents.
+ * A successful canary or an active coding-worker lease cannot grant execution,
+ * worker-role authority, independent QA review, or an external Final ACK.
+ */
+export type IndependentTeamCapacityCounts = {
+  registeredCodingWorkers: number;
+  activeLeasedCodingWorkers: number;
+  recordedAiHandoffs: number;
+};
+export type IndependentTeamGate = {
+  mode: "READ_ONLY_GLOBAL_CAPACITY_NOT_AUTHORITY";
+  status: "blocked" | "unavailable";
+  checkedAt: string;
+  registeredCodingWorkers: number | null;
+  activeLeasedCodingWorkers: number | null;
+  recordedAiHandoffs: number | null;
+  verifiedIndependentTeam: false;
+  blockers: string[];
+};
+export function projectIndependentTeamGate(
+  counts: IndependentTeamCapacityCounts | null,
+  checkedAt: Date = new Date(),
+): IndependentTeamGate {
+  const basic = { mode: "READ_ONLY_GLOBAL_CAPACITY_NOT_AUTHORITY" as const,
+    checkedAt: checkedAt.toISOString(), verifiedIndependentTeam: false as const };
+  if (!counts ||
+      !Object.values(counts).every(n => Number.isSafeInteger(n) && n >= 0) ||
+      counts.activeLeasedCodingWorkers > counts.registeredCodingWorkers) {
+    return { ...basic, status: "unavailable",
+      registeredCodingWorkers: null, activeLeasedCodingWorkers: null,
+      recordedAiHandoffs: null,
+      blockers: ["CORE_CAPACITY_READBACK_UNAVAILABLE"] };
+  }
+  const blockers = [
+    ...(counts.activeLeasedCodingWorkers < 4 ? ["FOUR_ACTIVE_CODING_WORKERS_NOT_VERIFIED"] : []),
+    ...(counts.recordedAiHandoffs === 0 ? ["NO_PERSISTED_MULTIWORKER_HANDOFF"] : []),
+    "FOUR_DISTINCT_AGENT_RECEIPTS_AND_INDEPENDENT_QA_FINAL_ACK_NOT_VERIFIED",
+  ];
+  return { ...basic, status: "blocked", ...counts, blockers };
+}
