@@ -22,9 +22,15 @@ type AgentReadiness = {
  status: "available" | "unavailable"; mode: "PRESENCE_ONLY_NOT_EXECUTION_PROOF";
  checkedAt: string | null; workers: WorkerPresence[]; reason?: string;
 };
+type OperationalProbe = {
+ id: string; taskId: number | null; title: string | null; status: string;
+ assignedClientId: string | null; workerId: string | null; errorMessage: string | null;
+ callbackVerified: boolean; attestationVerified: boolean; finalAckVerified: boolean;
+ createdAt: string;
+};
 type Monitor = {
  companyId: string; roles: Role[]; runs: Run[]; mode: string; authority: string;
- agentReadiness: AgentReadiness; canRunCanary: boolean;
+ agentReadiness: AgentReadiness; operationalProbes?: OperationalProbe[]; canRunCanary: boolean;
  operationalTaskBinding: {verified:boolean; reason:string};
 };
 const roles = [
@@ -65,6 +71,7 @@ export default function CstAiTeamMonitor() {
   onSuccess:(data) => {setSelected(data.id); void queryClient.invalidateQueries({queryKey:["cst-ai-team"]});}});
  const runs = query.data?.runs || [];
  const agentReadiness = query.data?.agentReadiness;
+ const probes = query.data?.operationalProbes || [];
  const current = runs.find(r => r.id === selected) || runs[0];
  return <div className="mx-auto max-w-7xl space-y-6 p-6 md:p-8">
   <header className="flex flex-wrap items-start justify-between gap-4">
@@ -117,6 +124,31 @@ export default function CstAiTeamMonitor() {
    </> : <p className="mt-3 text-sm text-amber-800">
      Status worker belum dapat diverifikasi dari bridge. {agentReadiness?.reason || "Belum ada pembacaan."} Tidak dinyatakan PASS.
    </p>}
+  </section>
+  <section className="rounded-xl border bg-card p-4 md:p-5">
+   <h2 className="text-lg font-semibold">Tugas worker nyata — internal E2E DEV</h2>
+   <p className="mt-1 text-xs text-muted-foreground">Hanya execution ledger AI_TASK Company 1 berjudul [INTERNAL-E2E]. Tidak dicampur dengan hasil canary. Tugas gagal tidak boleh diulang memakai parent yang sama.</p>
+   {probes.length === 0 && <p className="mt-3 text-sm text-muted-foreground">Belum ada bukti pengujian worker operasional yang cocok.</p>}
+   <div className="mt-3 space-y-3">{probes.map(probe => {
+    const trusted = probe.status === "completed" &&
+      Boolean(probe.workerId) && probe.workerId === probe.assignedClientId &&
+      probe.callbackVerified && probe.attestationVerified && probe.finalAckVerified;
+    return <div key={probe.id} className="rounded-lg border p-3">
+     <div className="flex flex-wrap items-center justify-between gap-2">
+      <div><p className="text-sm font-semibold">Task #{probe.taskId ?? "—"} · {probe.title || "Tanpa judul"}</p>
+       <p className="mt-1 text-xs text-muted-foreground">Execution {probe.id} · {when(probe.createdAt)}</p></div>
+      <span className={"rounded-full px-2 py-1 text-xs font-semibold " +
+       (trusted ? "bg-emerald-100 text-emerald-800" :
+        probe.status === "failed" ? "bg-rose-100 text-rose-800" : "bg-amber-100 text-amber-800")}>
+       {trusted ? "E2E terverifikasi" : probe.status === "failed" ? "GAGAL — belum dieksekusi" : "BELUM TERVERIFIKASI"}
+      </span>
+     </div>
+     <p className="mt-2 text-xs text-muted-foreground">Worker dipilih: {probe.assignedClientId || "—"} · Worker ACK: {probe.workerId || "belum ada"}</p>
+     <p className="text-xs text-muted-foreground">Callback: {String(probe.callbackVerified)} · Attestation: {String(probe.attestationVerified)} · Final ACK: {String(probe.finalAckVerified)}</p>
+     {probe.errorMessage && <p className="mt-2 text-xs text-red-700">Penyebab: {probe.errorMessage}</p>}
+     {probe.taskId && <a className="mt-2 inline-block text-xs underline" href={"/ai-tasks/" + probe.taskId}>Buka detail dan rekonsiliasi task</a>}
+    </div>;
+   })}</div>
   </section>
   <section><h2 className="mb-3 text-lg font-semibold">Empat peran uji diagnostik</h2>
    <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">{roles.map(role => {
