@@ -47,6 +47,14 @@ function isStart(text: string): boolean {
   return /\b(kasbon|cash\s*advance|uang\s*muka)\b/i.test(text);
 }
 
+function parseCompactRequest(text: string): { amount: number; neededDate: string } | null {
+  const match = text.match(/^\s*(?:pengajuan\s+)?kasbon\s+(.+?)\s+tanggal\s+([0-3]\d-[01]\d-20\d\d)\s*[.!]?\s*$/i);
+  if (!match) return null;
+  const amount = parseAmount(match[1] ?? "");
+  const neededDate = parseDate(match[2] ?? "");
+  return amount && neededDate ? { amount, neededDate } : null;
+}
+
 function parseAmount(text: string): number | null {
   const cleaned = text.toLowerCase().replace(/rp/g, "").replace(/\./g, "").replace(/,/g, "").replace(/[^0-9]/g, "");
   const value = Number(cleaned);
@@ -69,6 +77,14 @@ function parseDate(text: string): string | null {
   const iso = `${year}-${month}-${day}`;
   const parsed = new Date(iso + "T00:00:00.000Z");
   return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === iso ? iso : null;
+}
+
+function formatDateForUser(value: string): string {
+  const match = value.match(/^(20\d\d)-(0[1-9]|1[0-2])-([0-2]\d|3[01])$/);
+  if (!match) return value;
+  const [, year, month, day] = match;
+  const months = ["Januari","Februari","Maret","April","Mei","Juni","Juli","Agustus","September","Oktober","November","Desember"];
+  return `${Number(day)} ${months[Number(month) - 1]} ${year}`;
 }
 
 function parseRepayment(text: string): "Potong Penuh" | "Cicilan" | null {
@@ -144,6 +160,58 @@ export async function handleEmployeeKasbonConversationInbound(input: {
   if (!task || !meta) {
     if (!isStart(text)) return false;
     const employeeName = await activeEmployeeName(client, phone);
+    const compact = parseCompactRequest(text);
+
+    if (compact && employeeName) {
+      const taskNumber = `KASBON-WA-${Date.now()}`;
+      const fields: Record<string, unknown> = {
+        employee_name: employeeName,
+        amount: compact.amount,
+        needed_date: compact.neededDate,
+        repayment_method: "Potong Penuh",
+      };
+      const initialMeta: ConversationMeta = {
+        kind: FLOW_KIND,
+        step: "queued",
+        fields,
+        lastInboundId: input.inboundId ?? null,
+      };
+      const { data: created, error } = await client.from("ai_tasks").insert({
+        company_id: companyId,
+        task_number: taskNumber,
+        source: "employee_kasbon_conversation",
+        customer_name: employeeName,
+        customer_phone: phone,
+        title: `Pengajuan Kasbon Karyawan — ${taskNumber}`,
+        description: "Pengajuan kasbon melalui WhatsApp AI Task",
+        category: "Finance",
+        priority: "medium",
+        status: "in_progress",
+        ai_intent: "permintaan_kasbon",
+        required_action: "preparing_owner_approval",
+        admin_notes: JSON.stringify(initialMeta),
+        last_customer_reply_at: new Date().toISOString(),
+      }).select("id,task_number").single();
+      if (error || !created) throw new Error(`KASBON_CONVERSATION_TASK_CREATE_FAILED:${error?.code ?? "UNKNOWN"}`);
+
+      const queued = await queueEmployeeKasbonOwnerApproval({
+        taskId: Number(created.id),
+        companyId,
+        requesterPhone: phone,
+        fields,
+      });
+      if (!queued.queued) {
+        throw new Error(`KASBON_CONVERSATION_OWNER_QUEUE_FAILED:${queued.reason ?? "UNKNOWN"}`);
+      }
+      await sendReply(
+        phone,
+        taskNumber,
+        "queued",
+        `✅ Pengajuan kasbon Rp${compact.amount.toLocaleString("id-ID")} tanggal ${formatDateForUser(compact.neededDate)} atas nama ${employeeName} sudah diteruskan ke Owner untuk persetujuan.`,
+      );
+      logger.info({ taskId: created.id, phoneSuffix: phone.slice(-4) }, "employee-kasbon compact request queued");
+      return true;
+    }
     const step: Step = employeeName ? "amount" : "employee_name";
     const fields: Record<string, unknown> = employeeName ? { employee_name: employeeName } : {};
     const taskNumber = `KASBON-WA-${Date.now()}`;
