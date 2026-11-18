@@ -64,8 +64,12 @@ function todayJakarta(): string {
 
 function parseDate(text: string): string | null {
   if (/hari\s*ini/i.test(text)) return todayJakarta();
-  const iso = text.match(/\b(20\d\d)-(0[1-9]|1[0-2])-([0-2]\d|3[01])\b/);
-  return iso?.[0] ?? null;
+  const local = text.match(/\b([0-2]\d|3[01])-(0[1-9]|1[0-2])-(20\d\d)\b/);
+  if (!local) return null;
+  const [, day, month, year] = local;
+  const iso = `${year}-${month}-${day}`;
+  const parsed = new Date(iso + "T00:00:00.000Z");
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === iso ? iso : null;
 }
 
 function parseRepayment(text: string): "Potong Penuh" | "Cicilan" | null {
@@ -79,7 +83,7 @@ function prompt(step: Step): string {
     case "employee_name": return "Baik. Siapa nama karyawan yang mengajukan kasbon? Mohon tulis nama sesuai data karyawan di BizPortal.";
     case "amount": return "Berapa nominal kasbon yang diajukan? Contoh: Rp500.000.";
     case "purpose": return "Kasbon tersebut untuk keperluan apa?";
-    case "needed_date": return "Kapan kasbon dibutuhkan? Balas *hari ini* atau tanggal format YYYY-MM-DD.";
+    case "needed_date": return "Kapan kasbon dibutuhkan? Balas *hari ini* atau tulis tanggal dengan format *DD-MM-YYYY*, contoh *18-11-2026*.";
     case "repayment_method": return "Cara pengembaliannya bagaimana? Balas *Potong Penuh* atau *Cicilan*.";
     case "installment_amount": return "Berapa nominal cicilan per periode? Contoh: Rp500.000.";
     default: return "Data kasbon sedang diproses.";
@@ -184,16 +188,12 @@ export async function handleEmployeeKasbonConversationInbound(input: {
       const amount = parseAmount(text);
       if (!amount) { await sendReply(phone, task.task_number, meta.step, "Nominal belum terbaca. Mohon kirim angka, contoh *Rp500.000*."); return true; }
       fields.amount = amount;
-      next = "purpose";
-      break;
-    }
-    case "purpose":
-      fields.purpose = text;
       next = "needed_date";
       break;
+    }
     case "needed_date": {
       const date = parseDate(text);
-      if (!date) { await sendReply(phone, task.task_number, meta.step, "Tanggal belum terbaca. Balas *hari ini* atau format *YYYY-MM-DD*."); return true; }
+      if (!date) { await sendReply(phone, task.task_number, meta.step, "Tanggal belum terbaca. Balas *hari ini* atau gunakan format *DD-MM-YYYY*, contoh *18-11-2026*."); return true; }
       fields.needed_date = date;
       next = "repayment_method";
       break;
