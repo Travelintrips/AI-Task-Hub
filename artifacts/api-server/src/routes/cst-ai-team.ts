@@ -1,6 +1,6 @@
 import { randomUUID, createHash } from "node:crypto";
 import { Router, type IRouter, type Request, type Response } from "express";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, like } from "drizzle-orm";
 import { db, aiExecutionJobsTable as jobs, aiExecutionEventsTable as events } from "@workspace/db";
 import { requireAuth } from "../middleware/auth";
 import { logger } from "../lib/logger";
@@ -52,13 +52,26 @@ router.get("/cst-ai-team/monitor", requireAuth, async (req: Request, res: Respon
     const rows = await db.select({ id: jobs.id }).from(jobs)
       .where(and(eq(jobs.companyId, company), eq(jobs.source, TEAM_SOURCE)))
       .orderBy(desc(jobs.createdAt)).limit(12);
-    const [runs, agentReadiness] = await Promise.all([
+    const [runs, agentReadiness, operationalProbes] = await Promise.all([
       Promise.all(rows.map(r => fetchRun(r.id, company))),
       fetchCstTeamAgentReadiness(),
+      // Existing Company-1 execution ledger only. Internal E2E records stay
+      // separate from local canaries and never gain completion by projection.
+      db.select({
+        id: jobs.id, taskId: jobs.taskId, title: jobs.title, status: jobs.status,
+        assignedClientId: jobs.assignedClientId, workerId: jobs.workerId,
+        errorMessage: jobs.errorMessage, callbackVerified: jobs.callbackVerified,
+        attestationVerified: jobs.attestationVerified, finalAckVerified: jobs.finalAckVerified,
+        createdAt: jobs.createdAt,
+      }).from(jobs).where(and(
+        eq(jobs.companyId, company),
+        eq(jobs.source, "AI_TASK"),
+        like(jobs.title, "[INTERNAL-E2E]%"),
+      )).orderBy(desc(jobs.createdAt)).limit(8),
     ]);
     res.setHeader("Cache-Control", "no-store");
     res.json({ companyId: company, roles: TEAM_ROLES, runs: runs.filter(Boolean),
-      agentReadiness, canRunCanary: canRunDevTeam(),
+      agentReadiness, operationalProbes, canRunCanary: canRunDevTeam(),
       operationalTaskBinding: { verified: false,
         reason: "NO_VERIFIED_OPERATIONAL_TASK_COMPANY_AND_WORKER_CALLBACK" },
       mode: "DEV_PRESENCE_AND_LOCAL_CANARY_ONLY", authority: "NO_GPT02_DISPATCH_NO_PROD" });
