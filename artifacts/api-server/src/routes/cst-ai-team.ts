@@ -1,10 +1,10 @@
 import { randomUUID, createHash } from "node:crypto";
 import { Router, type IRouter, type Request, type Response } from "express";
-import { and, desc, eq, inArray, like } from "drizzle-orm";
+import { and, desc, eq, inArray, like, sql } from "drizzle-orm";
 import { db, aiExecutionJobsTable as jobs, aiExecutionEventsTable as events } from "@workspace/db";
 import { requireAuth } from "../middleware/auth";
 import { logger } from "../lib/logger";
-import { canReadDevTeam, canRunDevTeam, canaryVerdict, projectCanaryStatus, TEAM_SOURCE, TEAM_ROLES, type TeamRole } from "../lib/cst-ai-team-contract";
+import { canReadDevTeam, canRunDevTeam, canaryVerdict, projectCanaryStatus, projectIndependentTeamGate, TEAM_SOURCE, TEAM_ROLES, type TeamRole } from "../lib/cst-ai-team-contract";
 import { fetchCstTeamAgentReadiness } from "../lib/cst-ai-team-agent-readiness";
 
 const router: IRouter = Router();
@@ -46,13 +46,47 @@ async function fetchRun(runId: string, company: string) {
     finalAckVerified: run.finalAckVerified,
   };
 }
+/** Global Core coding capacity only; no task details, tenant data, or DB writes.
+ * Independent execution remains BLOCKED without four external worker receipts
+ * and an independent QA Final ACK, regardless of raw capacity counts.
+ */
+async function fetchIndependentTeamGate() {
+  if (!canReadDevTeam()) return projectIndependentTeamGate(null);
+  try {
+    const result = await db.execute(sql<{
+      registered_coding_workers: number;
+      active_leased_coding_workers: number;
+      recorded_ai_handoffs: number;
+    }>`
+      SELECT
+        (SELECT count(*)::int FROM ai_platform.ai_workers
+          WHERE worker_type='coding_worker') AS registered_coding_workers,
+        (SELECT count(*)::int FROM ai_platform.ai_workers
+          WHERE worker_type='coding_worker'
+            AND lease_expires_at > now()
+            AND status IN ('online','idle','busy')) AS active_leased_coding_workers,
+        (SELECT count(*)::int
+          FROM ai_platform.ai_coding_workstream_ai_handoffs) AS recorded_ai_handoffs
+    `);
+    const row = result.rows[0];
+    if (!row) return projectIndependentTeamGate(null);
+    return projectIndependentTeamGate({
+      registeredCodingWorkers: Number(row.registered_coding_workers),
+      activeLeasedCodingWorkers: Number(row.active_leased_coding_workers),
+      recordedAiHandoffs: Number(row.recorded_ai_handoffs),
+    });
+  } catch {
+    return projectIndependentTeamGate(null);
+  }
+}
+
 router.get("/cst-ai-team/monitor", requireAuth, async (req: Request, res: Response) => {
   const company = allow(req, res); if (!company) return;
   try {
     const rows = await db.select({ id: jobs.id }).from(jobs)
       .where(and(eq(jobs.companyId, company), eq(jobs.source, TEAM_SOURCE)))
       .orderBy(desc(jobs.createdAt)).limit(12);
-    const [runs, agentReadiness, operationalProbes] = await Promise.all([
+    const [runs, agentReadiness, operationalProbes, independentTeamGate] = await Promise.all([
       Promise.all(rows.map(r => fetchRun(r.id, company))),
       fetchCstTeamAgentReadiness(),
       // Existing Company-1 execution ledger only. Internal E2E records stay
@@ -70,10 +104,11 @@ router.get("/cst-ai-team/monitor", requireAuth, async (req: Request, res: Respon
         eq(jobs.source, "AI_TASK"),
         like(jobs.title, "[INTERNAL-E2E]%"),
       )).orderBy(desc(jobs.createdAt)).limit(8),
+      fetchIndependentTeamGate(),
     ]);
     res.setHeader("Cache-Control", "no-store");
     res.json({ companyId: company, roles: TEAM_ROLES, runs: runs.filter(Boolean),
-      agentReadiness, operationalProbes, canRunCanary: canRunDevTeam(),
+      agentReadiness, operationalProbes, independentTeamGate, canRunCanary: canRunDevTeam(),
       operationalTaskBinding: { verified: false,
         reason: "NO_VERIFIED_OPERATIONAL_TASK_COMPANY_AND_WORKER_CALLBACK" },
       mode: "DEV_PRESENCE_AND_LOCAL_CANARY_ONLY", authority: "NO_GPT02_DISPATCH_NO_PROD" });
