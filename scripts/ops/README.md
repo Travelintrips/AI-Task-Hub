@@ -61,10 +61,41 @@ PostgreSQL, writing its application log, or modifying the stale PID file**.
 
 **Deployment boundary:** On 18 Nov an independently managed systemd unit
 `ai-task-development.service` was started with a direct, older Node
-checkout, not through the corrected launcher, and its source has NOT been
-patched by this PR. Its health was 200, so no speculative stop/restart was
-performed. A controlled, credential-authorized DEV deployment gate is needed
-to integrate this source patch into that existing unit safely.
+checkout, not through the corrected launcher. Its source has NOT been
+patched by this PR. The later database readiness HTTP 503 and recurring
+Supavisor 28P01 errors justified targeted isolation of that unused legacy
+unit, as detailed below. A credential-authorized DEV release gate is still
+required before restoring or replacing its runtime.
+
+## Legacy systemd runtime reactivation: permanently fail closed until authorized
+
+On 18 Nov 2026, the old `ai-task-development.service` was re-started via
+a direct systemd action at 14:12:11 UTC **despite already being disabled**
+from boot. Its old Node checkout reported PostgreSQL readiness HTTP 503;
+Supavisor had six bad-password events in the same minute and three
+`ai-task-hub` events at 14:15 UTC from the same VPS egress.
+
+The only affected, non-public legacy unit was stopped and protected with
+the versioned `scripts/ops/systemd/99-fail-closed-stale-credentials.conf`
+drop-in, installed at
+`/etc/systemd/system/ai-task-development.service.d/`. This uses
+`RefuseManualStart=yes`, an absent authorized-release condition marker and
+`Restart=no`. Unit file/source remain retained, but manual systemctl start
+returns nonzero and no old Node listener is created. No Nginx route to
+port 18081 and no connected client were present when this isolation was made;
+the official PR196 DEV container and AI Task PROD continued running.
+
+**To restore this legacy service in the future:** the approved operator
+must first confirm the exact pinned DEV release, verify credentials for the
+least-privilege `ai_task_vps_identity_reader_dev` and its real TLS/RLS
+authentication, then explicitly remove the temporary blocking drop-in,
+call `systemctl daemon-reload`, and enable/start only after its own
+independent DEV rollout checks are PASS. Do not create the marker or
+remove the guard simply to retry the stale `postgres` admin DSN.
+
+Three offline CI checks verify the systemd guard. This is a reversible
+temporary stop on one unhealthy private DEV unit, not an action on PR196,
+PROD, signer, dispatch, Customer Portal, or Payroll.
 
 ## Remaining operational acceptance
 

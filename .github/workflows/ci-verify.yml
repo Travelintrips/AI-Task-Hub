@@ -31,6 +31,8 @@ jobs:
           node --test scripts/ops/ai-task-development-start.test.mjs
       - name: DEV PostgreSQL auth circuit blocks retries with real pg.Pool semantics (offline)
         run: node --experimental-strip-types --test lib/db/src/dev-auth-circuit.test.mjs
+      - name: Stale DEV systemd unit cannot restart without authorized role and release
+        run: node --test scripts/ops/ai-task-development-systemd-guard.test.mjs
       - run: pnpm run typecheck
       - run: pnpm -r --filter './artifacts/**' --if-present run build
       - run: pnpm --filter @workspace/api-server test:short-links
