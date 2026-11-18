@@ -46,7 +46,9 @@ CREATE TABLE ai_execution_events (
 -- Existing Core capacity tables are fixtures in temporary PG16 ONLY.
 CREATE SCHEMA ai_platform;
 CREATE TABLE ai_platform.ai_workers (
- worker_type text NOT NULL, status text NOT NULL, lease_expires_at timestamptz
+ worker_type text NOT NULL, status text NOT NULL, lease_expires_at timestamptz,
+ provider_slug text, runtime_kind text, endpoint_url text,
+ capabilities jsonb NOT NULL DEFAULT '[]'::jsonb, running_jobs integer NOT NULL DEFAULT 0
 );
 CREATE TABLE ai_platform.ai_coding_workstream_ai_handoffs (
  id uuid PRIMARY KEY
@@ -208,12 +210,12 @@ def main():
                 proof["independentTeamCapacity"] = {
                     key: capacity.get(key) for key in
                     ("status", "registeredCodingWorkers", "activeLeasedCodingWorkers",
-                     "recordedAiHandoffs", "verifiedIndependentTeam", "blockers")
+                     "recordedAiHandoffs", "availableOllamaCodingSlots", "verifiedIndependentTeam", "blockers")
                 }
                 if (capacity.get("status"), capacity.get("registeredCodingWorkers"),
                     capacity.get("activeLeasedCodingWorkers"), capacity.get("recordedAiHandoffs")) != ("blocked",4,0,0):
                     raise AssertionError("CORE_CAPACITY_NOT_PROJECTED")
-                if capacity.get("verifiedIndependentTeam") is not False or len(capacity.get("blockers", [])) != 3:
+                if capacity.get("availableOllamaCodingSlots") != 0 or capacity.get("verifiedIndependentTeam") is not False or len(capacity.get("blockers", [])) != 4:
                     raise AssertionError("FALSE_FOUR_AGENT_FINAL_ACK")
                 probes = data.get("operationalProbes", [])
                 if len(probes) != 2 or {p.get("taskId") for p in probes} != {178,181}:
