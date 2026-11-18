@@ -122,7 +122,7 @@ function idr(value: number): string {
 async function sendKasbonMessage(
   phone: string,
   message: string,
-  fonnteDevice?: string | null,
+  _legacyDevice?: string | null,
 ): Promise<void> {
   if (
     process.env.NODE_ENV !== "production" &&
@@ -134,8 +134,8 @@ async function sendKasbonMessage(
     );
     return;
   }
-  const { sendFonnte } = await import("./fonnte");
-  await sendFonnte(phone, message, fonnteDevice ?? null);
+  const { sendEmployeeKasbonWa } = await import("./employee-kasbon-wa-gateway");
+  await sendEmployeeKasbonWa({ to: phone, text: message });
 }
 
 export function isOwnerKasbonApprovalReply(text: string): boolean {
