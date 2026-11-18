@@ -25,6 +25,9 @@ export function assessIsolatedDevRuntime(env) {
   if (env.DB_SSL === 'false') {
     blockers.push('TLS_EXPLICITLY_DISABLED');
   }
+  if (env.AI_TASK_DEV_REQUIRE_VERIFIED_TLS !== 'true' || env.AI_TASK_DEV_DB_CA_CERT_PATH !== '/run/credentials/ai-task-dev/supabase-ca.pem') {
+    blockers.push('CERTIFICATE_VERIFICATION_NOT_CONFIGURED');
+  }
   const raw = env.SUPABASE_DATABASE_URL_DEV;
   if (typeof raw !== 'string' || !raw.trim()) {
     blockers.push('MISSING_DEV_DATABASE_URL');
