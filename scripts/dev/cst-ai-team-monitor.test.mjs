@@ -80,7 +80,7 @@ test("internal E2E worker probes are read-only, tenant-scoped and separate from 
   assert.match(route, /like\(jobs\.title, "\[INTERNAL-E2E\]%"\)/);
   assert.match(route, /operationalProbes/);
   assert.match(frontend, /Tugas worker nyata — internal E2E DEV/);
-  assert.match(frontend, /callbackVerified && probe\.attestationVerified && probe\.finalAckVerified/);
+  assert.match(frontend, /const trusted = workerCallbackPass && probe\.attestationVerified && probe\.finalAckVerified/);
   assert.match(frontend, /GAGAL — periksa ledger/);
   assert.match(frontend, /const workerCallbackPass = probe.status === "completed"/);
   assert.match(frontend, /probe.workerId === probe.assignedClientId && probe.callbackVerified/);
