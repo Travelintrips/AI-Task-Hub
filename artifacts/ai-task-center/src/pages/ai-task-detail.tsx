@@ -671,6 +671,10 @@ export default function AiTaskDetail() {
     status: string; matchCount: number; uniqueCommandMatch: boolean; commandId: string | null;
     callbackVerified: boolean; attestationVerified: boolean; finalAckVerified: boolean;
     archiveAvailable: boolean; automaticDispatch: boolean; statusChanged: boolean;
+    independentReviewRequired?: boolean; reviewReason?: string;
+    preparationExpired?: boolean; evidenceComplete?: boolean; coreStatus?: string | null;
+    readOnly?: boolean; resumePermitted?: boolean; dispatchPermitted?: boolean;
+    archiveChecked?: boolean;
   }>({
     queryKey: ["gpt02-reconciliation", id],
     queryFn: () => apiFetch(`/ai-tasks/${id}/gpt02-reconciliation?companyId=${encodeURIComponent(task?.companyId ?? "")}`),
@@ -1386,7 +1390,16 @@ export default function AiTaskDetail() {
               <p>Status job: {reconciliation.status}; kecocokan unik: {reconciliation.uniqueCommandMatch ? "Ya" : "Tidak"}; jumlah padanan: {reconciliation.matchCount}</p>
               <p className="break-all font-mono text-slate-900">Command ID: {reconciliation.commandId ?? "Belum terkonfirmasi"}</p>
               <p>Callback: {reconciliation.callbackVerified ? "Verified" : "Belum"} · Attestation: {reconciliation.attestationVerified ? "Verified" : "Belum"} · Final ACK: {reconciliation.finalAckVerified ? "Verified" : "Belum"}</p>
-              <p>Arsip tersedia: {reconciliation.archiveAvailable ? "Ya" : "Tidak"} · Dispatch otomatis: Tidak · Perubahan status: Tidak</p>
+              <p>Arsip: {reconciliation.independentReviewRequired ? "Tidak diperiksa (belum ada command)" : reconciliation.archiveAvailable ? "Tersedia" : "Tidak tersedia"} · Dispatch otomatis: Tidak · Perubahan status: Tidak</p>
+              {reconciliation.independentReviewRequired && (
+                <div data-testid="gpt02-prepared-independent-review" role="alert"
+                  className="rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950 space-y-1">
+                  <strong>Review independen wajib — reservation tidak boleh dijalankan atau disiapkan ulang.</strong>
+                  <p>Preparation: {reconciliation.preparationExpired ? "Kedaluwarsa" : "Masa berlaku atau bukti belum selesai diperiksa"} · Core Task: {reconciliation.coreStatus ?? "Belum terbukti"} · Bukti konsisten: {reconciliation.evidenceComplete ? "Ya (reservasi saja)" : "Belum"}</p>
+                  <p>Kode audit: {reconciliation.reviewReason ?? "BUKTI_BELUM_TERSEDIA"}</p>
+                  <p>Pemeriksaan ini baca-saja. Tidak memberikan approval, resume, dispatch, maupun izin membuat command baru.</p>
+                </div>
+              )}
             </div>}
           </div>
         )}
