@@ -50,6 +50,7 @@ export type IndependentTeamCapacityCounts = {
   registeredCodingWorkers: number;
   activeLeasedCodingWorkers: number;
   recordedAiHandoffs: number;
+  availableOllamaCodingSlots: number;
 };
 export type IndependentTeamGate = {
   mode: "READ_ONLY_GLOBAL_CAPACITY_NOT_AUTHORITY";
@@ -58,6 +59,7 @@ export type IndependentTeamGate = {
   registeredCodingWorkers: number | null;
   activeLeasedCodingWorkers: number | null;
   recordedAiHandoffs: number | null;
+  availableOllamaCodingSlots: number | null;
   verifiedIndependentTeam: false;
   blockers: string[];
 };
@@ -72,12 +74,13 @@ export function projectIndependentTeamGate(
       counts.activeLeasedCodingWorkers > counts.registeredCodingWorkers) {
     return { ...basic, status: "unavailable",
       registeredCodingWorkers: null, activeLeasedCodingWorkers: null,
-      recordedAiHandoffs: null,
+      recordedAiHandoffs: null, availableOllamaCodingSlots: null,
       blockers: ["CORE_CAPACITY_READBACK_UNAVAILABLE"] };
   }
   const blockers = [
     ...(counts.activeLeasedCodingWorkers < 4 ? ["FOUR_ACTIVE_CODING_WORKERS_NOT_VERIFIED"] : []),
     ...(counts.recordedAiHandoffs === 0 ? ["NO_PERSISTED_MULTIWORKER_HANDOFF"] : []),
+    ...(counts.availableOllamaCodingSlots === 0 ? ["OLLAMA_CODING_CAPACITY_NOT_READY"] : []),
     "FOUR_DISTINCT_AGENT_RECEIPTS_AND_INDEPENDENT_QA_FINAL_ACK_NOT_VERIFIED",
   ];
   return { ...basic, status: "blocked", ...counts, blockers };
