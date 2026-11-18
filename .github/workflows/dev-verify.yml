@@ -54,6 +54,8 @@ jobs:
         run: timeout --kill-after=10s 240s bash scripts/dev/test-vps-identity-reader-node-pg16.sh
       - name: Verify CST four-role DEV monitor guard (no dispatch)
         run: node --experimental-strip-types --test scripts/dev/cst-ai-team-monitor.test.mjs
+      - name: Verify DEV operator-collected external review stays unsigned and non-authorizing
+        run: node --experimental-strip-types --test scripts/dev/cst-ai-team-external-review.test.mjs
       - name: Verify blue-green DEV cannot start duplicate WA/Core background workers
         run: node --test scripts/dev/ai-task-background-worker-cutover-gate.test.mjs
       - name: Verify DEV cutover configuration parity and single WA worker handoff

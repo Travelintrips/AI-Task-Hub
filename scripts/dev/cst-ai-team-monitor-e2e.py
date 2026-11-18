@@ -160,6 +160,7 @@ def main():
         e.update({
           "NODE_ENV":"development","APP_ENV":"development",
           "CST_AI_TEAM_DEV_ENABLED":"true",
+          "CST_AI_TEAM_EXTERNAL_EVIDENCE_ENABLED":"true",
           "PORT":str(api_port),"HOST":"127.0.0.1",
           "SESSION_SECRET":jwt_secret,
           "SUPABASE_DATABASE_URL_DEV":"postgresql://canary:"+password+"@127.0.0.1:"+str(pg_port)+"/cst_team_canary",
@@ -284,6 +285,54 @@ def main():
         if duplicate_status != 200 or not duplicate_run or duplicate_run.get("verifiedComplete") is not False:
             raise AssertionError("DUPLICATE_TERMINAL_EVIDENCE_FALSE_PASS")
         proof["duplicateReceiptRejected"] = True
+        # Operator-collected observations use existing execution ledger, not GPT02 authority.
+        rpath="/api/cst-ai-team/external-reviews?companyId=1"
+        admitted,review=http(api_port,"POST",rpath,make_jwt(jwt_secret),
+                             {"scenario":"operator_collected_read_only_review"})
+        anonymous_review,_=http(api_port,"POST",rpath,data={"scenario":"operator_collected_read_only_review"})
+        staff_review,_=http(api_port,"POST",rpath,make_jwt(jwt_secret,"staff"),
+                            {"scenario":"operator_collected_read_only_review"})
+        other_company_review,_=http(api_port,"POST",
+          "/api/cst-ai-team/external-reviews?companyId=3",make_jwt(jwt_secret),
+          {"scenario":"operator_collected_read_only_review"})
+        if (anonymous_review,staff_review,other_company_review)!=(401,403,403):
+            raise AssertionError("EXTERNAL_REVIEW_TENANT_OR_AUTH_GUARD_FAILED")
+        if admitted!=201 or review.get("proofLevel")!="DEV_OPERATOR_COLLECTED_UNATTESTED":
+            raise AssertionError("OPERATOR_REVIEW_START_FAIL")
+        reviewid=review["id"]; challenge=review["challenge"]
+        path="/api/cst-ai-team/external-reviews/"+reviewid+"/observations?companyId=1"
+        profile={"coding":("Travelintrips","main"),"infrastructure":("DELL","dell-recovery"),
+                 "security":("DELL","dell-verifier"),"qa":("DELL","dell-browser")}
+        def item(role):
+            host,agent=profile[role]
+            return {"role":role,"host":host,"agentId":agent,"challenge":challenge,
+              "result":"BLOCKED","summaryCode":"NO_PERSISTED_HANDOFF",
+              "responseSha256":hashlib.sha256(("dev-sample-response-"+role).encode()).hexdigest(),
+              "sessionSha256":hashlib.sha256(("dev-sample-session-"+role).encode()).hexdigest()}
+        early,_=http(api_port,"POST",path,make_jwt(jwt_secret),item("qa"))
+        bad=item("coding");bad["agentId"]="different-agent"
+        mismatched,_=http(api_port,"POST",path,make_jwt(jwt_secret),bad)
+        stale=item("coding");stale["challenge"]="e1d00000-1111-4111-8111-111111111111"
+        wrong_challenge,_=http(api_port,"POST",path,make_jwt(jwt_secret),stale)
+        if (early,mismatched,wrong_challenge)!=(409,400,403):
+            raise AssertionError("EARLY_QA_OR_WRONG_PROFILE_OR_CHALLENGE_ALLOWED")
+        for role in ("coding","infrastructure","security"):
+            status,_=http(api_port,"POST",path,make_jwt(jwt_secret),item(role))
+            if status!=201:raise AssertionError("OBSERVATION_NOT_ACCEPTED_"+role)
+        duplicate,_=http(api_port,"POST",path,make_jwt(jwt_secret),item("coding"))
+        if duplicate!=409:raise AssertionError("OBSERVATION_REPLAY_ALLOWED")
+        qa_status,_=http(api_port,"POST",path,make_jwt(jwt_secret),item("qa"))
+        if qa_status!=201:raise AssertionError("QA_OBSERVATION_NOT_ACCEPTED")
+        status,data=http(api_port,path=rpath,jwt=make_jwt(jwt_secret))
+        row=next((x for x in data.get("reviews",[]) if x.get("id")==reviewid),None)
+        if status!=200 or not row or row.get("status")!="blocked" or not row.get("internallyConsistent"):
+            raise AssertionError("REVIEW_OBSERVATION_READBACK_FAILED")
+        if row.get("operationalVerified") is not False or row.get("independentFinalAckVerified") is not False:
+            raise AssertionError("UNSIGNED_OBSERVATIONS_PROMOTED")
+        proof["externalReviewObservation"]={"id":reviewid,"roles":row["recordedRoles"],
+           "replayRejected":True,"earlyQaRejected":True,"wrongChallengeRejected":True,
+           "unauthorizedAccessRejected":True,"crossCompanyRejected":True,"notSigned":True,
+           "operationalVerified":False}
         proof["result"]="ISOLATED_CANARY_E2E_PASS"
     except Exception as err:
         proof["result"]="FAIL"

@@ -33,3 +33,40 @@ Do not promote if E2E is unverified or any existing gate fails.
 
 ## Next release criterion
 Real autonomous AI team would additionally require separate authorized external worker runtimes, a safe task dispatch protocol, verified return receipts, and a nonprivileged task with real external Final ACK. This canary cannot satisfy those criteria.
+
+## DEV-only operator-collected OpenClaw review (unattested)
+
+The optional review intake reuses **existing** `ai_execution_jobs` and
+`ai_execution_events` with source `cst-ai-team-dev-external-review`; it does **not**
+create a new task engine, workstream, signer, user, approval, or database table.
+It is separate from `cst-ai-team-dev-canary` and from operational `AI_TASK` tasks.
+
+- This API is **disabled by default**. Admission requires `NODE_ENV=development`,
+  `APP_ENV=development`, `CST_AI_TEAM_DEV_ENABLED=true`, and the additional
+  `CST_AI_TEAM_EXTERNAL_EVIDENCE_ENABLED=true` gate, plus the existing JWT
+  Super Admin and explicit `companyId=1` scope.
+- `POST /api/cst-ai-team/external-reviews?companyId=1` accepts **only** the
+  `operator_collected_read_only_review` scenario and creates a scoped run and
+  one per-run challenge. It does not invoke or route to an external agent.
+- `POST /api/cst-ai-team/external-reviews/:id/observations?companyId=1`
+  accepts only one observation per predetermined role/profile/host pair:
+  `coding` = Travelintrips/main; `infrastructure` = DELL/dell-recovery;
+  `security` = DELL/dell-verifier; `qa` = DELL/dell-browser.
+  Observations contain a bounded result code and SHA-256 digests **only**,
+  never raw chat, credentials, or bearer/session tokens. Exact role + challenge
+  and unique event ID guard replay. QA cannot be recorded before the three
+  preceding observations. A completed operator review stays `blocked`.
+- `GET /api/cst-ai-team/external-reviews?companyId=1` provides the separate
+  read-only display in CST AI Team Monitor, with no assumption that a role
+  profile was cryptographically authenticated merely because a Super Admin
+  entered its observation. Observations are intentionally marked
+  `DEV_OPERATOR_COLLECTED_UNATTESTED`, `signature_verified=false`,
+  `operationalVerified=false`, and `independentFinalAckVerified=false`.
+- This is a **manual/operator-collected bridge evidence journal**, **not**
+  autonomous routing, not four independent authorized coding workers, not
+  signed GPT02 attestation, and not approval to deploy or merge to PROD.
+
+Regression: `node --experimental-strip-types --test scripts/dev/cst-ai-team-external-review.test.mjs`
+plus the existing synthetic PostgreSQL16 `scripts/dev/cst-ai-team-monitor-e2e.py`.
+The test injects only generated, synthetic credentials; no live DEV/PROD
+credentials are copied into test logs or fixture data.

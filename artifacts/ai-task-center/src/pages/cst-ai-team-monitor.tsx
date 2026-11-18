@@ -36,6 +36,19 @@ type OperationalProbe = {
  callbackVerified: boolean; attestationVerified: boolean; finalAckVerified: boolean;
  createdAt: string;
 };
+type ExternalReviewObservation = {
+ role: Role; host: string | null; agentId: string | null;
+ result: string | null; summaryCode: string | null; at: string; signatureVerified: false;
+};
+type ExternalReview = {
+ id: string; createdAt: string; status: string; recordedRoles: Role[];
+ internallyConsistent: boolean; operationalVerified: false;
+ independentFinalAckVerified: false; qaReviewRecorded: boolean;
+ evidenceType: "DEV_OPERATOR_COLLECTED_UNATTESTED";
+ observations: ExternalReviewObservation[];
+};
+type ExternalReviewList = {companyId: string; mode: string; reviews: ExternalReview[];
+ operationalVerified: false; independentFinalAckVerified: false; admissionEnabled: boolean};
 type Monitor = {
  companyId: string; roles: Role[]; runs: Run[]; mode: string; authority: string;
  agentReadiness: AgentReadiness; operationalProbes?: OperationalProbe[]; independentTeamGate?: IndependentTeamGate; canRunCanary: boolean;
@@ -74,6 +87,11 @@ export default function CstAiTeamMonitor() {
  const query = useQuery<Monitor>({queryKey:["cst-ai-team", "1"],
   queryFn: () => callApi<Monitor>("/api/cst-ai-team/monitor?companyId=1"),
   refetchInterval:5000, retry:1});
+ const externalQuery = useQuery<ExternalReviewList>({
+  queryKey:["cst-ai-team-external-reviews", "1"],
+  queryFn:() => callApi<ExternalReviewList>("/api/cst-ai-team/external-reviews?companyId=1"),
+  refetchInterval:5000, retry:1,
+ });
  const mutation = useMutation({mutationFn:() => callApi<{id:string}>("/api/cst-ai-team/runs?companyId=1",
   {method:"POST", body:JSON.stringify({scenario:"dev_read_only_canary"})}),
   onSuccess:(data) => {setSelected(data.id); void queryClient.invalidateQueries({queryKey:["cst-ai-team"]});}});
@@ -81,6 +99,7 @@ export default function CstAiTeamMonitor() {
  const agentReadiness = query.data?.agentReadiness;
  const independentTeamGate = query.data?.independentTeamGate;
  const probes = query.data?.operationalProbes || [];
+ const externalReviews = externalQuery.data?.reviews || [];
  const current = runs.find(r => r.id === selected) || runs[0];
  return <div className="mx-auto max-w-7xl space-y-6 p-6 md:p-8">
   <header className="flex flex-wrap items-start justify-between gap-4">
@@ -88,7 +107,7 @@ export default function CstAiTeamMonitor() {
     <h1 className="mt-2 text-3xl font-bold">CST AI Team Monitor</h1>
     <p className="mt-2 text-sm text-muted-foreground">Pemantauan empat peran dari bukti ledger eksekusi nyata.</p></div>
    <div className="flex gap-2">
-    <Button variant="outline" onClick={() => void query.refetch()} disabled={query.isFetching}><RefreshCw className="mr-2 h-4 w-4"/>Refresh</Button>
+    <Button variant="outline" onClick={() => { void query.refetch(); void externalQuery.refetch(); }} disabled={query.isFetching || externalQuery.isFetching}><RefreshCw className="mr-2 h-4 w-4"/>Refresh</Button>
     <Button disabled={!query.data?.canRunCanary || mutation.isPending || current?.status === "processing"}
      onClick={() => mutation.mutate()}><PlayCircle className="mr-2 h-4 w-4"/>{query.data?.canRunCanary ? "Uji koordinasi DEV" : "Uji DEV terkunci"}</Button>
    </div>
@@ -156,6 +175,27 @@ export default function CstAiTeamMonitor() {
     <p className="mt-3 text-xs text-muted-foreground">Blokir: {independentTeamGate.blockers.join(" · ")}</p>
     <p className="mt-2 text-xs text-muted-foreground">Slot model ini khusus jalur coding Ollama Core AI. Heartbeat OpenClaw maupun Ollama lokal PC tidak otomatis memenuhi kontrak tersebut.</p>
    </> : <p className="mt-3 text-sm text-muted-foreground">Kapasitas Core AI belum dapat dibaca. Status tetap terblokir; tidak dianggap sebagai nol atau PASS.</p>}
+  </section>
+  <section className="rounded-xl border bg-card p-4 md:p-5">
+   <h2 className="text-lg font-semibold">Review empat profil OpenClaw — observasi operator DEV</h2>
+   <p className="mt-1 text-xs text-muted-foreground">Sumber terpisah dari canary dan execution ledger AI_TASK. Hanya kode hasil serta hash bukti yang disimpan, bukan percakapan, kredensial, ataupun tanda tangan.</p>
+   <p className="mt-2 text-sm font-semibold text-amber-800">TIDAK TERVERIFIKASI secara kriptografis — tidak memberi izin dispatch, GPT02 atau PROD.</p>
+   {externalQuery.isError && <p role="status" className="mt-3 text-sm text-amber-800">Endpoint pengumpulan review belum tersedia pada runtime DEV ini; belum ada bukti yang boleh dipromosikan.</p>}
+   {!externalQuery.isError && externalReviews.length === 0 && <p className="mt-3 text-sm text-muted-foreground">Belum ada review operator yang tersimpan untuk Company 1.</p>}
+   <div className="mt-3 space-y-3">{externalReviews.map(review =>
+    <div key={review.id} className="rounded-lg border p-3">
+     <p className="text-sm font-semibold">Review #{review.id.slice(0,8)} · {when(review.createdAt)}</p>
+     <p className="mt-1 text-xs text-muted-foreground">Catatan {review.recordedRoles.length}/4 · QA tercatat: {String(review.qaReviewRecorded)} · Integritas format: {review.internallyConsistent ? "sesuai" : "tidak lengkap"}</p>
+     <p className="mt-1 text-xs text-amber-800">Bukti operator, bukan Final ACK independen. Status operasional: BLOCKED.</p>
+     <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+      {review.observations.map((item,i) => <div key={item.role+String(i)} className="rounded-md border p-2">
+        <p className="text-xs font-semibold">{item.role} · {item.result}</p>
+        <p className="mt-1 text-xs text-muted-foreground">{item.host}/{item.agentId}</p>
+        <p className="text-xs text-muted-foreground">{item.summaryCode} · {when(item.at)}</p>
+       </div>)}
+     </div>
+    </div>)}
+   </div>
   </section>
   <section className="rounded-xl border bg-card p-4 md:p-5">
    <h2 className="text-lg font-semibold">Tugas worker nyata — internal E2E DEV</h2>

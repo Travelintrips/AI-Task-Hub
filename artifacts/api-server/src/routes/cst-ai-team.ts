@@ -6,6 +6,7 @@ import { requireAuth } from "../middleware/auth";
 import { logger } from "../lib/logger";
 import { canReadDevTeam, canRunDevTeam, canaryVerdict, canaryLedgerVerdict, projectCanaryStatus, projectIndependentTeamGate, TEAM_SOURCE, TEAM_ROLES, type TeamRole } from "../lib/cst-ai-team-contract";
 import { fetchCstTeamAgentReadiness } from "../lib/cst-ai-team-agent-readiness";
+import { EXTERNAL_REVIEW_SOURCE, EXTERNAL_REVIEW_PROOF, EXTERNAL_REVIEW_SCENARIO, EXTERNAL_TEAM_AGENTS, canRunExternalReview, isExternalReviewStart, parseExternalObservation, checkExternalObservation, projectExternalObservations } from "../lib/cst-ai-team-external-review";
 
 const router: IRouter = Router();
 const active = new Set<string>();
@@ -231,4 +232,113 @@ router.post("/cst-ai-team/runs", requireAuth, async (req: Request, res: Response
     res.status(500).json({ error: "CANARY_ADMISSION_FAILED" });
   }
 });
+/** Explicit operator-collected review only; not native OpenClaw handoff. */
+async function fetchExternalReview(runId: string, company: string) {
+  const [run] = await db.select().from(jobs).where(and(
+    eq(jobs.id, runId), eq(jobs.companyId, company), eq(jobs.source, EXTERNAL_REVIEW_SOURCE),
+  )).limit(1);
+  if (!run) return null;
+  const challenge = typeof run.metadata.reviewChallenge === "string" ? run.metadata.reviewChallenge : "";
+  const history = await db.select().from(events).where(and(
+    eq(events.executionId, runId), eq(events.companyId, company),
+  )).orderBy(events.createdAt);
+  const integrity = projectExternalObservations(history, challenge);
+  return { id: run.id, createdAt: run.createdAt, status: run.status,
+    ...integrity,
+    observations: history.filter(e => e.eventType === "team.external.observed")
+      .map(e => ({ role: e.phase, host: (e.workerId ?? "").split(":")[1] ?? null,
+        agentId: (e.workerId ?? "").split(":")[2] ?? null,
+        result: e.payload.result ?? null, summaryCode: e.payload.summaryCode ?? null,
+        at: e.createdAt, signatureVerified: false })),
+  };
+}
+
+router.get("/cst-ai-team/external-reviews", requireAuth, async (req: Request, res: Response) => {
+  const company = allow(req, res); if (!company) return;
+  try {
+    const rows = await db.select({id: jobs.id}).from(jobs)
+      .where(and(eq(jobs.companyId,company), eq(jobs.source,EXTERNAL_REVIEW_SOURCE)))
+      .orderBy(desc(jobs.createdAt)).limit(8);
+    const reviews = (await Promise.all(rows.map(r => fetchExternalReview(r.id,company)))).filter(Boolean);
+    res.setHeader("Cache-Control","no-store");
+    res.json({companyId:company, mode:EXTERNAL_REVIEW_PROOF, reviews,
+      operationalVerified:false, independentFinalAckVerified:false,
+      admissionEnabled:canRunExternalReview()});
+  } catch (err) { logger.warn({err},"External review read failed");
+    res.status(500).json({error:"EXTERNAL_REVIEW_READ_FAILED"}); }
+});
+
+router.post("/cst-ai-team/external-reviews", requireAuth, async (req: Request, res: Response) => {
+  const company = allow(req,res,true); if (!company) return;
+  if (!canRunExternalReview()) { res.status(404).json({error:"EXTERNAL_REVIEW_DISABLED"}); return; }
+  if (!isExternalReviewStart(req.body)) { res.status(400).json({error:"REVIEW_SCENARIO_INVALID"}); return; }
+  try {
+    const id = randomUUID(), challenge = randomUUID();
+    const [run] = await db.insert(jobs).values({ id, companyId:company,
+      source:EXTERNAL_REVIEW_SOURCE, externalId:`external-review:${id}`,
+      idempotencyKey:`external-review:${id}`,
+      title:"CST AI Team — operator-collected external OpenClaw review DEV",
+      instruction:"Read-only observations only; no runtime dispatch or signing",
+      workerType:"operator-collected-text-observations",status:"processing",startedAt:new Date(),
+      metadata:{scenario:EXTERNAL_REVIEW_SCENARIO, reviewChallenge:challenge,
+        proofLevel:EXTERNAL_REVIEW_PROOF, operatorId:req.user?.id,
+        noDispatch:true,noSigning:true,noProd:true},
+    }).returning({id:jobs.id});
+    res.status(201).json({id:run.id,companyId:company,challenge,
+      expectedAgents:EXTERNAL_TEAM_AGENTS,proofLevel:EXTERNAL_REVIEW_PROOF,
+      operationalVerified:false,independentFinalAckVerified:false});
+  } catch(err) { logger.error({err},"External review admission failed");
+    res.status(500).json({error:"EXTERNAL_REVIEW_ADMISSION_FAILED"}); }
+});
+
+router.post("/cst-ai-team/external-reviews/:id/observations",requireAuth,async(req:Request,res:Response)=>{
+  const company=allow(req,res,true); if(!company)return;
+  if(!canRunExternalReview()){res.sendStatus(404);return;}
+  const id=String(req.params.id??"");
+  if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)){
+    res.status(400).json({error:"INVALID_REVIEW_ID"});return;
+  }
+  const observation=parseExternalObservation(req.body);
+  if(!observation){res.status(400).json({error:"INVALID_UNATTESTED_OBSERVATION"});return;}
+  try{
+    const [run]=await db.select().from(jobs).where(and(
+      eq(jobs.id,id),eq(jobs.companyId,company),eq(jobs.source,EXTERNAL_REVIEW_SOURCE),
+    )).limit(1);
+    if(!run){res.sendStatus(404);return;}
+    if(run.status!=="processing"){res.status(409).json({error:"REVIEW_TERMINAL"});return;}
+    const challenge=typeof run.metadata.reviewChallenge==="string"?run.metadata.reviewChallenge:"";
+    if(!checkExternalObservation(observation,challenge)){
+      res.status(403).json({error:"REVIEW_CHALLENGE_OR_AGENT_MISMATCH"});return;
+    }
+    const existing=await db.select().from(events).where(and(
+      eq(events.executionId,id),eq(events.companyId,company),
+    )).orderBy(events.createdAt);
+    if(observation.role==="qa"&& !["coding","infrastructure","security"].every(role=>
+      existing.some(e=>e.eventType==="team.external.observed"&&e.phase===role))){
+      res.status(409).json({error:"QA_REQUIRES_THREE_PRIOR_OBSERVATIONS"});return;
+    }
+    const [inserted]=await db.insert(events).values({
+      executionId:id,companyId:company,eventId:`cst-external:${id}:${observation.role}`,
+      eventType:"team.external.observed",phase:observation.role,status:"observed",
+      workerId:`openclaw:${observation.host}:${observation.agentId}`,
+      signatureVerified:false,message:"Operator-collected text observation — not agent attestation",
+      payload:{operatorCollected:true,proofLevel:EXTERNAL_REVIEW_PROOF,
+        challenge, result:observation.result,summaryCode:observation.summaryCode,
+        responseSha256:observation.responseSha256,sessionSha256:observation.sessionSha256},
+    }).onConflictDoNothing({target:events.eventId}).returning({id:events.id});
+    if(!inserted){res.status(409).json({error:"ROLE_OBSERVATION_ALREADY_RECORDED"});return;}
+    if(observation.role==="qa"){
+      await db.update(jobs).set({status:"blocked",progress:0,completedAt:new Date(),
+        resultSummary:"Four operator-collected observations recorded; no signed or autonomous Final ACK",
+        updatedAt:new Date(),
+      }).where(and(eq(jobs.id,id),eq(jobs.companyId,company),
+        eq(jobs.source,EXTERNAL_REVIEW_SOURCE)));
+    }
+    res.status(201).json({id,role:observation.role,recorded:true,
+      proofLevel:EXTERNAL_REVIEW_PROOF,operationalVerified:false,independentFinalAckVerified:false});
+  }catch(err){logger.error({err},"External review observation failed");
+    res.status(500).json({error:"EXTERNAL_REVIEW_WRITE_FAILED"});}
+});
+
+
 export default router;
