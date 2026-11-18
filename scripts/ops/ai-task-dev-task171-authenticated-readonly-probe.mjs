@@ -13,18 +13,18 @@ const expectedProject = "xssrfshdrtdfupgqwfdw";
 const expectedRole = "ai_task_operational_dev";
 const host = process.env.AI_TASK_DEV_POOLER_HOST || "";
 const credsDir = process.env.CREDENTIALS_DIRECTORY || "";
-const hostOk = /^aws-[0-9]+-[a-z0-9-]+\\.pooler\\.supabase\\.com$/.test(host);
+const hostOk = /^aws-[0-9]+-[a-z0-9-]+\.pooler\.supabase\.com$/.test(host);
 if (!hostOk || !credsDir.startsWith("/run/credentials/") || process.env.NODE_ENV === "production") {
-  process.stdout.write("AI_TASK_DEV_AUTH_NO_GO_CONFIG\\n");
+  process.stdout.write("AI_TASK_DEV_AUTH_NO_GO_CONFIG\n");
   process.exit(78);
 }
 let password, ca;
 try {
-  password = readFileSync(credsDir + "/operational-password", "utf8").replace(/\\r?\\n$/, "");
+  password = readFileSync(credsDir + "/operational-password", "utf8").replace(/\r?\n$/, "");
   ca = readFileSync(credsDir + "/supabase-ca.pem", "utf8");
   if (!password || !ca.includes("BEGIN CERTIFICATE")) throw Error("MISSING_CREDENTIAL");
 } catch {
-  process.stdout.write("AI_TASK_DEV_AUTH_NO_GO_CREDENTIAL_BINDING\\n");
+  process.stdout.write("AI_TASK_DEV_AUTH_NO_GO_CREDENTIAL_BINDING\n");
   process.exit(78);
 }
 const client = new Client({
@@ -48,9 +48,9 @@ try {
   const rights = await client.query("SELECT has_column_privilege(current_user,'public.ai_tasks','title','SELECT') AS title, has_table_privilege(current_user,'public.ai_tasks','UPDATE') AS update_allowed, has_table_privilege(current_user,'public.ai_tasks','INSERT') AS insert_allowed, has_table_privilege(current_user,'public.ai_tasks','DELETE') AS delete_allowed");
   if (Object.values(rights.rows[0] || {}).some(Boolean)) throw Error("PRIVILEGES");
   await client.query("ROLLBACK");
-  process.stdout.write("AI_TASK_DEV_AUTH_TLS_RLS_READONLY_PASS\\n");
+  process.stdout.write("AI_TASK_DEV_AUTH_TLS_RLS_READONLY_PASS\n");
 } catch {
-  process.stdout.write("AI_TASK_DEV_AUTH_TLS_RLS_READONLY_FAIL\\n");
+  process.stdout.write("AI_TASK_DEV_AUTH_TLS_RLS_READONLY_FAIL\n");
   process.exitCode = 1;
   try { await client.query("ROLLBACK"); } catch {}
 } finally {
