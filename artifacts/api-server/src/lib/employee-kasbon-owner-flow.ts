@@ -162,7 +162,6 @@ function buildOwnerRequest(taskNumber: string, fields: Record<string, unknown>):
     `No. Pengajuan: *${taskNumber}*`,
     `Karyawan: *${employee}*`,
     `Nominal: *${amount ? idr(amount) : "-"}*`,
-    `Keperluan: ${purpose}`,
     `Tanggal dibutuhkan: ${neededDate}`,
     `Pengembalian: ${repay}${installment ? ` — ${idr(installment)}/periode` : ""}`,
     "",
