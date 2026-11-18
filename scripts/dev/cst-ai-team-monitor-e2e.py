@@ -52,6 +52,19 @@ VALUES
  'ai-task:1:178', 'test:task:178',
  '[INTERNAL-E2E] bounded worker ping', 'openclaw-pc-worker-dev',
  'failed', 'AI_CORE_COMMAND_HTTP_403');
+-- Callback-verified bounded worker is not automatically signed or final-ACK verified.
+INSERT INTO ai_execution_jobs
+(id, company_id, task_id, source, external_id, idempotency_key, title,
+ assigned_client_id, worker_id, command_id, status, progress, result_summary,
+ callback_verified, attestation_verified, final_ack_verified)
+VALUES
+('00000000-0000-4000-8000-000000000181', '1', 181, 'AI_TASK',
+ 'ai-task:1:181', 'test:task:181',
+ '[INTERNAL-E2E] bounded worker success without signed Final ACK',
+ 'openclaw-pc-worker-dev', 'openclaw-pc-worker-dev',
+ 'f3371023-1b15-4907-abaf-deff8b0a01ff',
+ 'completed', 100, 'pong from synthetic DEV worker',
+ true, false, false);
 -- Same title format in Company 3 must never appear or promote Company 1.
 INSERT INTO ai_execution_jobs
 (id, company_id, task_id, source, external_id, idempotency_key, title,
@@ -179,11 +192,17 @@ def main():
                 proof["operationalTaskBindingVerified"] = binding.get("verified")
                 if binding.get("verified") is not False: raise AssertionError("FALSE_OPERATIONAL_TASK_BINDING")
                 probes = data.get("operationalProbes", [])
-                if len(probes) != 1 or probes[0].get("taskId") != 178 or probes[0].get("status") != "failed":
-                    raise AssertionError("WORKER_PROBE_TENANT_SCOPE_OR_FAILURE_MISMATCH")
-                if any(probes[0].get(k) is not False for k in ("callbackVerified", "attestationVerified", "finalAckVerified")):
-                    raise AssertionError("FAILED_WORKER_FALSE_ACK")
-                proof["operationalProbeScope"] = "COMPANY_1_FAILED_ONLY"
+                if len(probes) != 2 or {p.get("taskId") for p in probes} != {178,181}:
+                    raise AssertionError("WORKER_PROBE_TENANT_SCOPE_MISMATCH")
+                failed = next(p for p in probes if p.get("taskId") == 178)
+                completed = next(p for p in probes if p.get("taskId") == 181)
+                if failed.get("status") != "failed" or any(failed.get(k) is not False for k in ("callbackVerified", "attestationVerified", "finalAckVerified")):
+                    raise AssertionError("FAILED_WORKER_FALSE_PASS")
+                if (completed.get("status"),completed.get("progress"),completed.get("callbackVerified")) != ("completed",100,True):
+                    raise AssertionError("WORKER_COMPLETION_NOT_PROJECTED")
+                if completed.get("attestationVerified") is not False or completed.get("finalAckVerified") is not False or not completed.get("commandId"):
+                    raise AssertionError("UNSIGNED_WORKER_WRONGLY_FINAL_ACKED")
+                proof["operationalProbeScope"] = "COMPANY_1_FAILED_AND_CALLBACK_ONLY"
                 if (proof["readinessStatus"],proof["readinessReason"]) != ("unavailable","BRIDGE_NOT_CONFIGURED"):
                     raise AssertionError("READINESS_NOT_FAIL_CLOSED")
                 proof["runStatus"]=run.get("status")
