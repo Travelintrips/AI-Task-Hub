@@ -39,11 +39,9 @@ test("rejects non-loopback and unexpected deployment targets before fetch", asyn
     await assert.rejects(() => smoke({ base, request: async () => assert.fail("must not fetch") }));
   }
 });
-test("never accepts the production listener port", async () => {
-  // Pending exact port policy; see separate check in runtime candidate.
-  const mock = fake();
-  const result = await smoke({ base: "http://127.0.0.1:18296", request: mock.request });
-  assert.equal(result.passed, true);
+test("never makes any network request to the PROD listener 18080", async () => {
+  await assert.rejects(() => smoke({base:"http://127.0.0.1:18080", request:async()=>assert.fail("PROD must not be requested")}),
+    {message:"AI_TASK_READONLY_SMOKE_DEV_PORT_REQUIRED"});
 });
 test("readiness 503 is an explicit failure, not a PASS", async () => {
   const mock = fake({ "/api/readyz": { status: 503 } });
