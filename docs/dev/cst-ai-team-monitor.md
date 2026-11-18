@@ -108,3 +108,37 @@ review, one 4/4 operator-collected review using the clearly labeled local
 Ollama QA alternative, one 3/4 review blocked because QA provider is
 unavailable, and one stale review.
 All remain `operationalVerified=false` and `independentFinalAckVerified=false`.
+
+### Repeatable DELL native Ollama QA preflight (no OpenClaw wrapper)
+
+The bounded, read-only Windows PowerShell collector lives in
+`scripts/dev/cst-ai-team-local-ollama-qa.ps1`. The script is intended **only for
+DELL**, checks the existing local API `http://127.0.0.1:11434/api/generate`,
+and uses the locally installed `qwen2.5:3b` with context 512, generation
+24 tokens and an HTTP timeout of 30 seconds. It never reads auth files,
+changes OpenClaw settings, invokes tools, calls cloud endpoints, or installs
+dependencies. The per-process QA output contains a SHA-256 digest of the exact
+model response and a random session marker digest; **neither is a signature**.
+
+Run it on DELL against an explicitly created Company-1 operator-review challenge,
+using only bounded, operator-confirmed *finding codes* from the three prior
+reviews (replace the UUID with the current one):
+
+```powershell
+powershell -NoProfile -File .\scripts\dev\cst-ai-team-local-ollama-qa.ps1 -Challenge 33acb2cd-aee9-4d40-8ee8-a3c51fe173d7 -CodingFinding NO_PERSISTED_HANDOFF -InfrastructureFinding MISSING_WORKER_LEASE -SecurityFinding MISSING_FINAL_ACK
+```
+
+The emitted `observation` object is compatible with the existing restricted
+operator-collected observation API, but **only Super Admin, Company 1, explicit
+DEV feature flags and matching per-run challenge may submit it**. The script
+does not submit anything by itself. A short, valid native Ollama response is
+required; unavailable/mismatched answers fail closed, and input containing no
+known blocker is rejected without invoking the model. Real Coding,
+Infrastructure and Security receipts must be collected and validated separately;
+preflight success alone never sets any independent-agent or GPT02 `Final ACK`.
+
+Runtime verification on DELL (19 Nov WIB): one positive bounded sample returned
+`PASS_LOCAL_DIAGNOSTIC` in about 6.9 seconds, with `QA_BLOCKED` and false
+operational/final flags; one all-clear input was denied with
+`NO_VERIFIED_BLOCKER_INPUT`. The positive input consisted of operator-supplied
+codes, not verified agent-signed receipts.
