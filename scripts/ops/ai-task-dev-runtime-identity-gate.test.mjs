@@ -47,3 +47,14 @@ test('diagnostics contain no credential, URL or hostname',()=>{
   assert.equal(serialized.includes('postgresql://'),false);
   assert.equal(serialized.includes('pooler.supabase.com'),false);
 });
+
+test('query user override cannot impersonate postgres',()=>
+  check({SUPABASE_DATABASE_URL_DEV:base().SUPABASE_DATABASE_URL_DEV+'?user=postgres.'+project},'UNAPPROVED_DATABASE_URL_PARAMETERS'));
+test('query host/port overrides cannot bypass the authority check',()=>
+  check({SUPABASE_DATABASE_URL_DEV:base().SUPABASE_DATABASE_URL_DEV+'?host=db.other.example&port=5432'},'UNAPPROVED_DATABASE_URL_PARAMETERS'));
+test('TLS downgrade query is rejected before database access',()=>
+  check({SUPABASE_DATABASE_URL_DEV:base().SUPABASE_DATABASE_URL_DEV+'?sslmode=disable'},'UNAPPROVED_DATABASE_URL_PARAMETERS'));
+test('unexpected database name is rejected',()=>
+  check({SUPABASE_DATABASE_URL_DEV:base().SUPABASE_DATABASE_URL_DEV.replace('/postgres','/foreign_db')},'UNAPPROVED_DATABASE_NAME'));
+test('URL fragments are rejected rather than ignored by a driver',()=>
+  check({SUPABASE_DATABASE_URL_DEV:base().SUPABASE_DATABASE_URL_DEV+'#bad'},'UNAPPROVED_DATABASE_URL_PARAMETERS'));
