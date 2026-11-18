@@ -666,6 +666,21 @@ export default function AiTaskDetail() {
     }),
   });
 
+  // Existing app session verification is read-only: no OAuth token exchange,
+  // no approval, no issuer nonce and no dispatch.
+  const { data: googleSessionReadiness, error: googleSessionReadinessError,
+    isFetching: googleSessionReadinessFetching, refetch: refreshGoogleSessionReadiness } = useQuery<{
+      googleProofFresh:boolean;requiresFreshGoogleLogin:boolean;
+      proofSource:"signed_app_session";readOnly:true;
+      operatorApprovalRecorded:false;commandBoundConsentVerified:false;
+      issuerLeaseGranted:false;dispatchPermitted:false;resumePermitted:false;statusChanged:false;
+    }>({
+      queryKey:["gpt02-google-session-readiness",id],
+      queryFn:()=>apiFetch("/auth/gpt02/operator-session-readiness"),
+      enabled:currentUser?.role==="super_admin",
+      retry:false,staleTime:0,refetchOnWindowFocus:false,
+    });
+
   const [reconciliationRequested, setReconciliationRequested] = useState(false);
   const { data: reconciliation, isFetching: reconciliationFetching, error: reconciliationError, refetch: checkReconciliation } = useQuery<{
     status: string; matchCount: number; uniqueCommandMatch: boolean; commandId: string | null;
@@ -1346,8 +1361,23 @@ export default function AiTaskDetail() {
           <div className="mt-3 space-y-2 rounded-lg border border-slate-200 bg-white p-3 text-xs">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="font-semibold text-slate-900">Diagnostik lineage GPT02 — baca-saja</span>
+              <Button variant="outline" size="sm"
+                disabled={googleSessionReadinessFetching}
+                onClick={()=>{void refreshGoogleSessionReadiness();}}>
+                Periksa bukti sesi Google
+              </Button>
               <Button variant="outline" size="sm" onClick={()=>{void refreshGpt02Lineage();}}
                 disabled={gpt02LineageFetching}>Periksa ulang bukti</Button>
+            </div>
+            <div data-testid="gpt02-google-session-readiness" role="status"
+              className="rounded border border-slate-200 p-2 space-y-1 text-slate-700">
+              <strong>Bukti identitas Google untuk tindakan GPT02</strong>
+              <p>{googleSessionReadinessFetching && !googleSessionReadiness ? "Memeriksa sesi..." :
+                googleSessionReadiness?.googleProofFresh === true
+                  ? "Bukti Google pada sesi aplikasi masih berlaku untuk pemeriksaan identitas."
+                  : "Bukti Google baru belum terverifikasi pada sesi aplikasi. Akses baca-saja tetap tersedia."}</p>
+              {googleSessionReadinessError && <p>Verifikasi sesi tidak tersedia — izin perubahan tetap ditolak.</p>}
+              <p>Hasil ini bukan persetujuan operator, penerbitan lease, atau izin menjalankan Task.</p>
             </div>
             {gpt02LineageError && <p role="alert" className="text-red-700">
               Diagnostik tidak tersedia. Status NO-GO tetap berlaku.
