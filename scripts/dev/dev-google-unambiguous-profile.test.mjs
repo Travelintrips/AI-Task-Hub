@@ -55,11 +55,16 @@ test("DEV Google token exchange uses normalized parameterized email, checks two 
     devGoogle.indexOf("const token = signToken"));
   assert.match(devGoogle, /const \{ loginStatus: _loginStatus, \.\.\.registeredUser \} = uniqueProfile/);
 });
-test("existing DEV passwordless route and PROD Google claims remain unchanged", () => {
-  const passwordless = source.split('router.post("/auth/login"')[1]
+test("DEV rejects email-only JWT while PROD Google metadata claims stay unchanged", () => {
+  const login = source.split('router.post("/auth/login"')[1]
     .split('router.get("/auth/google/start"')[0];
   assert.match(source, /process\.env\.DEV_PASSWORDLESS_LOGIN === "true"/);
-  assert.match(passwordless, /!devPasswordlessLoginEnabled/);
+  assert.match(login, /if \(devPasswordlessLoginEnabled\) \{\s*res\.status\(403\)/);
+  assert.match(login, /Verified Google login required on DEV/);
+  assert.ok(login.indexOf("if (devPasswordlessLoginEnabled)") < login.indexOf("const { email, password }"),
+    "do not parse identity or access DB before denying email-only");
+  assert.ok(login.indexOf("if (devPasswordlessLoginEnabled)") < login.indexOf("const token = signToken"));
+  assert.match(login, /bcrypt\.compare\(password, user\.passwordHash\)/);
   assert.match(source, /const metadata = authUser\.app_metadata \?\? \{\}/);
   assert.match(source, /registeredUser\.role === "super_admin" && verifiedGoogleOAuthAt !== null/);
 });
