@@ -115,10 +115,12 @@ export default function CstAiTeamMonitor() {
         <span className="text-sm font-semibold">{worker.clientId}</span>
         <span className={"rounded-full px-2 py-1 text-xs font-semibold " +
          (worker.eligible ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800")}>
-          {worker.eligible ? "Online / eligible" : "Tidak siap"}
+          {worker.eligible ? "Online / eligible" :
+           worker.presenceState === "ACTIVE" ? "Heartbeat aktif — belum eligible" : "Tidak siap"}
         </span>
        </div>
-       <p className="mt-2 text-xs text-muted-foreground">Heartbeat: {when(worker.lastSeenAt)}</p>
+       <p className="mt-2 text-xs text-muted-foreground">Kondisi: {worker.reportedHealth}</p>
+       <p className="text-xs text-muted-foreground">Heartbeat: {when(worker.lastSeenAt)}</p>
        <p className="text-xs text-muted-foreground">Lease sampai: {when(worker.leaseExpiresAt)}</p>
       </div>)}
     </div>
