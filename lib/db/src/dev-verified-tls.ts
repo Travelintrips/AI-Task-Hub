@@ -11,7 +11,7 @@ import { lstatSync, readFileSync } from "node:fs";
 
 export const AI_TASK_DEV_CA_PATH = "/run/credentials/ai-task-dev/supabase-ca.pem";
 const DEV_PROJECT = "xssrfshdrtdfupgqwfdw";
-const DEV_ROLE = \`ai_task_operational_dev.\${DEV_PROJECT}\`;
+const DEV_ROLE = `ai_task_operational_dev.${DEV_PROJECT}`;
 const POOLER_HOST = /^aws-[0-9]+-[a-z0-9-]+\.pooler\.supabase\.com$/;
 
 type CertificateStat = {
