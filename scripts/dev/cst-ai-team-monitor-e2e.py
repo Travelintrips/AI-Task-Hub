@@ -43,6 +43,19 @@ CREATE TABLE ai_execution_events (
  payload jsonb NOT NULL DEFAULT '{}'::jsonb,
  created_at timestamptz NOT NULL DEFAULT now()
 );
+-- Existing Core capacity tables are fixtures in temporary PG16 ONLY.
+CREATE SCHEMA ai_platform;
+CREATE TABLE ai_platform.ai_workers (
+ worker_type text NOT NULL, status text NOT NULL, lease_expires_at timestamptz
+);
+CREATE TABLE ai_platform.ai_coding_workstream_ai_handoffs (
+ id uuid PRIMARY KEY
+);
+INSERT INTO ai_platform.ai_workers(worker_type,status,lease_expires_at) VALUES
+ ('coding_worker','offline',NULL),
+ ('coding_worker','offline',NULL),
+ ('coding_worker','offline',NULL),
+ ('coding_worker','offline',NULL);
 -- A failed Company-1 worker task must remain failed in the monitor.
 INSERT INTO ai_execution_jobs
 (id, company_id, task_id, source, external_id, idempotency_key, title,
@@ -191,6 +204,17 @@ def main():
                 binding = data.get("operationalTaskBinding", {})
                 proof["operationalTaskBindingVerified"] = binding.get("verified")
                 if binding.get("verified") is not False: raise AssertionError("FALSE_OPERATIONAL_TASK_BINDING")
+                capacity = data.get("independentTeamGate", {})
+                proof["independentTeamCapacity"] = {
+                    key: capacity.get(key) for key in
+                    ("status", "registeredCodingWorkers", "activeLeasedCodingWorkers",
+                     "recordedAiHandoffs", "verifiedIndependentTeam", "blockers")
+                }
+                if (capacity.get("status"), capacity.get("registeredCodingWorkers"),
+                    capacity.get("activeLeasedCodingWorkers"), capacity.get("recordedAiHandoffs")) != ("blocked",4,0,0):
+                    raise AssertionError("CORE_CAPACITY_NOT_PROJECTED")
+                if capacity.get("verifiedIndependentTeam") is not False or len(capacity.get("blockers", [])) != 3:
+                    raise AssertionError("FALSE_FOUR_AGENT_FINAL_ACK")
                 probes = data.get("operationalProbes", [])
                 if len(probes) != 2 or {p.get("taskId") for p in probes} != {178,181}:
                     raise AssertionError("WORKER_PROBE_TENANT_SCOPE_MISMATCH")
