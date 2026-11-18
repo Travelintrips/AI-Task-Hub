@@ -183,7 +183,20 @@ async function activeOwners(companyId: string) {
       .where(and(eq(teamMembersTable.role, "owner"), eq(teamMembersTable.isActive, true)))
       .limit(3);
   }
-  return rows.filter((row) => normalizePhone(row.phone).length >= 8);
+  const valid = rows.filter((row) => normalizePhone(row.phone).length >= 8);
+  if (valid.length > 0) return valid;
+
+  const envOwnerPhone = normalizePhone(process.env.EMPLOYEE_KASBON_OWNER_PHONE);
+  if (envOwnerPhone) {
+    return [{
+      id: 0,
+      name: process.env.EMPLOYEE_KASBON_OWNER_NAME?.trim() || "Owner",
+      phone: envOwnerPhone,
+      role: "owner",
+      companyId,
+    }];
+  }
+  return valid;
 }
 
 export async function queueEmployeeKasbonOwnerApproval(input: QueueInput): Promise<{
@@ -398,7 +411,17 @@ export async function tryHandleEmployeeKasbonOwnerApproval(input: HandleInput): 
   if (!isOwnerKasbonApprovalReply(input.text)) return false;
 
   const actor = await resolveWaRole(input.phone, input.companyId);
-  if (actor.role !== "owner") return false;
+  const envOwnerPhone = normalizePhone(process.env.EMPLOYEE_KASBON_OWNER_PHONE);
+  const senderPhone = normalizePhone(input.phone);
+  const isConfiguredOwner = Boolean(envOwnerPhone) && senderPhone === envOwnerPhone;
+  if (actor.role !== "owner" && !isConfiguredOwner) return false;
+  const ownerActor = actor.role === "owner"
+    ? actor
+    : {
+        ...actor,
+        role: "owner" as const,
+        name: process.env.EMPLOYEE_KASBON_OWNER_NAME?.trim() || "Owner",
+      };
 
   const candidates = await db
     .select()
@@ -439,7 +462,7 @@ export async function tryHandleEmployeeKasbonOwnerApproval(input: HandleInput): 
       taskNumber,
       requesterPhone: meta.requesterPhone,
       fields: meta.fields,
-      ownerName: actor.name ?? meta.ownerName,
+      ownerName: ownerActor.name ?? meta.ownerName,
       ownerPhone,
     });
   } catch (error) {
@@ -471,7 +494,7 @@ export async function tryHandleEmployeeKasbonOwnerApproval(input: HandleInput): 
       employeeName: kasbon.employeeName,
       amount: kasbon.amount,
       purpose: kasbon.purpose,
-      ownerName: actor.name ?? meta.ownerName,
+      ownerName: ownerActor.name ?? meta.ownerName,
     });
     await sendFonnte(notifyPhone, message, input.fonnteDevice ?? null);
     notifySentAt = new Date().toISOString();
@@ -482,7 +505,7 @@ export async function tryHandleEmployeeKasbonOwnerApproval(input: HandleInput): 
     state: RECORDED_STATE,
     approvedAt,
     approvedByPhone: ownerPhone,
-    approvedByName: actor.name ?? meta.ownerName,
+    approvedByName: ownerActor.name ?? meta.ownerName,
     bizportalAdvanceId: kasbon.id,
     bizportalAdvanceNumber: kasbon.advanceNumber,
     approvedNotifyPhone: notifyPhone || null,
@@ -502,7 +525,7 @@ export async function tryHandleEmployeeKasbonOwnerApproval(input: HandleInput): 
     await tx.insert(taskCommentsTable).values({
       taskId: task.id,
       senderType: "owner",
-      senderName: actor.name ?? "Owner",
+      senderName: ownerActor.name ?? "Owner",
       comment: `OK — kasbon disetujui via WhatsApp dan tercatat di BizPortal sebagai ${kasbon.advanceNumber}. Status menunggu pencairan.`,
     });
   });
