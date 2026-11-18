@@ -40,7 +40,7 @@ When `NODE_ENV=production`, **both Pool objects are left unchanged**.
 Their existing SQL, privileges, and transaction semantics are preserved.
 
 This launcher is used only for isolated QA and is not executed automatically
-by GitHub CI. CI runs seven offline launcher tests and **sixteen** pool
+by GitHub CI. CI runs twelve offline launcher tests and **sixteen** pool
 tests, including the real `pg.Pool.query` callback path and the shared
 two-pool cold-start race. In additional disposable PostgreSQL 16 SCRAM tests:
 
@@ -102,8 +102,9 @@ PROD, signer, dispatch, Customer Portal, or Payroll.
 
 **Important capability audit, 18 Nov 2026 (Supabase CST-DEV, read-only):**
 The existing `ai_task_vps_identity_reader_dev` role is `NOLOGIN`,
-`NOBYPASSRLS`, has **zero grants to SELECT/INSERT/UPDATE/DELETE any AI Task
-business relation**, and can SELECT only two PostgreSQL extension statistics
+`NOBYPASSRLS`, has **column-scoped SELECT on only six `public.users` identity columns**
+(`id`, `email`, `role`, `company_id`, `is_active`, `status`) but has no
+SELECT on `public.ai_tasks`, `public.task_assignments` or business tables, and can SELECT only two PostgreSQL extension statistics
 views. Therefore merely changing it to `LOGIN` would **not** produce a
 working AI Task application or E2E. The standalone launcher intentionally
 accepts only its syntactic identity for a restricted diagnostic/QA path,
@@ -160,3 +161,27 @@ writer operations under isolated reversible QA, verify rollback, then choose
 a release. Do not remove the legacy systemd block merely because the syntax
 checker passes. Do not copy PR196's current privileged credential to the new
 candidate. DEV source checks must not be conflated with a live E2E PASS.
+
+
+## 18 Nov — direct launcher URL-override bypass and release marker
+
+The previously versioned standalone launcher inspected the URL authority,
+but `pg-connection-string` may honor query overrides such as `?user=`,
+`?host=` or `?port=`. The launcher now refuses **all URL parameters and
+fragments**, requires the exact `/postgres` database path and literal
+port 6543, and requires `APP_ENV=development`. An independent,
+root-controlled `/etc/ai-task-dev-authorized-reader-and-release.ready`
+marker must exist **before** the launcher even reads the credential file;
+symlinked or missing markers are refused. This is independent of systemd's
+`RefuseManualStart=yes` because @reboot/direct invocations bypass systemd.
+
+As of the latest audit the marker is absent and the old service must
+remain off. Reader-role syntax alone cannot authorize execution while its
+database role remains `NOLOGIN`. The protected original launcher remains
+available as a rollback backup. Source-unit tests now include positive
+syntactic validation and actual query-override rejection.
+
+The isolated candidate gate also rejects all URL query parameters,
+fragments, and non-`/postgres` database names. These are **format-only**
+controls: they cannot establish real credential validity, TLS certificate
+validation, RLS tenant isolation or E2E execution rights.
