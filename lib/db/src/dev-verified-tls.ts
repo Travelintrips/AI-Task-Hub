@@ -10,6 +10,8 @@ import { X509Certificate } from "node:crypto";
 import { lstatSync, readFileSync } from "node:fs";
 
 export const AI_TASK_DEV_CA_PATH = "/run/credentials/ai-task-dev/supabase-ca.pem";
+// Verified public Supabase Root 2021 CA DER SHA-256 (not a server leaf cert).
+export const AI_TASK_DEV_ROOT_CA_SHA256 = "807025ad50d4ed219d2c9c7d299c004f824eb00cf7f65afef607d07b72e6cafa";
 const DEV_PROJECT = "xssrfshdrtdfupgqwfdw";
 const DEV_ROLE = `ai_task_operational_dev.${DEV_PROJECT}`;
 const POOLER_HOST = /^aws-[0-9]+-[a-z0-9-]+\.pooler\.supabase\.com$/;
@@ -76,9 +78,15 @@ export function resolveAiTaskDbSsl(
       throw Error("INVALID_CA");
     }
     ca = provider.read();
-    // Reject an arbitrary string/empty PEM; the real chain and hostname are
-    // validated by Node TLS against the specific pooler endpoint on connect.
-    new X509Certificate(ca);
+    // Parsing a PEM is not trust: pin the independently checked Supabase
+    // Root 2021 CA, and require a CA (never a captured server leaf).
+    const certificate = new X509Certificate(ca);
+    const actualSha256 = certificate.fingerprint256.replace(/:/g, "").toLowerCase();
+    if (!certificate.ca || actualSha256 !== AI_TASK_DEV_ROOT_CA_SHA256) {
+      throw Error("UNTRUSTED_CA");
+    }
+    // Node TLS still validates the server certificate chain and hostname
+    // against this pinned public root on every actual connection.
   } catch {
     throw terminalError("AI_TASK_DEV_CA_NOT_VERIFIED_OR_MISSING");
   }
