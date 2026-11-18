@@ -29,6 +29,8 @@ jobs:
         run: |
           bash -n scripts/ops/ai-task-development-start
           node --test scripts/ops/ai-task-development-start.test.mjs
+      - name: GPT02 independent Ed25519 role signatures and anti-replay (offline)
+        run: node --test scripts/ops/gpt02-dev-ed25519-binding-offline.test.mjs
       - name: GPT02 expired preparation admission fail-closed (offline)
         run: node --test scripts/ops/gpt02-dev-preparation-admission.test.mjs
       - name: DEV PostgreSQL auth circuit blocks retries with real pg.Pool semantics (offline)
