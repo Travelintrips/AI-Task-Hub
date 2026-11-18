@@ -94,9 +94,15 @@ const isolation = {
     builder.onResolve({ filter: /^\.\/logger$/ }, args =>
       args.importer === path.join(artifactDir, "src/lib/supabase-db.ts") ? { path: "logger", namespace: "policy-test" } : null);
     builder.onLoad({ filter: /.*/, namespace: "policy-test" }, args => {
+      // Match real node-postgres: connect(callback) and connect(): Promise.
+      // The DEV-only shared auth circuit deliberately uses callback mode;
+      // preserving it here keeps the PROD/DEV pool boundary assertions valid.
       const sources = {
         pg: "class Pool { constructor(options) { __dbPolicyProbe.options.push(options); } " +
-          "on() { return this; } connect() { __dbPolicyProbe.connects++; return Promise.resolve({release(){__dbPolicyProbe.releases++;}}); } " +
+          "on() { return this; } connect(callback) { __dbPolicyProbe.connects++; " +
+          "const client={release(){__dbPolicyProbe.releases++;}}; " +
+          "if(typeof callback==='function'){ Promise.resolve().then(()=>callback(null,client,()=>client.release())); return; } " +
+          "return Promise.resolve(client); } " +
           "query() { __dbPolicyProbe.queries++; throw new Error('Unexpected query'); } } export default {Pool};",
         drizzle: "export function drizzle(pool) { __dbPolicyProbe.drizzle++; return {pool}; }",
         schema: "export const isolatedSchema = {};",
