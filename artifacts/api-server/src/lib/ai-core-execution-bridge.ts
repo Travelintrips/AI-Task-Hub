@@ -1,4 +1,5 @@
 import { logger } from "./logger";
+import { isCstDevBoundedWorkerProbe } from "./cst-ai-team-contract";
 
 const DEFAULT_DEV_BASE_URL = "https://dev.cstlogistic.co.id/api";
 
@@ -72,6 +73,7 @@ export async function submitAiTaskCommand(input: {
         correlationId: input.correlationId,
         companyId: input.companyId,
         aiTaskId: input.taskId,
+        ...(isCstDevBoundedWorkerProbe(input) ? { explicitWorkerTarget: true } : {}),
       },
     }),
   });

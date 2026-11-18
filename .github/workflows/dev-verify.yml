@@ -193,6 +193,8 @@ jobs:
         run: pnpm run typecheck
       - name: Build
         run: pnpm run build
+      - name: Verify scoped CST DEV bounded worker pin never escalates or changes PROD
+        run: node --experimental-strip-types --test scripts/dev/cst-ai-team-worker-target.test.mjs
       - name: Verify CST team isolated end-to-end persisted ledger and 4/4 role evidence
         run: python3 scripts/dev/cst-ai-team-monitor-e2e.py
       - name: Verify PR196 integrated DEV runtime with synthetic credentials (no live DB)

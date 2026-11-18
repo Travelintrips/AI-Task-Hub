@@ -1,6 +1,20 @@
 /** DEV local canary only. No GPT02 approval, signature, dispatch or Final ACK. */
 export const TEAM_SOURCE = "cst-ai-team-dev-canary";
 export const TEAM_ROLES = ["coding", "infrastructure", "security", "qa"] as const;
+
+/** Pin only the existing DEV CST Company 1 model-free PC worker for its exact
+ * supported no-write probes. Explicit task/client selection still comes from
+ * the authenticated Hub execution request; this never grants a capability.
+ */
+export function isCstDevBoundedWorkerProbe(
+  input: { companyId: string; assignedClientId?: string | null; instruction: string },
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return env.NODE_ENV === "development" && env.APP_ENV === "development"
+    && input.companyId === "1"
+    && input.assignedClientId === "openclaw-pc-worker-dev"
+    && ["ping", "status"].includes(input.instruction.trim().toLowerCase());
+}
 export type TeamRole = typeof TEAM_ROLES[number];
 export function canReadDevTeam(env: NodeJS.ProcessEnv = process.env): boolean {
   return env.APP_ENV === "development" && env.NODE_ENV === "development";
