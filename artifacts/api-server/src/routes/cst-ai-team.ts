@@ -6,7 +6,7 @@ import { requireAuth } from "../middleware/auth";
 import { logger } from "../lib/logger";
 import { canReadDevTeam, canRunDevTeam, canaryVerdict, canaryLedgerVerdict, projectCanaryStatus, projectIndependentTeamGate, TEAM_SOURCE, TEAM_ROLES, type TeamRole } from "../lib/cst-ai-team-contract";
 import { fetchCstTeamAgentReadiness } from "../lib/cst-ai-team-agent-readiness";
-import { EXTERNAL_REVIEW_SOURCE, EXTERNAL_REVIEW_PROOF, EXTERNAL_REVIEW_SCENARIO, EXTERNAL_TEAM_AGENTS, canRunExternalReview, isExternalReviewStart, parseExternalObservation, checkExternalObservation, projectExternalObservations, projectExternalReviewStatus, parseExternalReviewFailure, EXTERNAL_QA_LOCAL_FALLBACK, externalObservationWorkerId } from "../lib/cst-ai-team-external-review";
+import { EXTERNAL_REVIEW_SOURCE, EXTERNAL_REVIEW_PROOF, EXTERNAL_REVIEW_SCENARIO, EXTERNAL_TEAM_AGENTS, canRunExternalReview, isExternalReviewStart, parseExternalObservation, checkExternalObservation, projectExternalObservations, validatePriorReviewEvidence, projectExternalReviewStatus, parseExternalReviewFailure, EXTERNAL_QA_LOCAL_FALLBACK, externalObservationWorkerId } from "../lib/cst-ai-team-external-review";
 
 const router: IRouter = Router();
 const active = new Set<string>();
@@ -319,8 +319,7 @@ router.post("/cst-ai-team/external-reviews/:id/observations",requireAuth,async(r
     const existing=await db.select().from(events).where(and(
       eq(events.executionId,id),eq(events.companyId,company),
     )).orderBy(events.createdAt);
-    if(observation.role==="qa"&& !["coding","infrastructure","security"].every(role=>
-      existing.some(e=>e.eventType==="team.external.observed"&&e.phase===role))){
+    if(observation.role==="qa" && !validatePriorReviewEvidence(existing,challenge)){
       res.status(409).json({error:"QA_REQUIRES_THREE_PRIOR_OBSERVATIONS"});return;
     }
     const [inserted]=await db.insert(events).values({

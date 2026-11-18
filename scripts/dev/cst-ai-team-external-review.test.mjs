@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import {
   canRunExternalReview, isExternalReviewStart, parseExternalObservation,
-  checkExternalObservation, projectExternalObservations, projectExternalReviewStatus,
+  checkExternalObservation, projectExternalObservations, validatePriorReviewEvidence,
+  projectExternalReviewStatus,
   parseExternalReviewFailure, EXTERNAL_REVIEW_STALE_AFTER_MS, EXTERNAL_TEAM_AGENTS,
   EXTERNAL_QA_LOCAL_FALLBACK, externalObservationWorkerId,
   EXTERNAL_REVIEW_PROOF, EXTERNAL_REVIEW_SOURCE,
@@ -163,4 +164,24 @@ test('local model QA receipt is separately labeled and never becomes signed Fina
   assert.match(route,/externalObservationWorkerId\(observation\)/);
   assert.match(route,/sourceKind: \(e\.workerId/);
   assert.match(frontend,/item\.sourceKind/);
+});
+
+
+test('QA prerequisite requires exactly three authentic-format, unsigned, distinct prior-role records',()=>{
+  const p=['coding','infrastructure','security'].map(event);
+  assert.equal(validatePriorReviewEvidence(p,challenge),true);
+  assert.equal(validatePriorReviewEvidence(p.slice(0,2),challenge),false);
+  assert.equal(validatePriorReviewEvidence([...p,p[0]],challenge),false);
+  assert.equal(validatePriorReviewEvidence([...p.slice(0,2),p[0]],challenge),false);
+  assert.equal(validatePriorReviewEvidence([...p,event('qa')],challenge),false);
+  assert.equal(validatePriorReviewEvidence(p,'d3d00000-1111-4111-8111-111111111111'),false);
+  assert.equal(validatePriorReviewEvidence(p.map((r,i)=>i===0?{...r,signatureVerified:true}:r),challenge),false);
+  assert.equal(validatePriorReviewEvidence(p.map((r,i)=>i===1?{...r,workerId:'openclaw:DELL:forged'}:r),challenge),false);
+  assert.equal(validatePriorReviewEvidence(p.map((r,i)=>i===2?{...r,payload:{...r.payload,proofLevel:'GPT02_SIGNED'}}:r),challenge),false);
+  assert.equal(validatePriorReviewEvidence(p.map((r,i)=>i===2?{...r,payload:{...r.payload,responseSha256:'bad'}}:r),challenge),false);
+  assert.equal(validatePriorReviewEvidence(p.map((r,i)=>i===0?{...r,status:'failed'}:r),challenge),false);
+  assert.equal(validatePriorReviewEvidence(p.map((r,i)=>i===0?{...r,eventType:'team.external.failed'}:r),challenge),false);
+  assert.equal(validatePriorReviewEvidence(p.map((r,i)=>i===0?{...r,payload:null}:r),challenge),false);
+  assert.match(route,/validatePriorReviewEvidence\(existing,challenge\)/);
+  assert.match(route,/QA_REQUIRES_THREE_PRIOR_OBSERVATIONS/);
 });

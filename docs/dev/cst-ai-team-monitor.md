@@ -142,3 +142,23 @@ Runtime verification on DELL (19 Nov WIB): one positive bounded sample returned
 operational/final flags; one all-clear input was denied with
 `NO_VERIFIED_BLOCKER_INPUT`. The positive input consisted of operator-supplied
 codes, not verified agent-signed receipts.
+
+### Persisted three-role handoff validation before QA
+
+The operator-collected DEV review API now **fails closed before the QA
+observation is recorded**. Three labels alone are insufficient: it verifies
+exactly one each of Coding, Infrastructure and Security terminal observations
+from the persisted, Company-1-scoped review ledger, including the expected
+host/agent worker identity, the exact per-review challenge, `team.external.observed`,
+`status=observed`, `signature_verified=false`, the bounded `responseSha256` and
+`sessionSha256` formats, and `DEV_OPERATOR_COLLECTED_UNATTESTED`. Any missing,
+duplicate, spoofed, malformed or signed-looking prerequisite rejects QA with
+HTTP 409. The existing upstream role intake and native Ollama QA alternative
+remain unchanged.
+
+This is **format/provenance-consistency validation of operator-collected data**,
+NOT proof that the external model actually signed or executed a task. The
+operational release gate and the independently signed QA Final ACK stay false.
+The isolated PostgreSQL16 E2E mutates only synthetic fixture rows to verify
+that both fake signatures and wrong preceding worker IDs are rejected before
+QA acceptance, and restores clean rows to prove the normal flow still passes.

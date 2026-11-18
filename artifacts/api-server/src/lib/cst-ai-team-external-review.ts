@@ -103,6 +103,33 @@ export type RecordedExternalObservation = {
   payload: unknown;
 };
 
+/** Fail closed before accepting the QA handoff: labels alone are insufficient.
+ * These records remain operator-collected and UNSIGNED, not agent attestation.
+ */
+export function validatePriorReviewEvidence(
+  records: RecordedExternalObservation[], challenge: string,
+): boolean {
+  const preceding = records.filter(x => x.eventType.startsWith("team.external."));
+  const required: TeamRole[] = ["coding", "infrastructure", "security"];
+  if (preceding.length !== required.length) return false;
+  return required.every(role => {
+    const matching = preceding.filter(x => x.phase === role);
+    if (matching.length !== 1) return false;
+    const r = matching[0];
+    if (r.eventType !== "team.external.observed" || r.status !== "observed" ||
+        r.signatureVerified !== false || !r.payload || typeof r.payload !== "object") return false;
+    const p = r.payload as Record<string, unknown>;
+    const profile = EXTERNAL_TEAM_AGENTS[role];
+    return r.workerId === externalObservationWorkerId({ role, ...profile }) &&
+      p.operatorCollected === true && p.proofLevel === EXTERNAL_REVIEW_PROOF &&
+      p.challenge === challenge && Boolean(parseExternalObservation({
+        role, host: profile.host, agentId: profile.agentId, challenge: p.challenge,
+        result: p.result, summaryCode: p.summaryCode,
+        responseSha256: p.responseSha256, sessionSha256: p.sessionSha256,
+      }));
+  });
+}
+
 export function projectExternalObservations(
   records: RecordedExternalObservation[], challenge: string,
 ): { recordedRoles: TeamRole[]; internallyConsistent: boolean;

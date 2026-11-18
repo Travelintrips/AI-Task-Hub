@@ -321,6 +321,37 @@ def main():
             if status!=201:raise AssertionError("OBSERVATION_NOT_ACCEPTED_"+role)
         duplicate,_=http(api_port,"POST",path,make_jwt(jwt_secret),item("coding"))
         if duplicate!=409:raise AssertionError("OBSERVATION_REPLAY_ALLOWED")
+        # Disposable PG only: a forged prior receipt must be rejected BEFORE
+        # QA is written, even though the three prior role labels are present.
+        command("docker","exec",pg_name,"psql","-v","ON_ERROR_STOP=1","-U","canary",
+                "-d","cst_team_canary","-c", """
+                  UPDATE ai_execution_events SET signature_verified=true
+                  WHERE execution_id='%s'::uuid AND phase='security'
+                    AND event_type='team.external.observed'
+                """ % reviewid)
+        signed_prior,_=http(api_port,"POST",path,make_jwt(jwt_secret),item("qa"))
+        if signed_prior!=409:raise AssertionError("QA_ACCEPTED_SPOOFED_SIGNED_PRIOR")
+        command("docker","exec",pg_name,"psql","-v","ON_ERROR_STOP=1","-U","canary",
+                "-d","cst_team_canary","-c", """
+                  UPDATE ai_execution_events SET signature_verified=false
+                  WHERE execution_id='%s'::uuid AND phase='security'
+                    AND event_type='team.external.observed'
+                """ % reviewid)
+        command("docker","exec",pg_name,"psql","-v","ON_ERROR_STOP=1","-U","canary",
+                "-d","cst_team_canary","-c", """
+                  UPDATE ai_execution_events SET worker_id='forged-worker'
+                  WHERE execution_id='%s'::uuid AND phase='infrastructure'
+                    AND event_type='team.external.observed'
+                """ % reviewid)
+        forged_prior,_=http(api_port,"POST",path,make_jwt(jwt_secret),item("qa"))
+        if forged_prior!=409:raise AssertionError("QA_ACCEPTED_FORGED_PRIOR_IDENTITY")
+        command("docker","exec",pg_name,"psql","-v","ON_ERROR_STOP=1","-U","canary",
+                "-d","cst_team_canary","-c", """
+                  UPDATE ai_execution_events SET worker_id='openclaw:DELL:dell-recovery'
+                  WHERE execution_id='%s'::uuid AND phase='infrastructure'
+                    AND event_type='team.external.observed'
+                """ % reviewid)
+        proof["invalidPriorQaRejected"]={"forgedSignature":True,"forgedWorker":True}
         qa_status,_=http(api_port,"POST",path,make_jwt(jwt_secret),item("qa"))
         if qa_status!=201:raise AssertionError("QA_OBSERVATION_NOT_ACCEPTED")
         status,data=http(api_port,path=rpath,jwt=make_jwt(jwt_secret))
