@@ -5,6 +5,7 @@ import { assessIsolatedDevRuntime as audit } from './ai-task-dev-runtime-identit
 const project='xssrfshdrtdfupgqwfdw';
 const base = () => ({
   NODE_ENV:'development', APP_ENV:'development',
+  AI_TASK_DEV_ISOLATED_E2E:'true',
   DISABLE_BACKGROUND_SCHEDULERS:'true', RUN_STARTUP_MIGRATIONS:'false',
   AI_TASK_DEV_REQUIRE_VERIFIED_TLS:'true',
   AI_TASK_DEV_DB_CA_CERT_PATH:'/run/credentials/ai-task-dev/supabase-ca.pem',
@@ -63,3 +64,5 @@ test('URL fragments are rejected rather than ignored by a driver',()=>
 
 test('verified TLS mode is mandatory for candidate E2E',()=>check({AI_TASK_DEV_REQUIRE_VERIFIED_TLS:'false'},'CERTIFICATE_VERIFICATION_NOT_CONFIGURED'));
 test('Supabase approved CA custody path is mandatory for candidate E2E',()=>check({AI_TASK_DEV_DB_CA_CERT_PATH:'/tmp/untrusted.pem'},'CERTIFICATE_VERIFICATION_NOT_CONFIGURED'));
+
+test('isolated preflight cannot run without explicit E2E mode',()=>check({AI_TASK_DEV_ISOLATED_E2E:'false'},'ISOLATED_E2E_MODE_NOT_ENABLED'));
