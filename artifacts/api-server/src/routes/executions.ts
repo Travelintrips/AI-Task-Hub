@@ -20,6 +20,7 @@ import { summarizeBridgeLedgerEvents } from "../lib/bridge-ledger-event-summary"
 import { isAttestedCheckpointResponse, verifiedContinuation } from "../lib/verified-continuation";
 import { hasVerifiedSourceFinalAck } from "../lib/verified-source-final-ack";
 import { evaluateGpt02LineageEvidence } from "../lib/gpt02-lineage-gate";
+import { assessGpt02PreparedReservationReview } from "../lib/gpt02-prepared-reservation-review.mjs";
 import { hasExplicitSopFailure } from "../lib/verified-sop-outcome";
 import { logger } from "../lib/logger";
 import { formatAiJobWhatsApp, jobWaConfig, notifyAiJobTransition } from "../lib/ai-job-whatsapp";
@@ -942,6 +943,49 @@ router.get("/ai-tasks/:id/gpt02-reconciliation", requireAuth, async (req: Reques
       .where(and(eq(aiExecutionJobsTable.taskId, taskId), eq(aiExecutionJobsTable.companyId, companyId)))
       .orderBy(desc(aiExecutionJobsTable.createdAt)).limit(1);
     if (!job) { res.status(404).json({ error: "Execution not found" }); return; }
+    // A prepared Hub/Core reservation has no remote command correlation yet.
+    // Reuse the existing read-only reconciliation endpoint to classify the
+    // persisted reservation, not the dispatched-command reconciliation path.
+    // No approval, permission, cleanup, retry, worker or status mutation here.
+    if (job.status === "prepared") {
+      if (req.user?.role !== "super_admin") {
+        res.status(403).json({ error: "SUPER_ADMIN_REQUIRED" }); return;
+      }
+      const audited = await db.execute(sql`
+        SELECT s.company_id AS "companyId", s.hub_task_id AS "hubTaskId",
+          s.hub_execution_id::text AS "hubExecutionId",
+          (s.expires_at <= now()) AS "expired",
+          core.status AS "coreStatus",
+          (SELECT COUNT(*)::integer FROM public.ai_execution_jobs e
+             WHERE e.company_id=s.company_id AND e.task_id=s.hub_task_id) AS "executionCount",
+          (SELECT COUNT(*)::integer FROM public.ai_execution_events ev
+             WHERE ev.execution_id=s.hub_execution_id) AS "hubEventCount",
+          (SELECT COUNT(*)::integer FROM ai_platform.ai_coding_bridge_commands bc
+             WHERE bc.task_id=s.core_task_id OR bc.id=s.command_candidate_id) AS "coreCommandCount",
+          (SELECT COUNT(*)::integer FROM ai_platform.ai_coding_bridge_responses br
+             WHERE br.task_id=s.core_task_id OR br.command_id=s.command_candidate_id) AS "responseCount",
+          (SELECT COUNT(*)::integer FROM ai_platform.ai_coding_runs cr
+             WHERE cr.task_id=s.core_task_id) AS "coreRunCount",
+          (SELECT COUNT(*)::integer FROM gpt02_private.approvals ap
+             WHERE ap.company_id=s.company_id AND ap.task_id=s.hub_task_id) AS "approvalCount",
+          (SELECT COUNT(*)::integer FROM gpt02_private.issuer_evidences ie
+             WHERE ie.company_id=s.company_id AND ie.hub_task_id=s.hub_task_id) AS "issuerEvidenceCount",
+          (SELECT COUNT(*)::integer FROM gpt02_private.issuer_lease_consumptions lc
+             WHERE lc.company_id=s.company_id AND lc.hub_task_id=s.hub_task_id) AS "leaseCount",
+          (SELECT COUNT(*)::integer FROM gpt02_private.receipts rc
+             WHERE rc.command_id=s.command_candidate_id) AS "receiptCount",
+          (SELECT COUNT(*)::integer FROM gpt02_private.core_identity_receipts ir
+             WHERE ir.command_id=s.command_candidate_id) AS "coreReceiptCount"
+        FROM gpt02_stage.core_preparations s
+        LEFT JOIN ai_platform.ai_coding_tasks core ON core.id=s.core_task_id
+        WHERE s.company_id=${companyId} AND s.hub_task_id=${taskId}
+          AND s.hub_execution_id=${job.id}::uuid
+        ORDER BY s.created_at DESC LIMIT 2
+      `);
+      res.setHeader("Cache-Control", "no-store");
+      res.status(200).json(assessGpt02PreparedReservationReview(job, audited.rows));
+      return;
+    }
     const metadata = asRecord(job.metadata);
     const correlation = metadata["remoteCorrelationId"];
     if (metadata["environment"] !== "development" || metadata["verificationMode"] !== "chatgpt-attested" ||
