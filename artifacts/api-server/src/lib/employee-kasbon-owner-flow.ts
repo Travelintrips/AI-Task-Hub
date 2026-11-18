@@ -118,7 +118,7 @@ async function sendKasbonMessage(
     );
     return;
   }
-  await sendKasbonMessage(phone, message, fonnteDevice ?? null);
+  await sendFonnte(phone, message, fonnteDevice ?? null);
 }
 
 export function isOwnerKasbonApprovalReply(text: string): boolean {
