@@ -36,7 +36,6 @@ test("rejects non-loopback and unexpected deployment targets before fetch", asyn
     "http://127.0.0.1:18296/evil", "http://127.0.0.1:18296@elsewhere",
     "http://127.0.0.1:0", "http://127.0.0.1:65536",
   ]) {
-    if (base === "http://127.0.0.1:18080") continue; // loopback PROD port explicitly tested below
     await assert.rejects(() => smoke({ base, request: async () => assert.fail("must not fetch") }));
   }
 });
