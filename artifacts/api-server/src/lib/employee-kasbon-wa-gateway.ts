@@ -73,11 +73,17 @@ export async function sendEmployeeKasbonWa(input: {
     signal: AbortSignal.timeout(8_000),
   });
   const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
-  if (response.status !== 202 || payload.status !== "queued" || typeof payload.messageId !== "string") {
+  const accepted =
+    typeof payload.messageId === "string" &&
+    (
+      (response.status === 202 && payload.status === "queued") ||
+      (response.status === 200 && payload.status === "duplicate")
+    );
+  if (!accepted) {
     logger.warn({ status: response.status, error: payload.error }, "employee-kasbon gateway send rejected");
     throw new Error("EMPLOYEE_KASBON_WA_SEND_HTTP_" + response.status);
   }
-  return { messageId: payload.messageId };
+  return { messageId: payload.messageId as string };
 }
 
 export async function readRecentEmployeeKasbonInbound(since: string, limit = 50): Promise<RecentInboundItem[]> {
