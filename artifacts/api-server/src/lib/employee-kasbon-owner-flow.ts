@@ -1,19 +1,12 @@
-import { and, desc, eq } from "drizzle-orm";
-import {
-  aiTasksTable,
-  db,
-  taskCommentsTable,
-  teamMembersTable,
-} from "@workspace/db";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { logger } from "./logger";
 import { sendFonnte } from "./fonnte";
-import { resolveWaRole } from "./wa-role-resolver";
-import { createClient } from "@supabase/supabase-js";
 
 const FLOW_KIND = "employee_kasbon_owner_wa_v1";
 const WAITING_ACTION = "employee_kasbon_owner_ok";
 const WAITING_STATE = "waiting_owner_ok";
 const RECORDED_STATE = "recorded_waiting_disbursement";
+const PENDING_BIZPORTAL_STATE = "owner_approved_pending_bizportal";
 
 type KasbonMeta = {
   kind: typeof FLOW_KIND;
@@ -30,6 +23,7 @@ type KasbonMeta = {
   bizportalAdvanceNumber?: string;
   approvedNotifyPhone?: string | null;
   approvedNotifySentAt?: string | null;
+  lastError?: string | null;
 };
 
 type QueueInput = {
@@ -46,6 +40,29 @@ type HandleInput = {
   companyId: string;
   fonnteDevice?: string | null;
 };
+
+type Owner = {
+  id: number;
+  name: string | null;
+  phone: string;
+  companyId: string;
+};
+
+let devClient: SupabaseClient | null = null;
+
+function getDevSupabase(): SupabaseClient {
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("KASBON_OWNER_FLOW_PROD_DISABLED");
+  }
+  if (devClient) return devClient;
+  const url = process.env.SUPABASE_URL_DEV?.trim();
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY_DEV?.trim();
+  if (!url || !key) throw new Error("KASBON_DEV_SUPABASE_NOT_CONFIGURED");
+  devClient = createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  return devClient;
+}
 
 function normalizePhone(raw: unknown): string {
   let n = String(raw ?? "").replace(/\D/g, "");
@@ -130,7 +147,7 @@ function buildOwnerRequest(taskNumber: string, fields: Record<string, unknown>):
   const employee = fieldText(fields, "employee_name", "employee", "name") || "-";
   const purpose = fieldText(fields, "purpose") || "-";
   const neededDate = fieldText(fields, "needed_date") || "-";
-  const repay = fieldText(fields, "repayment_method") || "Potong penuh";
+  const repay = fieldText(fields, "repayment_method") || "Potong Penuh";
   const installment = money(fields.installment_amount);
   return [
     "💰 *PENGAJUAN KASBON KARYAWAN*",
@@ -169,72 +186,61 @@ function buildApprovedNotification(params: {
   ].join("\n");
 }
 
-async function activeOwners(companyId: string) {
-  let rows = await db
-    .select({
-      id: teamMembersTable.id,
-      name: teamMembersTable.name,
-      phone: teamMembersTable.phone,
-      role: teamMembersTable.role,
-      companyId: teamMembersTable.companyId,
-    })
-    .from(teamMembersTable)
-    .where(and(
-      eq(teamMembersTable.companyId, companyId),
-      eq(teamMembersTable.role, "owner"),
-      eq(teamMembersTable.isActive, true),
-    ))
-    .limit(3);
-
-  // Older AI Task data often carries companyId="default". Only fall back when
-  // exactly one active owner exists globally, so an ambiguous owner is never chosen.
-  if (rows.length === 0 && companyId === "default") {
-    rows = await db
-      .select({
-        id: teamMembersTable.id,
-        name: teamMembersTable.name,
-        phone: teamMembersTable.phone,
-        role: teamMembersTable.role,
-        companyId: teamMembersTable.companyId,
-      })
-      .from(teamMembersTable)
-      .where(and(eq(teamMembersTable.role, "owner"), eq(teamMembersTable.isActive, true)))
-      .limit(3);
-  }
-  const valid = rows.filter((row) => normalizePhone(row.phone).length >= 8);
-  if (valid.length > 0) return valid;
-
-  const envOwnerPhone = normalizePhone(process.env.EMPLOYEE_KASBON_OWNER_PHONE);
-  if (envOwnerPhone) {
+async function configuredOwners(companyId: string): Promise<Owner[]> {
+  const envPhone = normalizePhone(process.env.EMPLOYEE_KASBON_OWNER_PHONE);
+  if (envPhone) {
     return [{
       id: 0,
       name: process.env.EMPLOYEE_KASBON_OWNER_NAME?.trim() || "Owner",
-      phone: envOwnerPhone,
-      role: "owner",
+      phone: envPhone,
       companyId,
     }];
   }
-  return valid;
+
+  const supabase = getDevSupabase();
+  let query = supabase
+    .from("team_members")
+    .select("id,company_id,name,role,phone,is_active")
+    .eq("is_active", true)
+    .eq("role", "owner")
+    .not("phone", "is", null)
+    .limit(5);
+  if (companyId !== "default") query = query.eq("company_id", companyId);
+  const { data, error } = await query;
+  if (error) throw new Error(`KASBON_OWNER_READ_FAILED:${error.code ?? "UNKNOWN"}`);
+  return (data ?? [])
+    .filter((row) => normalizePhone(row.phone).length >= 8)
+    .map((row) => ({
+      id: Number(row.id),
+      name: row.name ? String(row.name) : null,
+      phone: normalizePhone(row.phone),
+      companyId: String(row.company_id ?? companyId),
+    }));
+}
+
+async function ownerForSender(phone: string, companyId: string): Promise<Owner | null> {
+  const sender = normalizePhone(phone);
+  const owners = await configuredOwners(companyId);
+  const matching = owners.filter((owner) => normalizePhone(owner.phone) === sender);
+  return matching.length === 1 ? matching[0]! : null;
 }
 
 export async function queueEmployeeKasbonOwnerApproval(input: QueueInput): Promise<{
   queued: boolean;
   reason?: string;
 }> {
-  const taskRows = await db
-    .select()
-    .from(aiTasksTable)
-    .where(eq(aiTasksTable.id, input.taskId))
-    .limit(1);
-  const task = taskRows[0];
-  if (!task) return { queued: false, reason: "TASK_NOT_FOUND" };
+  const supabase = getDevSupabase();
+  const { data: task, error: taskError } = await supabase
+    .from("ai_tasks")
+    .select("id,task_number,admin_notes")
+    .eq("id", input.taskId)
+    .single();
+  if (taskError || !task) return { queued: false, reason: "TASK_NOT_FOUND" };
 
-  const existing = parseMeta(task.adminNotes);
-  if (existing?.kind === FLOW_KIND) {
-    return { queued: true, reason: "ALREADY_QUEUED" };
-  }
+  const existing = parseMeta(task.admin_notes);
+  if (existing?.kind === FLOW_KIND) return { queued: true, reason: "ALREADY_QUEUED" };
 
-  const owners = await activeOwners(input.companyId);
+  const owners = await configuredOwners(input.companyId);
   if (owners.length !== 1) {
     logger.warn(
       { taskId: input.taskId, companyId: input.companyId, ownerCount: owners.length },
@@ -242,14 +248,14 @@ export async function queueEmployeeKasbonOwnerApproval(input: QueueInput): Promi
     );
     return { queued: false, reason: owners.length === 0 ? "OWNER_NOT_FOUND" : "OWNER_AMBIGUOUS" };
   }
+
   const owner = owners[0]!;
-  const ownerPhone = normalizePhone(owner.phone);
-  const taskNumber = task.taskNumber || `TASK-${task.id}`;
+  const taskNumber = String(task.task_number || `TASK-${task.id}`);
   const meta: KasbonMeta = {
     kind: FLOW_KIND,
     state: WAITING_STATE,
     requesterPhone: normalizePhone(input.requesterPhone),
-    ownerPhone,
+    ownerPhone: owner.phone,
     ownerName: owner.name,
     fields: input.fields,
     queuedAt: new Date().toISOString(),
@@ -257,28 +263,31 @@ export async function queueEmployeeKasbonOwnerApproval(input: QueueInput): Promi
     approvedNotifySentAt: null,
   };
 
-  await db.transaction(async (tx) => {
-    await tx
-      .update(aiTasksTable)
-      .set({
-        status: "ready_for_review",
-        requiredAction: WAITING_ACTION,
-        adminNotes: JSON.stringify(meta),
-        assignedTo: owner.name,
-        assignedToId: owner.id,
-        assignedRole: "owner",
-        updatedAt: new Date(),
-      })
-      .where(eq(aiTasksTable.id, task.id));
-    await tx.insert(taskCommentsTable).values({
-      taskId: task.id,
-      senderType: "system",
-      senderName: "AI Task",
-      comment: `Pengajuan kasbon diteruskan ke owner ${owner.name ?? ownerPhone}; menunggu balasan OK.`,
-    });
-  });
+  const { error: updateError } = await supabase
+    .from("ai_tasks")
+    .update({
+      status: "ready_for_review",
+      required_action: WAITING_ACTION,
+      admin_notes: JSON.stringify(meta),
+      assigned_to: owner.name,
+      assigned_to_id: owner.id || null,
+      assigned_role: "owner",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", task.id);
+  if (updateError) throw new Error(`KASBON_TASK_QUEUE_UPDATE_FAILED:${updateError.code ?? "UNKNOWN"}`);
 
-  await sendKasbonMessage(ownerPhone, buildOwnerRequest(taskNumber, input.fields), input.fonnteDevice ?? null);
+  const { error: commentError } = await supabase.from("task_comments").insert({
+    task_id: task.id,
+    sender_type: "system",
+    sender_name: "AI Task",
+    comment: `Pengajuan kasbon diteruskan ke owner ${owner.name ?? owner.phone}; menunggu balasan OK.`,
+  });
+  if (commentError) {
+    logger.warn({ taskId: task.id, code: commentError.code }, "employee-kasbon: queue comment failed");
+  }
+
+  await sendKasbonMessage(owner.phone, buildOwnerRequest(taskNumber, input.fields), input.fonnteDevice ?? null);
   return { queued: true };
 }
 
@@ -297,20 +306,7 @@ async function createApprovedKasbon(params: {
   amount: number;
   purpose: string;
 }> {
-  // This first implementation is intentionally DEV-only. PROD remains fail-closed
-  // until the DEV flow is proven end-to-end and explicitly promoted.
-  if (process.env.NODE_ENV === "production") {
-    throw new Error("KASBON_OWNER_FLOW_PROD_DISABLED");
-  }
-  const supabaseUrl = process.env.SUPABASE_URL_DEV?.trim();
-  const serviceRole = process.env.SUPABASE_SERVICE_ROLE_KEY_DEV?.trim();
-  if (!supabaseUrl || !serviceRole) {
-    throw new Error("KASBON_BIZPORTAL_DEV_SUPABASE_NOT_CONFIGURED");
-  }
-  const supabase = createClient(supabaseUrl, serviceRole, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-
+  const supabase = getDevSupabase();
   const amount = money(params.fields.amount);
   if (!amount) throw new Error("KASBON_AMOUNT_INVALID");
 
@@ -419,8 +415,6 @@ async function createApprovedKasbon(params: {
     .single();
 
   if (insertError) {
-    // A concurrent retry may win the unique advance_number race. Re-read and
-    // accept only an identical canonical transaction.
     if (insertError.code === "23505") {
       const { data: raced, error: racedError } = await supabase
         .from("cash_advances")
@@ -456,36 +450,27 @@ async function createApprovedKasbon(params: {
 export async function tryHandleEmployeeKasbonOwnerApproval(input: HandleInput): Promise<boolean> {
   if (!isOwnerKasbonApprovalReply(input.text)) return false;
 
-  const actor = await resolveWaRole(input.phone, input.companyId);
-  const envOwnerPhone = normalizePhone(process.env.EMPLOYEE_KASBON_OWNER_PHONE);
-  const senderPhone = normalizePhone(input.phone);
-  const isConfiguredOwner = Boolean(envOwnerPhone) && senderPhone === envOwnerPhone;
-  if (actor.role !== "owner" && !isConfiguredOwner) return false;
-  const ownerActor = actor.role === "owner"
-    ? actor
-    : {
-        ...actor,
-        role: "owner" as const,
-        name: process.env.EMPLOYEE_KASBON_OWNER_NAME?.trim() || "Owner",
-      };
+  const owner = await ownerForSender(input.phone, input.companyId);
+  if (!owner) return false;
 
-  const candidates = await db
-    .select()
-    .from(aiTasksTable)
-    .where(eq(aiTasksTable.requiredAction, WAITING_ACTION))
-    .orderBy(desc(aiTasksTable.updatedAt))
+  const supabase = getDevSupabase();
+  const { data: candidates, error: candidateError } = await supabase
+    .from("ai_tasks")
+    .select("id,task_number,admin_notes,required_action,updated_at")
+    .eq("required_action", WAITING_ACTION)
+    .order("updated_at", { ascending: false })
     .limit(5);
+  if (candidateError) throw new Error(`KASBON_PENDING_TASK_READ_FAILED:${candidateError.code ?? "UNKNOWN"}`);
 
   const ownerPhone = normalizePhone(input.phone);
-  const matching = candidates.filter((task) => {
-    const meta = parseMeta(task.adminNotes);
-    if (!meta || meta.state !== WAITING_STATE) return false;
-    return normalizePhone(meta.ownerPhone) === ownerPhone;
+  const matching = (candidates ?? []).filter((task) => {
+    const meta = parseMeta(task.admin_notes);
+    return Boolean(meta && meta.state === WAITING_STATE && normalizePhone(meta.ownerPhone) === ownerPhone);
   });
 
   if (matching.length === 0) return false;
   if (matching.length > 1) {
-    const refs = matching.map((task) => task.taskNumber || `TASK-${task.id}`).join(", ");
+    const refs = matching.map((task) => task.task_number || `TASK-${task.id}`).join(", ");
     await sendKasbonMessage(
       ownerPhone,
       `Ada lebih dari satu pengajuan kasbon menunggu persetujuan (${refs}). Mohon balas pada pesan pengajuan yang dimaksud agar approval tidak ambigu.`,
@@ -495,52 +480,69 @@ export async function tryHandleEmployeeKasbonOwnerApproval(input: HandleInput): 
   }
 
   const task = matching[0]!;
-  const meta = parseMeta(task.adminNotes)!;
-  const taskNumber = task.taskNumber || `TASK-${task.id}`;
+  const meta = parseMeta(task.admin_notes)!;
+  const taskNumber = String(task.task_number || `TASK-${task.id}`);
+  const approvedAt = new Date().toISOString();
 
   let kasbon;
   try {
     kasbon = await createApprovedKasbon({
-      taskId: task.id,
+      taskId: Number(task.id),
       taskNumber,
       requesterPhone: meta.requesterPhone,
       fields: meta.fields,
-      ownerName: ownerActor.name ?? meta.ownerName,
+      ownerName: owner.name ?? meta.ownerName,
       ownerPhone,
     });
   } catch (error) {
-    logger.error({ error, taskId: task.id }, "employee-kasbon: BizPortal write failed");
-    await db.insert(taskCommentsTable).values({
-      taskId: task.id,
-      senderType: "system",
-      senderName: "AI Task",
-      comment: `Owner sudah menyetujui, tetapi pencatatan BizPortal belum berhasil: ${error instanceof Error ? error.message : String(error)}`,
-    }).catch(() => {});
+    const message = error instanceof Error ? error.message : String(error);
+    const failedMeta: KasbonMeta = {
+      ...meta,
+      state: PENDING_BIZPORTAL_STATE,
+      approvedAt,
+      approvedByPhone: ownerPhone,
+      approvedByName: owner.name ?? meta.ownerName,
+      lastError: message,
+    };
+    await supabase.from("ai_tasks").update({
+      required_action: "employee_kasbon_bizportal_retry",
+      admin_notes: JSON.stringify(failedMeta),
+      updated_at: new Date().toISOString(),
+    }).eq("id", task.id);
+    await supabase.from("task_comments").insert({
+      task_id: task.id,
+      sender_type: "owner",
+      sender_name: owner.name ?? "Owner",
+      comment: `OK — owner menyetujui. Pencatatan BizPortal masih pending: ${message}`,
+    });
+    logger.error({ error, taskId: task.id }, "employee-kasbon: BizPortal write failed after owner approval");
     await sendKasbonMessage(
       ownerPhone,
-      `✅ Persetujuan ${taskNumber} sudah diterima. Pencatatan ke BizPortal belum berhasil dan akan tetap memakai pengajuan yang sama; tidak perlu mengirim OK ulang.`,
+      `✅ Persetujuan ${taskNumber} sudah diterima. Pencatatan ke BizPortal masih diproses menggunakan pengajuan yang sama; tidak perlu mengirim OK ulang.`,
       input.fonnteDevice ?? null,
     );
     return true;
   }
 
-  const approvedAt = new Date().toISOString();
   const notifyPhone =
     normalizePhone(meta.approvedNotifyPhone) ||
     normalizePhone(process.env.EMPLOYEE_KASBON_APPROVED_NOTIFY_PHONE);
   let notifySentAt: string | null = meta.approvedNotifySentAt ?? null;
 
   if (notifyPhone && !notifySentAt) {
-    const message = buildApprovedNotification({
-      taskNumber,
-      advanceNumber: kasbon.advanceNumber,
-      employeeName: kasbon.employeeName,
-      amount: kasbon.amount,
-      purpose: kasbon.purpose,
-      ownerName: ownerActor.name ?? meta.ownerName,
-    });
-    await sendKasbonMessage(notifyPhone, message, input.fonnteDevice ?? null);
-    notifySentAt = new Date().toISOString();
+    try {
+      await sendKasbonMessage(notifyPhone, buildApprovedNotification({
+        taskNumber,
+        advanceNumber: kasbon.advanceNumber,
+        employeeName: kasbon.employeeName,
+        amount: kasbon.amount,
+        purpose: kasbon.purpose,
+        ownerName: owner.name ?? meta.ownerName,
+      }), input.fonnteDevice ?? null);
+      notifySentAt = new Date().toISOString();
+    } catch (error) {
+      logger.warn({ error, taskId: task.id }, "employee-kasbon: approved target notification failed");
+    }
   }
 
   const nextMeta: KasbonMeta = {
@@ -548,36 +550,34 @@ export async function tryHandleEmployeeKasbonOwnerApproval(input: HandleInput): 
     state: RECORDED_STATE,
     approvedAt,
     approvedByPhone: ownerPhone,
-    approvedByName: ownerActor.name ?? meta.ownerName,
+    approvedByName: owner.name ?? meta.ownerName,
     bizportalAdvanceId: kasbon.id,
     bizportalAdvanceNumber: kasbon.advanceNumber,
     approvedNotifyPhone: notifyPhone || null,
     approvedNotifySentAt: notifySentAt,
+    lastError: null,
   };
 
-  await db.transaction(async (tx) => {
-    await tx
-      .update(aiTasksTable)
-      .set({
-        status: "in_progress",
-        requiredAction: "waiting_disbursement",
-        adminNotes: JSON.stringify(nextMeta),
-        updatedAt: new Date(),
-      })
-      .where(eq(aiTasksTable.id, task.id));
-    await tx.insert(taskCommentsTable).values({
-      taskId: task.id,
-      senderType: "owner",
-      senderName: ownerActor.name ?? "Owner",
-      comment: `OK — kasbon disetujui via WhatsApp dan tercatat di BizPortal sebagai ${kasbon.advanceNumber}. Status menunggu pencairan.`,
-    });
+  const { error: taskUpdateError } = await supabase.from("ai_tasks").update({
+    status: "in_progress",
+    required_action: "waiting_disbursement",
+    admin_notes: JSON.stringify(nextMeta),
+    updated_at: new Date().toISOString(),
+  }).eq("id", task.id);
+  if (taskUpdateError) throw new Error(`KASBON_TASK_FINAL_UPDATE_FAILED:${taskUpdateError.code ?? "UNKNOWN"}`);
+
+  await supabase.from("task_comments").insert({
+    task_id: task.id,
+    sender_type: "owner",
+    sender_name: owner.name ?? "Owner",
+    comment: `OK — kasbon disetujui via WhatsApp dan tercatat di BizPortal sebagai ${kasbon.advanceNumber}. Status menunggu pencairan.`,
   });
 
   await sendKasbonMessage(
     ownerPhone,
     `✅ ${taskNumber} disetujui dan sudah tercatat di BizPortal sebagai *${kasbon.advanceNumber}*. Status: menunggu pencairan.`,
     input.fonnteDevice ?? null,
-  );
+  ).catch((error) => logger.warn({ error, taskId: task.id }, "employee-kasbon: owner confirmation failed"));
 
   if (meta.requesterPhone) {
     await sendKasbonMessage(
@@ -590,10 +590,7 @@ export async function tryHandleEmployeeKasbonOwnerApproval(input: HandleInput): 
   }
 
   if (!notifyPhone) {
-    logger.warn(
-      { taskId: task.id },
-      "employee-kasbon: approved notification phone is not configured",
-    );
+    logger.warn({ taskId: task.id }, "employee-kasbon: approved notification phone is not configured");
   }
   return true;
 }
