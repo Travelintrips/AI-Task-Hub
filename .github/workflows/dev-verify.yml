@@ -158,6 +158,7 @@ jobs:
           node --test scripts/dev/gpt02-preparer-custody-only.test.mjs
           node --test scripts/dev/gpt02-preparer-relock-host-gate.test.mjs
           bash scripts/dev/test-gpt02-task183-relock-isolated.sh
+          node --test scripts/dev/gpt02-task183-relock-once.test.mjs
           node --test scripts/dev/gpt02-reader-retry-readonly-contract.test.mjs
       - name: Validate persisted-task instruction bound to dedicated GPT02 Core preparer (no dispatch)
         run: |
