@@ -88,13 +88,15 @@ snapshot() {
       COALESCE((SELECT jsonb_agg(to_jsonb(c) ORDER BY c.id)::text FROM ai_platform.ai_coding_tasks c),'[]')||
       (SELECT count(*)::text FROM public.ai_execution_events)||
       (SELECT count(*)::text FROM ai_platform.ai_coding_bridge_commands)||
-      (SELECT count(*)::text FROM gpt02_private.approvals)
+      (SELECT count(*)::text FROM gpt02_private.approvals)||
+      (SELECT count(*)::text FROM ai_platform.gpt02_dev_command_archive_20261030)
     );"
 }
 check() {
   local expected="$1"
   local match_count="$2"
-  docker exec -i "$api" node - "$expected" "$match_count" <<'NODE'
+  local technical_expected="$3"
+  docker exec -i "$api" node - "$expected" "$match_count" "$technical_expected" <<'NODE'
 const assert=require("node:assert/strict");
 const jwt=require("/app/artifacts/api-server/node_modules/jsonwebtoken");
 const base="http://127.0.0.1:8080";
@@ -154,6 +156,19 @@ async function get(url,jwtText,expected) {
   assert.equal(r.evidenceComplete,r.reviewReason==="EXPIRED_PREPARED_RESERVATION_REQUIRES_INDEPENDENT_REVIEW");
   assert.equal(r.uniqueCommandMatch,false);
   assert.equal(r.archiveChecked,false);
+  assert.equal(r.recoveryDecision.technicalEvidenceReviewed,process.argv[4]==="true");
+  assert.equal(r.recoveryDecision.historicalReservationPreserved,true);
+  assert.equal(r.recoveryDecision.sameTaskRepreparePermitted,false);
+  assert.equal(r.recoveryDecision.newTaskCreated,false);
+  assert.equal(r.recoveryDecision.approvalRecorded,false);
+  assert.equal(r.recoveryDecision.secondHumanAdminApprovalRequired,false);
+  assert.equal(r.recoveryDecision.singleOwnerApprovalRequiredForExecution,true);
+  assert.equal(r.recoveryDecision.issuerVerificationStillRequired,true);
+  assert.equal(r.recoveryDecision.archiveChecked,true);
+  assert.equal(r.recoveryDecision.immutableTriggerVerified,true);
+  assert.equal(r.recoveryDecision.dispatchPermitted,false);
+  assert.equal(r.recoveryDecision.resumePermitted,false);
+  assert.equal(r.recoveryDecision.readOnly,true);
   for(const flag of ["readOnly"])assert.equal(r[flag],true);
   for(const flag of ["automaticDispatch","statusChanged","dispatchPermitted",
                      "resumePermitted","operatorApprovalGranted"])
@@ -210,18 +225,25 @@ NODE
 }
 before=$(snapshot)
 echo "$before" | grep -Eq '^[a-f0-9]{32}$'
-check EXPIRED_PREPARED_RESERVATION_REQUIRES_INDEPENDENT_REVIEW 0
+check EXPIRED_PREPARED_RESERVATION_REQUIRES_INDEPENDENT_REVIEW 0 true
 docker exec "$pg" psql -Xq -v ON_ERROR_STOP=1 -U postgres -d smoke -c \
   "INSERT INTO gpt02_private.approvals(company_id,task_id) VALUES ('default',171);"
-check PREPARED_RESERVATION_CONFLICTING_EVIDENCE 0
+check PREPARED_RESERVATION_CONFLICTING_EVIDENCE 0 false
 docker exec "$pg" psql -Xq -v ON_ERROR_STOP=1 -U postgres -d smoke -c \
   "DELETE FROM gpt02_private.approvals WHERE company_id='default' AND task_id=171;"
 docker exec "$pg" psql -Xq -v ON_ERROR_STOP=1 -U postgres -d smoke -c \
   "INSERT INTO ai_platform.ai_coding_bridge_commands(id,task_id) VALUES ('33333333-3333-4333-8333-333333333333','22222222-2222-4222-8222-222222222222');"
-check PREPARED_RESERVATION_CONFLICTING_EVIDENCE 1
+check PREPARED_RESERVATION_CONFLICTING_EVIDENCE 1 false
 docker exec "$pg" psql -Xq -v ON_ERROR_STOP=1 -U postgres -d smoke -c \
   "DELETE FROM ai_platform.ai_coding_bridge_commands WHERE id='33333333-3333-4333-8333-333333333333';"
-check EXPIRED_PREPARED_RESERVATION_REQUIRES_INDEPENDENT_REVIEW 0
+check EXPIRED_PREPARED_RESERVATION_REQUIRES_INDEPENDENT_REVIEW 0 true
+# An archived command is independent evidence; never mistake zero live
+# commands for a clean review if the old command is present in the archive.
+docker exec "$pg" psql -Xq -v ON_ERROR_STOP=1 -U postgres -d smoke -c   "INSERT INTO ai_platform.gpt02_dev_command_archive_20261030(command_id,command_record)
+   VALUES ('33333333-3333-4333-8333-333333333333','{}'::jsonb);"
+check EXPIRED_PREPARED_RESERVATION_REQUIRES_INDEPENDENT_REVIEW 0 false
+docker exec "$pg" psql -Xq -v ON_ERROR_STOP=1 -U postgres -d smoke -c   "DELETE FROM ai_platform.gpt02_dev_command_archive_20261030;"
+check EXPIRED_PREPARED_RESERVATION_REQUIRES_INDEPENDENT_REVIEW 0 true
 after=$(snapshot)
 test "$before" = "$after"
 echo "PR196_POSTGRES17_BUSINESS_STATE_IDENTICAL_PASS"
