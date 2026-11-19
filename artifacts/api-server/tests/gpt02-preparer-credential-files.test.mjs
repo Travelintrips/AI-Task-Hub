@@ -46,3 +46,19 @@ test('official factory in systemd mode rejects absent secret before pool creatio
    {code:'PREPARER_CREDENTIAL_FILE_REQUIRED'});
  assert.equal(constructed,false);
 });
+test('operational factory rejects inline and missing custody modes before pool construction',()=>{
+ let constructed=0;
+ class Pool{constructor(){constructed++}}
+ for(const patch of [
+  {},
+  {GPT02_CORE_PREP_CREDENTIAL_SOURCE:'inline'},
+  {GPT02_CORE_PREP_CREDENTIAL_SOURCE:'env'},
+  {GPT02_CORE_PREP_CREDENTIAL_SOURCE:'file'},
+ ]){
+  assert.throws(()=>createCoreTaskPreparer({
+   env:{...env,GPT02_CORE_PREP_DATABASE_URL_DEV:dsn,GPT02_CORE_PREP_DEV_CA:ca,...patch},
+   PoolClass:Pool
+  }),{code:'PREPARER_FILE_CUSTODY_REQUIRED'});
+ }
+ assert.equal(constructed,0);
+});
