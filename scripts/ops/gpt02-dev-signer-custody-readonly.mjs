@@ -40,10 +40,14 @@ const refusal=(code,details)=>Object.freeze({
  releaseDecision:'NO_GO',reason:code,details:Object.freeze(details)
 });
 export function assessGpt02SignerCustody(snapshot){
- const srv=snapshot?.services,file=snapshot?.files,key=snapshot?.encryptedCredentialPresent,\n   runtime=snapshot?.runtime;
- if(!srv||!file||!key||!runtime||typeof srv!=='object'||\n   typeof file!=='object'||typeof key!=='object'||typeof runtime!=='object')
+ const srv=snapshot?.services,file=snapshot?.files,key=snapshot?.encryptedCredentialPresent,
+   runtime=snapshot?.runtime;
+ if(!srv||!file||!key||!runtime||typeof srv!=='object'||
+   typeof file!=='object'||typeof key!=='object'||typeof runtime!=='object')
   return refusal('INVALID_READONLY_SNAPSHOT',[]);
- const missing=[];\n if(runtime.legacyAiTaskService!=='inactive')\n  missing.push('CONCURRENT_LEGACY_AI_TASK_RUNTIME');
+ const missing=[];
+ if(runtime.legacyAiTaskService!=='inactive')
+  missing.push('CONCURRENT_LEGACY_AI_TASK_RUNTIME');
  for(const [label] of Object.entries(SERVICE))
   if(srv[label]!=='active')missing.push('SERVICE_'+label);
  for(const label of Object.keys(FILE))
@@ -63,7 +67,10 @@ export function readGpt02CustodyMetadata({
   ['show',unit,'-p','ActiveState','--value','--no-pager'],
   {encoding:'utf8',timeout:2000}).trim()
 }={}){
- const services={},files={},encryptedCredentialPresent={};\n const runtime={legacyAiTaskService:'unavailable'};\n try{runtime.legacyAiTaskService=serviceState('ai-task-development.service')==='inactive'?\n   'inactive':'active'}catch{runtime.legacyAiTaskService='unavailable'}
+ const services={},files={},encryptedCredentialPresent={};
+ const runtime={legacyAiTaskService:'unavailable'};
+ try{runtime.legacyAiTaskService=serviceState('ai-task-development.service')==='inactive'?
+   'inactive':'active'}catch{runtime.legacyAiTaskService='unavailable'}
  for(const [label,unit] of Object.entries(SERVICE)){
   try{services[label]=serviceState(unit)==='active'?'active':'inactive'}
   catch{services[label]='unavailable'}
@@ -78,7 +85,8 @@ export function readGpt02CustodyMetadata({
  }
  return Object.freeze({services:Object.freeze(services),
   files:Object.freeze(files),
-  encryptedCredentialPresent:Object.freeze(encryptedCredentialPresent),\n  runtime:Object.freeze(runtime)});
+  encryptedCredentialPresent:Object.freeze(encryptedCredentialPresent),
+  runtime:Object.freeze(runtime)});
 }
 if(process.argv[1] && import.meta.url===new URL('file://'+process.argv[1]).href){
  const result=assessGpt02SignerCustody(readGpt02CustodyMetadata());
