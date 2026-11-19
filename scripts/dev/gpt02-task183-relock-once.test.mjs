@@ -102,6 +102,7 @@ test('systemd watcher is inactive by default and has scoped encrypted identity',
  for(const guard of ['Type=oneshot','DynamicUser=yes','Restart=no','StateDirectory=gpt02-task183-relock',
     'NoNewPrivileges=yes','ProtectSystem=strict','LoadCredentialEncrypted=task183-relock-dsn:/etc/credstore.encrypted/gpt02-task183-relock-dsn'])
    assert.ok(service.includes(guard),guard);
+ assert.match(service,/^ConditionPathExists=\/opt\/ai-task-gpt02-preparer\/current\/artifacts\/api-server\/node_modules\/pg\/package\.json$/m);
  assert.match(timer,/OnUnitInactiveSec=30s/);
  assert.match(timer,/Unit=gpt02-task183-preparer-relock.service/);
  assert.match(timer,/\[Install\]/);
