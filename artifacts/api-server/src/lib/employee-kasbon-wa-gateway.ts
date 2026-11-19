@@ -29,7 +29,11 @@ function config() {
     url.protocol === "http:" &&
     ["127.0.0.1", "localhost"].includes(url.hostname) &&
     url.port === "8080";
-  if (!allowedLocal) throw new Error("EMPLOYEE_KASBON_WA_GATEWAY_URL_NOT_ALLOWED");
+  const allowedProdDocker =
+    url.protocol === "http:" &&
+    url.hostname === "cst-wa-gateway-api-1" &&
+    url.port === "8080";
+  if (!allowedLocal && !allowedProdDocker) throw new Error("EMPLOYEE_KASBON_WA_GATEWAY_URL_NOT_ALLOWED");
   if (token.length < 32) throw new Error("EMPLOYEE_KASBON_WA_GATEWAY_TOKEN_MISSING");
   if (deviceId !== "ai-core") throw new Error("EMPLOYEE_KASBON_WA_DEVICE_NOT_ALLOWED");
   return { baseUrl: url.origin, token, deviceId };
