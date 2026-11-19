@@ -24,7 +24,13 @@ openssl req -newkey rsa:2048 -nodes -x509 -days 1 -sha256 \
  -subj "/CN=synthetic-pg" -addext "subjectAltName=DNS:synthetic-pg" \
  >/dev/null 2>&1
 chmod 600 "$work/server.key"
-chown 70:70 "$work/server.key" "$work/server.crt"
+# Ordinary GitHub runners cannot chown to the PostgreSQL container UID;
+# do the ownership adjustment only in a disposable root-owned Docker helper.
+if ! chown 70:70 "$work/server.key" "$work/server.crt" 2>/dev/null; then
+ docker run --rm --network none --entrypoint chown \
+  --mount "type=bind,src=$work,dst=/work" \
+  postgres:16-alpine 70:70 /work/server.key /work/server.crt >/dev/null
+fi
 node - "$work" <<'NODE'
 const fs=require('node:fs'),{randomBytes}=require('node:crypto');
 const dir=process.argv[2],roles=['postgres','gpt02_hub_evidence_reader','gpt02_core_evidence_reader'];
