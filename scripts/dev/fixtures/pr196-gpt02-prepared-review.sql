@@ -33,6 +33,21 @@ CREATE TABLE gpt02_private.issuer_evidences(company_id text,hub_task_id integer)
 CREATE TABLE gpt02_private.issuer_lease_consumptions(company_id text,hub_task_id integer);
 CREATE TABLE gpt02_private.receipts(command_id uuid);
 CREATE TABLE gpt02_private.core_identity_receipts(command_id uuid);
+-- Same immutable-preparation guard as hosted CST-DEV, in the disposable fixture.
+CREATE OR REPLACE FUNCTION gpt02_stage.reject_preparation_mutation()
+RETURNS trigger LANGUAGE plpgsql AS $fixture$
+BEGIN
+ RAISE EXCEPTION 'SYNTHETIC_PREPARATION_IMMUTABLE';
+END;
+$fixture$;
+CREATE TRIGGER gpt02_preparation_immutable
+BEFORE DELETE OR UPDATE OR TRUNCATE ON gpt02_stage.core_preparations
+FOR EACH STATEMENT EXECUTE FUNCTION gpt02_stage.reject_preparation_mutation();
+-- Archive is fake and empty; the E2E test adds fake conflicting proof later.
+CREATE TABLE ai_platform.gpt02_dev_command_archive_20261030 (
+ command_id uuid,
+ command_record jsonb
+);
 INSERT INTO public.ai_execution_jobs (
   id,company_id,task_id,source,external_id,idempotency_key,
   title,instruction,correlation_id,status,progress,
