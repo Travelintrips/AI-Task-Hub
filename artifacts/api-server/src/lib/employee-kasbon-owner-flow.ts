@@ -567,12 +567,6 @@ export async function tryHandleEmployeeKasbonOwnerApproval(input: HandleInput): 
     comment: `OK — kasbon disetujui via WhatsApp dan tercatat di BizPortal sebagai ${kasbon.advanceNumber}. Status menunggu pencairan.`,
   });
 
-  await sendKasbonMessage(
-    ownerPhone,
-    `Pengajuan kasbon sudah disetujui dan diteruskan ke penerima notifikasi serta karyawan.`,
-    input.fonnteDevice ?? null,
-  ).catch((error) => logger.warn({ error, taskId: task.id }, "employee-kasbon: owner confirmation failed"));
-
   if (meta.requesterPhone) {
     await sendKasbonMessage(
       meta.requesterPhone,
