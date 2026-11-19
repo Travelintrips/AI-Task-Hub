@@ -126,7 +126,8 @@ test('SQL wrapper is hard-coded for denial/relock, not login grants',()=>{
  assert.match(s,/pg_terminate_backend/);
  assert.match(s,/PASSWORD NULL/);
  assert.doesNotMatch(s,/ALTER ROLE gpt02_core_prep_login LOGIN/);
- assert.match(s,/AND NOT pg_catalog.has_function_privilege\('gpt02_core_prep_login'/);
+ assert.match(s,/canary_privilege_safe := NOT pg_catalog.has_function_privilege/);
+ assert.match(s,/AND canary_privilege_safe/);
  assert.doesNotMatch(s,/(?:PERFORM|CALL)\s+gpt02_stage\.prepare_core_task/);
 });
 
