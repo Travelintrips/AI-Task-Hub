@@ -265,7 +265,8 @@ router.post("/auth/google", async (req: Request, res: Response): Promise<void> =
       const decoded = registeredUser.role === "super_admin" ? jwt.decode(accessToken) : null;
       const authMethods = decoded && typeof decoded === "object" ? decoded.amr : undefined;
       const verifiedGoogleOAuthAt = recentGoogleOAuthEvidenceAt(
-        authMethods, authUser.identities, linkedProviders,
+        authMethods, authUser.identities, linkedProviders, Date.now(),
+        authUser.last_sign_in_at,
       );
 
       const token = signToken({
