@@ -166,7 +166,7 @@ def test_fixture(source_root: Path, node_test: Path):
                                              operational=True)
         assert pinned["persistedTrustedReadProven"] is False
         assert pinned["reason"] == "OPERATIONAL_DB_PATH_NOT_PINNED"
-        print("6/10 ORIGINAL_READER_OPERATIONAL_DB_PIN_PROTECTED_PASS",flush=True)
+        print("4/10 ORIGINAL_READER_OPERATIONAL_DB_PIN_PROTECTED_PASS",flush=True)
 
         with sqlite3.connect(db_path) as db:
             db.execute("UPDATE admin_identities SET enabled=0")
@@ -175,7 +175,7 @@ def test_fixture(source_root: Path, node_test: Path):
         assert negative["persistedTrustedReadProven"] is False
         with sqlite3.connect(db_path) as db:
             db.execute("UPDATE admin_identities SET enabled=1")
-        print("7/10 ORIGINAL_READER_DISABLED_SUPER_ADMIN_DENIED_PASS",flush=True)
+        print("5/10 ORIGINAL_READER_DISABLED_SUPER_ADMIN_DENIED_PASS",flush=True)
 
         with sqlite3.connect(db_path) as db:
             db.execute("UPDATE gpt02_issue159_approval_intents SET expires_at_ms=?",
@@ -188,18 +188,23 @@ def test_fixture(source_root: Path, node_test: Path):
                        (claims["expiresAt"],))
         print("6/10 ORIGINAL_READER_EXPIRED_DECISION_DENIED_PASS",flush=True)
 
+        # Real Issue159 SQLite schema has unique digest and (task,command,attempt).
+        # The producer already tested replay; prove direct duplicate writes
+        # are also rejected by the actual database constraint.
         with sqlite3.connect(db_path) as db:
             row2 = list(row)
             row2[0] = str(uuid.uuid4())
-            db.execute("INSERT INTO gpt02_issue159_approval_intents VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                       row2)
-        negative = reader.read_approval_intent(str(db_path), lookup, t0,
-                                               operational=False)
-        assert negative["persistedTrustedReadProven"] is False
-        with sqlite3.connect(db_path) as db:
-            db.execute("DELETE FROM gpt02_issue159_approval_intents WHERE id=?",
-                       (row2[0],))
-        print("7/10 ORIGINAL_READER_DUPLICATE_DECISION_DENIED_PASS",flush=True)
+            try:
+                db.execute("INSERT INTO gpt02_issue159_approval_intents VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                           row2)
+            except sqlite3.IntegrityError:
+                pass
+            else:
+                raise AssertionError("ORIGINAL_UNIQUE_CONSTRAINT_MISSING")
+            assert db.execute("SELECT COUNT(*) FROM gpt02_issue159_approval_intents").fetchone()[0] == 1
+        verified = reader.read_approval_intent(str(db_path), lookup, t0, operational=False)
+        assert verified["persistedTrustedReadProven"] is True
+        print("7/10 ORIGINAL_SQLITE_UNIQUE_DUPLICATE_WRITE_DENIED_PASS",flush=True)
 
         # Run the EXACT original Unix HTTP server handler on a PRIVATE socket.
         # This never calls serve() on the operational systemd socket.
