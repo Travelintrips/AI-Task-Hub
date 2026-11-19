@@ -37,7 +37,7 @@ jobs:
       - name: Checkout pinned PR196 verifier dependencies (integration fixture only)
         uses: actions/checkout@v4
         with:
-          ref: a576ba82a0c3d555498de2ecdc3d22da4e45ecae
+          ref: ee0dd1bb28dd2d91fcaff6126aa3604a80aaa894
           path: pr196-verifier-reference
           persist-credentials: false
       - name: GPT02 one-Owner signed approval candidate (offline, no attestor DB or dispatch)
