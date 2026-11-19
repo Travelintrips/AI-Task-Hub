@@ -6,9 +6,20 @@ NAME=gpt02-task183-relock-candidate-$$
 cleanup(){ docker rm -f "$NAME" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 docker run -d --name "$NAME" --network none --security-opt no-new-privileges -e POSTGRES_USER=fixture_root -e POSTGRES_PASSWORD=SYNTHETIC_FIXTURE_ROOT -e POSTGRES_DB=postgres postgres:16-alpine >/dev/null
+# PostgreSQL's initdb accepts one temporary local socket before shutdown
+# and final server restart. Require the FINAL post-init ready marker, not
+# just a fleeting successful SELECT during bootstrap.
 ready=0
-for i in $(seq 1 40);do if docker exec "$NAME" psql -X -U fixture_root -d postgres -Atqc 'SELECT 1' >/dev/null 2>&1; then ready=1;break;fi;sleep 0.3;done
-test "$ready" = 1
+for i in $(seq 1 75); do
+  logs=$(docker logs "$NAME" 2>&1 || true)
+  if [[ "$logs" == *'PostgreSQL init process complete'* ]] &&
+     [[ "${logs#*PostgreSQL init process complete}" == *'database system is ready to accept connections'* ]] &&
+     docker exec "$NAME" psql -X -U fixture_root -d postgres -Atqc 'SELECT 1' >/dev/null 2>&1; then
+    ready=1; break
+  fi
+  sleep 0.4
+done
+test "$ready" = 1 || { echo "POSTGRES_FINAL_INIT_NOT_READY"; exit 2; }
 docker exec "$NAME" sh -c 'sed -i "1i host all all 127.0.0.1/32 scram-sha-256" "$PGDATA/pg_hba.conf"'
 docker exec "$NAME" psql -X -U fixture_root -d postgres -Atqc 'SELECT pg_reload_conf()' >/dev/null
 docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U fixture_root -d postgres -c "CREATE ROLE gpt02_core_prep_login NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS CONNECTION LIMIT 0 PASSWORD NULL VALID UNTIL '2000-01-01'" >/dev/null
