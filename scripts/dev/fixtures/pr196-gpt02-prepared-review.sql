@@ -6,6 +6,21 @@ CREATE SCHEMA gpt02_private;
 CREATE SCHEMA ai_platform;
 CREATE TABLE public.conversation_intake_sessions (id integer);
 CREATE TABLE public.admin_notifications (id integer);
+CREATE TABLE public.ai_tasks (
+  id integer, company_id text, task_number text, source text, status text,
+  title text, description text, assigned_to_id integer
+);
+CREATE TABLE public.audit_logs (
+  id integer, company_id text, entity_id text, action text, module text
+);
+INSERT INTO public.ai_tasks(id,company_id,task_number,source,status,title,description,assigned_to_id) VALUES
+ (171,'default','WA-2611-7621','manual','new_inquiry','Synthetic immutable old Task171','Synthetic historical task',5),
+ (183,'default','WA-2611-7669','manual','new_inquiry',
+ '[INTERNAL-E2E] GPT02 DEV linked Task171 replacement 20261119',
+ 'DEV synthetic fixture. Linked historical Task #171 (WA-2611-7621). Exactly GPT02_DEV_E2E_LINKED_171_ACK.',
+ NULL);
+INSERT INTO public.audit_logs(id,company_id,entity_id,action,module) VALUES
+ (999,'default','183','task_created','tasks');
 -- All columns of the existing Drizzle select() projection must be present.
 CREATE TABLE public.ai_execution_jobs (
   id uuid, company_id text, task_id integer, source text,
