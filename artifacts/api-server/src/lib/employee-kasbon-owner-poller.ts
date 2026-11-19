@@ -55,7 +55,10 @@ export function startEmployeeKasbonOwnerWaPoller(): void {
   }
   if (timer) return;
   const run = () => {
-    void poll().catch((error) => logger.warn({ error }, "employee-kasbon WA poll failed"));
+    void poll().catch((error) => logger.warn({
+      err: error,
+      message: error instanceof Error ? error.message : String(error),
+    }, "employee-kasbon WA poll failed"));
   };
   run();
   timer = setInterval(run, POLL_MS);
