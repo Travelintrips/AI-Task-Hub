@@ -12,7 +12,7 @@ const REF='xssrfshdrtdfupgqwfdw';
 const HOST='aws-1-ap-southeast-2.pooler.supabase.com';
 const ROLE='gpt02_task183_relock_login.'+REF;
 const FINGERPRINT='807025ad50d4ed219d2c9c7d299c004f824eb00cf7f65afef607d07b72e6cafa';
-const SQL='SELECT role_locked,sessions_terminated FROM gpt02_guard.relock_task183_preparer()';
+const SQL='SELECT role_locked,sessions_terminated,sessions_remaining,canary_active FROM gpt02_guard.relock_task183_preparer()';
 const AUTH_LATCH='/var/lib/gpt02-task183-relock/auth-terminal';
 function fail(reason){const e=new Error(reason);e.code=reason;throw e;}
 
@@ -68,13 +68,21 @@ export async function relockOnce(env, {ClientClass,readCredential}={}){
   if(!stream||stream.authorized!==true||stream.encrypted!==true)
     fail('TASK183_RELOCK_PINNED_TLS_REQUIRED');
   const result=await client.query(SQL);
+  const row=result?.rows?.[0];
   if(!Array.isArray(result?.rows)||result.rows.length!==1||
-     typeof result.rows[0].role_locked!=='boolean'||
-     !Number.isSafeInteger(result.rows[0].sessions_terminated)||
-     result.rows[0].sessions_terminated<0)
+     typeof row?.role_locked!=='boolean'||
+     !Number.isSafeInteger(row?.sessions_terminated)||row.sessions_terminated<0||
+     !Number.isSafeInteger(row?.sessions_remaining)||row.sessions_remaining < -1||
+     typeof row?.canary_active!=='boolean'||
+     (row.canary_active && (row.role_locked || row.sessions_terminated!==0))||
+     (!row.canary_active && row.role_locked && row.sessions_remaining!==0)||
+     (!row.canary_active && row.sessions_remaining>0 && row.role_locked))
     fail('TASK183_RELOCK_READBACK_INVALID');
-  return Object.freeze({roleLocked:result.rows[0].role_locked,
-    sessionsTerminated:result.rows[0].sessions_terminated,
+  return Object.freeze({roleLocked:row.role_locked,
+    sessionsTerminated:row.sessions_terminated,
+    sessionsRemaining:row.sessions_remaining,
+    canaryActive:row.canary_active,
+    relockComplete:!row.canary_active && row.role_locked && row.sessions_remaining===0,
     dispatchPermitted:false,preparationAttempted:false});
  }finally{if(client)await client.end().catch(()=>{});}
 }
@@ -92,7 +100,14 @@ if(process.argv[1]&&import.meta.url===new URL('file://'+process.argv[1]).href){
  }else{
   try{
    const result=await relockOnce(process.env,{ClientClass:loadPgClient()});
-   process.stdout.write(JSON.stringify(result)+'\n');
+   if(!result.canaryActive && !result.relockComplete){
+     // The SQL command has committed NOLOGIN, but a residual session still
+     // needs another independent watchdog attempt and an operator alert.
+     process.stdout.write('TASK183_RELOCK_INCOMPLETE_RETRY_AND_ALERT_REQUIRED\n');
+     process.exitCode=3;
+   }else{
+     process.stdout.write(JSON.stringify(result)+'\n');
+   }
   }catch(err){
    if(err?.code==='28P01'){
     try{writeFileSync(AUTH_LATCH,'TERMINAL_AUTH_FAILURE\n',{mode:0o600,flag:'wx'})}catch{}
