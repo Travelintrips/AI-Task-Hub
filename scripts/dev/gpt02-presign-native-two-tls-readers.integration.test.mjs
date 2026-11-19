@@ -5,7 +5,7 @@ import {createRequire} from 'node:module';
 import {createGpt02PreSignFactReader} from '../../pr196-verifier-reference/artifacts/api-server/src/lib/gpt02-presign-facts-readonly.mjs';
 import {createGpt02SingleOwnerTrustedFactAdapter} from '../../artifacts/api-server/src/lib/gpt02-single-owner-trusted-facts-adapter.mjs';
 if(process.env.GPT02_TWO_TLS_READERS_DISPOSABLE_ONLY!=='1')throw Error('DISPOSABLE_TWO_READER_TEST_REQUIRED');
-const {Pool}=createRequire(import.meta.url)('../api-server/node_modules/pg');
+const {Pool}=createRequire('/workspace/artifacts/api-server/package.json')('pg');
 const passwords=JSON.parse(readFileSync('/run/fixture-auth.json','utf8'));
 const ca=readFileSync('/run/ssl/server.crt','utf8');
 const common={host:'synthetic-pg',port:5432,database:'postgres',max:2,
