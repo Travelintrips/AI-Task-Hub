@@ -73,13 +73,19 @@ export function createGpt02Issue159PersistedIntentGate({
         superAdminId:claims.superAdminId,
       });
       const reader=await readTrustedIntent(Object.freeze({lookup,observedAt:now}));
+      const afterRead=clock();
+      if(!Number.isSafeInteger(afterRead)||afterRead<now||
+         afterRead-now>maxReadAgeMs)
+        return refusal('ISSUE159_READER_RESULT_STALE');
       if(!reader||reader.ok!==true||reader.environment!=='DEV'||
          reader.approvalReadOnly!==true||reader.decisionCreated!==false||
          reader.releaseDecision!=='NO_GO'||
          !isSafeFalse(reader,['signingPermitted','authorizationGranted','dispatchPermitted']))
         return refusal('ISSUE159_READER_NOT_TRUSTED');
       const evidence=reader.result,decision=evidence?.decision;
-      if(evidence?.persistedTrustedReadProven!==true||
+      if(evidence?.environment!=='DEV'||
+         evidence?.reason!=='TRUSTED_APPROVAL_INTENT_READ_NO_SIGNING_AUTHORITY'||
+         evidence?.persistedTrustedReadProven!==true||
          evidence?.approvalBindingMatched!==true||
          evidence?.adminApprovalMatched!==true||
          evidence?.releaseDecision!=='NO_GO'||
@@ -94,7 +100,6 @@ export function createGpt02Issue159PersistedIntentGate({
          decision.recordedAt<claims.issuedAt||
          decision.recordedAt>=claims.expiresAt||
          decision.recordedAt>now||
-         now-decision.recordedAt>maxReadAgeMs+300000|| // hard expiry also applies below
          claims.expiresAt<=now)
         return refusal('ISSUE159_PERSISTED_OWNER_DECISION_MISSING');
       return Object.freeze({verified:true,reason:'ISSUE159_PERSISTED_DECISION_VERIFIED_ONLY',
