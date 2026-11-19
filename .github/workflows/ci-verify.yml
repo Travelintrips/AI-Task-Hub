@@ -78,6 +78,8 @@ jobs:
         run: bash scripts/dev/test-gpt02-postauth-dualdb-approval-issuer-isolated.sh
       - name: GPT02 Owner candidate + genuine SCRAM attestor and issuer (isolated PostgreSQL)
         run: bash scripts/dev/test-gpt02-single-owner-real-attestor-isolated.sh
+      - name: GPT02 original PR196 Core source receipt and native Final ACK contract (isolated)
+        run: node --experimental-strip-types --test scripts/dev/gpt02-original-final-ack-contract.test.mjs
       - name: GPT02 existing Issue159 signer custody remains non-authorizing (offline)
         run: node --test scripts/ops/gpt02-dev-signer-custody-readonly.test.mjs
       - name: GPT02 expired preparation admission fail-closed (offline)
