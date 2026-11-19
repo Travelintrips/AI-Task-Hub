@@ -10,7 +10,8 @@ const credentials=['approval','hub','core','issuer'];
 function ready(){
  return {services:Object.fromEntries(services.map(x=>[x,'active'])),
   files:Object.fromEntries(files.map(x=>[x,true])),
-  encryptedCredentialPresent:Object.fromEntries(credentials.map(x=>[x,true]))};
+  encryptedCredentialPresent:Object.fromEntries(credentials.map(x=>[x,true])),
+  runtime:{legacyAiTaskService:'inactive'}};
 }
 test('even complete metadata cannot authorize signing, attestor, issuer or dispatch',()=>{
  const x=assessGpt02SignerCustody(ready());
@@ -20,6 +21,13 @@ test('even complete metadata cannot authorize signing, attestor, issuer or dispa
   'attestorRecordPermitted','issuerLeaseGranted','dispatchPermitted'])
   assert.equal(x[key],false,key);
  assert.equal(x.releaseDecision,'NO_GO');
+});
+test('another live legacy DEV runtime denies GPT02 signer admission even when metadata is green',()=>{
+ const x=ready();x.runtime.legacyAiTaskService='active';
+ const v=assessGpt02SignerCustody(x);
+ assert.equal(v.preconditionsComplete,false);
+ assert.ok(v.details.includes('CONCURRENT_LEGACY_AI_TASK_RUNTIME'));
+ assert.equal(v.dispatchPermitted,false);
 });
 test('missing approved claims and issuer reader socket block existing one-shot custody',()=>{
  const x=ready();x.files.approvedClaims=false;x.files.issuerReaderSocket=false;
@@ -50,11 +58,11 @@ test('metadata collection checks only fixed files and fixed service names withou
  let checks=0,servicesRead=0;
  const r=readGpt02CustodyMetadata({
   exists(path){checks++;assert.ok(path.startsWith('/'));return true},
-  serviceState(name){servicesRead++;assert.match(name,/^gpt02-issue159-/);return 'active'}
+  serviceState(name){servicesRead++;if(name==='ai-task-development.service')return 'inactive';assert.match(name,/^gpt02-issue159-/);return 'active'}
  });
  assert.equal(Object.keys(r.services).length,5);
  assert.equal(checks,15);
- assert.equal(servicesRead,5);
+ assert.equal(servicesRead,6);
  assert.equal(assessGpt02SignerCustody(r).preconditionsComplete,true);
 });
 test('unavailable systemctl, file errors and missing passwords always NO-GO',()=>{
