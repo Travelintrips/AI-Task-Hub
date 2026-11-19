@@ -106,11 +106,11 @@ test('real JWT session and exact consent reach only synthetic recorder, never is
   assert.deepEqual(s.calls(),{signerCalls:1,recorderCalls:1});
  }finally{await s.close()}
 });
-test('PR196 app-local numeric ID cannot impersonate the separate Issue159 Hub TEXT operator ID',async()=>{
- const h=await serverFixture(),token=signToken(claims({id:17}));
+test('PR196 signed TEXT Hub user cannot approve another TEXT operator, even if email is identical',async()=>{
+ const h=await serverFixture(),token=signToken(claims({id:'different_hub_text_owner'}));
  try{
-  const c=consent();
-  const r=await h.call({token,body:{consent:{...c,operatorSubject:'synthetic_hub_text_owner_7'}}});
+  const c=consent(); // still bound to fixture_owner_7
+  const r=await h.call({token,body:{consent:c}});
   assert.equal(r.status,400);
   assert.equal(r.response.reason,'EXPLICIT_OWNER_CONSENT_REQUIRED');
   assert.deepEqual(h.calls(),{signerCalls:0,recorderCalls:0});
