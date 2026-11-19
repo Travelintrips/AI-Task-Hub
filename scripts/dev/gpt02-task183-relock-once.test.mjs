@@ -146,3 +146,17 @@ test('residual session never becomes a completed relock',async()=>{
  assert.equal(r.dispatchPermitted,false);
  assert.equal(calls.length,3);
 });
+
+test('hosted non-superuser can use relock without pg_authid UPDATE or superuser-only attribute mutations',()=>{
+ const sql=readFileSync(new URL('./gpt02-task183-relock-hosted-candidate.sql',import.meta.url),'utf8');
+ // SELECT FOR UPDATE is forbidden to the hosted admin, which has SELECT
+ // but not UPDATE on pg_catalog.pg_authid.
+ assert.doesNotMatch(sql,/FROM\s+pg_catalog\.pg_authid[^;\n]*FOR\s+UPDATE/i);
+ // A non-superuser must not attempt NOSUPERUSER or other potentially
+ // restricted flag changes. Only the dedicated role login and secret expire.
+ const command=sql.match(/^ EXECUTE '(ALTER ROLE gpt02_core_prep_login [^']+)''2000-01-01''';/m);
+ assert.ok(command, 'fixed relock ALTER ROLE must be present');
+ assert.match(command[1],/NOLOGIN CONNECTION LIMIT 0 PASSWORD NULL VALID UNTIL/);
+ assert.doesNotMatch(command[1],/\b(?:NOSUPERUSER|NOCREATEDB|NOREPLICATION|NOBYPASSRLS|NOCREATEROLE)\b/);
+ assert.match(sql,/pg_catalog\.pg_authid WHERE rolname='gpt02_core_prep_login'/);
+});
