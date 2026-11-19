@@ -671,6 +671,13 @@ export default function AiTaskDetail() {
   const { data: googleSessionReadiness, error: googleSessionReadinessError,
     isFetching: googleSessionReadinessFetching, refetch: refreshGoogleSessionReadiness } = useQuery<{
       googleProofFresh:boolean;requiresFreshGoogleLogin:boolean;
+      googleProofStatus?:
+        | "SIGNED_SESSION_GOOGLE_PROOF_FRESH"
+        | "SIGNED_SESSION_GOOGLE_CLAIMS_ABSENT"
+        | "SIGNED_SESSION_GOOGLE_PROOF_EXPIRED"
+        | "SIGNED_SESSION_GOOGLE_PROOF_INVALID"
+        | "DEV_SESSION_GUARD_CONFIGURATION_UNAVAILABLE"
+        | "SUPER_ADMIN_SESSION_REQUIRED";
       proofSource:"signed_app_session";readOnly:true;
       operatorApprovalRecorded:false;commandBoundConsentVerified:false;
       issuerLeaseGranted:false;dispatchPermitted:false;resumePermitted:false;statusChanged:false;
@@ -1393,6 +1400,14 @@ export default function AiTaskDetail() {
                 googleSessionReadiness?.googleProofFresh === true
                   ? "Bukti Google pada sesi aplikasi masih berlaku untuk pemeriksaan identitas."
                   : "Bukti Google baru belum terverifikasi pada sesi aplikasi. Akses baca-saja tetap tersedia."}</p>
+              {googleSessionReadiness?.googleProofStatus==="SIGNED_SESSION_GOOGLE_CLAIMS_ABSENT" &&
+                <p data-testid="gpt02-google-proof-missing">Sesi aplikasi belum memiliki klaim bukti Google. Periksa callback ke AI Task; login Google di penyedia saja belum membuktikan sesi aplikasi.</p>}
+              {googleSessionReadiness?.googleProofStatus==="SIGNED_SESSION_GOOGLE_PROOF_EXPIRED" &&
+                <p data-testid="gpt02-google-proof-expired">Klaim Google pada sesi aplikasi ada, tetapi sudah melewati batas 10 menit. Login baru diperlukan hanya ketika hendak menugaskan PIC.</p>}
+              {googleSessionReadiness?.googleProofStatus==="SIGNED_SESSION_GOOGLE_PROOF_INVALID" &&
+                <p data-testid="gpt02-google-proof-invalid">Bukti sesi Google tidak konsisten. Perubahan PIC tetap ditolak.</p>}
+              {googleSessionReadiness?.googleProofStatus==="DEV_SESSION_GUARD_CONFIGURATION_UNAVAILABLE" &&
+                <p data-testid="gpt02-google-proof-config-block">Pengaman autentikasi DEV belum siap; semua tindakan GPT02 tetap ditahan.</p>}
               {googleSessionReadinessError && <p>Verifikasi sesi tidak tersedia — izin perubahan tetap ditolak.</p>}
               <p>Hasil ini bukan persetujuan operator, penerbitan lease, atau izin menjalankan Task.</p>
             </div>
