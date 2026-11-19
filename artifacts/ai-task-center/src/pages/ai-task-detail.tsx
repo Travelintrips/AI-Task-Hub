@@ -690,6 +690,17 @@ export default function AiTaskDetail() {
     preparationExpired?: boolean; evidenceComplete?: boolean; coreStatus?: string | null;
     readOnly?: boolean; resumePermitted?: boolean; dispatchPermitted?: boolean;
     archiveChecked?: boolean;
+    recoveryDecision?: {
+      technicalEvidenceReviewed: boolean; technicalReviewMode: string;
+      reason: string; nextAction: string; oldTaskId: number | null;
+      historicalReservationPreserved: true;
+      sameTaskRepreparePermitted: false; newTaskCreated: false; approvalRecorded: false;
+      secondHumanAdminApprovalRequired: false; singleOwnerApprovalRequiredForExecution: true;
+      issuerVerificationStillRequired: true;
+      archiveChecked: boolean; archiveMatchCount: number | null;
+      immutableTriggerVerified: boolean;
+      readOnly: true; dispatchPermitted: false; resumePermitted: false;
+    };
   }>({
     queryKey: ["gpt02-reconciliation", id],
     queryFn: () => apiFetch(`/ai-tasks/${id}/gpt02-reconciliation?companyId=${encodeURIComponent(task?.companyId ?? "")}`),
@@ -1428,6 +1439,23 @@ export default function AiTaskDetail() {
                   <p>Preparation: {reconciliation.preparationExpired ? "Kedaluwarsa" : "Masa berlaku atau bukti belum selesai diperiksa"} · Core Task: {reconciliation.coreStatus ?? "Belum terbukti"} · Bukti konsisten: {reconciliation.evidenceComplete ? "Ya (reservasi saja)" : "Belum"}</p>
                   <p>Kode audit: {reconciliation.reviewReason ?? "BUKTI_BELUM_TERSEDIA"}</p>
                   <p>Pemeriksaan ini baca-saja. Tidak memberikan approval, resume, dispatch, maupun izin membuat command baru.</p>
+                  {reconciliation.recoveryDecision?.technicalEvidenceReviewed === true ? (
+                    <div data-testid="gpt02-immutable-recovery-decision"
+                      className="rounded border border-slate-300 bg-white p-2 space-y-1">
+                      <strong>Audit teknis otomatis selesai — tidak perlu persetujuan admin kedua.</strong>
+                      <p>Reservation historis tetap disimpan dan tidak dapat diulang pada Task ID yang sama.
+                        Langkah berikutnya: buat Task DEV E2E baru yang tertaut audit ke Task #{reconciliation.recoveryDecision.oldTaskId ?? id}.
+                        Belum ada Task baru dibuat oleh pemeriksaan ini.</p>
+                      <p>Untuk eksekusi nantinya tetap perlu satu persetujuan Owner/Super Admin
+                        yang sah serta pembuktian issuer teknis dan command-bound consent.
+                        Status eksekusi sekarang tetap NO-GO.</p>
+                    </div>
+                  ) : (
+                    <p data-testid="gpt02-immutable-recovery-hold">
+                      Audit teknis pemulihan belum lengkap (arsip, trigger, atau lineage tidak cocok).
+                      Jangan buat reservation pengganti sebelum bukti diverifikasi.
+                    </p>
+                  )}
                 </div>
               )}
             </div>}
