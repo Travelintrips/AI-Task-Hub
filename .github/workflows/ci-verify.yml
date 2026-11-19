@@ -50,6 +50,8 @@ jobs:
             install -D -m 0644 "pr196-verifier-reference/$root/$f" "$root/$f"
           done
           node --test scripts/dev/gpt02-single-owner-approval-recorder.test.mjs
+      - name: GPT02 three-domain preissuer bootstrap review (source-only, no signing or credentials)
+        run: node --test scripts/dev/gpt02-preissuer-bootstrap-review.test.mjs
       - name: GPT02 original Issue159 SQLite/Unix reader integration harness syntax (offline)
         run: |
           node --check scripts/dev/gpt02-issue159-original-unix-reader-pr207-gate.integration.test.mjs
