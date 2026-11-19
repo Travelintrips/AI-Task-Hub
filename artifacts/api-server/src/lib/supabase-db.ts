@@ -1,6 +1,8 @@
 import pg from "pg";
 import { logger } from "./logger";
 import { assertProductionConnectionAllowed } from "@workspace/db/production-connection-policy";
+import { installDevDbAuthCircuit, sharedDevDbAuthScope } from "@workspace/db/dev-auth-circuit";
+import { resolveAiTaskDbSsl } from "@workspace/db/dev-verified-tls";
 
 const isProduction = process.env.NODE_ENV === "production";
 const databaseEnvName = isProduction
@@ -23,13 +25,21 @@ export const supabasePool = connectionString
       max: 5,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 5000,
-      ssl: process.env.DB_SSL === "false" ? false : { rejectUnauthorized: false },
+      ssl: resolveAiTaskDbSsl(connectionString, process.env),
     })
   : null;
 
 if (supabasePool) {
+  // Reuse the main Drizzle Pool's DEV-only shared authentication scope.
+  // Both Pool objects draw their DSN from the same environment variable.
+  // Their cold-start attempts must not multiply the shared Supavisor 28P01.
+  const devAuthCircuit = installDevDbAuthCircuit(supabasePool, !isProduction, sharedDevDbAuthScope);
   supabasePool.on("error", (err) => {
-    logger.error({ err }, "DB pool error");
+    devAuthCircuit.noteFailure(err);
+    if (isProduction) logger.error({ err }, "DB pool error");
+    else logger.error({
+      code: devAuthCircuit.isBlocked() ? "AI_TASK_DEV_DB_AUTH_CIRCUIT_OPEN" : "DEV_DB_IDLE_ERROR",
+    }, "DEV raw database pool error");
   });
 
   supabasePool.connect()
@@ -41,7 +51,10 @@ if (supabasePool) {
       );
     })
     .catch((err) => {
-      logger.error({ err }, "DB pool failed to connect");
+      if (isProduction) logger.error({ err }, "DB pool failed to connect");
+      else logger.warn({
+        code: devAuthCircuit.isBlocked() ? "AI_TASK_DEV_DB_AUTH_CIRCUIT_OPEN" : "DEV_DB_CONNECTION_FAILED",
+      }, "DEV raw database pool connection unavailable");
     });
 }
 

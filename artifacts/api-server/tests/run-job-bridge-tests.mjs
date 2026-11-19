@@ -53,6 +53,9 @@ try {
     requiresAck: false,
   });
   assert.equal(bridge.aiCoreSourceReconciliationPlan("RUNNING"), null);
+  // A prepared Hub job with a Core PENDING task does not imply approval,
+  // command issuance, bridge registration, or an ACK for Task171.
+  assert.equal(bridge.aiCoreSourceReconciliationPlan("PENDING"), null);
   assert.equal(bridge.safeUuid("not-a-uuid"), false);
   assert.equal(bridge.safeUuid("550e8400-e29b-41d4-a716-446655440000"), true);
   const expectedSecret = "abcde12345abcde12345abcde12345abcde12345";
@@ -126,6 +129,8 @@ try {
     "The environment-gated source reconciler must start with the API runtime");
   const reconcileCode = await readFile(path.join(artifactDir, "src/lib/ai-core-source-reconciliation.ts"), "utf8");
   assert.ok(reconcileCode.includes("verifyAndAckAiCoreSource"), "No unverified ACKs are synthesized");
+  assert.equal(reconcileCode.includes("INSERT INTO ai_task_bridge.jobs"), false,
+    "Passive source reconciliation must never register a missing bridge job");
   assert.ok(reconcileCode.includes("FOR UPDATE"), "Reconciliation locks each source job");
   assert.ok(reconcileCode.includes("ON CONFLICT(event_id) DO NOTHING"), "Replay must be idempotent");
   assert.ok(reconcileCode.includes("status='REVIEW_REQUIRED'"),

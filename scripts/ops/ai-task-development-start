@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+set -euo pipefail
+umask 077
+
+ROOT="/home/githubrunner/apps/ai-task/development"
+ENV_FILE="/home/githubrunner/.config/ai-task/development.env"
+STATE="/home/githubrunner/.local/state/ai-task"
+PIDFILE="$STATE/development.pid"
+LOGFILE="$STATE/development.log"
+NODE="/opt/actions-runner/_work/_tool/node/22.23.3/x64/bin/node"
+
+mkdir -p "$STATE"
+# Hold a launch-only lock; background children never inherit it.
+exec 9>"$STATE/development-start.lock"
+flock -x 9
+
+if [[ ! -r "$ENV_FILE" ]]; then
+  echo "AI_TASK_DEV_ENV_NOT_READABLE — launch denied" >&2
+  exit 78
+fi
+# Do not even parse a DEV credential until the isolated release is approved.
+# This independent gate also applies to @reboot and direct launcher invocations,
+# which do not pass through systemd RefuseManualStart.
+RELEASE_MARKER="/etc/ai-task-dev-authorized-reader-and-release.ready"
+if [[ ! -f "$RELEASE_MARKER" || -L "$RELEASE_MARKER" ]]; then
+  echo "AI_TASK_DEV_RELEASE_NOT_AUTHORIZED — launch denied" >&2
+  exit 78
+fi
+set -a
+. "$ENV_FILE"
+set +a
+
+# This DEV-only launch path must never reuse a privileged admin pooler
+# identity from a legacy environment file, nor attempt a password probe
+# that could trigger a shared Supavisor authentication circuit breaker.
+# Read the URL from the environment only (NOT argv); never print its value.
+"$NODE" <<'NODE_GUARD'
+const raw = process.env.SUPABASE_DATABASE_URL_DEV ?? "";
+let target;
+try {
+  if (process.env.NODE_ENV !== "development" || process.env.APP_ENV !== "development") {
+    throw Error("ENV");
+  }
+  target = new URL(raw);
+  const user = decodeURIComponent(target.username);
+  const project = "xssrfshdrtdfupgqwfdw";
+  const inProject = `${target.hostname} ${user}`.includes(project);
+  const scheme = target.protocol === "postgresql:" || target.protocol === "postgres:";
+  // pg-connection-string honors user/host/port query overrides. Never let
+  // URL parsing succeed on a different effective role or database target.
+  const exactDatabase = target.pathname === "/postgres";
+  const noOverrides = !target.search && !target.hash;
+  // Exactly one authorized reader identity for this legacy isolated launcher.
+  // Its Supabase role currently has NOLOGIN, so no real service may run until
+  // the approved provisioning workflow supplies a working scoped credential.
+  const expectedUser = "ai_task_vps_identity_reader_dev." + project;
+  const exactReader = user === expectedUser;
+  const pooler = /^aws-[0-9]+-[a-z0-9-]+\.pooler\.supabase\.com$/.test(target.hostname)
+    && target.port === "6543";
+  if (!scheme || !inProject || !exactReader || !pooler || !target.password || !exactDatabase || !noOverrides) throw Error("ROLE");
+} catch {
+  console.error("AI_TASK_DEV_DB_IDENTITY_UNAPPROVED — no database request, launch denied");
+  process.exit(78);
+}
+NODE_GUARD
+
+# Never terminate arbitrary PID-file occupants. A valid, already-running
+# instance is left alone. A stale file is replaced only after the DB guard.
+if [[ -s "$PIDFILE" ]]; then
+  previous_pid="$(cat "$PIDFILE")"
+  if [[ "$previous_pid" =~ ^[1-9][0-9]{0,8}$ ]] && kill -0 "$previous_pid" 2>/dev/null; then
+    if [[ -r "/proc/$previous_pid/cmdline" ]] &&
+      [[ "$(readlink -f "/proc/$previous_pid/cwd" 2>/dev/null || true)" == "$ROOT" ]] &&
+      tr '\0' ' ' <"/proc/$previous_pid/cmdline" | grep -qF 'artifacts/api-server/dist/index.mjs'; then
+      echo "AI_TASK_DEV_ALREADY_RUNNING — existing process preserved"
+      exit 0
+    fi
+    echo "AI_TASK_DEV_PIDFILE_CONFLICT — refusing to stop another process" >&2
+    exit 75
+  fi
+fi
+
+# The legacy standalone runner is only for isolated interactive DEV QA.
+# All cron-like work and startup DDL remain on the official controlled
+# DEV deployment, not on an accidental orphan of Desktop Commander.
+export DISABLE_BACKGROUND_SCHEDULERS=true
+export RUN_STARTUP_MIGRATIONS=false
+
+cd "$ROOT"
+RUNNER_TRACKING_ID='' nohup "$NODE" --enable-source-maps artifacts/api-server/dist/index.mjs \
+  >>"$LOGFILE" 2>&1 </dev/null 9>&- &
+echo $! >"$PIDFILE"
+echo "AI_TASK_DEV_ISOLATED_LAUNCH_STARTED"

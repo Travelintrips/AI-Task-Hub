@@ -25,6 +25,77 @@ jobs:
           run_install: false
       - run: pnpm install --frozen-lockfile
       - run: bash -n deploy/hostinger/verify-ai-task-ledger-prod.sh
+      - name: DEV standalone database startup fail-closed (offline, no secret or database)
+        run: |
+          bash -n scripts/ops/ai-task-development-start
+          node --test scripts/ops/ai-task-development-start.test.mjs
+      - name: GPT02 independent Ed25519 role signatures and anti-replay (offline)
+        run: node --test scripts/ops/gpt02-dev-ed25519-binding-offline.test.mjs
+      # PR207 is the standalone-auth branch; the existing cryptographic verifier
+      # modules live on independent Draft PR196. Use its PINNED source here to
+      # validate the integration candidate, never copy or reimplement it in PR207.
+      - name: Checkout pinned PR196 verifier dependencies (integration fixture only)
+        uses: actions/checkout@v4
+        with:
+          ref: ee0dd1bb28dd2d91fcaff6126aa3604a80aaa894
+          path: pr196-verifier-reference
+          persist-credentials: false
+      - name: GPT02 one-Owner signed approval candidate (offline, no attestor DB or dispatch)
+        run: |
+          set -euo pipefail
+          root=artifacts/api-server/src/lib
+          for f in gpt02-google-auth-gate.mjs gpt02-prepared-link.mjs gpt02-issuer-store.mjs gpt02-operator-link.mjs; do
+            test ! -e "$root/$f"
+            test -s "pr196-verifier-reference/$root/$f"
+            install -D -m 0644 "pr196-verifier-reference/$root/$f" "$root/$f"
+          done
+          node --test scripts/dev/gpt02-single-owner-approval-recorder.test.mjs
+      - name: GPT02 three-domain preissuer bootstrap review (source-only, no signing or credentials)
+        run: node --test scripts/dev/gpt02-preissuer-bootstrap-review.test.mjs
+      - name: GPT02 original Issue159 SQLite/Unix reader integration harness syntax (offline)
+        run: |
+          node --check scripts/dev/gpt02-issue159-original-unix-reader-pr207-gate.integration.test.mjs
+          python3 - <<'PY'
+          import ast
+          from pathlib import Path
+          path=Path('scripts/dev/test-gpt02-issue159-original-unix-reader-pr207-gate-isolated.py')
+          ast.parse(path.read_text(encoding='utf-8'))
+          print('ISSUE159_ORIGINAL_READER_HARNESS_SYNTAX_PASS')
+          PY
+      - name: Existing PR196 DEV Google duplicate-email canonical TEXT profile regression (offline)
+        run: node --experimental-strip-types --test pr196-verifier-reference/scripts/dev/dev-google-unambiguous-profile.test.mjs
+      - name: GPT02 authenticated Hub TEXT ID to Issue159 UUID operator binding (non-authorizing)
+        run: node --test scripts/dev/gpt02-issue159-operator-binding-gate.test.mjs
+      - name: GPT02 Issue159 persisted one-owner decision gate (read-only contract)
+        run: node --test scripts/dev/gpt02-issue159-persisted-owner-intent-gate.test.mjs
+      - name: GPT02 guarded single-Owner HTTP consent adapter (isolated loopback, no signer)
+        run: node --test scripts/dev/gpt02-single-owner-approval-http-candidate.test.mjs
+      - name: GPT02 real PR196 JWT middleware to guarded approval HTTP (isolated)
+        run: node scripts/dev/run-gpt02-single-owner-original-auth-http-isolated.mjs
+      - name: GPT02 independent Hub/Core presign fact adapter (offline, no DB writer)
+        run: node --test scripts/dev/gpt02-single-owner-trusted-facts-adapter.test.mjs
+      - name: GPT02 original Hub/Core presign via two real SCRAM TLS readers (isolated PostgreSQL)
+        run: bash scripts/dev/test-gpt02-presign-native-two-tls-readers-isolated.sh
+      - name: GPT02 full post-auth dual DB TLS to signer fixture attestor issuer (isolated)
+        run: bash scripts/dev/test-gpt02-postauth-dualdb-approval-issuer-isolated.sh
+      - name: GPT02 Owner candidate + genuine SCRAM attestor and issuer (isolated PostgreSQL)
+        run: bash scripts/dev/test-gpt02-single-owner-real-attestor-isolated.sh
+      - name: GPT02 original PR196 Core source receipt and native Final ACK contract (isolated)
+        run: node --experimental-strip-types --test scripts/dev/gpt02-original-final-ack-contract.test.mjs
+      - name: GPT02 existing Issue159 signer custody remains non-authorizing (offline)
+        run: node --test scripts/ops/gpt02-dev-signer-custody-readonly.test.mjs
+      - name: GPT02 expired preparation admission fail-closed (offline)
+        run: node --test scripts/ops/gpt02-dev-preparation-admission.test.mjs
+      - name: DEV PostgreSQL auth circuit blocks retries with real pg.Pool semantics (offline)
+        run: node --experimental-strip-types --test lib/db/src/dev-auth-circuit.test.mjs
+      - name: Stale DEV systemd unit cannot restart without authorized role and release
+        run: node --test scripts/ops/ai-task-development-systemd-guard.test.mjs
+      - name: Isolated DEV runtime identity and no-secret preflight (offline)
+        run: node --test scripts/ops/ai-task-dev-runtime-identity-gate.test.mjs
+      - name: PR196 private read-only API route contract (offline)
+        run: node --test scripts/ops/ai-task-dev-readonly-http-smoke.test.mjs
+      - name: DEV verified TLS CA and hostname admission (offline, PROD no-op)
+        run: node --experimental-strip-types --test lib/db/src/dev-verified-tls.test.mjs
       - run: pnpm run typecheck
       - run: pnpm -r --filter './artifacts/**' --if-present run build
       - run: pnpm --filter @workspace/api-server test:short-links
