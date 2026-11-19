@@ -8,6 +8,7 @@ systemd actions, grants, issuer leases, or PROD interactions.
 """
 from __future__ import annotations
 import argparse
+import grp
 import hashlib
 import importlib.util
 import json
@@ -30,6 +31,8 @@ EXPECTED_ORIGINAL_HASHES = {
         "935b0e3554fc80e4cc665b4b594296b6e12b15ee2557e3d3e3a47faf0370db79",
     "gpt02_issue159_approval_intent_contract.py":
         "a0981d7be9eebebb8835ccff2a20306becedf40aabd0f3de6d3282b64f48deb1",
+    "gpt02_issue159_signer_approval_guard.py":
+        "2c5647ae3d1cfbd4d06571ef26d209cd1ee09f0a7c6582dcd039ac7b1e7a283e",
 }
 
 def imported(source_root: Path, filename: str):
@@ -56,6 +59,7 @@ def test_fixture(source_root: Path, node_test: Path):
     contract = imported(source_root, "gpt02_issue159_approval_intent_contract.py")
     reader = imported(source_root, "gpt02_issue159_approval_intent_reader.py")
     runtime = imported(source_root, "gpt02_issue159_approval_reader_runtime.py")
+    signer_guard = imported(source_root, "gpt02_issue159_signer_approval_guard.py")
 
     with tempfile.TemporaryDirectory(prefix="gpt02-issue159-offline-") as root:
         scratch = Path(root)
@@ -116,13 +120,13 @@ def test_fixture(source_root: Path, node_test: Path):
         assert positive["releaseDecision"] == "NO_GO"
         assert positive["signingPermitted"] is False
         assert positive["dispatchPermitted"] is False
-        print("1/7 ORIGINAL_SQLITE_SUPABASE_SESSION_APPROVAL_READ_PASS",flush=True)
+        print("1/8 ORIGINAL_SQLITE_SUPABASE_SESSION_APPROVAL_READ_PASS",flush=True)
 
         pinned = reader.read_approval_intent(str(db_path), lookup, t0,
                                              operational=True)
         assert pinned["persistedTrustedReadProven"] is False
         assert pinned["reason"] == "OPERATIONAL_DB_PATH_NOT_PINNED"
-        print("2/7 ORIGINAL_READER_OPERATIONAL_DB_PIN_PROTECTED_PASS",flush=True)
+        print("2/8 ORIGINAL_READER_OPERATIONAL_DB_PIN_PROTECTED_PASS",flush=True)
 
         with sqlite3.connect(db_path) as db:
             db.execute("UPDATE admin_identities SET enabled=0")
@@ -131,7 +135,7 @@ def test_fixture(source_root: Path, node_test: Path):
         assert negative["persistedTrustedReadProven"] is False
         with sqlite3.connect(db_path) as db:
             db.execute("UPDATE admin_identities SET enabled=1")
-        print("3/7 ORIGINAL_READER_DISABLED_SUPER_ADMIN_DENIED_PASS",flush=True)
+        print("3/8 ORIGINAL_READER_DISABLED_SUPER_ADMIN_DENIED_PASS",flush=True)
 
         with sqlite3.connect(db_path) as db:
             db.execute("UPDATE gpt02_issue159_approval_intents SET expires_at_ms=?",
@@ -142,7 +146,7 @@ def test_fixture(source_root: Path, node_test: Path):
         with sqlite3.connect(db_path) as db:
             db.execute("UPDATE gpt02_issue159_approval_intents SET expires_at_ms=?",
                        (claims["expiresAt"],))
-        print("4/7 ORIGINAL_READER_EXPIRED_DECISION_DENIED_PASS",flush=True)
+        print("4/8 ORIGINAL_READER_EXPIRED_DECISION_DENIED_PASS",flush=True)
 
         with sqlite3.connect(db_path) as db:
             row2 = list(row)
@@ -155,7 +159,7 @@ def test_fixture(source_root: Path, node_test: Path):
         with sqlite3.connect(db_path) as db:
             db.execute("DELETE FROM gpt02_issue159_approval_intents WHERE id=?",
                        (row2[0],))
-        print("5/7 ORIGINAL_READER_DUPLICATE_DECISION_DENIED_PASS",flush=True)
+        print("5/8 ORIGINAL_READER_DUPLICATE_DECISION_DENIED_PASS",flush=True)
 
         # Run the EXACT original Unix HTTP server handler on a PRIVATE socket.
         # This never calls serve() on the operational systemd socket.
@@ -163,6 +167,13 @@ def test_fixture(source_root: Path, node_test: Path):
         runtime._Handler.db_path = str(db_path)
         runtime._Handler.operational = False
         server = runtime._UnixServer(str(socket_path), runtime._Handler)
+        # Match the original signer guard's actual directory/socket custody.
+        # Ownership and modes are changed ONLY inside the disposable tempdir.
+        expected_gid = grp.getgrnam(signer_guard.SIGNER_GROUP).gr_gid
+        os.chown(scratch, os.getuid(), expected_gid)
+        os.chmod(scratch, 0o750)
+        os.chown(socket_path, os.getuid(), expected_gid)
+        os.chmod(socket_path, 0o660)
         threading.Thread(target=server.serve_forever, daemon=True).start()
         def call_unix(exact_lookup: dict):
             now = int(time.time()*1000)
@@ -202,7 +213,23 @@ def test_fixture(source_root: Path, node_test: Path):
             assert status.startswith(b"HTTP/1.1 404 ")
             assert no_match["ok"] is False
             assert no_match["releaseDecision"] == "NO_GO"
-            print("6/7 ORIGINAL_UNIX_HANDLER_REAL_SQLITE_POSITIVE_AND_NEGATIVE_PASS",flush=True)
+            print("6/8 ORIGINAL_UNIX_HANDLER_REAL_SQLITE_POSITIVE_AND_NEGATIVE_PASS",flush=True)
+            # Exercise the ORIGINAL sign-once guard. This guard does NOT
+            # load a private key or sign: it returns only the verified digest.
+            now_for_guard = int(time.time()*1000)
+            verified_digest = signer_guard.persisted_approval_fresh(
+                claims, socket_path=str(socket_path),
+                now_ms=now_for_guard, reader_uid=os.getuid())
+            assert verified_digest == digest
+            try:
+                signer_guard.persisted_approval_fresh(
+                    {**claims, "nonce":"N"*43}, socket_path=str(socket_path),
+                    now_ms=int(time.time()*1000), reader_uid=os.getuid())
+            except RuntimeError:
+                pass
+            else:
+                raise AssertionError("ORIGINAL_SIGNER_GUARD_ACCEPTED_FORGED_NONCE")
+            print("7/8 ORIGINAL_SIGNER_CUSTODY_PEERCRED_AND_NONCE_GUARD_PASS",flush=True)
 
             descriptor=scratch/"fixture.json"
             descriptor.write_text(json.dumps({
@@ -219,7 +246,7 @@ def test_fixture(source_root: Path, node_test: Path):
                 print(ran.stderr[-4000:],file=sys.stderr)
                 raise RuntimeError("ORIGINAL_SOCKET_TO_PR207_GATE_FAILED")
             print(ran.stdout[-2300:])
-            print("7/7 ORIGINAL_SQLITE_UNIX_RESPONSE_TO_PR207_GATE_PASS",flush=True)
+            print("8/8 ORIGINAL_SQLITE_UNIX_RESPONSE_TO_PR207_GATE_PASS",flush=True)
         finally:
             server.shutdown()
             server.server_close()
