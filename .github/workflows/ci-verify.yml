@@ -50,6 +50,8 @@ jobs:
             install -D -m 0644 "pr196-verifier-reference/$root/$f" "$root/$f"
           done
           node --test scripts/dev/gpt02-single-owner-approval-recorder.test.mjs
+      - name: GPT02 guarded single-Owner HTTP consent adapter (isolated loopback, no signer)
+        run: node --test scripts/dev/gpt02-single-owner-approval-http-candidate.test.mjs
       - name: GPT02 Owner candidate + genuine SCRAM attestor and issuer (isolated PostgreSQL)
         run: bash scripts/dev/test-gpt02-single-owner-real-attestor-isolated.sh
       - name: GPT02 expired preparation admission fail-closed (offline)
