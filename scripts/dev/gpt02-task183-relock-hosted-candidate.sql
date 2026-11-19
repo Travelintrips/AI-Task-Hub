@@ -49,10 +49,17 @@ BEGIN
      OR target.rolcreatedb OR target.rolreplication OR target.rolinherit)
    AND canary_privilege_safe
  THEN
-   SELECT count(*)::integer INTO remaining FROM pg_catalog.pg_stat_activity
-     WHERE usename='gpt02_core_prep_login';
-   RETURN QUERY SELECT false,0,remaining,true;
-   RETURN;
+   BEGIN
+     SELECT count(*)::integer INTO remaining FROM pg_catalog.pg_stat_activity
+       WHERE usename='gpt02_core_prep_login';
+   EXCEPTION WHEN OTHERS THEN
+     -- Failure to count canary sessions must force NOLOGIN, not abort.
+     remaining := -1;
+   END;
+   IF remaining >= 0 THEN
+     RETURN QUERY SELECT false,0,remaining,true;
+     RETURN;
+   END IF;
  END IF;
  EXECUTE 'ALTER ROLE gpt02_core_prep_login NOLOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION CONNECTION LIMIT 0 PASSWORD NULL VALID UNTIL ''2000-01-01''';
  -- Do not throw after ALTER ROLE: a late session-termination error must
