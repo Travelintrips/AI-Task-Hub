@@ -139,6 +139,8 @@ jobs:
         run: node --test scripts/dev/gpt02-prepared-reservation-ui-guidance.test.mjs
       - name: Existing GPT02 prepared reservation reconciles read-only without replay
         run: node --test artifacts/api-server/tests/gpt02-prepared-reservation-review.test.mjs
+      - name: Immutable Task171 technical recovery disposition needs verified archive
+        run: node --test artifacts/api-server/tests/gpt02-immutable-recovery-decision.test.mjs
       - name: Existing GPT02 privileged DEV writes reject legacy email-only JWT
         run: node --test artifacts/api-server/tests/gpt02-google-auth-gate.test.mjs
       - name: Existing GPT02 app Google session readiness is nonauthorizing
