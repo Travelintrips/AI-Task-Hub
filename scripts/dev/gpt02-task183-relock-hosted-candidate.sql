@@ -25,9 +25,21 @@ DECLARE
  killed integer := 0;
  remaining integer := 0;
  catalog_ok boolean := false;
+ canary_privilege_safe boolean := false;
 BEGIN
  SELECT * INTO target FROM pg_catalog.pg_authid WHERE rolname='gpt02_core_prep_login' FOR UPDATE;
  IF NOT FOUND THEN RAISE EXCEPTION 'TASK183_PREPARER_ROLE_MISSING'; END IF;
+ -- If the protected preparation function is missing or its ACL cannot be
+ -- read, do not abort: treat the canary as unsafe and relock immediately.
+ IF pg_catalog.to_regprocedure('gpt02_stage.prepare_core_task(text,integer,text,text,text,text)') IS NOT NULL THEN
+   BEGIN
+     canary_privilege_safe := NOT pg_catalog.has_function_privilege(
+       'gpt02_core_prep_login',
+       'gpt02_stage.prepare_core_task(text,integer,text,text,text,text)','EXECUTE');
+   EXCEPTION WHEN OTHERS THEN
+     canary_privilege_safe := false;
+   END;
+ END IF;
  -- A valid bounded (at most 3-minute) canary is allowed to finish its read-only
  -- transaction. Everything else, including stale sessions, is relocked.
  IF target.rolcanlogin AND target.rolconnlimit=1 AND target.rolpassword IS NOT NULL
@@ -35,8 +47,7 @@ BEGIN
    AND target.rolvaliduntil <= pg_catalog.clock_timestamp() + INTERVAL '3 minutes'
    AND NOT (target.rolsuper OR target.rolbypassrls OR target.rolcreaterole
      OR target.rolcreatedb OR target.rolreplication OR target.rolinherit)
-   AND NOT pg_catalog.has_function_privilege('gpt02_core_prep_login',
-     'gpt02_stage.prepare_core_task(text,integer,text,text,text,text)','EXECUTE')
+   AND canary_privilege_safe
  THEN
    SELECT count(*)::integer INTO remaining FROM pg_catalog.pg_stat_activity
      WHERE usename='gpt02_core_prep_login';
@@ -46,18 +57,23 @@ BEGIN
  EXECUTE 'ALTER ROLE gpt02_core_prep_login NOLOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION CONNECTION LIMIT 0 PASSWORD NULL VALID UNTIL ''2000-01-01''';
  -- Do not throw after ALTER ROLE: a late session-termination error must
  -- NEVER roll back the earlier NOLOGIN and password-verifier removal.
- FOR sess IN SELECT pid FROM pg_catalog.pg_stat_activity
-    WHERE usename='gpt02_core_prep_login' AND pid<>pg_catalog.pg_backend_pid()
- LOOP
-   BEGIN
-     IF pg_catalog.pg_terminate_backend(sess.pid) THEN
-       killed := killed + 1;
-     END IF;
-   EXCEPTION WHEN OTHERS THEN
-     -- Continue with a catalog lock, then report any remaining live sessions.
-     NULL;
-   END;
- END LOOP;
+ BEGIN
+   FOR sess IN SELECT pid FROM pg_catalog.pg_stat_activity
+      WHERE usename='gpt02_core_prep_login' AND pid<>pg_catalog.pg_backend_pid()
+   LOOP
+     BEGIN
+       IF pg_catalog.pg_terminate_backend(sess.pid) THEN
+         killed := killed + 1;
+       END IF;
+     EXCEPTION WHEN OTHERS THEN
+       -- Continue with a catalog lock, then report any remaining live sessions.
+       NULL;
+     END;
+   END LOOP;
+ EXCEPTION WHEN OTHERS THEN
+   -- Even a failure to enumerate sessions cannot undo NOLOGIN.
+   NULL;
+ END;
  BEGIN
    SELECT count(*)::integer INTO remaining FROM pg_catalog.pg_stat_activity
      WHERE usename='gpt02_core_prep_login';
