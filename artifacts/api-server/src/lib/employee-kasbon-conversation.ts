@@ -225,7 +225,7 @@ export async function handleEmployeeKasbonConversationInbound(input: {
         phone,
         taskNumber,
         "queued",
-        `✅ Pengajuan kasbon Rp${compact.amount.toLocaleString("id-ID")} tanggal ${formatDateForUser(compact.neededDate)} atas nama ${employeeName} sudah diteruskan ke Owner untuk persetujuan.`,
+        `Pengajuan kasbon sudah diteruskan ke Owner untuk persetujuan.`,
       );
       logger.info({ taskId: created.id, phoneSuffix: phone.slice(-4) }, "employee-kasbon compact request queued");
       return true;
