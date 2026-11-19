@@ -26,6 +26,17 @@ docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U fixture_root -d postgres -c "C
 # The hosted candidate checks that preparer EXECUTE is explicitly revoked during a canary.
 docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U fixture_root -d postgres -c "CREATE SCHEMA gpt02_stage; REVOKE ALL ON SCHEMA gpt02_stage FROM PUBLIC; CREATE FUNCTION gpt02_stage.prepare_core_task(text,integer,text,text,text,text) RETURNS integer LANGUAGE SQL AS 'SELECT 1'; REVOKE ALL ON FUNCTION gpt02_stage.prepare_core_task(text,integer,text,text,text,text) FROM PUBLIC; GRANT USAGE ON SCHEMA gpt02_stage TO gpt02_core_prep_login; GRANT EXECUTE ON FUNCTION gpt02_stage.prepare_core_task(text,integer,text,text,text,text) TO gpt02_core_prep_login" >/dev/null
 docker exec -i "$NAME" psql -X -v ON_ERROR_STOP=1 -U fixture_root -d postgres < "$W/gpt02-task183-relock-hosted-candidate.sql" >/dev/null
+# SECURITY DEFINER boundary: unrelated authenticated accounts and PUBLIC
+# must have no permission to invoke the only privileged relock function.
+docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U fixture_root -d postgres -c "CREATE ROLE gpt02_task183_untrusted_login LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS CONNECTION LIMIT 1 PASSWORD 'SYNTHETIC_UNTRUSTED_ONLY' VALID UNTIL '2030-01-01'" >/dev/null
+untrusted_acl=$(docker exec "$NAME" psql -X -U fixture_root -d postgres -Atqc "SELECT has_schema_privilege('gpt02_task183_untrusted_login','gpt02_guard','USAGE'),has_function_privilege('gpt02_task183_untrusted_login','gpt02_guard.relock_task183_preparer()','EXECUTE')")
+test "$untrusted_acl" = 'f|f' || { echo "UNTRUSTED_RELOCK_PRIVILEGE_LEAK"; exit 17; }
+public_acl=$(docker exec "$NAME" psql -X -U fixture_root -d postgres -Atqc "SELECT EXISTS(SELECT 1 FROM pg_catalog.aclexplode(COALESCE(p.proacl,pg_catalog.acldefault('f',p.proowner))) a WHERE a.grantee=0 AND a.privilege_type='EXECUTE') FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='gpt02_guard' AND p.proname='relock_task183_preparer'")
+test "$public_acl" = f || { echo "PUBLIC_RELOCK_EXECUTE_LEAK"; exit 18; }
+if docker exec -e PGPASSWORD=SYNTHETIC_UNTRUSTED_ONLY "$NAME" psql -X -w -h 127.0.0.1 -U gpt02_task183_untrusted_login -d postgres -Atqc 'SELECT * FROM gpt02_guard.relock_task183_preparer()' >/dev/null 2>&1; then
+ echo "UNTRUSTED_RELOCK_CALL_ALLOWED"; exit 19
+fi
+echo "SECURITY_DEFINER_UNTRUSTED_AND_PUBLIC_EXECUTE_DENIED_PASS"
 docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U fixture_root -d postgres -c "ALTER ROLE gpt02_task183_relock_login LOGIN CONNECTION LIMIT 1 PASSWORD 'SYNTHETIC_RELOCK_ONLY' VALID UNTIL '2030-01-01'" >/dev/null
 # This identity can invoke the specific relock function, but cannot unlock a role directly.
 if docker exec -e PGPASSWORD=SYNTHETIC_RELOCK_ONLY "$NAME" psql -X -w -h 127.0.0.1 -U gpt02_task183_relock_login -d postgres -Atqc 'ALTER ROLE gpt02_core_prep_login LOGIN' >/dev/null 2>&1;then echo 'UNEXPECTED_DIRECT_ALTER_ALLOWED';exit 3;fi
