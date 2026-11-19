@@ -27,3 +27,11 @@ test('entrypoint never connects or prepares and never prints credentials',()=>{
  assert.match(code,/databaseConnectionAttempted:false/);
  assert.match(code,/dispatchPermitted:false/);
 });
+
+test('runtime requires pinned Node 22 binary and both immutable entrypoint files',()=>{
+ assert.match(unit,/^ExecStart=\/opt\/actions-runner\/_work\/_tool\/node\/22\.23\.3\/x64\/bin\/node \/opt\/ai-task-gpt02-preparer\/current\/scripts\/dev\/gpt02-preparer-custody-only\.mjs$/m);
+ assert.match(unit,/^ConditionPathIsExecutable=\/opt\/actions-runner\/_work\/_tool\/node\/22\.23\.3\/x64\/bin\/node$/m);
+ assert.match(unit,/^ConditionPathExists=\/opt\/ai-task-gpt02-preparer\/current\/scripts\/dev\/gpt02-preparer-custody-only\.mjs$/m);
+ assert.match(unit,/^ConditionPathExists=\/opt\/ai-task-gpt02-preparer\/current\/artifacts\/api-server\/src\/lib\/gpt02-core-task-preparation\.mjs$/m);
+ assert.doesNotMatch(unit,/ExecStart=\/usr\/bin\/env node/);
+});
