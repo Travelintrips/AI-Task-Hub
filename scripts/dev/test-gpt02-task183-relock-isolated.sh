@@ -33,7 +33,18 @@ n=$(docker exec "$NAME" psql -X -U fixture_root -d postgres -Atqc "SELECT count(
 test "$n" = 1 || { echo "ACTIVE_PREPARER_SESSION_EXPECTED";exit 7; }
 docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U fixture_root -d postgres -Atqc "ALTER ROLE gpt02_core_prep_login VALID UNTIL '2000-01-01'" >/dev/null
 final=$(docker exec -e PGPASSWORD=SYNTHETIC_RELOCK_ONLY "$NAME" psql -X -w -v ON_ERROR_STOP=1 -h 127.0.0.1 -U gpt02_task183_relock_login -d postgres -Atqc 'SELECT * FROM gpt02_guard.relock_task183_preparer()')
-test "$final" = 't|1|0|f' || { echo "ACTIVE_SESSION_RELOCK_RESULT_MISMATCH";exit 8; }
+# pg_terminate_backend may return true before pg_stat_activity stops showing
+# the backend. An incomplete state MUST NOT be a false-positive PASS.
+if test "$final" != 't|1|0|f' && test "$final" != 'f|1|1|f'; then
+ echo "ACTIVE_SESSION_RELOCK_RESULT_MISMATCH";exit 8
+fi
+if test "$final" = 'f|1|1|f'; then
+ echo "RELOCK_FIRST_CYCLE_INCOMPLETE_IS_NOT_PASS"
+fi
+# The independent watchdog's next tick must confirm zero sessions and NOLOGIN.
+sleep 0.5
+confirmed=$(docker exec -e PGPASSWORD=SYNTHETIC_RELOCK_ONLY "$NAME" psql -X -w -v ON_ERROR_STOP=1 -h 127.0.0.1 -U gpt02_task183_relock_login -d postgres -Atqc 'SELECT * FROM gpt02_guard.relock_task183_preparer()')
+test "$confirmed" = 't|0|0|f' || { echo "SECOND_WATCHDOG_CYCLE_DID_NOT_CLEAR_SESSION";exit 8; }
 check=$(docker exec "$NAME" psql -X -U fixture_root -d postgres -Atqc "SELECT rolcanlogin,rolconnlimit,rolpassword IS NULL,rolvaliduntil<now(),(SELECT count(*) FROM pg_stat_activity WHERE usename='gpt02_core_prep_login') FROM pg_authid WHERE rolname='gpt02_core_prep_login'")
 test "$check" = 'f|0|t|t|0' || { echo "FINAL_CATALOG_RELOCK_MISMATCH";exit 9; }
 if docker exec -e PGPASSWORD=SYNTHETIC_PREPARER_ONLY "$NAME" psql -X -w -h 127.0.0.1 -U gpt02_core_prep_login -d postgres -Atqc 'SELECT 1' >/dev/null 2>&1;then echo "OLD_PASSWORD_RELOGIN_ALLOWED";exit 10;fi
