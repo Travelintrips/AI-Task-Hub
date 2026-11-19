@@ -27,6 +27,25 @@ docker exec "$NAME" psql -X -U fixture_root -d postgres -Atqc "REVOKE EXECUTE ON
 docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U fixture_root -d postgres -Atqc "DO \$\$ BEGIN EXECUTE format('ALTER ROLE gpt02_core_prep_login LOGIN CONNECTION LIMIT 1 PASSWORD %L VALID UNTIL %L','SYNTHETIC_PREPARER_ONLY',(clock_timestamp()+interval '40 seconds')::text); END \$\$;" >/dev/null
 bounded=$(docker exec -e PGPASSWORD=SYNTHETIC_RELOCK_ONLY "$NAME" psql -X -w -v ON_ERROR_STOP=1 -h 127.0.0.1 -U gpt02_task183_relock_login -d postgres -Atqc 'SELECT * FROM gpt02_guard.relock_task183_preparer()')
 test "$bounded" = 'f|0|0|t' || { echo "BOUNDED_LOGIN_PREMATURE_RELOCK"; exit 6; }
+# A failure to count a bounded canary's sessions must force NOLOGIN.
+python3 - "$W" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1]);src=(p/'gpt02-task183-relock-hosted-candidate.sql').read_text()
+fn=src[src.index('CREATE FUNCTION gpt02_guard.relock_task183_preparer()'):src.index('REVOKE ALL ON FUNCTION')]
+fn=fn.replace('CREATE FUNCTION ','CREATE OR REPLACE FUNCTION ',1)
+needle=("SELECT count(*)::integer INTO remaining FROM pg_catalog.pg_stat_activity\n"
+        "       WHERE usename='gpt02_core_prep_login';")
+assert fn.count(needle)==1
+(p/'inject-census-failure.sql').write_text(fn.replace(needle,"RAISE EXCEPTION 'SYNTHETIC_CANARY_CENSUS_FAILURE';",1))
+(p/'restore-function.sql').write_text(fn)
+PY
+docker exec -i "$NAME" psql -X -v ON_ERROR_STOP=1 -U fixture_root -d postgres < "$W/inject-census-failure.sql" >/dev/null
+census=$(docker exec -e PGPASSWORD=SYNTHETIC_RELOCK_ONLY "$NAME" psql -X -w -v ON_ERROR_STOP=1 -h 127.0.0.1 -U gpt02_task183_relock_login -d postgres -Atqc 'SELECT * FROM gpt02_guard.relock_task183_preparer()')
+test "$census" = 't|0|0|f' || { echo "CANARY_CENSUS_FAILURE_DID_NOT_FORCE_RELOCK";exit 16; }
+docker exec -i "$NAME" psql -X -v ON_ERROR_STOP=1 -U fixture_root -d postgres < "$W/restore-function.sql" >/dev/null
+docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U fixture_root -d postgres -Atqc "DO \$\$ BEGIN EXECUTE format('ALTER ROLE gpt02_core_prep_login LOGIN CONNECTION LIMIT 1 PASSWORD %L VALID UNTIL %L','SYNTHETIC_PREPARER_ONLY',(clock_timestamp()+interval '40 seconds')::text); END \$\$;" >/dev/null
+echo "CANARY_CENSUS_FAILURE_RELOCKED_ROLE_PASS"
 docker exec -d -e PGPASSWORD=SYNTHETIC_PREPARER_ONLY "$NAME" psql -X -w -h 127.0.0.1 -U gpt02_core_prep_login -d postgres -Atqc 'SELECT pg_sleep(40)' >/dev/null
 sleep 0.7
 n=$(docker exec "$NAME" psql -X -U fixture_root -d postgres -Atqc "SELECT count(*) FROM pg_stat_activity WHERE usename='gpt02_core_prep_login'")
