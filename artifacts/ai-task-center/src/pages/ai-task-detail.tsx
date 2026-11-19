@@ -700,6 +700,12 @@ export default function AiTaskDetail() {
       archiveChecked: boolean; archiveMatchCount: number | null;
       immutableTriggerVerified: boolean;
       readOnly: true; dispatchPermitted: false; resumePermitted: false;
+      linkedTaskCount?: number;
+      linkedTaskId?: number | null;
+      linkedTaskNumber?: string | null;
+      linkedTaskStatus?: string | null;
+      linkedTaskPicAssigned?: boolean;
+      linkedTaskCreatedByThisRead?: false;
     };
   }>({
     queryKey: ["gpt02-reconciliation", id],
@@ -1443,9 +1449,32 @@ export default function AiTaskDetail() {
                     <div data-testid="gpt02-immutable-recovery-decision"
                       className="rounded border border-slate-300 bg-white p-2 space-y-1">
                       <strong>Audit teknis otomatis selesai — tidak perlu persetujuan admin kedua.</strong>
-                      <p>Reservation historis tetap disimpan dan tidak dapat diulang pada Task ID yang sama.
-                        Langkah berikutnya: buat Task DEV E2E baru yang tertaut audit ke Task #{reconciliation.recoveryDecision.oldTaskId ?? id}.
-                        Belum ada Task baru dibuat oleh pemeriksaan ini.</p>
+                      <p>Reservation historis tetap disimpan dan tidak dapat diulang pada Task ID yang sama.</p>
+                      {reconciliation.recoveryDecision.linkedTaskCount === 1 &&
+                       reconciliation.recoveryDecision.linkedTaskId != null ? (
+                        <div data-testid="gpt02-existing-linked-dev-task" className="space-y-1">
+                          <p>Task DEV E2E pengganti sudah tercatat — jangan buat Task pengganti kedua.</p>
+                          <p>Task #{reconciliation.recoveryDecision.linkedTaskId}
+                            {reconciliation.recoveryDecision.linkedTaskNumber ?
+                              ` (${reconciliation.recoveryDecision.linkedTaskNumber})` : ""}
+                            · Status {reconciliation.recoveryDecision.linkedTaskStatus ?? "Belum diperiksa"}
+                            · PIC {reconciliation.recoveryDecision.linkedTaskPicAssigned ? "Sudah ditugaskan" : "Belum ditugaskan"}</p>
+                          <Link href={`/ai-tasks/${reconciliation.recoveryDecision.linkedTaskId}`}
+                            className="font-semibold underline text-blue-700">
+                            Buka Task pengganti #{reconciliation.recoveryDecision.linkedTaskId}
+                          </Link>
+                          <p>Berikutnya: penugasan PIC melalui sesi Google Super Admin yang masih berlaku.
+                            Tidak ada approval, issuer lease, atau dispatch dari pemeriksaan ini.</p>
+                        </div>
+                      ) : (reconciliation.recoveryDecision.linkedTaskCount ?? 0) >= 2 ? (
+                        <p data-testid="gpt02-duplicate-linked-task-hold">
+                          HOLD — terdapat lebih dari satu Task pengganti yang mengaku tertaut.
+                          Audit duplikasi sebelum melakukan tindakan berikutnya.
+                        </p>
+                      ) : (
+                        <p>Langkah berikutnya: buat Task DEV E2E baru yang tertaut audit ke Task #{reconciliation.recoveryDecision.oldTaskId ?? id}.
+                          Belum ada Task baru dibuat oleh pemeriksaan ini.</p>
+                      )}
                       <p>Untuk eksekusi nantinya tetap perlu satu persetujuan Owner/Super Admin
                         yang sah serta pembuktian issuer teknis dan command-bound consent.
                         Status eksekusi sekarang tetap NO-GO.</p>
