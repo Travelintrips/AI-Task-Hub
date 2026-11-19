@@ -30,13 +30,18 @@ const claims=(overrides={})=>({
  name:'Synthetic Owner',authSource:'supabase_google_identity',
  authSupabaseId:randomUUID(),authVerifiedAt:Date.now(),...overrides,
 });
-async function serverFixture({signedProof=true,recorderResult=safe()}={}){
+async function serverFixture({signedProof=true,persistedIntent=true,recorderResult=safe()}={}){
  let signerCalls=0,recorderCalls=0;
  const route=createGpt02SingleOwnerApprovalHttpCandidate({
   env:{NODE_ENV:'development',APP_ENV:'development',
     SESSION_SECRET:ROOT_SECRET,GPT02_SINGLE_OWNER_APPROVAL_HTTP_ENABLED:'true'},
   inspectRequestOrigin:r=>r.headers.origin===ORIGIN,
   verifyFreshGoogleOperator:hasRecentVerifiedGpt02DevGoogleOperator,
+  verifyPersistedOwnerIntent:async()=>persistedIntent?{
+    verified:true,reason:'ISSUE159_PERSISTED_DECISION_VERIFIED_ONLY',
+    releaseDecision:'NO_GO',signingPermitted:false,authorizationGranted:false,
+    issuerLeaseGranted:false,dispatchPermitted:false,
+  }:null,
   readSignedProof:async()=>{signerCalls++;return signedProof?{approval:{claims:{}},operatorLink:{claims:{}}}:null},
   recordOneConsent:async()=>{recorderCalls++;return recorderResult},
  });
@@ -110,6 +115,15 @@ test('JWT is not per-command consent: missing gesture and injected signature nev
   }
   assert.deepEqual(s.calls(),{signerCalls:0,recorderCalls:0});
  }finally{await s.close()}
+});
+test('original JWT alone is not persisted Owner intent; signer never contacted',async()=>{
+ const h=await serverFixture({persistedIntent:false});
+ try{
+  const r=await h.call({token:signToken(claims())});
+  assert.equal(r.status,424);
+  assert.equal(r.response.reason,'PERSISTED_OWNER_DECISION_REQUIRED');
+  assert.deepEqual(h.calls(),{signerCalls:0,recorderCalls:0});
+ }finally{await h.close()}
 });
 test('real middleware + trusted-signer absence always fails closed',async()=>{
  const s=await serverFixture({signedProof:false});
