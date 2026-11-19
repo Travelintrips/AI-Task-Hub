@@ -66,13 +66,13 @@ cat "$ROOT/scripts/dev/fixtures/gpt02-presign-real-two-tls-readers.sql" |
  docker exec -i "$cid" sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -w -h /var/run/postgresql -U postgres -d postgres -v ON_ERROR_STOP=1 -q' >"$work/presign.log" 2>&1 ||
  { echo PRE_SIGN_FIXTURE_SETUP_FAILED >&2;exit 2; }
 docker exec "$cid" sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -w -h /var/run/postgresql -U postgres -d postgres -v ON_ERROR_STOP=1 -q -c "CREATE DATABASE gpt02_issuer_isolated"' >"$work/db.log" 2>&1 ||
- {echo ISOLATED_EVIDENCE_DB_CREATION_FAILED >&2;exit 2;}
+ { echo ISOLATED_EVIDENCE_DB_CREATION_FAILED >&2;exit 2;}
 { cat "$REF/scripts/dev/gpt02-issuer-store.fixture.sql"
   cat "$REF/scripts/dev/gpt02-operator-link.fixture.sql"
   cat "$REF/scripts/dev/gpt02-post-consumption-fence.fixture.sql"
   cat "$work/passwords.sql"
 } | docker exec -i "$cid" sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -w -h /var/run/postgresql -U postgres -d gpt02_issuer_isolated -v ON_ERROR_STOP=1 -q' >"$work/evidence.log" 2>&1 ||
- {echo ISOLATED_EVIDENCE_SCHEMA_SETUP_FAILED >&2;exit 2;}
+ { echo ISOLATED_EVIDENCE_SCHEMA_SETUP_FAILED >&2;exit 2;}
 test -z "$(docker port "$cid")"
 docker run --rm --network "$net" --read-only --tmpfs /tmp:rw,nosuid,nodev,size=64m \
  --mount "type=bind,src=$ROOT,dst=/workspace,readonly" \
