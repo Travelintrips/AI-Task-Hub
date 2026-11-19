@@ -21,6 +21,7 @@ import { isAttestedCheckpointResponse, verifiedContinuation } from "../lib/verif
 import { hasVerifiedSourceFinalAck } from "../lib/verified-source-final-ack";
 import { evaluateGpt02LineageEvidence } from "../lib/gpt02-lineage-gate";
 import { assessGpt02PreparedReservationReview } from "../lib/gpt02-prepared-reservation-review.mjs";
+import { decideGpt02ImmutableRecovery } from "../lib/gpt02-immutable-recovery-decision.mjs";
 import { hasRecentVerifiedGpt02DevGoogleOperator } from "../lib/gpt02-google-auth-gate.mjs";
 import { hasExplicitSopFailure } from "../lib/verified-sop-outcome";
 import { logger } from "../lib/logger";
@@ -957,6 +958,8 @@ router.get("/ai-tasks/:id/gpt02-reconciliation", requireAuth, async (req: Reques
           s.hub_execution_id::text AS "hubExecutionId",
           (s.expires_at <= now()) AS "expired",
           core.status AS "coreStatus",
+          s.core_task_id::text AS "coreTaskId",
+          s.command_candidate_id::text AS "commandCandidateId",
           (SELECT COUNT(*)::integer FROM public.ai_execution_jobs e
              WHERE e.company_id=s.company_id AND e.task_id=s.hub_task_id) AS "executionCount",
           (SELECT COUNT(*)::integer FROM public.ai_execution_events ev
@@ -983,8 +986,46 @@ router.get("/ai-tasks/:id/gpt02-reconciliation", requireAuth, async (req: Reques
           AND s.hub_execution_id=${job.id}::uuid
         ORDER BY s.created_at DESC LIMIT 2
       `);
+      // Hosted immutable trigger and archive are independently checked.
+      // Incomplete evidence is always HOLD; no command/approval is issued.
+      const catalog = await db.execute(sql`SELECT
+        to_regclass('ai_platform.gpt02_dev_command_archive_20261030') IS NOT NULL AS "archiveExists",
+        EXISTS (
+          SELECT 1 FROM pg_trigger t
+          JOIN pg_class c ON c.oid=t.tgrelid
+          JOIN pg_namespace n ON n.oid=c.relnamespace
+          WHERE n.nspname='gpt02_stage' AND c.relname='core_preparations'
+            AND t.tgname='gpt02_preparation_immutable'
+            AND t.tgenabled IN ('O','A') AND NOT t.tgisinternal
+            AND t.tgfoid='gpt02_stage.reject_preparation_mutation()'::regprocedure
+            AND pg_get_triggerdef(t.oid,true) ILIKE '%BEFORE DELETE OR UPDATE OR TRUNCATE%'
+        ) AS "immutableTriggerVerified"`);
+      const archiveExists = catalog.rows[0]?.archiveExists === true;
+      const immutableTriggerVerified = catalog.rows[0]?.immutableTriggerVerified === true;
+      const one = audited.rows.length === 1 ? audited.rows[0] as Record<string, unknown> : null;
+      let archiveChecked = false;
+      let archiveMatchCount: number | null = null;
+      if (archiveExists && one &&
+          typeof one.coreTaskId === "string" && typeof one.commandCandidateId === "string") {
+        const archived = await db.execute(sql`SELECT count(*)::integer AS "matchCount"
+          FROM ai_platform.gpt02_dev_command_archive_20261030 a
+          WHERE a.command_id::text=${one.commandCandidateId}
+             OR a.command_record->>'task_id'=${one.coreTaskId}
+             OR a.command_record->'metadata_json'->>'coreTaskId'=${one.coreTaskId}
+             OR a.command_record->'metadata_json'->>'hubTaskId'=${String(taskId)}`);
+        if (archived.rows.length === 1 &&
+            Number.isSafeInteger(archived.rows[0]?.matchCount) &&
+            (archived.rows[0]?.matchCount as number) >= 0) {
+          archiveChecked = true;
+          archiveMatchCount = archived.rows[0].matchCount as number;
+        }
+      }
+      const review = assessGpt02PreparedReservationReview(job, audited.rows);
+      const recoveryDecision = decideGpt02ImmutableRecovery(review, {
+        archiveChecked, archiveMatchCount, immutableTriggerVerified,
+      });
       res.setHeader("Cache-Control", "no-store");
-      res.status(200).json(assessGpt02PreparedReservationReview(job, audited.rows));
+      res.status(200).json({...review, recoveryDecision});
       return;
     }
     const metadata = asRecord(job.metadata);
