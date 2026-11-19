@@ -33,6 +33,8 @@ EXPECTED_ORIGINAL_HASHES = {
         "a0981d7be9eebebb8835ccff2a20306becedf40aabd0f3de6d3282b64f48deb1",
     "gpt02_issue159_signer_approval_guard.py":
         "2c5647ae3d1cfbd4d06571ef26d209cd1ee09f0a7c6582dcd039ac7b1e7a283e",
+    "gpt02_issue159_approval_intent.py":
+        "9086d2ab5a8db3c7b05a0a59ba8201e0f0263454412cbb8b74f7ae0067935758",
 }
 
 def imported(source_root: Path, filename: str):
@@ -60,6 +62,7 @@ def test_fixture(source_root: Path, node_test: Path):
     reader = imported(source_root, "gpt02_issue159_approval_intent_reader.py")
     runtime = imported(source_root, "gpt02_issue159_approval_reader_runtime.py")
     signer_guard = imported(source_root, "gpt02_issue159_signer_approval_guard.py")
+    writer = imported(source_root, "gpt02_issue159_approval_intent.py")
 
     with tempfile.TemporaryDirectory(prefix="gpt02-issue159-offline-") as root:
         scratch = Path(root)
@@ -73,7 +76,8 @@ def test_fixture(source_root: Path, node_test: Path):
                  attempt_id TEXT NOT NULL,company_id TEXT NOT NULL,claims_sha256 TEXT NOT NULL,
                  actor_id TEXT NOT NULL,auth_method TEXT NOT NULL,
                  role_at_decision TEXT NOT NULL,decision TEXT NOT NULL,
-                 recorded_at_ms INTEGER NOT NULL,expires_at_ms INTEGER NOT NULL);
+                 recorded_at_ms INTEGER NOT NULL,expires_at_ms INTEGER NOT NULL,
+                 UNIQUE(task_id,command_id,attempt_id),UNIQUE(claims_sha256));
                 CREATE TABLE gpt02_issue159_admin_operator_links(
                  auth_user_id TEXT,hub_operator_id TEXT,email TEXT,enabled INTEGER);
                 CREATE TABLE admin_identities(
@@ -99,17 +103,53 @@ def test_fixture(source_root: Path, node_test: Path):
                 "commandId": claims["commandId"], "attemptId": claims["attemptId"],
                 "companyId": "default", "superAdminId": claims["superAdminId"],
             }
-            decision_id = str(uuid.uuid4())
             db.execute("INSERT INTO admin_identities VALUES (?,?,?)",
                        ("synthetic_auth_user", "super_admin", 1))
             db.execute("INSERT INTO gpt02_issue159_admin_operator_links VALUES (?,?,?,?)",
                        ("synthetic_auth_user", "synthetic_owner_7",
                         "owner@example.invalid", 1))
-            row = (decision_id, 172, claims["commandId"], claims["attemptId"],
+            db.commit()
+            test_token = "test-token-" + "T" * 45
+            # Explicitly injected synthetic identity; NEVER a live Supabase
+            # login, bypass or assertion of a real Owner's approval.
+            def synthetic_identity(token, _db):
+                if token != test_token:
+                    return None
+                return {"userId": "synthetic_owner_7",
+                        "role": "super_admin", "enabled": True,
+                        "authMethod": "supabase_admin_session"}
+            blocked = writer.record_issue159_approval_intent(
+                test_token, db, claims, identity_verifier=synthetic_identity,
+                now_ms=t0, readiness_gate=lambda _record: False)
+            assert blocked["reason"] == "AUTO_CHAIN_PREREQUISITES_NOT_READY"
+            assert db.execute("SELECT COUNT(*) FROM gpt02_issue159_approval_intents").fetchone()[0] == 0
+            print("1/10 ORIGINAL_WRITER_UNREADY_CHAIN_REJECTS_BEFORE_COMMIT_PASS", flush=True)
+
+            invalid = writer.record_issue159_approval_intent(
+                "bad-" + "X" * 45, db, claims,
+                identity_verifier=synthetic_identity,
+                now_ms=t0, readiness_gate=lambda _record: True)
+            assert invalid["reason"] == "ADMIN_IDENTITY_MISMATCH"
+            assert db.execute("SELECT COUNT(*) FROM gpt02_issue159_approval_intents").fetchone()[0] == 0
+            recorded = writer.record_issue159_approval_intent(
+                test_token, db, claims, identity_verifier=synthetic_identity,
+                now_ms=t0, readiness_gate=lambda _record: True)
+            assert recorded["ok"] is True
+            assert recorded["intentRecorded"] is True
+            assert recorded["reason"] == "ADMIN_APPROVAL_INTENT_RECORDED_NO_SIGNING_AUTHORITY"
+            assert recorded["authorizationGranted"] is False
+            assert recorded["dispatchPermitted"] is False
+            assert recorded["signingPermitted"] is False
+            replay = writer.record_issue159_approval_intent(
+                test_token, db, claims, identity_verifier=synthetic_identity,
+                now_ms=t0+1, readiness_gate=lambda _record: True)
+            assert replay["reason"] == "APPROVAL_INTENT_REPLAY_OR_CONFLICT"
+            assert db.execute("SELECT COUNT(*) FROM gpt02_issue159_approval_intents").fetchone()[0] == 1
+            row = (recorded["intentId"], 172, claims["commandId"], claims["attemptId"],
                    "default", digest, "synthetic_owner_7",
                    "supabase_admin_session", "super_admin", "APPROVE",
-                   t0-250, claims["expiresAt"])
-            db.execute("INSERT INTO gpt02_issue159_approval_intents VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", row)
+                   recorded["recordedAt"], claims["expiresAt"])
+            print("2/10 ORIGINAL_WRITER_SINGLE_INTENT_AND_REPLAY_REJECTION_PASS", flush=True)
 
         # Exercise the ACTUAL original SQLite code, not a hand-written result.
         positive = reader.read_approval_intent(str(db_path), lookup, t0,
@@ -120,13 +160,13 @@ def test_fixture(source_root: Path, node_test: Path):
         assert positive["releaseDecision"] == "NO_GO"
         assert positive["signingPermitted"] is False
         assert positive["dispatchPermitted"] is False
-        print("1/8 ORIGINAL_SQLITE_SUPABASE_SESSION_APPROVAL_READ_PASS",flush=True)
+        print("3/10 ORIGINAL_SQLITE_SUPABASE_SESSION_APPROVAL_READ_PASS",flush=True)
 
         pinned = reader.read_approval_intent(str(db_path), lookup, t0,
                                              operational=True)
         assert pinned["persistedTrustedReadProven"] is False
         assert pinned["reason"] == "OPERATIONAL_DB_PATH_NOT_PINNED"
-        print("2/8 ORIGINAL_READER_OPERATIONAL_DB_PIN_PROTECTED_PASS",flush=True)
+        print("6/10 ORIGINAL_READER_OPERATIONAL_DB_PIN_PROTECTED_PASS",flush=True)
 
         with sqlite3.connect(db_path) as db:
             db.execute("UPDATE admin_identities SET enabled=0")
@@ -135,7 +175,7 @@ def test_fixture(source_root: Path, node_test: Path):
         assert negative["persistedTrustedReadProven"] is False
         with sqlite3.connect(db_path) as db:
             db.execute("UPDATE admin_identities SET enabled=1")
-        print("3/8 ORIGINAL_READER_DISABLED_SUPER_ADMIN_DENIED_PASS",flush=True)
+        print("7/10 ORIGINAL_READER_DISABLED_SUPER_ADMIN_DENIED_PASS",flush=True)
 
         with sqlite3.connect(db_path) as db:
             db.execute("UPDATE gpt02_issue159_approval_intents SET expires_at_ms=?",
@@ -146,7 +186,7 @@ def test_fixture(source_root: Path, node_test: Path):
         with sqlite3.connect(db_path) as db:
             db.execute("UPDATE gpt02_issue159_approval_intents SET expires_at_ms=?",
                        (claims["expiresAt"],))
-        print("4/8 ORIGINAL_READER_EXPIRED_DECISION_DENIED_PASS",flush=True)
+        print("6/10 ORIGINAL_READER_EXPIRED_DECISION_DENIED_PASS",flush=True)
 
         with sqlite3.connect(db_path) as db:
             row2 = list(row)
@@ -159,7 +199,7 @@ def test_fixture(source_root: Path, node_test: Path):
         with sqlite3.connect(db_path) as db:
             db.execute("DELETE FROM gpt02_issue159_approval_intents WHERE id=?",
                        (row2[0],))
-        print("5/8 ORIGINAL_READER_DUPLICATE_DECISION_DENIED_PASS",flush=True)
+        print("7/10 ORIGINAL_READER_DUPLICATE_DECISION_DENIED_PASS",flush=True)
 
         # Run the EXACT original Unix HTTP server handler on a PRIVATE socket.
         # This never calls serve() on the operational systemd socket.
@@ -213,7 +253,7 @@ def test_fixture(source_root: Path, node_test: Path):
             assert status.startswith(b"HTTP/1.1 404 ")
             assert no_match["ok"] is False
             assert no_match["releaseDecision"] == "NO_GO"
-            print("6/8 ORIGINAL_UNIX_HANDLER_REAL_SQLITE_POSITIVE_AND_NEGATIVE_PASS",flush=True)
+            print("8/10 ORIGINAL_UNIX_HANDLER_REAL_SQLITE_POSITIVE_AND_NEGATIVE_PASS",flush=True)
             # Exercise the ORIGINAL sign-once guard. This guard does NOT
             # load a private key or sign: it returns only the verified digest.
             now_for_guard = int(time.time()*1000)
@@ -229,7 +269,7 @@ def test_fixture(source_root: Path, node_test: Path):
                 pass
             else:
                 raise AssertionError("ORIGINAL_SIGNER_GUARD_ACCEPTED_FORGED_NONCE")
-            print("7/8 ORIGINAL_SIGNER_CUSTODY_PEERCRED_AND_NONCE_GUARD_PASS",flush=True)
+            print("9/10 ORIGINAL_SIGNER_CUSTODY_PEERCRED_AND_NONCE_GUARD_PASS",flush=True)
 
             descriptor=scratch/"fixture.json"
             descriptor.write_text(json.dumps({
@@ -246,7 +286,7 @@ def test_fixture(source_root: Path, node_test: Path):
                 print(ran.stderr[-4000:],file=sys.stderr)
                 raise RuntimeError("ORIGINAL_SOCKET_TO_PR207_GATE_FAILED")
             print(ran.stdout[-2300:])
-            print("8/8 ORIGINAL_SQLITE_UNIX_RESPONSE_TO_PR207_GATE_PASS",flush=True)
+            print("10/10 ORIGINAL_SQLITE_UNIX_RESPONSE_TO_PR207_GATE_PASS",flush=True)
         finally:
             server.shutdown()
             server.server_close()
