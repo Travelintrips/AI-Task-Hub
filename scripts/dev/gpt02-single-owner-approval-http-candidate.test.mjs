@@ -21,7 +21,7 @@ const okSession=()=>({id:uid,email:'owner@example.invalid',role:'super_admin',
  * is injected by the test runner and MUST NOT be used in any app router.
  * The candidate itself only reads req.user set by real authentication.
  */
-async function harness({enabled=false,production=false,proof=true,output=safe(),error=false,fresh=true}={}){
+async function harness({enabled=false,production=false,proof=true,output=safe(),error=false,fresh=true,intent=true}={}){
  let signed=0,recorded=0;
  const handler=createGpt02SingleOwnerApprovalHttpCandidate({
    env:{NODE_ENV:production?'production':'development',APP_ENV:production?'production':'development',
@@ -29,6 +29,11 @@ async function harness({enabled=false,production=false,proof=true,output=safe(),
      SESSION_SECRET:'synthetic-dev-session-secret-is-only-for-a-disposable-test'},
    inspectRequestOrigin:req=>req.headers.origin==='https://dev-ai-task.cstlogistic.co.id',
    verifyFreshGoogleOperator:hasRecentVerifiedGpt02DevGoogleOperator,
+   verifyPersistedOwnerIntent:async()=>intent?{
+     verified:true,reason:'ISSUE159_PERSISTED_DECISION_VERIFIED_ONLY',
+     releaseDecision:'NO_GO',authorizationGranted:false,signingPermitted:false,
+     issuerLeaseGranted:false,dispatchPermitted:false,
+   }:null,
    readSignedProof:async()=>{signed++;if(error)throw Error('offline');return proof?{
      approval:{claims:{}},operatorLink:{claims:{}},
    }:null},
@@ -101,6 +106,14 @@ test('exact method, content-type, Origin, one-command consent and no extra field
    {consent:undefined},
   ])assert.equal((await h.call({body})).code,400);
   assert.deepEqual(h.counters(),{signed:0,recorded:0});
+ }finally{await h.close()}
+});
+test('without an existing Issue159 persisted Owner decision, HTTP denies BEFORE signer',async()=>{
+ const h=await harness({enabled:true,intent:false});
+ try{
+   const result=await h.call();assert.equal(result.code,424);
+   assert.equal(result.data.reason,'PERSISTED_OWNER_DECISION_REQUIRED');
+   assert.deepEqual(h.counters(),{signed:0,recorded:0});
  }finally{await h.close()}
 });
 test('no server signer evidence fails closed and never records',async()=>{
