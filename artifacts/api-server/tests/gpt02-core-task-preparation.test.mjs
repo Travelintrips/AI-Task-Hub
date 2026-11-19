@@ -176,6 +176,7 @@ test('a matching but foreign project is never treated as CST-DEV and cannot crea
  class Pool{constructor(){built++}}
  const alternate={...env,GPT02_CORE_PREP_DEV_PROJECT_REF:other,GPT02_HUB_DEV_PROJECT_REF:other,
   GPT02_CORE_PREP_DATABASE_URL_DEV:env.GPT02_CORE_PREP_DATABASE_URL_DEV.replaceAll(ref,other)};
- assert.throws(()=>createCoreTaskPreparer({env:alternate,PoolClass:Pool}),e=>e.code==='PINNED_CST_DEV_PROJECT_REQUIRED');
+ assert.throws(()=>corePreparationPoolConfig(alternate),e=>e.code==='PINNED_CST_DEV_PROJECT_REQUIRED');
+ assert.throws(()=>createCoreTaskPreparer({env:alternate,PoolClass:Pool}),e=>e.code==='PREPARER_FILE_CUSTODY_REQUIRED');
  assert.equal(built,0);
 });
