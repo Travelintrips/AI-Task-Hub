@@ -15,10 +15,10 @@ const CLOSED_BODY=Object.freeze({recorded:false,reason:'APPROVAL_ENDPOINT_NOT_AC
 const CONSENT_FIELDS=['kind','approved','companyId','taskId','commandId','attemptId','nonce','operatorSubject'];
 const JSON_CONTENT_TYPE=/^application\/json(?:\s*;\s*charset=utf-8)?$/i;
 export function createGpt02SingleOwnerApprovalHttpCandidate({
- env=process.env,recordOneConsent,readSignedProof,inspectRequestOrigin,
+ env=process.env,recordOneConsent,readSignedProof,inspectRequestOrigin,verifyFreshGoogleOperator,
 }={}){
  if(typeof recordOneConsent!=='function'||typeof readSignedProof!=='function'||
-    typeof inspectRequestOrigin!=='function')throw Error('SERVER_HTTP_DEPENDENCIES_REQUIRED');
+    typeof inspectRequestOrigin!=='function'||typeof verifyFreshGoogleOperator!=='function')\n   throw Error('SERVER_HTTP_DEPENDENCIES_REQUIRED');
  return async function candidate(req,res){
   const respond=(status,body)=>{res.setHeader('Cache-Control','no-store');
     res.setHeader('X-Content-Type-Options','nosniff');
@@ -31,7 +31,7 @@ export function createGpt02SingleOwnerApprovalHttpCandidate({
     return respond(503,CLOSED_BODY);
   // The caller MUST be authenticated by existing verified app middleware.
   if(!req.user)return respond(401,deny('AUTHENTICATION_REQUIRED'));
-  if(req.user.role!=='super_admin')return respond(403,deny('SUPER_ADMIN_REQUIRED'));
+  if(req.user.role!=='super_admin')return respond(403,deny('SUPER_ADMIN_REQUIRED'));\n  // Authenticate step-up BEFORE calling the independent signer provider.\n  // Supply the existing PR196 hasRecentVerifiedGpt02DevGoogleOperator as\n  // server dependency, never a client-supplied boolean or role assertion.\n  if(verifyFreshGoogleOperator(req.user,env)!==true)\n    return respond(403,deny('FRESH_GOOGLE_SUPER_ADMIN_REQUIRED'));
   if(req.method!=='POST')return respond(405,deny('POST_ONLY'));
   if(!JSON_CONTENT_TYPE.test(String(req.headers?.['content-type']??'')))
     return respond(415,deny('JSON_ONLY'));
