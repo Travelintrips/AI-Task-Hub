@@ -157,16 +157,12 @@ function buildOwnerRequest(taskNumber: string, fields: Record<string, unknown>):
   const repay = fieldText(fields, "repayment_method") || "Potong Penuh";
   const installment = money(fields.installment_amount);
   return [
-    "💰 *PENGAJUAN KASBON KARYAWAN*",
+    "Pengajuan kasbon karyawan",
+    `Karyawan: ${employee}`,
+    `Nominal: ${amount ? idr(amount) : "-"}`,
+    `Tanggal: ${neededDate}`,
     "",
-    `No. Pengajuan: *${taskNumber}*`,
-    `Karyawan: *${employee}*`,
-    `Nominal: *${amount ? idr(amount) : "-"}*`,
-    `Tanggal dibutuhkan: ${neededDate}`,
-    `Pengembalian: ${repay}${installment ? ` — ${idr(installment)}/periode` : ""}`,
-    "",
-    "Balas *OK* pada WhatsApp ini untuk menyetujui pengajuan kasbon tersebut.",
-    "_Persetujuan ini khusus kasbon karyawan dan tidak memerlukan approval Super Admin tambahan._",
+    "Balas OK untuk menyetujui.",
   ].join("\n");
 }
 
@@ -178,15 +174,10 @@ function buildApprovedNotification(params: {
   ownerName: string | null;
 }): string {
   return [
-    "✅ *KASBON KARYAWAN DISETUJUI OWNER*",
-    "",
-    `No. Pengajuan: *${params.taskNumber}*`,
-    `No. Kasbon BizPortal: *${params.advanceNumber}*`,
-    `Karyawan: *${params.employeeName}*`,
-    `Nominal: *${idr(params.amount)}*`,
-    `Disetujui oleh: *${params.ownerName || "Owner"}*`,
-    "",
-    "*Status: Disetujui owner — menunggu pencairan.*",
+    "Pengajuan kasbon telah disetujui Owner.",
+    `Karyawan: ${params.employeeName}`,
+    `Nominal: ${idr(params.amount)}`,
+    "Status: menunggu pencairan.",
   ].join("\n");
 }
 
@@ -578,14 +569,14 @@ export async function tryHandleEmployeeKasbonOwnerApproval(input: HandleInput): 
 
   await sendKasbonMessage(
     ownerPhone,
-    `✅ ${taskNumber} disetujui dan sudah tercatat di BizPortal sebagai *${kasbon.advanceNumber}*. Status: menunggu pencairan.`,
+    `Pengajuan kasbon sudah disetujui dan diteruskan ke penerima notifikasi serta karyawan.`,
     input.fonnteDevice ?? null,
   ).catch((error) => logger.warn({ error, taskId: task.id }, "employee-kasbon: owner confirmation failed"));
 
   if (meta.requesterPhone) {
     await sendKasbonMessage(
       meta.requesterPhone,
-      `✅ Pengajuan kasbon Anda telah disetujui owner dan tercatat di BizPortal dengan nomor *${kasbon.advanceNumber}*. Status saat ini: menunggu pencairan.`,
+      `Pengajuan kasbon Anda telah disetujui Owner. Status: menunggu pencairan.`,
       input.fonnteDevice ?? null,
     ).catch((error) =>
       logger.warn({ error, taskId: task.id }, "employee-kasbon: requester notification failed"),
