@@ -86,6 +86,8 @@ snapshot() {
       COALESCE((SELECT jsonb_agg(to_jsonb(e) ORDER BY e.id)::text FROM public.ai_execution_jobs e),'[]')||
       COALESCE((SELECT jsonb_agg(to_jsonb(s) ORDER BY s.hub_task_id)::text FROM gpt02_stage.core_preparations s),'[]')||
       COALESCE((SELECT jsonb_agg(to_jsonb(c) ORDER BY c.id)::text FROM ai_platform.ai_coding_tasks c),'[]')||
+      COALESCE((SELECT jsonb_agg(to_jsonb(t) ORDER BY t.id)::text FROM public.ai_tasks t),'[]')||
+      COALESCE((SELECT jsonb_agg(to_jsonb(a) ORDER BY a.id)::text FROM public.audit_logs a),'[]')||
       (SELECT count(*)::text FROM public.ai_execution_events)||
       (SELECT count(*)::text FROM ai_platform.ai_coding_bridge_commands)||
       (SELECT count(*)::text FROM gpt02_private.approvals)||
@@ -96,7 +98,8 @@ check() {
   local expected="$1"
   local match_count="$2"
   local technical_expected="$3"
-  docker exec -i "$api" node - "$expected" "$match_count" "$technical_expected" <<'NODE'
+  local expected_link_count="$4"
+  docker exec -i "$api" node - "$expected" "$match_count" "$technical_expected" "$expected_link_count" <<'NODE'
 const assert=require("node:assert/strict");
 const jwt=require("/app/artifacts/api-server/node_modules/jsonwebtoken");
 const base="http://127.0.0.1:8080";
@@ -169,6 +172,23 @@ async function get(url,jwtText,expected) {
   assert.equal(r.recoveryDecision.dispatchPermitted,false);
   assert.equal(r.recoveryDecision.resumePermitted,false);
   assert.equal(r.recoveryDecision.readOnly,true);
+  const linkedCount=Number(process.argv[5]);
+  assert.equal(r.recoveryDecision.linkedTaskCount,linkedCount);
+  assert.equal(r.recoveryDecision.linkedTaskCreatedByThisRead,false);
+  if (linkedCount===1) {
+    assert.equal(r.recoveryDecision.linkedTaskId,183);
+    assert.equal(r.recoveryDecision.linkedTaskNumber,"WA-2611-7669");
+    assert.equal(r.recoveryDecision.linkedTaskStatus,"new_inquiry");
+    assert.equal(r.recoveryDecision.linkedTaskPicAssigned,false);
+    assert.equal(r.recoveryDecision.nextAction,
+      r.recoveryDecision.technicalEvidenceReviewed ?
+      "LINKED_DEV_TASK_EXISTS_AWAITING_VERIFIED_PIC":"HOLD_NO_REPLAY");
+  } else if (linkedCount===2) {
+    assert.equal(r.recoveryDecision.linkedTaskId,null);
+    assert.equal(r.recoveryDecision.nextAction,
+      r.recoveryDecision.technicalEvidenceReviewed ?
+      "HOLD_MULTIPLE_LINKED_DEV_TASKS":"HOLD_NO_REPLAY");
+  }
   for(const flag of ["readOnly"])assert.equal(r[flag],true);
   for(const flag of ["automaticDispatch","statusChanged","dispatchPermitted",
                      "resumePermitted","operatorApprovalGranted"])
@@ -225,25 +245,38 @@ NODE
 }
 before=$(snapshot)
 echo "$before" | grep -Eq '^[a-f0-9]{32}$'
-check EXPIRED_PREPARED_RESERVATION_REQUIRES_INDEPENDENT_REVIEW 0 true
+check EXPIRED_PREPARED_RESERVATION_REQUIRES_INDEPENDENT_REVIEW 0 true 1
 docker exec "$pg" psql -Xq -v ON_ERROR_STOP=1 -U postgres -d smoke -c \
   "INSERT INTO gpt02_private.approvals(company_id,task_id) VALUES ('default',171);"
-check PREPARED_RESERVATION_CONFLICTING_EVIDENCE 0 false
+check PREPARED_RESERVATION_CONFLICTING_EVIDENCE 0 false 1
 docker exec "$pg" psql -Xq -v ON_ERROR_STOP=1 -U postgres -d smoke -c \
   "DELETE FROM gpt02_private.approvals WHERE company_id='default' AND task_id=171;"
 docker exec "$pg" psql -Xq -v ON_ERROR_STOP=1 -U postgres -d smoke -c \
   "INSERT INTO ai_platform.ai_coding_bridge_commands(id,task_id) VALUES ('33333333-3333-4333-8333-333333333333','22222222-2222-4222-8222-222222222222');"
-check PREPARED_RESERVATION_CONFLICTING_EVIDENCE 1 false
+check PREPARED_RESERVATION_CONFLICTING_EVIDENCE 1 false 1
 docker exec "$pg" psql -Xq -v ON_ERROR_STOP=1 -U postgres -d smoke -c \
   "DELETE FROM ai_platform.ai_coding_bridge_commands WHERE id='33333333-3333-4333-8333-333333333333';"
-check EXPIRED_PREPARED_RESERVATION_REQUIRES_INDEPENDENT_REVIEW 0 true
+check EXPIRED_PREPARED_RESERVATION_REQUIRES_INDEPENDENT_REVIEW 0 true 1
 # An archived command is independent evidence; never mistake zero live
 # commands for a clean review if the old command is present in the archive.
 docker exec "$pg" psql -Xq -v ON_ERROR_STOP=1 -U postgres -d smoke -c   "INSERT INTO ai_platform.gpt02_dev_command_archive_20261030(command_id,command_record)
    VALUES ('33333333-3333-4333-8333-333333333333','{}'::jsonb);"
-check EXPIRED_PREPARED_RESERVATION_REQUIRES_INDEPENDENT_REVIEW 0 false
+check EXPIRED_PREPARED_RESERVATION_REQUIRES_INDEPENDENT_REVIEW 0 false 1
 docker exec "$pg" psql -Xq -v ON_ERROR_STOP=1 -U postgres -d smoke -c   "DELETE FROM ai_platform.gpt02_dev_command_archive_20261030;"
-check EXPIRED_PREPARED_RESERVATION_REQUIRES_INDEPENDENT_REVIEW 0 true
+check EXPIRED_PREPARED_RESERVATION_REQUIRES_INDEPENDENT_REVIEW 0 true 1
+# Duplicate linked tasks MUST NOT be auto-selected or considered readiness.
+docker exec "$pg" psql -Xq -v ON_ERROR_STOP=1 -U postgres -d smoke -c \
+  "INSERT INTO public.ai_tasks(id,company_id,task_number,source,status,title,description)
+   VALUES (184,'default','WA-2611-7777','manual','new_inquiry',
+   '[INTERNAL-E2E] GPT02 DEV linked Task171 replacement test-duplicate',
+   'Synthetic duplicate. Linked historical Task #171 (WA-2611-7621). GPT02_DEV_E2E_LINKED_171_ACK.');"
+docker exec "$pg" psql -Xq -v ON_ERROR_STOP=1 -U postgres -d smoke -c \
+  "INSERT INTO public.audit_logs(id,company_id,entity_id,action,module)
+   VALUES (1000,'default','184','task_created','tasks');"
+check EXPIRED_PREPARED_RESERVATION_REQUIRES_INDEPENDENT_REVIEW 0 true 2
+docker exec "$pg" psql -Xq -v ON_ERROR_STOP=1 -U postgres -d smoke -c \
+  "DELETE FROM public.audit_logs WHERE id=1000; DELETE FROM public.ai_tasks WHERE id=184;"
+check EXPIRED_PREPARED_RESERVATION_REQUIRES_INDEPENDENT_REVIEW 0 true 1
 after=$(snapshot)
 test "$before" = "$after"
 echo "PR196_POSTGRES17_BUSINESS_STATE_IDENTICAL_PASS"
