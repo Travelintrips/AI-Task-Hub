@@ -1,0 +1,15 @@
+# SOURCE-ONLY disabled-by-default timer candidate. Do not enable on VPS
+# until real independent relock identity, host package and readback PASS.
+[Unit]
+Description=GPT02 CST-DEV Task183 independent preparer relock watchdog
+ConditionPathExists=/etc/credstore.encrypted/gpt02-task183-relock-dsn
+
+[Timer]
+OnBootSec=20s
+OnUnitInactiveSec=30s
+AccuracySec=2s
+Persistent=false
+Unit=gpt02-task183-preparer-relock.service
+
+[Install]
+WantedBy=timers.target
