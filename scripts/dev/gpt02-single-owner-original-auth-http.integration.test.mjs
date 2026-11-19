@@ -106,6 +106,16 @@ test('real JWT session and exact consent reach only synthetic recorder, never is
   assert.deepEqual(s.calls(),{signerCalls:1,recorderCalls:1});
  }finally{await s.close()}
 });
+test('PR196 app-local numeric ID cannot impersonate the separate Issue159 Hub TEXT operator ID',async()=>{
+ const h=await serverFixture(),token=signToken(claims({id:17}));
+ try{
+  const c=consent();
+  const r=await h.call({token,body:{consent:{...c,operatorSubject:'synthetic_hub_text_owner_7'}}});
+  assert.equal(r.status,400);
+  assert.equal(r.response.reason,'EXPLICIT_OWNER_CONSENT_REQUIRED');
+  assert.deepEqual(h.calls(),{signerCalls:0,recorderCalls:0});
+ }finally{await h.close()}
+});
 test('JWT is not per-command consent: missing gesture and injected signature never reach signer',async()=>{
  const s=await serverFixture(),token=signToken(claims());
  try{
