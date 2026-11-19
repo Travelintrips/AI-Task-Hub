@@ -16,9 +16,11 @@ const CONSENT_FIELDS=['kind','approved','companyId','taskId','commandId','attemp
 const JSON_CONTENT_TYPE=/^application\/json(?:\s*;\s*charset=utf-8)?$/i;
 export function createGpt02SingleOwnerApprovalHttpCandidate({
  env=process.env,recordOneConsent,readSignedProof,inspectRequestOrigin,verifyFreshGoogleOperator,
+ verifyPersistedOwnerIntent,
 }={}){
  if(typeof recordOneConsent!=='function'||typeof readSignedProof!=='function'||
-    typeof inspectRequestOrigin!=='function'||typeof verifyFreshGoogleOperator!=='function')
+    typeof inspectRequestOrigin!=='function'||typeof verifyFreshGoogleOperator!=='function'||
+    typeof verifyPersistedOwnerIntent!=='function')
    throw Error('SERVER_HTTP_DEPENDENCIES_REQUIRED');
  return async function candidate(req,res){
   const respond=(status,body)=>{res.setHeader('Cache-Control','no-store');
@@ -51,6 +53,20 @@ export function createGpt02SingleOwnerApprovalHttpCandidate({
      consent.operatorSubject!==String(req.user.id))
     return respond(400,deny('EXPLICIT_OWNER_CONSENT_REQUIRED'));
   try{
+   // Issue159 already owns the one-human approval. A fresh JWT plus this
+   // browser consent is NOT a signed/persisted Owner decision. Before asking
+   // any signer, verify the exact one-time decision using the independent
+   // root-owned Issue159 approval reader (server-only dependency).
+   const bound=Object.freeze({session:req.user,consent:Object.freeze({...consent})});
+   const decision=await verifyPersistedOwnerIntent(bound);
+   if(decision?.verified!==true||
+      decision.reason!=='ISSUE159_PERSISTED_DECISION_VERIFIED_ONLY'||
+      decision.releaseDecision!=='NO_GO'||
+      decision.authorizationGranted!==false||
+      decision.signingPermitted!==false||
+      decision.issuerLeaseGranted!==false||
+      decision.dispatchPermitted!==false)
+     return respond(424,deny('PERSISTED_OWNER_DECISION_REQUIRED'));
    // The independent signer service is the ONLY source of signed evidence.
    // Absent service, fail closed. Never use req.body.proof or a client key.
    const proof=await readSignedProof(Object.freeze({
