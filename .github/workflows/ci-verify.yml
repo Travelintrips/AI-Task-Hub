@@ -50,6 +50,16 @@ jobs:
             install -D -m 0644 "pr196-verifier-reference/$root/$f" "$root/$f"
           done
           node --test scripts/dev/gpt02-single-owner-approval-recorder.test.mjs
+      - name: GPT02 original Issue159 SQLite/Unix reader integration harness syntax (offline)
+        run: |
+          node --check scripts/dev/gpt02-issue159-original-unix-reader-pr207-gate.integration.test.mjs
+          python3 - <<'PY'
+          import ast
+          from pathlib import Path
+          path=Path('scripts/dev/test-gpt02-issue159-original-unix-reader-pr207-gate-isolated.py')
+          ast.parse(path.read_text(encoding='utf-8'))
+          print('ISSUE159_ORIGINAL_READER_HARNESS_SYNTAX_PASS')
+          PY
       - name: GPT02 Issue159 persisted one-owner decision gate (read-only contract)
         run: node --test scripts/dev/gpt02-issue159-persisted-owner-intent-gate.test.mjs
       - name: GPT02 guarded single-Owner HTTP consent adapter (isolated loopback, no signer)
