@@ -5,6 +5,7 @@ import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import { recentGoogleOAuthEvidenceAt } from "../lib/vps-storage-google-session";
 import { hasRecentVerifiedGpt02DevGoogleOperator } from "../lib/gpt02-google-auth-gate.mjs";
+import { classifyExistingGpt02GoogleAppSession } from "../lib/gpt02-google-session-status.mjs";
 import {
   selectUniqueActiveGoogleDevProfile,
   trustedGoogleDevProfilePin,
@@ -447,8 +448,10 @@ router.get("/auth/gpt02/operator-session-readiness", requireAuth,
       return;
     }
     const googleProofFresh=hasRecentVerifiedGpt02DevGoogleOperator(req.user);
+    const googleProofStatus=classifyExistingGpt02GoogleAppSession(req.user);
     res.json({
       googleProofFresh,
+      googleProofStatus,
       requiresFreshGoogleLogin: !googleProofFresh,
       proofSource: "signed_app_session",
       readOnly: true,
