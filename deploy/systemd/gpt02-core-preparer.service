@@ -1,0 +1,34 @@
+# DEV-only proposal. DO NOT install or enable before dedicated custody approval.
+# This unit is NOT a worker, issuer, signer, preparer writer, or dispatch authority.
+[Unit]
+Description=GPT02 Task183 preparer credential custody preflight (locked, no network)
+ConditionPathExists=/etc/credstore.encrypted/gpt02-task183-preparer-dsn
+ConditionPathExists=/etc/ssl/certs/cst-dev-supabase-root.crt
+RefuseManualStart=yes
+
+[Service]
+Type=oneshot
+DynamicUser=yes
+LoadCredentialEncrypted=preparer-dsn:/etc/credstore.encrypted/gpt02-task183-preparer-dsn
+LoadCredential=supabase-root-ca.crt:/etc/ssl/certs/cst-dev-supabase-root.crt
+Environment=NODE_ENV=development
+Environment=APP_ENV=development
+Environment=GPT02_CORE_PREP_CREDENTIAL_SOURCE=systemd
+Environment=GPT02_CORE_PREP_DEV_PROJECT_REF=xssrfshdrtdfupgqwfdw
+Environment=GPT02_HUB_DEV_PROJECT_REF=xssrfshdrtdfupgqwfdw
+Environment=GPT02_PROD_PROJECT_REF=nzdweipzckfszczzqtuw
+Environment=GPT02_CORE_PREP_DEV_POOLER_HOST=aws-1-ap-southeast-2.pooler.supabase.com
+ExecStart=/usr/bin/env node /opt/ai-task-gpt02-preparer/current/scripts/dev/gpt02-preparer-custody-only.mjs
+UMask=0077
+NoNewPrivileges=yes
+PrivateNetwork=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+RestrictNamespaces=yes
+RestrictAddressFamilies=AF_UNIX
+CapabilityBoundingSet=
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+TimeoutStartSec=15s
