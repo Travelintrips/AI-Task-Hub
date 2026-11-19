@@ -1,14 +1,16 @@
 /**
- * CST-DEV candidate: explicitly bridge PR196 app-local numeric user id to the
- * EXISTING Issue159 Supabase-auth-user -> Hub public.users TEXT subject mapping.
+ * CST-DEV candidate: verify the PR196 Google JWT's REAL Hub public.users
+ * TEXT user ID against the EXISTING Issue159 Supabase Auth UUID -> Hub TEXT
+ * operator mapping. The TypeScript users.id=serial assumption is not true
+ * for the actual shared CST-DEV public.users table.
  *
  * This is an UNMOUNTED, READ-ONLY identity admission contract. Nothing here
  * signs, loads keys, creates a mapping, reads the Issue159 SQLite file, grants
  * DB privileges, starts services, or authorizes dispatch.
  *
  * The trusted resolver MUST come from the existing Issue159 operator-link
- * custody service. Never use req.body, email alone, local user.id or a JWT
- * metadata claim as the Hub operator ID.
+ * custody service. Never accept req.body, email alone, a numeric cast or
+ * unverified JWT metadata as proof of the Hub operator mapping.
  */
 import {hasRecentVerifiedGpt02DevGoogleOperator}
  from './gpt02-google-auth-gate.mjs';
@@ -39,13 +41,22 @@ export function createGpt02Issue159OperatorBindingGate({
    if(env?.NODE_ENV!=='development'||env?.APP_ENV!=='development'||
       !Number.isSafeInteger(now)||
       !hasRecentVerifiedGpt02DevGoogleOperator(session,env,now)||
-      !Number.isSafeInteger(session.id)||session.id<=0||
-      session.companyId!=='default'||!UUID.test(session.authSupabaseId)||
+      // On CST-DEV public.users.id is TEXT and company_id is nullable int4.
+      // The signed PR196 Google JWT carries this TEXT user ID at runtime.
+      // Do not substitute the incompatible serial-number declaration or
+      // require companyId='default' (the Hub TASK scope is verified later).
+      typeof session.id!=='string'||!SUBJECT.test(session.id)||
+      session.id==='dev_approval_token'||session.id!==hubOperatorSubject||
+      !(session.companyId===null||
+        (Number.isSafeInteger(session.companyId)&&session.companyId>0))||
+      !UUID.test(session.authSupabaseId)||
       typeof session.email!=='string'||!SUBJECT.test(hubOperatorSubject)||
       hubOperatorSubject==='dev_approval_token')
     return refusal('FRESH_APP_AND_HUB_IDENTITY_REQUIRED');
 
-   // Two non-interchangeable namespaces, both required.
+   // The canonical Hub public.users TEXT ID must match the signed app JWT.
+   // The *separate* Supabase Auth UUID is resolved only by the independent
+   // Issue159 mapping reader. Email is an additional binding, never authority.
    const emailNormalized=session.email.trim().toLowerCase();
    const lookup=Object.freeze({
      authSupabaseId:session.authSupabaseId,
