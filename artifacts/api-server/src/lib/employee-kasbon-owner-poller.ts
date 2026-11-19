@@ -1,6 +1,7 @@
 import { logger } from "./logger";
 import { employeeKasbonGatewayConfigured, readRecentEmployeeKasbonInbound } from "./employee-kasbon-wa-gateway";
-import { tryHandleEmployeeKasbonOwnerApproval } from "./employee-kasbon-owner-flow";\nimport { handleEmployeeKasbonConversationInbound } from "./employee-kasbon-conversation";
+import { tryHandleEmployeeKasbonOwnerApproval } from "./employee-kasbon-owner-flow";
+import { handleEmployeeKasbonConversationInbound } from "./employee-kasbon-conversation";
 
 const POLL_MS = 3_000;
 const SEEN_MAX = 1_000;
