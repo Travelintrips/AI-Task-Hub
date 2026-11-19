@@ -10,14 +10,15 @@ const now=Date.now(),env={
  SESSION_SECRET:'SYNTHETIC_ONLY_ISSUE159_SESSION_SECRET_STANDALONE'
 };
 function fixture(){
+ const hubOperatorSubject='synthetic_hub_text_owner_7';
  const session={
-  id:17, // PR196 AuthUser.id is APP-LOCAL INTEGER; NOT a Hub public.users id
-  email:'owner@example.invalid',companyId:'default',
+  // The real CST-DEV public.users.id is TEXT; it remains TEXT in JWT runtime.
+  id:hubOperatorSubject,
+  email:'owner@example.invalid',companyId:null,
   name:'Synthetic Owner',role:'super_admin',
   authSource:'supabase_google_identity',
   authSupabaseId:randomUUID(),authVerifiedAt:now
  };
- const hubOperatorSubject='synthetic_hub_text_owner_7';
  const proof={
   source:'issue159-verified-admin-operator-link',
   environment:'DEV',authSupabaseId:session.authSupabaseId,
@@ -37,10 +38,10 @@ function setup(f,overrides={}){
   },...overrides});
  return {gate,getCalls:()=>calls,getLookup:()=>query};
 }
-test('APP-LOCAL numeric ID is NEVER treated as Hub TEXT ID; trusted Issue159 mapping binds them through Supabase UUID',async()=>{
+test('PR196 signed Hub TEXT identity binds to the separate verified Issue159 Supabase Auth UUID without cast',async()=>{
  const f=fixture(),x=setup(f);
  const result=await x.gate({session:f.session,hubOperatorSubject:f.hubOperatorSubject});
- assert.notEqual(String(f.session.id),f.hubOperatorSubject);
+ assert.equal(f.session.id,f.hubOperatorSubject);
  assert.equal(result.verified,true);
  assert.equal(result.hubOperatorSubject,f.hubOperatorSubject);
  assert.equal(result.reason,'ISSUE159_MAPPING_BOUND_NO_AUTHORITY');
@@ -54,17 +55,28 @@ test('APP-LOCAL numeric ID is NEVER treated as Hub TEXT ID; trusted Issue159 map
  });
  assert.equal(Object.isFrozen(x.getLookup()),true);
 });
-test('no Google proof, legacy JWT, staff, app-local string id or invalid provider UUID fail before mapping reader',async()=>{
+test('no Google proof, legacy JWT, staff, incorrect numeric/text ID, tenant spoof or invalid provider UUID fail before reader',async()=>{
  for(const change of [
   {authSource:'legacy_email'},{role:'staff'},{authVerifiedAt:now-11*60_000},
-  {id:'synthetic_hub_text_owner_7'},{id:0},{authSupabaseId:'fake'},
-  {companyId:'PROD'},{email:'no-email'},
+  {id:17},{id:0},{id:'another_hub_subject'},{authSupabaseId:'fake'},
+  {companyId:'default'},{companyId:-1},{email:'no-email'},
  ]){
   const f=fixture(),x=setup(f);
   const r=await x.gate({session:{...f.session,...change},
    hubOperatorSubject:f.hubOperatorSubject});
   assert.equal(r.verified,false,JSON.stringify(change));
   assert.equal(x.getCalls(),0);
+ }
+});
+test('real CST-DEV company_id nullable int4 is accepted but NEVER authorizes tenant or dispatch',async()=>{
+ for(const companyId of [null,1,3]){
+  const f=fixture(),x=setup(f);f.session.companyId=companyId;
+  const r=await x.gate({session:f.session,hubOperatorSubject:f.hubOperatorSubject});
+  assert.equal(r.verified,true,String(companyId));
+  assert.equal(r.signingPermitted,false);
+  assert.equal(r.authorizationGranted,false);
+  assert.equal(r.dispatchPermitted,false);
+  assert.equal(r.releaseDecision,'NO_GO');
  }
 });
 test('caller cannot supply identity map or choose the Hub account from email alone',async()=>{
