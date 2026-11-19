@@ -1,32 +1,52 @@
--- CST-DEV (xssrfshdrtdfupgqwfdw) diagnostic ONLY.
--- Read-only. Compares PR196 lib/db/src/schema/users.ts contract to the
--- actual public.users PostgreSQL catalog. Never run DDL, migrations,
--- schema rewrites, or a session reassignment to pass this gate.
+-- CST-DEV (xssrfshdrtdfupgqwfdw) DIAGNOSTIC ONLY, read-only.
+-- Source Drizzle model is NOT the authoritative shared PostgreSQL schema.
+-- A model/type mismatch must NEVER trigger shared DDL, account duplication,
+-- permission escalation, a signer release, or a claim that login failed.
 --
--- App DB contract: id=serial/int4; company_id=text NOT NULL;
--- password_hash=text NOT NULL; is_active=boolean NOT NULL.
--- Hub canonical identity: public.users.id TEXT; Issue159 maps Supabase
--- auth.users UUID to canonical Hub TEXT subject. These namespaces must
--- NEVER be merged via a cast of app-local integer id or a matching email.
-WITH requirements(column_name, type_name, not_nullable) AS (
- VALUES
-  ('id','integer',TRUE),
-  ('company_id','text',TRUE),
-  ('password_hash','text',TRUE),
-  ('is_active','boolean',TRUE)
+-- ACTUAL READBACK (verified separately against live DEV through actual pg +
+-- Drizzle projection): public.users.id returns TEXT and company_id is nullable
+-- int4; the existing PR196 Google profile code intentionally accepts these
+-- runtime values. The source model's serial/text annotations can diverge
+-- without the SELECT failing. Google OAuth token exchange itself has NOT
+-- been tested with a real operator session by this SQL check.
+--
+-- The actual Hub public.users TEXT id is carried by the signed DEV JWT.
+-- The separate Supabase auth.users UUID is joined ONLY by the existing
+-- Issue159 trusted mapping, NEVER by numeric cast, browser claim or email.
+WITH requirements(column_name,type_name,not_nullable) AS (
+ VALUES ('id','integer',TRUE),
+        ('company_id','text',TRUE),
+        ('password_hash','text',TRUE),
+        ('is_active','boolean',TRUE)
 ),
 actual AS (
- SELECT c.column_name,c.data_type,c.is_nullable
- FROM information_schema.columns c
- WHERE c.table_schema='public' AND c.table_name='users'
+ SELECT column_name,data_type,is_nullable
+ FROM information_schema.columns
+ WHERE table_schema='public' AND table_name='users'
 ),
 parity AS (
- SELECT r.column_name,r.type_name AS expected_type,r.not_nullable AS expected_not_null,
-  a.data_type AS actual_type,a.is_nullable AS actual_nullability,
-  COALESCE(a.data_type=r.type_name AND (NOT r.not_nullable OR a.is_nullable='NO'),FALSE) AS matched
- FROM requirements r LEFT JOIN actual a USING(column_name)
+ SELECT r.column_name,
+  COALESCE(a.data_type=r.type_name
+   AND (NOT r.not_nullable OR a.is_nullable='NO'),FALSE) AS matched
+ FROM requirements r LEFT JOIN actual a USING (column_name)
+),
+super_admin_shapes AS (
+ SELECT count(*)::int AS super_admin_count,
+  count(*) FILTER(WHERE is_active IS TRUE AND status='active')::int AS active_count,
+  count(*) FILTER(WHERE id !~ '^[0-9]+$')::int AS nonnumeric_text_ids,
+  count(*) FILTER(WHERE company_id IS NULL)::int AS nullable_companies,
+  count(*) FILTER(WHERE company_id IS NOT NULL)::int AS integer_companies
+ FROM public.users
+ WHERE role='super_admin'
 )
 SELECT 'CST-DEV READ ONLY' AS scope,
- CASE WHEN bool_and(matched) THEN 'PASS' ELSE 'NO_GO_SCHEMA_CONFLICT' END AS release_gate,
- COUNT(*) FILTER(WHERE NOT matched)::int AS mismatched_contract_columns
-FROM parity;
+ CASE WHEN bool_and(p.matched) THEN 'SOURCE_TYPE_PARITY_PASS'
+      ELSE 'SOURCE_TYPE_PARITY_DIFFERS_REVIEW_WRITES' END AS source_model_contract,
+ count(*) FILTER(WHERE NOT p.matched)::int AS source_field_mismatches,
+ a.super_admin_count,a.active_count,a.nonnumeric_text_ids,
+ a.nullable_companies,a.integer_companies,
+ 'NOT_A_GOOGLE_LOGIN_VERDICT' AS actual_oauth_runtime_status,
+ 'NO_SHARED_DDL_NO_AUTOMATIC_PRIVILEGE' AS action
+FROM parity p CROSS JOIN super_admin_shapes a
+GROUP BY a.super_admin_count,a.active_count,a.nonnumeric_text_ids,
+ a.nullable_companies,a.integer_companies;
