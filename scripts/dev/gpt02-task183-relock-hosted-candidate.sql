@@ -27,7 +27,11 @@ DECLARE
  catalog_ok boolean := false;
  canary_privilege_safe boolean := false;
 BEGIN
- SELECT * INTO target FROM pg_catalog.pg_authid WHERE rolname='gpt02_core_prep_login' FOR UPDATE;
+ -- pg_authid is a protected system catalog. SELECT ... FOR UPDATE requires
+ -- UPDATE privilege, absent from CST-DEV's non-superuser admin. Only read its
+ -- metadata here; ALTER ROLE below obtains its own PostgreSQL catalog lock.
+ -- A concurrent change can cause an early relock (fail closed), never a grant.
+ SELECT * INTO target FROM pg_catalog.pg_authid WHERE rolname='gpt02_core_prep_login';
  IF NOT FOUND THEN RAISE EXCEPTION 'TASK183_PREPARER_ROLE_MISSING'; END IF;
  -- If the protected preparation function is missing or its ACL cannot be
  -- read, do not abort: treat the canary as unsafe and relock immediately.
@@ -61,7 +65,10 @@ BEGIN
      RETURN;
    END IF;
  END IF;
- EXECUTE 'ALTER ROLE gpt02_core_prep_login NOLOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB NOREPLICATION CONNECTION LIMIT 0 PASSWORD NULL VALID UNTIL ''2000-01-01''';
+ -- Modify only login/secret/lifetime attributes. NO[SUPERUSER|CREATEDB|
+ -- REPLICATION] can be denied to a non-superuser even when disabling them.
+ -- Existing privilege bits are checked, not rewritten.
+ EXECUTE 'ALTER ROLE gpt02_core_prep_login NOLOGIN CONNECTION LIMIT 0 PASSWORD NULL VALID UNTIL ''2000-01-01''';
  -- Do not throw after ALTER ROLE: a late session-termination error must
  -- NEVER roll back the earlier NOLOGIN and password-verifier removal.
  BEGIN
