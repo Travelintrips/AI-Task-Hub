@@ -12,28 +12,60 @@ test "$ready" = 1
 docker exec "$NAME" sh -c 'sed -i "1i host all all 127.0.0.1/32 scram-sha-256" "$PGDATA/pg_hba.conf"'
 docker exec "$NAME" psql -X -U fixture_root -d postgres -Atqc 'SELECT pg_reload_conf()' >/dev/null
 docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U fixture_root -d postgres -c "CREATE ROLE gpt02_core_prep_login NOLOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS CONNECTION LIMIT 0 PASSWORD NULL VALID UNTIL '2000-01-01'" >/dev/null
+# The hosted candidate checks that preparer EXECUTE is explicitly revoked during a canary.
+docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U fixture_root -d postgres -c "CREATE SCHEMA gpt02_stage; REVOKE ALL ON SCHEMA gpt02_stage FROM PUBLIC; CREATE FUNCTION gpt02_stage.prepare_core_task(text,integer,text,text,text,text) RETURNS integer LANGUAGE SQL AS 'SELECT 1'; REVOKE ALL ON FUNCTION gpt02_stage.prepare_core_task(text,integer,text,text,text,text) FROM PUBLIC; GRANT USAGE ON SCHEMA gpt02_stage TO gpt02_core_prep_login; GRANT EXECUTE ON FUNCTION gpt02_stage.prepare_core_task(text,integer,text,text,text,text) TO gpt02_core_prep_login" >/dev/null
 docker exec -i "$NAME" psql -X -v ON_ERROR_STOP=1 -U fixture_root -d postgres < "$W/gpt02-task183-relock-hosted-candidate.sql" >/dev/null
 docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U fixture_root -d postgres -c "ALTER ROLE gpt02_task183_relock_login LOGIN CONNECTION LIMIT 1 PASSWORD 'SYNTHETIC_RELOCK_ONLY' VALID UNTIL '2030-01-01'" >/dev/null
 # This identity can invoke the specific relock function, but cannot unlock a role directly.
 if docker exec -e PGPASSWORD=SYNTHETIC_RELOCK_ONLY "$NAME" psql -X -w -h 127.0.0.1 -U gpt02_task183_relock_login -d postgres -Atqc 'ALTER ROLE gpt02_core_prep_login LOGIN' >/dev/null 2>&1;then echo 'UNEXPECTED_DIRECT_ALTER_ALLOWED';exit 3;fi
 locked=$(docker exec -e PGPASSWORD=SYNTHETIC_RELOCK_ONLY "$NAME" psql -X -w -v ON_ERROR_STOP=1 -h 127.0.0.1 -U gpt02_task183_relock_login -d postgres -Atqc 'SELECT * FROM gpt02_guard.relock_task183_preparer()')
-test "$locked" = 't|0' || { echo "LOCKED_IDEMPOTENT_EXPECTED"; exit 4; }
+test "$locked" = 't|0|0|f' || { echo "LOCKED_IDEMPOTENT_EXPECTED"; exit 4; }
 docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U fixture_root -d postgres -Atqc "ALTER ROLE gpt02_core_prep_login LOGIN CONNECTION LIMIT 1 PASSWORD 'SYNTHETIC_PREPARER_ONLY' VALID UNTIL '2030-01-01'" >/dev/null
 far=$(docker exec -e PGPASSWORD=SYNTHETIC_RELOCK_ONLY "$NAME" psql -X -w -v ON_ERROR_STOP=1 -h 127.0.0.1 -U gpt02_task183_relock_login -d postgres -Atqc 'SELECT * FROM gpt02_guard.relock_task183_preparer()')
-test "$far" = 't|0' || { echo "OVERLONG_TTL_NOT_RELOCKED"; exit 5; }
+test "$far" = 't|0|0|f' || { echo "OVERLONG_TTL_NOT_RELOCKED"; exit 5; }
+docker exec "$NAME" psql -X -U fixture_root -d postgres -Atqc "REVOKE EXECUTE ON FUNCTION gpt02_stage.prepare_core_task(text,integer,text,text,text,text) FROM gpt02_core_prep_login" >/dev/null
 docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U fixture_root -d postgres -Atqc "DO \$\$ BEGIN EXECUTE format('ALTER ROLE gpt02_core_prep_login LOGIN CONNECTION LIMIT 1 PASSWORD %L VALID UNTIL %L','SYNTHETIC_PREPARER_ONLY',(clock_timestamp()+interval '40 seconds')::text); END \$\$;" >/dev/null
 bounded=$(docker exec -e PGPASSWORD=SYNTHETIC_RELOCK_ONLY "$NAME" psql -X -w -v ON_ERROR_STOP=1 -h 127.0.0.1 -U gpt02_task183_relock_login -d postgres -Atqc 'SELECT * FROM gpt02_guard.relock_task183_preparer()')
-test "$bounded" = 'f|0' || { echo "BOUNDED_LOGIN_PREMATURE_RELOCK"; exit 6; }
+test "$bounded" = 'f|0|0|t' || { echo "BOUNDED_LOGIN_PREMATURE_RELOCK"; exit 6; }
 docker exec -d -e PGPASSWORD=SYNTHETIC_PREPARER_ONLY "$NAME" psql -X -w -h 127.0.0.1 -U gpt02_core_prep_login -d postgres -Atqc 'SELECT pg_sleep(40)' >/dev/null
 sleep 0.7
 n=$(docker exec "$NAME" psql -X -U fixture_root -d postgres -Atqc "SELECT count(*) FROM pg_stat_activity WHERE usename='gpt02_core_prep_login'")
 test "$n" = 1 || { echo "ACTIVE_PREPARER_SESSION_EXPECTED";exit 7; }
 docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U fixture_root -d postgres -Atqc "ALTER ROLE gpt02_core_prep_login VALID UNTIL '2000-01-01'" >/dev/null
 final=$(docker exec -e PGPASSWORD=SYNTHETIC_RELOCK_ONLY "$NAME" psql -X -w -v ON_ERROR_STOP=1 -h 127.0.0.1 -U gpt02_task183_relock_login -d postgres -Atqc 'SELECT * FROM gpt02_guard.relock_task183_preparer()')
-test "$final" = 't|1' || { echo "ACTIVE_SESSION_RELOCK_RESULT_MISMATCH";exit 8; }
+test "$final" = 't|1|0|f' || { echo "ACTIVE_SESSION_RELOCK_RESULT_MISMATCH";exit 8; }
 check=$(docker exec "$NAME" psql -X -U fixture_root -d postgres -Atqc "SELECT rolcanlogin,rolconnlimit,rolpassword IS NULL,rolvaliduntil<now(),(SELECT count(*) FROM pg_stat_activity WHERE usename='gpt02_core_prep_login') FROM pg_authid WHERE rolname='gpt02_core_prep_login'")
 test "$check" = 'f|0|t|t|0' || { echo "FINAL_CATALOG_RELOCK_MISMATCH";exit 9; }
 if docker exec -e PGPASSWORD=SYNTHETIC_PREPARER_ONLY "$NAME" psql -X -w -h 127.0.0.1 -U gpt02_core_prep_login -d postgres -Atqc 'SELECT 1' >/dev/null 2>&1;then echo "OLD_PASSWORD_RELOGIN_ALLOWED";exit 10;fi
+# Simulate a backend termination error. PostgreSQL MUST commit NOLOGIN even
+# while one synthetic session survives to be terminated in a later cycle.
+docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U fixture_root -d postgres -Atqc "ALTER ROLE gpt02_core_prep_login LOGIN CONNECTION LIMIT 1 PASSWORD 'SYNTHETIC_PREPARER_ONLY' VALID UNTIL '2030-01-01'" >/dev/null
+docker exec -d -e PGPASSWORD=SYNTHETIC_PREPARER_ONLY "$NAME" psql -X -w -h 127.0.0.1 -U gpt02_core_prep_login -d postgres -Atqc 'SELECT pg_sleep(40)' >/dev/null
+sleep 0.7
+before=$(docker exec "$NAME" psql -X -U fixture_root -d postgres -Atqc "SELECT count(*) FROM pg_stat_activity WHERE usename='gpt02_core_prep_login'")
+test "$before" = 1 || { echo "FAILURE_SESSION_FIXTURE_MISSING"; exit 11; }
+python3 - "$W" <<'PY'
+from pathlib import Path
+import sys
+p=Path(sys.argv[1]);src=(p/'gpt02-task183-relock-hosted-candidate.sql').read_text()
+fn=src[src.index('CREATE FUNCTION gpt02_guard.relock_task183_preparer()'):src.index('REVOKE ALL ON FUNCTION')]
+assert fn.count('IF pg_catalog.pg_terminate_backend(sess.pid) THEN')==1
+fn=fn.replace('CREATE FUNCTION ','CREATE OR REPLACE FUNCTION ',1)
+fn=fn.replace('IF pg_catalog.pg_terminate_backend(sess.pid) THEN',"RAISE EXCEPTION 'SYNTHETIC_TERMINATION_FAILURE';\n     IF pg_catalog.pg_terminate_backend(sess.pid) THEN")
+(p/'inject-termination-failure.sql').write_text(fn)
+PY
+docker exec -i "$NAME" psql -X -v ON_ERROR_STOP=1 -U fixture_root -d postgres < "$W/inject-termination-failure.sql" >/dev/null
+partial=$(docker exec -e PGPASSWORD=SYNTHETIC_RELOCK_ONLY "$NAME" psql -X -w -v ON_ERROR_STOP=1 -h 127.0.0.1 -U gpt02_task183_relock_login -d postgres -Atqc 'SELECT * FROM gpt02_guard.relock_task183_preparer()')
+test "$partial" = 'f|0|1|f' || { echo "PARTIAL_RELOCK_RESPONSE_MISSING"; exit 12; }
+safe=$(docker exec "$NAME" psql -X -U fixture_root -d postgres -Atqc "SELECT rolcanlogin,rolconnlimit,rolpassword IS NULL,rolvaliduntil<now(),(SELECT count(*) FROM pg_stat_activity WHERE usename='gpt02_core_prep_login') FROM pg_authid WHERE rolname='gpt02_core_prep_login'")
+test "$safe" = 'f|0|t|t|1' || { echo "CATALOG_RELOCK_ROLLED_BACK_ON_FAILURE"; exit 13; }
+# Terminate the residual session as local fixture owner; the next watchdog
+# invocation must transition pending->fully locked (not a false PASS).
+docker exec "$NAME" psql -X -U fixture_root -d postgres -Atqc "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE usename='gpt02_core_prep_login'" >/dev/null
+recovered=$(docker exec -e PGPASSWORD=SYNTHETIC_RELOCK_ONLY "$NAME" psql -X -w -v ON_ERROR_STOP=1 -h 127.0.0.1 -U gpt02_task183_relock_login -d postgres -Atqc 'SELECT * FROM gpt02_guard.relock_task183_preparer()')
+test "$recovered" = 't|0|0|f' || { echo "NEXT_CYCLE_DID_NOT_REPORT_FULL_RELOCK"; exit 14; }
+echo "TERMINATION_FAILURE_NOLOGIN_REMAINS_COMMITTED_PASS"
+echo "INCOMPLETE_RELOCK_REPORTED_AND_NEXT_CYCLE_RECOVERED_PASS"
 echo "TASK183_SQL_RELOCK_CANDIDATE_ISOLATED_PASS"
 echo "LOCKED_IDEMPOTENCE_AND_OVERLONG_TTL_PASS"
 echo "BOUNDED_CANARY_NOT_PREMATURELY_RELOCKED_PASS"
