@@ -107,7 +107,12 @@ test("new read-only verification stays inside existing Task171 GET, not creation
   "archiveMatchCount",
   "coreTaskId",
   "commandCandidateId",
-  "res.status(200).json({...review, recoveryDecision})",
+  "linkedTaskCount",
+  "linkedTaskPicAssigned",
+  "linkedTaskCreatedByThisRead",
+  "LINKED_DEV_TASK_EXISTS_AWAITING_VERIFIED_PIC",
+  "HOLD_MULTIPLE_LINKED_DEV_TASKS",
+  "res.status(200).json({...review, recoveryDecision:",
  ])assert.ok(route.includes(marker),marker);
  for(const writer of ["db.insert(","db.update(","db.delete(","db.transaction(",
   "scheduleExecutionTracking(","scheduleChatGptDispatchRetry(",
@@ -124,4 +129,9 @@ test("Task171 UI explains no second admin; only one Owner authorization later",(
  assert.match(ui,/Belum ada Task baru dibuat oleh pemeriksaan ini/);
  assert.match(ui,/Status eksekusi sekarang tetap NO-GO/);
  assert.match(ui,/gpt02-immutable-recovery-hold/);
+ assert.match(ui,/gpt02-existing-linked-dev-task/);
+ assert.match(ui,/Task DEV E2E pengganti sudah tercatat/);
+ assert.match(ui,/jangan buat Task pengganti kedua/);
+ assert.match(ui,/gpt02-duplicate-linked-task-hold/);
+ assert.match(ui,/Buka Task pengganti/);
 });
