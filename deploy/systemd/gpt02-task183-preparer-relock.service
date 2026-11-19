@@ -8,6 +8,7 @@ ConditionPathExists=/etc/credstore.encrypted/gpt02-task183-relock-dsn
 ConditionPathExists=/etc/ssl/certs/cst-dev-supabase-root.crt
 ConditionPathExists=/opt/ai-task-gpt02-preparer/current/scripts/dev/gpt02-task183-relock-once.mjs
 ConditionPathExists=/opt/ai-task-gpt02-preparer/current/artifacts/api-server/package.json
+ConditionPathExists=/opt/ai-task-gpt02-preparer/current/artifacts/api-server/node_modules/pg/package.json
 ConditionPathExists=/opt/actions-runner/_work/_tool/node/22.23.3/x64/bin/node
 
 [Service]
