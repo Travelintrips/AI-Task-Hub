@@ -50,6 +50,8 @@ jobs:
             install -D -m 0644 "pr196-verifier-reference/$root/$f" "$root/$f"
           done
           node --test scripts/dev/gpt02-single-owner-approval-recorder.test.mjs
+      - name: GPT02 Owner candidate + genuine SCRAM attestor and issuer (isolated PostgreSQL)
+        run: bash scripts/dev/test-gpt02-single-owner-real-attestor-isolated.sh
       - name: GPT02 expired preparation admission fail-closed (offline)
         run: node --test scripts/ops/gpt02-dev-preparation-admission.test.mjs
       - name: DEV PostgreSQL auth circuit blocks retries with real pg.Pool semantics (offline)
