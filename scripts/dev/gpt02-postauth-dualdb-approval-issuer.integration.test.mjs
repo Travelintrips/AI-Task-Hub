@@ -19,6 +19,7 @@ import {operatorLinkSigningBytes} from '../../artifacts/api-server/src/lib/gpt02
 import {createGpt02SingleOwnerTrustedFactAdapter} from '../../artifacts/api-server/src/lib/gpt02-single-owner-trusted-facts-adapter.mjs';
 import {createGpt02SingleOwnerApprovalRecorder} from '../../artifacts/api-server/src/lib/gpt02-single-owner-approval-recorder.mjs';
 import {createGpt02SingleOwnerApprovalHttpCandidate} from '../../artifacts/api-server/src/lib/gpt02-single-owner-approval-http-candidate.mjs';
+import {createGpt02Issue159PersistedIntentGate} from '../../artifacts/api-server/src/lib/gpt02-issue159-persisted-owner-intent-gate.mjs';
 import {hasRecentVerifiedGpt02DevGoogleOperator} from '../../artifacts/api-server/src/lib/gpt02-google-auth-gate.mjs';
 
 if(process.env.GPT02_POSTAUTH_FULL_CHAIN_DISPOSABLE_ONLY!=='1')throw Error('DISPOSABLE_FULL_CHAIN_REQUIRED');
@@ -106,12 +107,50 @@ async function buildBoundFixture(){
 }
 // All signing evidence stays within this TEST-ONLY trusted process. No keys,
  // signatures, tokens, or signer selectors are accepted from HTTP input.
-async function startOfflineConsentHttp(){
+async function startOfflineConsentHttp({persistedIntentPresent=true}={}){
  let signerCalls=0,recorderCalls=0;
+ const verifyPersistedOwnerIntent=createGpt02Issue159PersistedIntentGate({
+  env:process.env,clock:Date.now,maxReadAgeMs:2000,
+  // The existing Issue159 approved-claims packet is ONLY simulated here;
+  // a live release must bind these methods to the original Unix reader
+  // with pinned filesystem permissions and SO_PEERCRED validation.
+  readTrustedClaims:async lookup=>{
+   const f=suiteFixture;
+   if(!f||lookup.companyId!==f.consent.companyId||
+      lookup.taskId!==f.consent.taskId||
+      lookup.commandId!==f.consent.commandId||
+      lookup.attemptId!==f.consent.attemptId||
+      lookup.operatorSubject!==f.session.id) return null;
+   return f.proof.approval.claims;
+  },
+  readTrustedIntent:async({lookup})=>{
+   if(!persistedIntentPresent)return null;
+   const f=suiteFixture;
+   const claims=f.proof.approval.claims;
+   const digest=createHash('sha256').update(canonicalApproval(claims)).digest('hex');
+   if(lookup.claimsSha256!==digest||lookup.superAdminId!==f.session.id)return null;
+   return {
+    ok:true,environment:'DEV',approvalReadOnly:true,decisionCreated:false,
+    releaseDecision:'NO_GO',signingPermitted:false,
+    authorizationGranted:false,dispatchPermitted:false,
+    result:{
+     environment:'DEV',reason:'TRUSTED_APPROVAL_INTENT_READ_NO_SIGNING_AUTHORITY',
+     persistedTrustedReadProven:true,approvalBindingMatched:true,
+     adminApprovalMatched:true,aal2SuperAdminMatched:false,
+     releaseDecision:'NO_GO',signingPermitted:false,authorizationGranted:false,
+     dispatchPermitted:false,
+     decision:{decisionId:randomUUID(),claimsSha256:digest,actorId:f.session.id,
+      authMethod:'supabase_admin_session',roleAtDecision:'super_admin',
+      decision:'APPROVE',recordedAt:claims.issuedAt+10}
+    }
+   };
+  },
+ });
  const route=createGpt02SingleOwnerApprovalHttpCandidate({
   env:{NODE_ENV:'development',APP_ENV:'development',SESSION_SECRET:process.env.SESSION_SECRET,
    GPT02_SINGLE_OWNER_APPROVAL_HTTP_ENABLED:'true'}, // fixture ONLY, never deployed
   verifyFreshGoogleOperator:hasRecentVerifiedGpt02DevGoogleOperator,
+  verifyPersistedOwnerIntent,
   inspectRequestOrigin:req=>req.headers.origin==='https://dev-ai-task.cstlogistic.co.id',
   readSignedProof:async({session,consent})=>{
    signerCalls++;
@@ -210,6 +249,16 @@ test('real PR196 JWT middleware blocks counterfeit, stale and incomplete HTTP co
   const jwt=signToken(suiteFixture.session);
   assert.equal((await h.send({token:jwt,body:{consent:{...suiteFixture.consent,approved:false}}})).status,400);
   assert.equal((await h.send({token:jwt,body:{consent:suiteFixture.consent,proof:suiteFixture.proof}})).status,400);
+  assert.deepEqual(h.counters(),{signerCalls:0,recorderCalls:0});
+  assert.equal(await count('approvals'),0);
+ }finally{await h.close()}
+});
+test('a fresh JWT and gesture without an actual persisted Issue159 Owner decision must never contact signer',async()=>{
+ const h=await startOfflineConsentHttp({persistedIntentPresent:false});
+ try{
+  const r=await h.send({token:signToken(suiteFixture.session)});
+  assert.equal(r.status,424);
+  assert.equal(r.body.reason,'PERSISTED_OWNER_DECISION_REQUIRED');
   assert.deepEqual(h.counters(),{signerCalls:0,recorderCalls:0});
   assert.equal(await count('approvals'),0);
  }finally{await h.close()}
