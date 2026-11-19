@@ -49,7 +49,6 @@ cid="$(docker run -d --name "$name" --network "$net" --network-alias synthetic-p
  --restart no --env-file "$work/pg.env" \
  --mount "type=bind,src=$work/server.key,dst=/run/ssl/server.key,readonly" \
  --mount "type=bind,src=$work/server.crt,dst=/run/ssl/server.crt,readonly" \
- --mount "type=bind,src=$work/pr196-auth.cjs,dst=/run/fixture-auth/pr196-auth.cjs,readonly" \
  postgres:16-alpine -c ssl=on -c ssl_cert_file=/run/ssl/server.crt \
  -c ssl_key_file=/run/ssl/server.key)"
 pgexec(){
@@ -91,6 +90,7 @@ test -z "$(docker port "$cid")"
 docker run --rm --network "$net" --read-only --tmpfs /tmp:rw,nosuid,nodev,size=64m \
  --mount "type=bind,src=$ROOT,dst=/workspace,readonly" \
  --mount "type=bind,src=$work/auth.json,dst=/run/fixture-auth.json,readonly" \
+ --mount "type=bind,src=$work/pr196-auth.cjs,dst=/run/fixture-auth/pr196-auth.cjs,readonly" \
  --mount "type=bind,src=$work/server.crt,dst=/run/ssl/server.crt,readonly" \
  -e GPT02_POSTAUTH_FULL_CHAIN_DISPOSABLE_ONLY=1 \
  -e GPT02_PR196_AUTH_BUNDLE_PATH=/run/fixture-auth/pr196-auth.cjs \
