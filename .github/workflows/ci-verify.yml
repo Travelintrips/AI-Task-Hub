@@ -56,6 +56,8 @@ jobs:
         run: node scripts/dev/run-gpt02-single-owner-original-auth-http-isolated.mjs
       - name: GPT02 independent Hub/Core presign fact adapter (offline, no DB writer)
         run: node --test scripts/dev/gpt02-single-owner-trusted-facts-adapter.test.mjs
+      - name: GPT02 original Hub/Core presign via two real SCRAM TLS readers (isolated PostgreSQL)
+        run: bash scripts/dev/test-gpt02-presign-native-two-tls-readers-isolated.sh
       - name: GPT02 Owner candidate + genuine SCRAM attestor and issuer (isolated PostgreSQL)
         run: bash scripts/dev/test-gpt02-single-owner-real-attestor-isolated.sh
       - name: GPT02 expired preparation admission fail-closed (offline)
