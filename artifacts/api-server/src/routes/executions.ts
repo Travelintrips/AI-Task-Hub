@@ -1024,8 +1024,47 @@ router.get("/ai-tasks/:id/gpt02-reconciliation", requireAuth, async (req: Reques
       const recoveryDecision = decideGpt02ImmutableRecovery(review, {
         archiveChecked, archiveMatchCount, immutableTriggerVerified,
       });
+      // Read the EXISTING manual task and its durable creation audit.
+      // A linked task already exists in DEV; returning "create another"
+      // after a page refresh could lead to duplicate task creation.
+      // This query is informational, never an approval or preparation.
+      const linked = await db.execute(sql`
+        SELECT t.id, t.task_number AS "taskNumber", t.status,
+          (t.assigned_to_id IS NOT NULL) AS "picAssigned"
+        FROM public.ai_tasks t
+        WHERE t.company_id=${companyId} AND t.id<>${taskId}
+          AND t.source='manual'
+          AND t.title LIKE ${`[INTERNAL-E2E] GPT02 DEV linked Task${taskId} replacement %`}
+          AND t.description LIKE ${`%Linked historical Task #${taskId} (%`}
+          AND t.description LIKE ${`%GPT02_DEV_E2E_LINKED_${taskId}_ACK%`}
+          AND EXISTS (
+            SELECT 1 FROM public.audit_logs a
+            WHERE a.company_id=t.company_id AND a.entity_id=t.id::text
+              AND a.action='task_created' AND a.module='tasks'
+          )
+        ORDER BY t.id DESC LIMIT 2
+      `);
+      const uniqueLinked = linked.rows.length === 1 &&
+        Number.isSafeInteger(linked.rows[0]?.id) &&
+        linked.rows[0]?.id !== taskId ? linked.rows[0] : null;
+      const linkedTaskCount = linked.rows.length; // capped at two: two means conflict
+      const linkedTaskNextAction = !recoveryDecision.technicalEvidenceReviewed
+        ? "HOLD_NO_REPLAY"
+        : linkedTaskCount >= 2 ? "HOLD_MULTIPLE_LINKED_DEV_TASKS"
+        : uniqueLinked
+          ? "LINKED_DEV_TASK_EXISTS_AWAITING_VERIFIED_PIC"
+          : "CREATE_LINKED_FRESH_DEV_TASK_WITH_EXPLICIT_OWNER_CONSENT";
       res.setHeader("Cache-Control", "no-store");
-      res.status(200).json({...review, recoveryDecision});
+      res.status(200).json({...review, recoveryDecision: {
+        ...recoveryDecision,
+        nextAction: linkedTaskNextAction,
+        linkedTaskCount,
+        linkedTaskId: uniqueLinked?.id ?? null,
+        linkedTaskNumber: uniqueLinked?.taskNumber ?? null,
+        linkedTaskStatus: uniqueLinked?.status ?? null,
+        linkedTaskPicAssigned: uniqueLinked?.picAssigned === true,
+        linkedTaskCreatedByThisRead: false,
+      }});
       return;
     }
     const metadata = asRecord(job.metadata);
