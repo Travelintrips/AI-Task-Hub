@@ -11,6 +11,13 @@
 -- attestor, issuer and issuer-reader writer issuance windows. They do NOT
 -- automatically relock the auditor itself or the separate core preparer.
 -- Their 2/2 presence and zero outstanding windows are NOT readiness proof.
+-- The original issuer reader's permissive policy may expose multiple
+-- task IDs in one company. A server-side exact query filter is NOT a
+-- database-enforced task boundary if credentials are compromised.
+-- Report direct column SELECT + policy threshold, never mark task-183
+-- confidentiality PASS from tenant-only / numeric threshold RLS.
+-- pg_authid is used ONLY to return password-verifier presence booleans;
+-- this preflight requires an authorized administrative read-only session.
 --
 -- Never use this query's output to enable a PostgreSQL LOGIN role, reset a
 -- password, bypass NOLOGIN, start a signer, approve a command or dispatch.
@@ -62,6 +69,59 @@ role_gate AS (
       AS relock_auditor_locked
   FROM pg_roles
 ),
+credential_presence AS (
+  SELECT
+    bool_or(rolname = 'gpt02_issuer_evidence_reader'
+      AND rolpassword IS NOT NULL) AS issuer_reader_verifier_present,
+    bool_or(rolname = 'dev_gpt02_relock_catalog_auditor'
+      AND rolpassword IS NOT NULL) AS relock_auditor_verifier_present
+  FROM pg_authid
+  WHERE rolname IN (
+    'gpt02_issuer_evidence_reader',
+    'dev_gpt02_relock_catalog_auditor'
+  )
+),
+issuer_rls_policies AS (
+  SELECT
+    count(*) FILTER (
+      WHERE 'gpt02_issuer_evidence_reader' = ANY(roles)
+        AND cmd = 'SELECT' AND permissive = 'PERMISSIVE'
+    )::int AS issuer_permissive_select_policies,
+    count(*) FILTER (
+      WHERE 'gpt02_issuer_evidence_reader' = ANY(roles)
+        AND cmd = 'SELECT' AND permissive = 'PERMISSIVE'
+        AND (
+          strpos(coalesce(qual, ''), 'task_id > 136') > 0
+          OR strpos(coalesce(qual, ''), 'hub_task_id > 136') > 0
+        )
+    )::int AS issuer_threshold_scope_policies,
+    count(*) FILTER (
+      WHERE 'gpt02_issuer_evidence_reader' = ANY(roles)
+        AND cmd = 'SELECT' AND permissive = 'PERMISSIVE'
+        AND strpos(coalesce(qual, ''), '183') > 0
+    )::int AS issuer_task183_literal_policies
+  FROM pg_policies
+  WHERE schemaname = 'gpt02_private'
+    AND tablename IN (
+      'approvals', 'operator_links', 'receipts',
+      'core_identity_receipts', 'post_consumption_fences'
+    )
+),
+issuer_table_grants AS (
+  SELECT count(*) FILTER (
+    WHERE has_any_column_privilege(
+      'gpt02_issuer_evidence_reader', c.oid, 'SELECT'
+    )
+  )::int AS issuer_direct_column_select_tables
+  FROM pg_class c
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+  WHERE n.nspname = 'gpt02_private'
+    AND c.relkind IN ('r', 'p')
+    AND c.relname IN (
+      'approvals', 'operator_links', 'receipts',
+      'core_identity_receipts', 'post_consumption_fences'
+    )
+),
 issuance AS (
   SELECT
     count(*)::int AS total_windows,
@@ -84,10 +144,21 @@ phase_functions AS (
 SELECT
   'CST-DEV' AS scope,
   'NO_GO_NEVER_AUTHORIZES' AS release_decision,
-  tg.*, rg.*, iss.*, fn.phase_function_count,
+  tg.*, rg.*, cp.*, rp.*, gr.*, iss.*, fn.phase_function_count,
+  CASE
+    WHEN rp.issuer_permissive_select_policies = 5
+      AND rp.issuer_threshold_scope_policies = 5
+      AND gr.issuer_direct_column_select_tables = 5
+      THEN 'ISSUER_RLS_MULTI_TASK_READ_SCOPE_NO_GO'
+    ELSE 'ISSUER_RLS_DRIFT_REQUIRES_INDEPENDENT_REVIEW'
+  END AS issuer_task_isolation_verdict,
+  FALSE AS task183_exclusive_database_access_proven,
   'EXTERNAL_SYSTEMD_AND_SIGNER_NOT_CHECKED' AS external_operational_checks
 FROM task_gate tg
 CROSS JOIN role_gate rg
+CROSS JOIN credential_presence cp
+CROSS JOIN issuer_rls_policies rp
+CROSS JOIN issuer_table_grants gr
 CROSS JOIN issuance iss
 CROSS JOIN phase_functions fn;
 
