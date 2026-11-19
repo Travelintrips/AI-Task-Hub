@@ -162,6 +162,24 @@ export async function handleEmployeeKasbonConversationInbound(input: {
     const employeeName = await activeEmployeeName(client, phone);
     const compact = parseCompactRequest(text);
 
+    if (!compact) {
+      const guide = [
+        "Silakan kirim pengajuan dengan format:",
+        "",
+        "*Pengajuan kasbon [nominal] tanggal [DD-MM-YYYY]*",
+        "",
+        "Contoh:",
+        "*Pengajuan kasbon 500.000 tanggal 19-11-2026*",
+      ].join("\n");
+      await sendEmployeeKasbonWa({
+        to: phone,
+        text: guide,
+        idempotencyKey: `kasbon-guide-${phone}-${Date.now()}`,
+      });
+      logger.info({ phoneSuffix: phone.slice(-4) }, "employee-kasbon compact guide sent");
+      return true;
+    }
+
     if (compact && employeeName) {
       const taskNumber = `KASBON-WA-${Date.now()}`;
       const fields: Record<string, unknown> = {
