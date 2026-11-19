@@ -122,6 +122,7 @@ async function get(url,jwtText,expected) {
   await get(identityPath,token("staff"),403);
   const legacyIdentity=await get(identityPath,token("super_admin"),200);
   assert.equal(legacyIdentity.googleProofFresh,false);
+  assert.equal(legacyIdentity.googleProofStatus,"SIGNED_SESSION_GOOGLE_CLAIMS_ABSENT");
   assert.equal(legacyIdentity.requiresFreshGoogleLogin,true);
   assert.equal(legacyIdentity.readOnly,true);
   assert.equal(legacyIdentity.operatorApprovalRecorded,false);
@@ -138,6 +139,7 @@ async function get(url,jwtText,expected) {
     process.env.SESSION_SECRET,{expiresIn:"2m"});
   const freshIdentity=await get(identityPath,freshGoogle,200);
   assert.equal(freshIdentity.googleProofFresh,true);
+  assert.equal(freshIdentity.googleProofStatus,"SIGNED_SESSION_GOOGLE_PROOF_FRESH");
   assert.equal(freshIdentity.requiresFreshGoogleLogin,false);
   for(const flag of ["readOnly"])assert.equal(freshIdentity[flag],true);
   for(const flag of ["operatorApprovalRecorded","commandBoundConsentVerified",
@@ -147,6 +149,11 @@ async function get(url,jwtText,expected) {
     process.env.SESSION_SECRET,{expiresIn:"2m"});
   const staleIdentity=await get(identityPath,staleGoogle,200);
   assert.equal(staleIdentity.googleProofFresh,false);
+  assert.equal(staleIdentity.googleProofStatus,"SIGNED_SESSION_GOOGLE_PROOF_EXPIRED");
+  const invalidGoogle=jwt.sign({...googleClaims,authVerifiedAt:"invalid"},
+    process.env.SESSION_SECRET,{expiresIn:"2m"});
+  const invalidIdentity=await get(identityPath,invalidGoogle,200);
+  assert.equal(invalidIdentity.googleProofStatus,"SIGNED_SESSION_GOOGLE_PROOF_INVALID");
   console.log("PR196_NO_SECRET_GOOGLE_SESSION_STATUS_HTTP_PASS");
   const r=await get(path,token("super_admin"),200);
   assert.equal(r.taskId,171);
