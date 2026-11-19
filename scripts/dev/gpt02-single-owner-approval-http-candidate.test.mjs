@@ -19,12 +19,12 @@ const okSession=()=>({id:uid,role:'super_admin',authSource:'supabase_google_iden
  * is injected by the test runner and MUST NOT be used in any app router.
  * The candidate itself only reads req.user set by real authentication.
  */
-async function harness({enabled=false,production=false,proof=true,output=safe(),error=false}={}){
+async function harness({enabled=false,production=false,proof=true,output=safe(),error=false,fresh=true}={}){
  let signed=0,recorded=0;
  const handler=createGpt02SingleOwnerApprovalHttpCandidate({
    env:{NODE_ENV:production?'production':'development',APP_ENV:production?'production':'development',
      GPT02_SINGLE_OWNER_APPROVAL_HTTP_ENABLED:enabled?'true':'false'},
-   inspectRequestOrigin:req=>req.headers.origin==='https://dev-ai-task.cstlogistic.co.id',
+   inspectRequestOrigin:req=>req.headers.origin==='https://dev-ai-task.cstlogistic.co.id',\n   verifyFreshGoogleOperator:user=>fresh&&user.authSource==='supabase_google_identity',
    readSignedProof:async()=>{signed++;if(error)throw Error('offline');return proof?{
      approval:{claims:{}},operatorLink:{claims:{}},
    }:null},
@@ -66,6 +66,16 @@ test('upstream unauthenticated and staff roles denied before signing',async()=>{
    const r=await h.call({session});assert.equal(r.code,code);assert.equal(r.data.dispatchPermitted,false);
  }assert.deepEqual(h.counters(),{signed:0,recorded:0})}
  finally{await h.close()}
+});
+test('stale or legacy Google proof denied before requesting any signature',async()=>{
+ for(const stale of [{fresh:false},{fresh:true}]){
+   const h=await harness({enabled:true,...stale});
+   try{
+     const request=await h.call();
+     assert.equal(request.code,stale.fresh?202:403);
+     if(!stale.fresh)assert.deepEqual(h.counters(),{signed:0,recorded:0});
+   }finally{await h.close()}
+ }
 });
 test('exact method, content-type, Origin, one-command consent and no extra fields',async()=>{
  const h=await harness({enabled:true});
