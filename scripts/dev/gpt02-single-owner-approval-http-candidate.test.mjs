@@ -24,7 +24,8 @@ async function harness({enabled=false,production=false,proof=true,output=safe(),
  const handler=createGpt02SingleOwnerApprovalHttpCandidate({
    env:{NODE_ENV:production?'production':'development',APP_ENV:production?'production':'development',
      GPT02_SINGLE_OWNER_APPROVAL_HTTP_ENABLED:enabled?'true':'false'},
-   inspectRequestOrigin:req=>req.headers.origin==='https://dev-ai-task.cstlogistic.co.id',\n   verifyFreshGoogleOperator:user=>fresh&&user.authSource==='supabase_google_identity',
+   inspectRequestOrigin:req=>req.headers.origin==='https://dev-ai-task.cstlogistic.co.id',
+   verifyFreshGoogleOperator:user=>fresh&&user.authSource==='supabase_google_identity',
    readSignedProof:async()=>{signed++;if(error)throw Error('offline');return proof?{
      approval:{claims:{}},operatorLink:{claims:{}},
    }:null},
