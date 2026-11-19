@@ -31,8 +31,25 @@ jobs:
           node --test scripts/ops/ai-task-development-start.test.mjs
       - name: GPT02 independent Ed25519 role signatures and anti-replay (offline)
         run: node --test scripts/ops/gpt02-dev-ed25519-binding-offline.test.mjs
+      # PR207 is the standalone-auth branch; the existing cryptographic verifier
+      # modules live on independent Draft PR196. Use its PINNED source here to
+      # validate the integration candidate, never copy or reimplement it in PR207.
+      - name: Checkout pinned PR196 verifier dependencies (integration fixture only)
+        uses: actions/checkout@v4
+        with:
+          ref: a576ba82a0c3d555498de2ecdc3d22da4e45ecae
+          path: pr196-verifier-reference
+          persist-credentials: false
       - name: GPT02 one-Owner signed approval candidate (offline, no attestor DB or dispatch)
-        run: node --test scripts/dev/gpt02-single-owner-approval-recorder.test.mjs
+        run: |
+          set -euo pipefail
+          root=artifacts/api-server/src/lib
+          for f in gpt02-google-auth-gate.mjs gpt02-prepared-link.mjs gpt02-issuer-store.mjs gpt02-operator-link.mjs; do
+            test ! -e "$root/$f"
+            test -s "pr196-verifier-reference/$root/$f"
+            install -D -m 0644 "pr196-verifier-reference/$root/$f" "$root/$f"
+          done
+          node --test scripts/dev/gpt02-single-owner-approval-recorder.test.mjs
       - name: GPT02 expired preparation admission fail-closed (offline)
         run: node --test scripts/ops/gpt02-dev-preparation-admission.test.mjs
       - name: DEV PostgreSQL auth circuit blocks retries with real pg.Pool semantics (offline)
