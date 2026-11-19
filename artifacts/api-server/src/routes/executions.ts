@@ -20,6 +20,9 @@ import { summarizeBridgeLedgerEvents } from "../lib/bridge-ledger-event-summary"
 import { isAttestedCheckpointResponse, verifiedContinuation } from "../lib/verified-continuation";
 import { hasVerifiedSourceFinalAck } from "../lib/verified-source-final-ack";
 import { evaluateGpt02LineageEvidence } from "../lib/gpt02-lineage-gate";
+import { assessGpt02PreparedReservationReview } from "../lib/gpt02-prepared-reservation-review.mjs";
+import { decideGpt02ImmutableRecovery } from "../lib/gpt02-immutable-recovery-decision.mjs";
+import { hasRecentVerifiedGpt02DevGoogleOperator } from "../lib/gpt02-google-auth-gate.mjs";
 import { hasExplicitSopFailure } from "../lib/verified-sop-outcome";
 import { logger } from "../lib/logger";
 import { formatAiJobWhatsApp, jobWaConfig, notifyAiJobTransition } from "../lib/ai-job-whatsapp";
@@ -942,6 +945,128 @@ router.get("/ai-tasks/:id/gpt02-reconciliation", requireAuth, async (req: Reques
       .where(and(eq(aiExecutionJobsTable.taskId, taskId), eq(aiExecutionJobsTable.companyId, companyId)))
       .orderBy(desc(aiExecutionJobsTable.createdAt)).limit(1);
     if (!job) { res.status(404).json({ error: "Execution not found" }); return; }
+    // A prepared Hub/Core reservation has no remote command correlation yet.
+    // Reuse the existing read-only reconciliation endpoint to classify the
+    // persisted reservation, not the dispatched-command reconciliation path.
+    // No approval, permission, cleanup, retry, worker or status mutation here.
+    if (job.status === "prepared") {
+      if (req.user?.role !== "super_admin") {
+        res.status(403).json({ error: "SUPER_ADMIN_REQUIRED" }); return;
+      }
+      const audited = await db.execute(sql`
+        SELECT s.company_id AS "companyId", s.hub_task_id AS "hubTaskId",
+          s.hub_execution_id::text AS "hubExecutionId",
+          (s.expires_at <= now()) AS "expired",
+          core.status AS "coreStatus",
+          s.core_task_id::text AS "coreTaskId",
+          s.command_candidate_id::text AS "commandCandidateId",
+          (SELECT COUNT(*)::integer FROM public.ai_execution_jobs e
+             WHERE e.company_id=s.company_id AND e.task_id=s.hub_task_id) AS "executionCount",
+          (SELECT COUNT(*)::integer FROM public.ai_execution_events ev
+             WHERE ev.execution_id=s.hub_execution_id) AS "hubEventCount",
+          (SELECT COUNT(*)::integer FROM ai_platform.ai_coding_bridge_commands bc
+             WHERE bc.task_id=s.core_task_id OR bc.id=s.command_candidate_id) AS "coreCommandCount",
+          (SELECT COUNT(*)::integer FROM ai_platform.ai_coding_bridge_responses br
+             WHERE br.task_id=s.core_task_id OR br.command_id=s.command_candidate_id) AS "responseCount",
+          (SELECT COUNT(*)::integer FROM ai_platform.ai_coding_runs cr
+             WHERE cr.task_id=s.core_task_id) AS "coreRunCount",
+          (SELECT COUNT(*)::integer FROM gpt02_private.approvals ap
+             WHERE ap.company_id=s.company_id AND ap.task_id=s.hub_task_id) AS "approvalCount",
+          (SELECT COUNT(*)::integer FROM gpt02_private.issuer_evidences ie
+             WHERE ie.company_id=s.company_id AND ie.hub_task_id=s.hub_task_id) AS "issuerEvidenceCount",
+          (SELECT COUNT(*)::integer FROM gpt02_private.issuer_lease_consumptions lc
+             WHERE lc.company_id=s.company_id AND lc.hub_task_id=s.hub_task_id) AS "leaseCount",
+          (SELECT COUNT(*)::integer FROM gpt02_private.receipts rc
+             WHERE rc.command_id=s.command_candidate_id) AS "receiptCount",
+          (SELECT COUNT(*)::integer FROM gpt02_private.core_identity_receipts ir
+             WHERE ir.command_id=s.command_candidate_id) AS "coreReceiptCount"
+        FROM gpt02_stage.core_preparations s
+        LEFT JOIN ai_platform.ai_coding_tasks core ON core.id=s.core_task_id
+        WHERE s.company_id=${companyId} AND s.hub_task_id=${taskId}
+          AND s.hub_execution_id=${job.id}::uuid
+        ORDER BY s.created_at DESC LIMIT 2
+      `);
+      // Hosted immutable trigger and archive are independently checked.
+      // Incomplete evidence is always HOLD; no command/approval is issued.
+      const catalog = await db.execute(sql`SELECT
+        to_regclass('ai_platform.gpt02_dev_command_archive_20261030') IS NOT NULL AS "archiveExists",
+        EXISTS (
+          SELECT 1 FROM pg_trigger t
+          JOIN pg_class c ON c.oid=t.tgrelid
+          JOIN pg_namespace n ON n.oid=c.relnamespace
+          WHERE n.nspname='gpt02_stage' AND c.relname='core_preparations'
+            AND t.tgname='gpt02_preparation_immutable'
+            AND t.tgenabled IN ('O','A') AND NOT t.tgisinternal
+            AND t.tgfoid='gpt02_stage.reject_preparation_mutation()'::regprocedure
+            AND pg_get_triggerdef(t.oid,true) ILIKE '%BEFORE DELETE OR UPDATE OR TRUNCATE%'
+        ) AS "immutableTriggerVerified"`);
+      const archiveExists = catalog.rows[0]?.archiveExists === true;
+      const immutableTriggerVerified = catalog.rows[0]?.immutableTriggerVerified === true;
+      const one = audited.rows.length === 1 ? audited.rows[0] as Record<string, unknown> : null;
+      let archiveChecked = false;
+      let archiveMatchCount: number | null = null;
+      if (archiveExists && one &&
+          typeof one.coreTaskId === "string" && typeof one.commandCandidateId === "string") {
+        const archived = await db.execute(sql`SELECT count(*)::integer AS "matchCount"
+          FROM ai_platform.gpt02_dev_command_archive_20261030 a
+          WHERE a.command_id::text=${one.commandCandidateId}
+             OR a.command_record->>'task_id'=${one.coreTaskId}
+             OR a.command_record->'metadata_json'->>'coreTaskId'=${one.coreTaskId}
+             OR a.command_record->'metadata_json'->>'hubTaskId'=${String(taskId)}`);
+        if (archived.rows.length === 1 &&
+            Number.isSafeInteger(archived.rows[0]?.matchCount) &&
+            (archived.rows[0]?.matchCount as number) >= 0) {
+          archiveChecked = true;
+          archiveMatchCount = archived.rows[0].matchCount as number;
+        }
+      }
+      const review = assessGpt02PreparedReservationReview(job, audited.rows);
+      const recoveryDecision = decideGpt02ImmutableRecovery(review, {
+        archiveChecked, archiveMatchCount, immutableTriggerVerified,
+      });
+      // Read the EXISTING manual task and its durable creation audit.
+      // A linked task already exists in DEV; returning "create another"
+      // after a page refresh could lead to duplicate task creation.
+      // This query is informational, never an approval or preparation.
+      const linked = await db.execute(sql`
+        SELECT t.id, t.task_number AS "taskNumber", t.status,
+          (t.assigned_to_id IS NOT NULL) AS "picAssigned"
+        FROM public.ai_tasks t
+        WHERE t.company_id=${companyId} AND t.id<>${taskId}
+          AND t.source='manual'
+          AND t.title LIKE ${`[INTERNAL-E2E] GPT02 DEV linked Task${taskId} replacement %`}
+          AND t.description LIKE ${`%Linked historical Task #${taskId} (%`}
+          AND t.description LIKE ${`%GPT02_DEV_E2E_LINKED_${taskId}_ACK%`}
+          AND EXISTS (
+            SELECT 1 FROM public.audit_logs a
+            WHERE a.company_id=t.company_id AND a.entity_id=t.id::text
+              AND a.action='task_created' AND a.module='tasks'
+          )
+        ORDER BY t.id DESC LIMIT 2
+      `);
+      const uniqueLinked = linked.rows.length === 1 &&
+        Number.isSafeInteger(linked.rows[0]?.id) &&
+        linked.rows[0]?.id !== taskId ? linked.rows[0] : null;
+      const linkedTaskCount = linked.rows.length; // capped at two: two means conflict
+      const linkedTaskNextAction = !recoveryDecision.technicalEvidenceReviewed
+        ? "HOLD_NO_REPLAY"
+        : linkedTaskCount >= 2 ? "HOLD_MULTIPLE_LINKED_DEV_TASKS"
+        : uniqueLinked
+          ? "LINKED_DEV_TASK_EXISTS_AWAITING_VERIFIED_PIC"
+          : "CREATE_LINKED_FRESH_DEV_TASK_WITH_EXPLICIT_OWNER_CONSENT";
+      res.setHeader("Cache-Control", "no-store");
+      res.status(200).json({...review, recoveryDecision: {
+        ...recoveryDecision,
+        nextAction: linkedTaskNextAction,
+        linkedTaskCount,
+        linkedTaskId: uniqueLinked?.id ?? null,
+        linkedTaskNumber: uniqueLinked?.taskNumber ?? null,
+        linkedTaskStatus: uniqueLinked?.status ?? null,
+        linkedTaskPicAssigned: uniqueLinked?.picAssigned === true,
+        linkedTaskCreatedByThisRead: false,
+      }});
+      return;
+    }
     const metadata = asRecord(job.metadata);
     const correlation = metadata["remoteCorrelationId"];
     if (metadata["environment"] !== "development" || metadata["verificationMode"] !== "chatgpt-attested" ||
@@ -990,6 +1115,11 @@ router.post("/ai-tasks/:id/gpt02-adopt-existing", requireAuth, async (req: Reque
   }
   if (req.user?.role !== "super_admin") {
     res.status(403).json({ error: "SUPER_ADMIN_REQUIRED" }); return;
+  }
+  if (!hasRecentVerifiedGpt02DevGoogleOperator(req.user)) {
+    res.setHeader("Cache-Control","no-store");
+    res.status(403).json({error:"GPT02_FRESH_GOOGLE_OPERATOR_REQUIRED",dispatchPermitted:false});
+    return;
   }
   const taskId = Number(req.params.id);
   const companyId = getCompanyIdForWrite(req);
@@ -1398,6 +1528,11 @@ router.post("/ai-tasks/:id/gpt02-assign-pic", requireAuth, async (req: Request, 
   if (req.user?.role !== "super_admin") {
     res.status(403).json({error:"SUPER_ADMIN_REQUIRED"}); return;
   }
+  if (!hasRecentVerifiedGpt02DevGoogleOperator(req.user)) {
+    res.setHeader("Cache-Control","no-store");
+    res.status(403).json({error:"GPT02_FRESH_GOOGLE_OPERATOR_REQUIRED",dispatchPermitted:false});
+    return;
+  }
   const taskId=Number(req.params.id);
   const memberId=(req.body as Record<string,unknown>)?.["memberId"];
   if (!Number.isSafeInteger(taskId) || taskId<=0 ||
@@ -1479,6 +1614,11 @@ router.post("/ai-tasks/:id/gpt02-confirm-recovery-pic", requireAuth,
   }
   if (req.user?.role !== "super_admin") {
     res.status(403).json({error:"SUPER_ADMIN_REQUIRED"}); return;
+  }
+  if (!hasRecentVerifiedGpt02DevGoogleOperator(req.user)) {
+    res.setHeader("Cache-Control","no-store");
+    res.status(403).json({error:"GPT02_FRESH_GOOGLE_OPERATOR_REQUIRED",dispatchPermitted:false});
+    return;
   }
   // Browser-only same-origin POST; credentialed cross-origin writes fail closed.
   const origin=req.get("origin"),host=req.get("host");

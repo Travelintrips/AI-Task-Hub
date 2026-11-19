@@ -666,11 +666,54 @@ export default function AiTaskDetail() {
     }),
   });
 
+  // Existing app session verification is read-only: no OAuth token exchange,
+  // no approval, no issuer nonce and no dispatch.
+  const { data: googleSessionReadiness, error: googleSessionReadinessError,
+    isFetching: googleSessionReadinessFetching, refetch: refreshGoogleSessionReadiness } = useQuery<{
+      googleProofFresh:boolean;requiresFreshGoogleLogin:boolean;
+      googleProofStatus?:
+        | "SIGNED_SESSION_GOOGLE_PROOF_FRESH"
+        | "SIGNED_SESSION_GOOGLE_CLAIMS_ABSENT"
+        | "SIGNED_SESSION_GOOGLE_PROOF_EXPIRED"
+        | "SIGNED_SESSION_GOOGLE_PROOF_INVALID"
+        | "DEV_SESSION_GUARD_CONFIGURATION_UNAVAILABLE"
+        | "SUPER_ADMIN_SESSION_REQUIRED";
+      proofSource:"signed_app_session";readOnly:true;
+      operatorApprovalRecorded:false;commandBoundConsentVerified:false;
+      issuerLeaseGranted:false;dispatchPermitted:false;resumePermitted:false;statusChanged:false;
+    }>({
+      queryKey:["gpt02-google-session-readiness",id],
+      queryFn:()=>apiFetch("/auth/gpt02/operator-session-readiness"),
+      enabled:currentUser?.role==="super_admin",
+      retry:false,staleTime:0,refetchOnWindowFocus:false,
+    });
+
   const [reconciliationRequested, setReconciliationRequested] = useState(false);
   const { data: reconciliation, isFetching: reconciliationFetching, error: reconciliationError, refetch: checkReconciliation } = useQuery<{
     status: string; matchCount: number; uniqueCommandMatch: boolean; commandId: string | null;
     callbackVerified: boolean; attestationVerified: boolean; finalAckVerified: boolean;
     archiveAvailable: boolean; automaticDispatch: boolean; statusChanged: boolean;
+    independentReviewRequired?: boolean; reviewReason?: string;
+    preparationExpired?: boolean; evidenceComplete?: boolean; coreStatus?: string | null;
+    readOnly?: boolean; resumePermitted?: boolean; dispatchPermitted?: boolean;
+    archiveChecked?: boolean;
+    recoveryDecision?: {
+      technicalEvidenceReviewed: boolean; technicalReviewMode: string;
+      reason: string; nextAction: string; oldTaskId: number | null;
+      historicalReservationPreserved: true;
+      sameTaskRepreparePermitted: false; newTaskCreated: false; approvalRecorded: false;
+      secondHumanAdminApprovalRequired: false; singleOwnerApprovalRequiredForExecution: true;
+      issuerVerificationStillRequired: true;
+      archiveChecked: boolean; archiveMatchCount: number | null;
+      immutableTriggerVerified: boolean;
+      readOnly: true; dispatchPermitted: false; resumePermitted: false;
+      linkedTaskCount?: number;
+      linkedTaskId?: number | null;
+      linkedTaskNumber?: string | null;
+      linkedTaskStatus?: string | null;
+      linkedTaskPicAssigned?: boolean;
+      linkedTaskCreatedByThisRead?: false;
+    };
   }>({
     queryKey: ["gpt02-reconciliation", id],
     queryFn: () => apiFetch(`/ai-tasks/${id}/gpt02-reconciliation?companyId=${encodeURIComponent(task?.companyId ?? "")}`),
@@ -1231,7 +1274,12 @@ export default function AiTaskDetail() {
           <div>
             <Label className="text-xs text-slate-600">Tahapan lifecycle</Label>
             <div className="mt-1 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800">
-              {executionData?.execution ? `Execution: ${executionData.execution.status}` : gpt02PicOptions?.assignmentReady ? "PIC terhubung; izin runtime belum terverifikasi" : "Menunggu verifikasi PIC"}
+              {executionData?.execution
+                ? executionData.execution.status === "prepared"
+                  ? "Status: prepared — reservasi tercatat, bukan bukti worker berjalan"
+                  : `Execution: ${executionData.execution.status}`
+                : gpt02PicOptions?.assignmentReady
+                  ? "PIC terhubung; izin runtime belum terverifikasi" : "Menunggu verifikasi PIC"}
             </div>
             <p className="mt-1 text-xs text-slate-500">Tidak mengubah status bisnis sebelum bukti worker tersedia.</p>
           </div>
@@ -1266,6 +1314,8 @@ export default function AiTaskDetail() {
               {gpt02PreparationReadinessFetching ? "Memeriksa kesiapan persiapan..." :
                 gpt02PreparationReadinessError || !gpt02PreparationReadiness ?
                   "Status persiapan tidak tersedia; tindakan tetap ditahan." :
+                gpt02PreparationReadiness.reason==="EXISTING_EXECUTION_REQUIRES_INDEPENDENT_REVIEW" ?
+                  "Sudah ada reservasi eksekusi untuk Task ini. Persiapan ulang ditahan agar tidak menggandakan command. Perlu review independen terhadap bukti Hub/Core dan masa berlaku sebelum ada tindakan lanjutan; status prepared bukan izin dispatch." :
                 gpt02PreparationReadiness.reason==="FRESH_TASK_INSTRUCTION_REQUIRED" ?
                   "Instruksi masih berupa referensi lama. Gunakan koreksi ber-audit di atas terlebih dahulu." :
                 gpt02PreparationReadiness.reason==="GPT02_PREPARER_LOGIN_LOCKED" ?
@@ -1335,8 +1385,31 @@ export default function AiTaskDetail() {
           <div className="mt-3 space-y-2 rounded-lg border border-slate-200 bg-white p-3 text-xs">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="font-semibold text-slate-900">Diagnostik lineage GPT02 — baca-saja</span>
+              <Button variant="outline" size="sm"
+                disabled={googleSessionReadinessFetching}
+                onClick={()=>{void refreshGoogleSessionReadiness();}}>
+                Periksa bukti sesi Google
+              </Button>
               <Button variant="outline" size="sm" onClick={()=>{void refreshGpt02Lineage();}}
                 disabled={gpt02LineageFetching}>Periksa ulang bukti</Button>
+            </div>
+            <div data-testid="gpt02-google-session-readiness" role="status"
+              className="rounded border border-slate-200 p-2 space-y-1 text-slate-700">
+              <strong>Bukti identitas Google untuk tindakan GPT02</strong>
+              <p>{googleSessionReadinessFetching && !googleSessionReadiness ? "Memeriksa sesi..." :
+                googleSessionReadiness?.googleProofFresh === true
+                  ? "Bukti Google pada sesi aplikasi masih berlaku untuk pemeriksaan identitas."
+                  : "Bukti Google baru belum terverifikasi pada sesi aplikasi. Akses baca-saja tetap tersedia."}</p>
+              {googleSessionReadiness?.googleProofStatus==="SIGNED_SESSION_GOOGLE_CLAIMS_ABSENT" &&
+                <p data-testid="gpt02-google-proof-missing">Sesi aplikasi belum memiliki klaim bukti Google. Periksa callback ke AI Task; login Google di penyedia saja belum membuktikan sesi aplikasi.</p>}
+              {googleSessionReadiness?.googleProofStatus==="SIGNED_SESSION_GOOGLE_PROOF_EXPIRED" &&
+                <p data-testid="gpt02-google-proof-expired">Klaim Google pada sesi aplikasi ada, tetapi sudah melewati batas 10 menit. Login baru diperlukan hanya ketika hendak menugaskan PIC.</p>}
+              {googleSessionReadiness?.googleProofStatus==="SIGNED_SESSION_GOOGLE_PROOF_INVALID" &&
+                <p data-testid="gpt02-google-proof-invalid">Bukti sesi Google tidak konsisten. Perubahan PIC tetap ditolak.</p>}
+              {googleSessionReadiness?.googleProofStatus==="DEV_SESSION_GUARD_CONFIGURATION_UNAVAILABLE" &&
+                <p data-testid="gpt02-google-proof-config-block">Pengaman autentikasi DEV belum siap; semua tindakan GPT02 tetap ditahan.</p>}
+              {googleSessionReadinessError && <p>Verifikasi sesi tidak tersedia — izin perubahan tetap ditolak.</p>}
+              <p>Hasil ini bukan persetujuan operator, penerbitan lease, atau izin menjalankan Task.</p>
             </div>
             {gpt02LineageError && <p role="alert" className="text-red-700">
               Diagnostik tidak tersedia. Status NO-GO tetap berlaku.
@@ -1379,7 +1452,56 @@ export default function AiTaskDetail() {
               <p>Status job: {reconciliation.status}; kecocokan unik: {reconciliation.uniqueCommandMatch ? "Ya" : "Tidak"}; jumlah padanan: {reconciliation.matchCount}</p>
               <p className="break-all font-mono text-slate-900">Command ID: {reconciliation.commandId ?? "Belum terkonfirmasi"}</p>
               <p>Callback: {reconciliation.callbackVerified ? "Verified" : "Belum"} · Attestation: {reconciliation.attestationVerified ? "Verified" : "Belum"} · Final ACK: {reconciliation.finalAckVerified ? "Verified" : "Belum"}</p>
-              <p>Arsip tersedia: {reconciliation.archiveAvailable ? "Ya" : "Tidak"} · Dispatch otomatis: Tidak · Perubahan status: Tidak</p>
+              <p>Arsip: {reconciliation.independentReviewRequired ? "Tidak diperiksa (belum ada command)" : reconciliation.archiveAvailable ? "Tersedia" : "Tidak tersedia"} · Dispatch otomatis: Tidak · Perubahan status: Tidak</p>
+              {reconciliation.independentReviewRequired && (
+                <div data-testid="gpt02-prepared-independent-review" role="alert"
+                  className="rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950 space-y-1">
+                  <strong>Review independen wajib — reservation tidak boleh dijalankan atau disiapkan ulang.</strong>
+                  <p>Preparation: {reconciliation.preparationExpired ? "Kedaluwarsa" : "Masa berlaku atau bukti belum selesai diperiksa"} · Core Task: {reconciliation.coreStatus ?? "Belum terbukti"} · Bukti konsisten: {reconciliation.evidenceComplete ? "Ya (reservasi saja)" : "Belum"}</p>
+                  <p>Kode audit: {reconciliation.reviewReason ?? "BUKTI_BELUM_TERSEDIA"}</p>
+                  <p>Pemeriksaan ini baca-saja. Tidak memberikan approval, resume, dispatch, maupun izin membuat command baru.</p>
+                  {reconciliation.recoveryDecision?.technicalEvidenceReviewed === true ? (
+                    <div data-testid="gpt02-immutable-recovery-decision"
+                      className="rounded border border-slate-300 bg-white p-2 space-y-1">
+                      <strong>Audit teknis otomatis selesai — tidak perlu persetujuan admin kedua.</strong>
+                      <p>Reservation historis tetap disimpan dan tidak dapat diulang pada Task ID yang sama.</p>
+                      {reconciliation.recoveryDecision.linkedTaskCount === 1 &&
+                       reconciliation.recoveryDecision.linkedTaskId != null ? (
+                        <div data-testid="gpt02-existing-linked-dev-task" className="space-y-1">
+                          <p>Task DEV E2E pengganti sudah tercatat — jangan buat Task pengganti kedua.</p>
+                          <p>Task #{reconciliation.recoveryDecision.linkedTaskId}
+                            {reconciliation.recoveryDecision.linkedTaskNumber ?
+                              ` (${reconciliation.recoveryDecision.linkedTaskNumber})` : ""}
+                            · Status {reconciliation.recoveryDecision.linkedTaskStatus ?? "Belum diperiksa"}
+                            · PIC {reconciliation.recoveryDecision.linkedTaskPicAssigned ? "Sudah ditugaskan" : "Belum ditugaskan"}</p>
+                          <Link href={`/ai-tasks/${reconciliation.recoveryDecision.linkedTaskId}`}
+                            className="font-semibold underline text-blue-700">
+                            Buka Task pengganti #{reconciliation.recoveryDecision.linkedTaskId}
+                          </Link>
+                          <p>Berikutnya: penugasan PIC melalui sesi Google Super Admin yang masih berlaku.
+                            Tidak ada approval, issuer lease, atau dispatch dari pemeriksaan ini.</p>
+                        </div>
+                      ) : (reconciliation.recoveryDecision.linkedTaskCount ?? 0) >= 2 ? (
+                        <p data-testid="gpt02-duplicate-linked-task-hold">
+                          HOLD — terdapat lebih dari satu Task pengganti yang mengaku tertaut.
+                          Audit duplikasi sebelum melakukan tindakan berikutnya.
+                        </p>
+                      ) : (
+                        <p>Langkah berikutnya: buat Task DEV E2E baru yang tertaut audit ke Task #{reconciliation.recoveryDecision.oldTaskId ?? id}.
+                          Belum ada Task baru dibuat oleh pemeriksaan ini.</p>
+                      )}
+                      <p>Untuk eksekusi nantinya tetap perlu satu persetujuan Owner/Super Admin
+                        yang sah serta pembuktian issuer teknis dan command-bound consent.
+                        Status eksekusi sekarang tetap NO-GO.</p>
+                    </div>
+                  ) : (
+                    <p data-testid="gpt02-immutable-recovery-hold">
+                      Audit teknis pemulihan belum lengkap (arsip, trigger, atau lineage tidak cocok).
+                      Jangan buat reservation pengganti sebelum bukti diverifikasi.
+                    </p>
+                  )}
+                </div>
+              )}
             </div>}
           </div>
         )}

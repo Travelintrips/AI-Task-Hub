@@ -13,9 +13,10 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
  */
 export function recentGoogleOAuthEvidenceAt(
   amr: unknown,
-  identities: ReadonlyArray<{ provider?: unknown; last_sign_in_at?: unknown }> | undefined,
+  identities: ReadonlyArray<{ provider?: unknown; last_sign_in_at?: unknown; updated_at?: unknown }> | undefined,
   linkedProviders: unknown,
   nowMs: number = Date.now(),
+  userLastSignInAt?: unknown,
 ): number | null {
   if (!Array.isArray(amr) || amr.length === 0) return null;
   const latest = amr[0] as Record<string, unknown> | null;
@@ -40,12 +41,39 @@ export function recentGoogleOAuthEvidenceAt(
   if (googleIdentities.length !== 1 ||
       typeof googleIdentities[0].last_sign_in_at !== "string") return null;
 
-  const lastGoogleUse = Date.parse(googleIdentities[0].last_sign_in_at);
+  const googleIdentity = googleIdentities[0];
+  const lastGoogleUse = Date.parse(googleIdentity.last_sign_in_at);
+  if (!Number.isFinite(lastGoogleUse)) return null;
   const googleAge = nowMs - lastGoogleUse;
-  if (!Number.isFinite(lastGoogleUse) ||
-      googleAge < -30_000 || googleAge > UTC_FRESHNESS_MS) return null;
-  if (Math.abs(amrAt - lastGoogleUse) > 90_000) return null;
-  return Math.min(amrAt, lastGoogleUse, nowMs);
+
+  // Preferred original proof: identity's last_sign_in_at corresponds to the
+  // same recent OAuth AMR event. Do not regress already-PASS fresh sign-ins.
+  if (googleAge >= -30_000 && googleAge <= UTC_FRESHNESS_MS &&
+      Math.abs(amrAt - lastGoogleUse) <= 90_000) {
+    return Math.min(amrAt, lastGoogleUse, nowMs);
+  }
+
+  // Hosted Supabase Auth can leave identities.last_sign_in_at fixed at the
+  // account's first Google sign-in while updating identities.updated_at and
+  // users.last_sign_in_at on subsequent OAuth sign-ins. Do NOT accept either
+  // updated_at or users.last_sign_in_at alone. The exact getUser(accessToken)
+  // identity must be the sole allowed social identity, AMR must be fresh oauth,
+  // and both additional SERVER-OWNED timestamps must agree with AMR and each
+  // other. Only a stale original identity timestamp enables this fallback.
+  if (googleAge <= UTC_FRESHNESS_MS) return null;
+  if (typeof googleIdentity.updated_at !== "string" ||
+      typeof userLastSignInAt !== "string") return null;
+  const identityUpdatedAt = Date.parse(googleIdentity.updated_at);
+  const userSignedInAt = Date.parse(userLastSignInAt);
+  if (!Number.isFinite(identityUpdatedAt) || !Number.isFinite(userSignedInAt) ||
+      identityUpdatedAt < lastGoogleUse) return null;
+  for (const stamp of [identityUpdatedAt, userSignedInAt]) {
+    const age = nowMs - stamp;
+    if (age < -30_000 || age > UTC_FRESHNESS_MS ||
+        Math.abs(amrAt - stamp) > 90_000) return null;
+  }
+  if (Math.abs(identityUpdatedAt - userSignedInAt) > 90_000) return null;
+  return Math.min(amrAt, identityUpdatedAt, userSignedInAt, nowMs);
 }
 
 /** Stable Supabase Auth UID allowlist, host-controlled and independent of

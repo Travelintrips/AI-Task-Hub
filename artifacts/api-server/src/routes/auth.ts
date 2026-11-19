@@ -1,9 +1,16 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { eq, asc } from "drizzle-orm";
+import { eq, asc, getTableColumns, sql } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import { recentGoogleOAuthEvidenceAt } from "../lib/vps-storage-google-session";
+import { hasRecentVerifiedGpt02DevGoogleOperator } from "../lib/gpt02-google-auth-gate.mjs";
+import { classifyExistingGpt02GoogleAppSession } from "../lib/gpt02-google-session-status.mjs";
+import {
+  selectUniqueActiveGoogleDevProfile,
+  trustedGoogleDevProfilePin,
+  profileMatchesTrustedGoogleDevPin,
+} from "../lib/google-dev-profile-match";
 import { createClient } from "@supabase/supabase-js";
 import { db, usersTable, type UserRole, USER_ROLES } from "@workspace/db";
 import { signToken, requireAuth, requireRole, type AuthUser } from "../middleware/auth";
@@ -90,10 +97,19 @@ router.post("/auth/setup", async (req: Request, res: Response): Promise<void> =>
 // ─── POST /auth/login ──────────────────────────────────────────────────────────
 
 router.post("/auth/login", async (req: Request, res: Response): Promise<void> => {
+  // Public DEV email-only login is not an OTP challenge or verified identity.
+  // Do not mint a JWT just because an email exists, particularly for Super
+  // Admin. Reuse the existing verified Supabase Google OAuth route instead.
+  // Keep production password login completely unchanged.
+  if (devPasswordlessLoginEnabled) {
+    res.status(403).json({ error: "Verified Google login required on DEV" });
+    return;
+  }
+
   const { email, password } = req.body as { email?: string; password?: string };
 
-  if (!email || (!devPasswordlessLoginEnabled && !password)) {
-    res.status(400).json({ error: devPasswordlessLoginEnabled ? "email is required" : "email and password are required" });
+  if (!email || !password) {
+    res.status(400).json({ error: "email and password are required" });
     return;
   }
 
@@ -104,17 +120,15 @@ router.post("/auth/login", async (req: Request, res: Response): Promise<void> =>
       .where(eq(usersTable.email, email.toLowerCase().trim()))
       .limit(1);
 
-    if (!user || !user.isActive || (!devPasswordlessLoginEnabled && !user.passwordHash)) {
+    if (!user || !user.isActive || !user.passwordHash) {
       res.status(401).json({ error: "Invalid credentials" });
       return;
     }
 
-    if (!devPasswordlessLoginEnabled) {
-      const valid = await bcrypt.compare(password!, user.passwordHash);
-      if (!valid) {
-        res.status(401).json({ error: "Invalid credentials" });
-        return;
-      }
+    const valid = await bcrypt.compare(password, user.passwordHash);
+    if (!valid) {
+      res.status(401).json({ error: "Invalid credentials" });
+      return;
     }
 
     await db
@@ -130,7 +144,7 @@ router.post("/auth/login", async (req: Request, res: Response): Promise<void> =>
       name: user.name,
     });
 
-    logger.info({ userId: user.id, role: user.role, companyId: user.companyId, passwordless: devPasswordlessLoginEnabled }, "User logged in");
+    logger.info({ userId: user.id, role: user.role, companyId: user.companyId, passwordless: false }, "User logged in");
 
     res.json({ token, user: safeUser(user) });
   } catch (err) {
@@ -200,16 +214,46 @@ router.post("/auth/google", async (req: Request, res: Response): Promise<void> =
     }
 
     if (!isProduction) {
-      const [registeredUser] = await db
-        .select()
-        .from(usersTable)
-        .where(eq(usersTable.email, email))
-        .limit(1);
-
-      if (!registeredUser || !registeredUser.isActive) {
-        res.status(403).json({ error: "Google account is not registered or is inactive" });
+      // Reuse verified Supabase Auth app_metadata, as existing PROD OAuth does.
+      // Never trust user_metadata or infer the preferred role from a duplicate.
+      const pin = trustedGoogleDevProfilePin(authUser.app_metadata, USER_ROLES);
+      if (pin === "invalid") {
+        res.status(403).json({ error: "Invalid canonical Google account binding" });
         return;
       }
+      // CST-DEV has TEXT IDs, nullable email/company, and duplicate normalized
+      // email values. Detect ambiguity before choosing a profile for JWT minting.
+      const projection = {
+        ...getTableColumns(usersTable),
+        loginStatus: sql<string>`"users"."status"`,
+      };
+      const matchingProfiles = await db
+        .select(projection)
+        .from(usersTable)
+        .where(sql`lower(btrim(${usersTable.email})) = ${email}`)
+        .limit(2);
+      let uniqueProfile = selectUniqueActiveGoogleDevProfile(matchingProfiles, USER_ROLES);
+      if (pin !== "absent") {
+        if (matchingProfiles.length > 1) {
+          // Pin is a SELECT filter, never a role grant: re-check the exact
+          // TEXT user ID and verified email in the database, then re-check
+          // real role, company, is_active and status before signing a JWT.
+          const pinnedProfiles = await db
+            .select(projection)
+            .from(usersTable)
+            .where(sql`lower(btrim(${usersTable.email})) = ${email}
+              AND ${usersTable.id}::text = ${pin.id}`)
+            .limit(2);
+          uniqueProfile = selectUniqueActiveGoogleDevProfile(pinnedProfiles, USER_ROLES);
+        }
+        if (!profileMatchesTrustedGoogleDevPin(uniqueProfile, pin)) uniqueProfile = null;
+      }
+      if (!uniqueProfile) {
+        res.status(403).json({ error: "Google account is not registered, active and unambiguous" });
+        return;
+      }
+      // Keep the original API response and signed JWT field shape unchanged.
+      const { loginStatus: _loginStatus, ...registeredUser } = uniqueProfile;
 
       await db
         .update(usersTable)
@@ -222,7 +266,8 @@ router.post("/auth/google", async (req: Request, res: Response): Promise<void> =
       const decoded = registeredUser.role === "super_admin" ? jwt.decode(accessToken) : null;
       const authMethods = decoded && typeof decoded === "object" ? decoded.amr : undefined;
       const verifiedGoogleOAuthAt = recentGoogleOAuthEvidenceAt(
-        authMethods, authUser.identities, linkedProviders,
+        authMethods, authUser.identities, linkedProviders, Date.now(),
+        authUser.last_sign_in_at,
       );
 
       const token = signToken({
@@ -384,6 +429,42 @@ router.post("/auth/gpt02/operator-identity-preflight", requireAuth,
 router.post("/auth/logout", (_req: Request, res: Response): void => {
   res.json({ message: "Logged out. Please clear your token on the client." });
 });
+
+// DEV-only, read-only assessment of the *existing signed application session*.
+// Never reads browser storage, accepts raw provider tokens, mints new JWTs,
+// refreshes credentials, creates approvals, or initiates any GPT02 command.
+// This proves only the app JWT's existing recent-Google claim, not a new
+// independent Supabase OAuth event or command-bound consent.
+router.get("/auth/gpt02/operator-session-readiness", requireAuth,
+  (req: Request, res: Response): void => {
+    res.setHeader("Cache-Control", "no-store");
+    if (process.env.NODE_ENV !== "development" || process.env.APP_ENV !== "development") {
+      res.sendStatus(404);
+      return;
+    }
+    if (req.user?.role !== "super_admin") {
+      res.status(403).json({error:"SUPER_ADMIN_REQUIRED",readOnly:true,
+        operatorApprovalRecorded:false,dispatchPermitted:false});
+      return;
+    }
+    const googleProofFresh=hasRecentVerifiedGpt02DevGoogleOperator(req.user);
+    const googleProofStatus=classifyExistingGpt02GoogleAppSession(req.user);
+    res.json({
+      googleProofFresh,
+      googleProofStatus,
+      requiresFreshGoogleLogin: !googleProofFresh,
+      proofSource: "signed_app_session",
+      readOnly: true,
+      operatorApprovalRecorded: false,
+      commandBoundConsentVerified: false,
+      issuerLeaseGranted: false,
+      dispatchPermitted: false,
+      resumePermitted: false,
+      statusChanged: false,
+    });
+  });
+
+// ───────────────────────────────────────────────────────────────────────────────
 
 // ─── GET /auth/me ──────────────────────────────────────────────────────────────
 
