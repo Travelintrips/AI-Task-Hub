@@ -49,6 +49,7 @@ cid="$(docker run -d --name "$name" --network "$net" --network-alias synthetic-p
  --restart no --env-file "$work/pg.env" \
  --mount "type=bind,src=$work/server.key,dst=/run/ssl/server.key,readonly" \
  --mount "type=bind,src=$work/server.crt,dst=/run/ssl/server.crt,readonly" \
+ --mount "type=bind,src=$work/pr196-auth.cjs,dst=/run/fixture-auth/pr196-auth.cjs,readonly" \
  postgres:16-alpine -c ssl=on -c ssl_cert_file=/run/ssl/server.crt \
  -c ssl_key_file=/run/ssl/server.key)"
 pgexec(){
@@ -73,12 +74,26 @@ docker exec "$cid" sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -w -h /var/run
   cat "$work/passwords.sql"
 } | docker exec -i "$cid" sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -X -w -h /var/run/postgresql -U postgres -d gpt02_issuer_isolated -v ON_ERROR_STOP=1 -q' >"$work/evidence.log" 2>&1 ||
  { echo ISOLATED_EVIDENCE_SCHEMA_SETUP_FAILED >&2;exit 2;}
+# Bundle only the ORIGINAL pinned PR196 JWT middleware for this disposable
+# one-process E2E. The real signer does not load, and no auth session is read.
+node - "$ROOT" "$REF" "$work/pr196-auth.cjs" <<'NODE'
+const {createRequire}=require('node:module');
+const [root,ref,output]=process.argv.slice(2);
+const esbuild=createRequire(root+'/artifacts/api-server/package.json')('esbuild');
+(async()=>{
+ await esbuild.build({entryPoints:[ref+'/artifacts/api-server/src/middleware/auth.ts'],
+  bundle:true,platform:'node',format:'cjs',target:'node22',outfile:output,
+  nodePaths:[root+'/artifacts/api-server/node_modules',
+    ref+'/artifacts/api-server/node_modules'],logLevel:'silent'});
+})().catch(e=>{process.stderr.write('ISOLATED_AUTH_BUNDLE_FAILED\n');process.exitCode=1});
+NODE
 test -z "$(docker port "$cid")"
 docker run --rm --network "$net" --read-only --tmpfs /tmp:rw,nosuid,nodev,size=64m \
  --mount "type=bind,src=$ROOT,dst=/workspace,readonly" \
  --mount "type=bind,src=$work/auth.json,dst=/run/fixture-auth.json,readonly" \
  --mount "type=bind,src=$work/server.crt,dst=/run/ssl/server.crt,readonly" \
  -e GPT02_POSTAUTH_FULL_CHAIN_DISPOSABLE_ONLY=1 \
+ -e GPT02_PR196_AUTH_BUNDLE_PATH=/run/fixture-auth/pr196-auth.cjs \
  -e NODE_ENV=development -e APP_ENV=development \
  -e SESSION_SECRET=fixture_only_long_session_secret_unused_by_real_prod \
  node:22-alpine node --test /workspace/scripts/dev/gpt02-postauth-dualdb-approval-issuer.integration.test.mjs
