@@ -115,3 +115,59 @@ test("inventory rechecks active matching DEV account and remains GET-only", () =
     assert.ok(!route.includes("router."+method+"("));
   }
 });
+
+
+test("Supabase identity last-sign-in staleness: AMR + identity.updated_at + user.last_sign_in_at must agree", () => {
+  const amrAt = now - 10_000;
+  const amr = [{method: "oauth",timestamp: amrAt/1000}];
+  const oldGoogleLogin = new Date(now - 90 * 24 * 60 * 60_000).toISOString();
+  const identityUpdated = new Date(now - 11_000).toISOString();
+  const userSignedIn = new Date(now - 12_000).toISOString();
+  const providerIdentities = [{
+    provider:"google",last_sign_in_at:oldGoogleLogin,updated_at:identityUpdated,
+  }];
+  // An actual hosted condition: a many-month-old identities.last_sign_in_at,
+  // even though the signed OAuth AMR and SERVER-OWNED update/sign-in evidence
+  // are newly synchronized. This cannot be achieved by changing user_metadata.
+  assert.equal(oauthEvidenceAt(amr,providerIdentities,["google"],now,userSignedIn), now - 12_000);
+
+  for (const [label,identities,userTime] of [
+    ["missing user proof",providerIdentities,undefined],
+    ["missing updated_at",[{provider:"google",last_sign_in_at:oldGoogleLogin}],userSignedIn],
+    ["old identity update",[{...providerIdentities[0],updated_at:new Date(now-12*60_000).toISOString()}],userSignedIn],
+    ["old user sign-in",providerIdentities,new Date(now-12*60_000).toISOString()],
+    ["oauth time diverges from identity update",[{...providerIdentities[0],updated_at:new Date(now-170_000).toISOString()}],userSignedIn],
+    ["user sign-in diverges from identity update",providerIdentities,new Date(now-180_000).toISOString()],
+    ["future identity update",[{...providerIdentities[0],updated_at:new Date(now+31_000).toISOString()}],userSignedIn],
+    ["malformed timestamp",[{...providerIdentities[0],updated_at:"not-a-date"}],userSignedIn],
+    ["duplicate Google identity",[...providerIdentities,...providerIdentities],userSignedIn],
+    ["wrong sole provider",[{...providerIdentities[0],provider:"github"}],userSignedIn],
+  ]) {
+    assert.equal(oauthEvidenceAt(amr,identities,["google"],now,userTime),null,label);
+  }
+  assert.equal(oauthEvidenceAt([{method:"password",timestamp:amrAt/1000}],providerIdentities,["google"],now,userSignedIn),null);
+  assert.equal(oauthEvidenceAt([{method:"token_refresh",timestamp:amrAt/1000}],providerIdentities,["google"],now,userSignedIn),null);
+  assert.equal(oauthEvidenceAt(amr,providerIdentities,["google","github"],now,userSignedIn),null);
+  assert.equal(oauthEvidenceAt([{method:"oauth",timestamp:Math.floor((now-15*60_000)/1000)}],
+    providerIdentities,["google"],now,userSignedIn),null);
+});
+
+test("fresh but mismatched identities.last_sign_in_at must not be bypassed by fallback",()=>{
+  const amrAt = now-10_000;
+  const amr=[{method:"oauth",timestamp:amrAt/1000}];
+  const identities=[{
+    provider:"google",
+    last_sign_in_at:new Date(now-300_000).toISOString(),
+    updated_at:new Date(now-10_000).toISOString(),
+  }];
+  assert.equal(oauthEvidenceAt(amr,identities,["google"],now,new Date(now-10_000).toISOString()),null);
+});
+
+test("Google login route passes trusted getUser.last_sign_in_at as a separate proof input",()=>{
+  const code=readFileSync("artifacts/api-server/src/routes/auth.ts","utf8");
+  const google=code.split('router.post("/auth/google"')[1].split("// GPT02 operator identity READINESS")[0];
+  assert.match(google,/supabase\.auth\.getUser\(accessToken\)/);
+  assert.match(google,/authMethods, authUser\.identities, linkedProviders, Date\.now\(\),\s*authUser\.last_sign_in_at/);
+  assert.match(google,/registeredUser\.role === "super_admin" && verifiedGoogleOAuthAt !== null/);
+  assert.doesNotMatch(google,/authUser\.user_metadata\?\.last_sign_in_at/);
+});
