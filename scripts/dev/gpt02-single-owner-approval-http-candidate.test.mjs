@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
 import {randomBytes,randomUUID} from 'node:crypto';
 import {createGpt02SingleOwnerApprovalHttpCandidate} from '../../artifacts/api-server/src/lib/gpt02-single-owner-approval-http-candidate.mjs';
+import {hasRecentVerifiedGpt02DevGoogleOperator} from '../../artifacts/api-server/src/lib/gpt02-google-auth-gate.mjs';
 
 const uid='fixture_owner_7';
 const consent=()=>({
@@ -13,7 +14,8 @@ const consent=()=>({
 const safe=()=>({recorded:true,reason:'SIGNED_EVIDENCE_RECORDED_ONLY',
  releaseDecision:'NO_GO',authorizationGranted:false,issuerLeaseGranted:false,
  dispatchPermitted:false,commandCreated:false});
-const okSession=()=>({id:uid,role:'super_admin',authSource:'supabase_google_identity'});
+const okSession=()=>({id:uid,email:'owner@example.invalid',role:'super_admin',
+ authSource:'supabase_google_identity',authSupabaseId:randomUUID(),authVerifiedAt:Date.now()});
 /**
  * This is a disposable test-only HTTP server. The known test-session selection
  * is injected by the test runner and MUST NOT be used in any app router.
@@ -23,9 +25,10 @@ async function harness({enabled=false,production=false,proof=true,output=safe(),
  let signed=0,recorded=0;
  const handler=createGpt02SingleOwnerApprovalHttpCandidate({
    env:{NODE_ENV:production?'production':'development',APP_ENV:production?'production':'development',
-     GPT02_SINGLE_OWNER_APPROVAL_HTTP_ENABLED:enabled?'true':'false'},
+     GPT02_SINGLE_OWNER_APPROVAL_HTTP_ENABLED:enabled?'true':'false',
+     SESSION_SECRET:'synthetic-dev-session-secret-is-only-for-a-disposable-test'},
    inspectRequestOrigin:req=>req.headers.origin==='https://dev-ai-task.cstlogistic.co.id',
-   verifyFreshGoogleOperator:user=>fresh&&user.authSource==='supabase_google_identity',
+   verifyFreshGoogleOperator:hasRecentVerifiedGpt02DevGoogleOperator,
    readSignedProof:async()=>{signed++;if(error)throw Error('offline');return proof?{
      approval:{claims:{}},operatorLink:{claims:{}},
    }:null},
@@ -34,7 +37,9 @@ async function harness({enabled=false,production=false,proof=true,output=safe(),
  const server=createServer(async(req,res)=>{
    let raw='';for await(const chunk of req){raw+=chunk;if(raw.length>8192){res.writeHead(413);res.end();return}}
    try{req.body=raw?JSON.parse(raw):undefined}catch{req.body={}};
-   if(req.headers['x-test-session']==='owner')req.user=okSession();
+   if(req.headers['x-test-session']==='owner')req.user={...okSession(),
+     authVerifiedAt:fresh?Date.now():Date.now()-11*60_000};
+   if(req.headers['x-test-session']==='legacy')req.user={...okSession(),authSource:'legacy_email'};
    if(req.headers['x-test-session']==='staff')req.user={id:'staff',role:'staff'};
    const proxy={setHeader:(k,v)=>res.setHeader(k,v),status(code){res.statusCode=code;return this},
      json(x){res.setHeader('Content-Type','application/json');res.end(JSON.stringify(x));}};
@@ -68,12 +73,15 @@ test('upstream unauthenticated and staff roles denied before signing',async()=>{
  }assert.deepEqual(h.counters(),{signed:0,recorded:0})}
  finally{await h.close()}
 });
-test('stale or legacy Google proof denied before requesting any signature',async()=>{
+test('original PR196 Google verifier denies stale or legacy login before any signature',async()=>{
  for(const stale of [{fresh:false},{fresh:true}]){
    const h=await harness({enabled:true,...stale});
    try{
      const request=await h.call();
      assert.equal(request.code,stale.fresh?202:403);
+     if(!stale.fresh)assert.deepEqual(h.counters(),{signed:0,recorded:0});
+     const legacy=await h.call({session:'legacy'});
+     assert.equal(legacy.code,403);
      if(!stale.fresh)assert.deepEqual(h.counters(),{signed:0,recorded:0});
    }finally{await h.close()}
  }
