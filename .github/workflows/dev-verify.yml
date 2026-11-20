@@ -154,6 +154,7 @@ jobs:
           node --test artifacts/api-server/tests/gpt02-preparer-readiness.test.mjs
           node --test artifacts/api-server/tests/gpt02-preparer-connection-readonly.test.mjs
           node --test artifacts/api-server/tests/gpt02-preparer-credential-files.test.mjs
+          node --test artifacts/api-server/tests/gpt02-preparer-one-shot-files.test.mjs
           node --test scripts/dev/gpt02-preparer-container-preflight.test.mjs
           node --test scripts/dev/gpt02-preparer-custody-only.test.mjs
           node --test scripts/dev/gpt02-preparer-relock-host-gate.test.mjs
