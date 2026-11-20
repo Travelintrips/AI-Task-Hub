@@ -73,6 +73,7 @@ import {
 } from "../lib/supabase";
 import { createPaymentProofShortLink } from "../lib/payment-proof-links";
 import { validateDocument } from "../lib/document-validation-engine";
+import { queueEmployeeKasbonOwnerApproval } from "../lib/employee-kasbon-owner-flow";
 
 const MAX_PAYMENT_PROOF_OCR_ATTEMPTS = 3;
 
@@ -879,6 +880,22 @@ router.post(
             .returning();
 
           taskId = newTask!.id;
+        }
+
+        // Employee kasbon: route the completed request to exactly one owner and
+        // wait for that owner's WhatsApp OK before writing the approved kasbon
+        // into BizPortal. Repeated form submits reuse the same task and this
+        // helper is idempotent, so the owner is not notified twice.
+        if (type.replace(/_/g, "-") === "cash-advance" && taskId) {
+          const ownerQueue = await queueEmployeeKasbonOwnerApproval({
+            taskId,
+            companyId: session.companyId,
+            requesterPhone: session.phone,
+            fields: merged,
+          });
+          if (!ownerQueue.queued) {
+            throw new Error(`Pengajuan kasbon belum dapat diteruskan ke owner: ${ownerQueue.reason ?? "UNKNOWN"}`);
+          }
         }
 
         // Link the customer's recent WhatsApp conversation to the task created

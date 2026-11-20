@@ -764,7 +764,7 @@ export async function processIncomingMessage({
       companyId,
     );
 
-    // 2. Route as WA command first — if handled, skip AI pipeline
+    // 2. Route as WA command — if handled, skip AI pipeline
     if (messageType === "text" && messageText) {
       const { routeWaCommand } = await import("../lib/wa-command-router");
       const handled = await routeWaCommand(from, messageText, companyId).catch((err) => {

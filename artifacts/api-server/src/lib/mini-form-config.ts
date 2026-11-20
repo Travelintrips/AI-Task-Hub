@@ -114,12 +114,15 @@ export const MINI_FORM_CONFIGS: Record<string, MiniFormConfig> = {
     waMessageTemplate:
       "Baik, untuk mempercepat proses, mohon isi form berikut:\n\n{mini_form_url}\n\nSetelah form dikirim, sistem akan otomatis meneruskan pengajuan ke tim terkait.",
     fields: [
-      { name: "amount",         label: "Jumlah Kasbon (Rp)",    type: "number",   required: true,  placeholder: "2000000" },
-      { name: "purpose",        label: "Keperluan",             type: "textarea", required: true,  placeholder: "Bahan bakar perjalanan Surabaya-Semarang" },
-      { name: "needed_date",    label: "Tanggal Dibutuhkan",    type: "date",     required: true },
-      { name: "project_code",   label: "Kode Proyek / Trip",    type: "text",     required: false, placeholder: "TRP-001" },
-      { name: "attachment",     label: "Dokumen Pendukung",     type: "file",     required: false, helpText: "Upload surat tugas / referensi (opsional)" },
-      { name: "notes",          label: "Catatan Tambahan",      type: "textarea", required: false },
+      { name: "employee_name",      label: "Nama Karyawan",          type: "text",     required: true,  placeholder: "Nama sesuai data karyawan BizPortal" },
+      { name: "amount",             label: "Jumlah Kasbon (Rp)",     type: "number",   required: true,  placeholder: "2000000" },
+      { name: "purpose",            label: "Keperluan",              type: "textarea", required: true,  placeholder: "Keperluan kasbon karyawan" },
+      { name: "needed_date",        label: "Tanggal Dibutuhkan",     type: "date",     required: true },
+      { name: "repayment_method",   label: "Cara Pengembalian",      type: "select",   required: true,  options: ["Potong Penuh", "Cicilan"] },
+      { name: "installment_amount", label: "Nominal Cicilan (Rp)",   type: "number",   required: false, placeholder: "500000", helpText: "Wajib bila memilih Cicilan" },
+      { name: "project_code",       label: "Kode Proyek / Trip",     type: "text",     required: false, placeholder: "TRP-001" },
+      { name: "attachment",         label: "Dokumen Pendukung",      type: "file",     required: false, helpText: "Upload dokumen pendukung (opsional)" },
+      { name: "notes",              label: "Catatan Tambahan",       type: "textarea", required: false },
     ],
   },
 
