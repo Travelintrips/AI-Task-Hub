@@ -136,6 +136,10 @@ jobs:
           node --test artifacts/api-server/tests/gpt02-preparer-readiness.test.mjs
           node --test artifacts/api-server/tests/gpt02-preparer-connection-readonly.test.mjs
           node --test scripts/dev/gpt02-reader-retry-readonly-contract.test.mjs
+      - name: Verify Task183 independent bounded relock and file custody (offline only)
+        run: |
+          node --test artifacts/api-server/tests/gpt02-preparer-custody-source.test.mjs scripts/dev/gpt02-task183-relock-once.test.mjs
+          bash scripts/dev/test-gpt02-task183-relock-isolated.sh
       - name: Validate persisted-task instruction bound to dedicated GPT02 Core preparer (no dispatch)
         run: |
           node --test scripts/dev/gpt02-preparer-instruction-bound-wrapper.contract.test.mjs
