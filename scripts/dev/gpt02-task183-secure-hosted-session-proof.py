@@ -6,8 +6,12 @@ root-held systemd-encrypted DBA DSN and an already staged preparer DSN.
 No credentials are accepted on argv, stdin, environment, or in logs.
 """
 import argparse
+import base64
 import datetime as dt
+import hashlib
+import hmac
 import os
+import secrets
 from pathlib import Path
 import stat
 import subprocess
@@ -198,10 +202,19 @@ def main():
         admin_preflight(admin)
         ensure_watchdog()
         valid_until = (dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=TTL_SECONDS)).isoformat()
+        # Register a fresh SCRAM verifier, never the raw password, in privileged SQL.
+        # Secret material stays inside this root process and its pinned TLS connection.
         password = unquote(urlsplit(prep_dsn).password)
+        salt = secrets.token_bytes(16)
+        salted = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 4096)
+        client_key = hmac.new(salted, b"Client Key", hashlib.sha256).digest()
+        stored_key = hashlib.sha256(client_key).digest()
+        server_key = hmac.new(salted, b"Server Key", hashlib.sha256).digest()
+        b64 = lambda value: base64.b64encode(value).decode("ascii")
+        verifier = "SCRAM-SHA-256$4096:" + b64(salt) + "$" + b64(stored_key) + ":" + b64(server_key)
         with admin.cursor() as cur:
             cur.execute(sql.SQL("ALTER ROLE gpt02_core_prep_login LOGIN CONNECTION LIMIT 1 PASSWORD {} VALID UNTIL {}").format(
-                sql.Literal(password), sql.Literal(valid_until)))
+                sql.Literal(verifier), sql.Literal(valid_until)))
         changed = True
         worker = threading.Thread(target=sleeper, daemon=True)
         worker.start()
