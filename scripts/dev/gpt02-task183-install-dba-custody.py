@@ -13,7 +13,7 @@ import secrets
 import stat
 import subprocess
 import sys
-from urllib.parse import urlsplit, unquote
+from urllib.parse import urlsplit, unquote, quote
 
 REF = "xssrfshdrtdfupgqwfdw"
 NAME = "task183-dba-dsn"
@@ -23,50 +23,83 @@ EXPECTED_POOLER = "aws-1-ap-southeast-2.pooler.supabase.com"
 EXPECTED_DIRECT = "db." + REF + ".supabase.co"
 
 
+def _secret_password(raw):
+    # Existing Session Pooler URLs are accepted, but inputting the new
+    # database password alone avoids URI quoting and wrong-host mistakes.
+    if raw.startswith(("postgresql://", "postgres://")):
+        try:
+            u = urlsplit(raw)
+            username = unquote(u.username or "")
+            if not (u.scheme == "postgresql"
+                    and u.hostname in (EXPECTED_POOLER, EXPECTED_DIRECT)
+                    and u.port == 5432 and u.path == "/postgres"
+                    and username in ("postgres", "postgres." + REF)
+                    and not u.query and not u.fragment):
+                return None, "WRONG_PROJECT_ROLE_OR_HOST"
+            return unquote(u.password or ""), "URI_SCOPE_PASS"
+        except (ValueError, UnicodeError):
+            return None, "INVALID_DATABASE_URI"
+    return raw, "PASSWORD_INPUT_SCOPE_FIXED_TO_CST_DEV"
+
+
 def check_uri(raw):
     if not 1 <= len(raw) <= 8192:
-        return False, "INVALID_URI_LENGTH"
-    try:
-        uri = urlsplit(raw)
-        username = unquote(uri.username or "")
-        password = unquote(uri.password or "")
-        valid = (uri.scheme == "postgresql"
-                 and uri.hostname in (EXPECTED_POOLER, EXPECTED_DIRECT)
-                 and uri.port == 5432
-                 and uri.path == "/postgres"
-                 and username in ("postgres", "postgres." + REF)
-                 and not uri.query and not uri.fragment)
-    except (ValueError, UnicodeError):
-        return False, "INVALID_DATABASE_URI"
-    if not valid:
-        return False, "WRONG_PROJECT_ROLE_OR_HOST"
+        return False, "INVALID_INPUT_LENGTH"
+    password, reason = _secret_password(raw)
+    if password is None:
+        return False, reason
     upper = password.strip().upper()
     if (not password or len(password) < 12
         or upper in ("[YOUR-DATABASE-PASSWORD]", "YOUR-DATABASE-PASSWORD",
                      "[YOUR_PASSWORD]", "YOUR_PASSWORD", "[PASSWORD]", "PASSWORD")
-        or upper.startswith("[YOUR-")
-        or upper.startswith("<YOUR-")):
+        or upper.startswith("[YOUR-") or upper.startswith("<YOUR-")):
         return False, "MISSING_OR_TEMPLATE_PASSWORD"
-    return True, "URI_SCOPE_PASS"
+    return True, reason
 
 
-def check_native_auth(raw):
-    """Exactly one pinned-TLS authenticated connection, read only, no retry."""
+def direct_dev_dsn(raw):
+    valid, reason = check_uri(raw)
+    if not valid:
+        raise ValueError(reason)
+    password, _ = _secret_password(raw)
+    return ("postgresql://postgres:" + quote(password, safe="") + "@"
+            + EXPECTED_DIRECT + ":5432/postgres")
+
+
+def _safe_error_category(exc):
+    # Never output a libpq/psycopg exception, URI, password or raw server text.
+    state = getattr(exc, "sqlstate", None)
+    message = str(exc).lower()
+    if state == "28P01" or "password authentication failed" in message:
+        return "INVALID_POSTGRES_PASSWORD"
+    if "certificate verify failed" in message or "hostname mismatch" in message:
+        return "TLS_CERTIFICATE_INVALID"
+    if "network is unreachable" in message or "no route to host" in message:
+        return "DIRECT_IPV6_NETWORK_UNAVAILABLE"
+    if "connection refused" in message or "could not translate host" in message:
+        return "DIRECT_DATABASE_UNREACHABLE"
+    if "timeout expired" in message or "connection timed out" in message:
+        return "DIRECT_DATABASE_TIMEOUT"
+    return "DIRECT_DATABASE_AUTH_UNVERIFIED"
+
+
+def check_native_auth(dsn):
+    """Exactly one direct PostgreSQL connection with verified TLS, no pooler."""
     try:
         import psycopg
         with psycopg.connect(
-            raw, autocommit=True, sslmode="verify-full", sslrootcert=str(CA),
-            connect_timeout=6, application_name="gpt02-task183-dba-custody-verify",
-            options="-c statement_timeout=3000",
+            dsn, autocommit=True, sslmode="verify-full", sslrootcert=str(CA),
+            connect_timeout=6, application_name="gpt02-task183-direct-dba-custody-verify",
         ) as conn:
             with conn.cursor() as cur:
                 cur.execute("BEGIN READ ONLY")
+                cur.execute("SET LOCAL statement_timeout=3000")
                 cur.execute("SELECT session_user::text,current_database()::text")
                 valid = cur.fetchone() == ("postgres", "postgres")
                 conn.rollback()
-                return valid
-    except Exception:
-        return False
+                return valid, "PASS" if valid else "WRONG_SESSION_IDENTITY"
+    except Exception as exc:
+        return False, _safe_error_category(exc)
 
 
 def main():
@@ -88,18 +121,23 @@ def main():
         return 5
 
     print("CST-DEV database only (" + REF + ").")
-    print("Provide a real postgres Session pooler URI, not the example [YOUR-DATABASE-PASSWORD].")
+    print("Enter the NEW CST-DEV postgres password only (recommended), or a genuine Session Pooler URI.")
     print("Input is hidden; no database password will be displayed or logged.")
-    raw = getpass.getpass("CST-DEV postgres connection URI (hidden): ").strip()
+    raw = getpass.getpass("CST-DEV postgres password (hidden): ")
     valid, reason = check_uri(raw)
     if not valid:
         print("DBA_CUSTODY_INSTALL=" + reason)
         return 6
     print("PROJECT_ROLE_HOST_SCOPE=PASS")
-    if not check_native_auth(raw):
+    print("DIRECT_POSTGRES_IPV6_TLS_VERIFICATION=START")
+    direct_uri = direct_dev_dsn(raw)
+    authenticated, auth_reason = check_native_auth(direct_uri)
+    if not authenticated:
+        print("DIRECT_DATABASE_PROBE=" + auth_reason)
         print("DBA_CUSTODY_INSTALL=AUTHENTICATION_NOT_VERIFIED")
         print("EXISTING_ENCRYPTED_CREDENTIAL_UNCHANGED=TRUE")
         return 7
+    print("DIRECT_DATABASE_PROBE=PASS")
     print("POSTGRES_NATIVE_AUTH=PASS")
 
     os.umask(0o077)
@@ -109,7 +147,7 @@ def main():
         p = subprocess.run(
             ["/usr/bin/systemd-creds", "encrypt", "--with-key=host",
              "--name=" + NAME, "-", str(temp)],
-            input=raw.encode("utf-8"), capture_output=True, timeout=15,
+            input=direct_uri.encode("utf-8"), capture_output=True, timeout=15,
         )
         if p.returncode:
             raise RuntimeError("ENCRYPT_FAILED")
@@ -121,7 +159,7 @@ def main():
             ["/usr/bin/systemd-creds", "decrypt", "--name=" + NAME, str(temp), "-"],
             capture_output=True, timeout=15,
         )
-        if check.returncode or check.stdout != raw.encode("utf-8"):
+        if check.returncode or check.stdout != direct_uri.encode("utf-8"):
             raise RuntimeError("ENCRYPTED_ROUNDTRIP_FAILED")
         if OUT.exists() and not args.replace:
             raise RuntimeError("EXISTING_CREDENTIAL_PROTECTED")
