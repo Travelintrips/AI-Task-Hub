@@ -79,6 +79,12 @@ def native_check(password):
         return False
 
 
+def _is_root_owned_private_env(path):
+    """Release-side custody invariant; synthetic CI can mock ownership only."""
+    st = path.stat()
+    return st.st_uid == 0 and stat.S_IMODE(st.st_mode) == 0o600
+
+
 def stage(lines, index, parsed, password):
     if not password or len(password) < 12 or len(password) > 512:
         raise RuntimeError("NEW_PASSWORD_INPUT_INVALID")
@@ -136,7 +142,8 @@ def stage(lines, index, parsed, password):
         if "".join(current_lines).encode("utf-8") != old:
             raise RuntimeError("ENV_CONCURRENT_CHANGE_REJECTED")
         os.replace(temp, ENV)
-        assert ENV.stat().st_uid == 0 and stat.S_IMODE(ENV.stat().st_mode) == 0o600
+        if not _is_root_owned_private_env(ENV):
+            raise RuntimeError("POSTFLIGHT_ENV_CUSTODY_INVALID")
         print("DEV_APP_ENV_ATOMIC_STAGED=PASS")
         print("DEV_APP_OLD_ENV_BACKUP_ROOT_ONLY=PASS")
         print("MAIN_DEV_CONTAINER_RESTARTED=FALSE")
