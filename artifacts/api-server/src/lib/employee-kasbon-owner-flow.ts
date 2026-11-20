@@ -139,7 +139,22 @@ async function sendKasbonMessage(
 }
 
 export function isOwnerKasbonApprovalReply(text: string): boolean {
-  return text.trim().toLowerCase() === "ok";
+  return /^ok(?:\s+KASBON-WA-\d+)?$/i.test(text.trim());
+}
+
+function approvalTaskNumber(text: string): string | null {
+  const match = text.trim().match(/^ok\s+(KASBON-WA-\d+)$/i);
+  return match?.[1]?.toUpperCase() ?? null;
+}
+
+function pendingSignature(meta: KasbonMeta): string {
+  return JSON.stringify([
+    normalizePhone(meta.requesterPhone),
+    money(meta.fields.amount),
+    fieldText(meta.fields, "needed_date"),
+    fieldText(meta.fields, "repayment_method").toLowerCase(),
+    money(meta.fields.installment_amount),
+  ]);
 }
 
 function formatNeededDate(value: string): string {
@@ -458,20 +473,48 @@ export async function tryHandleEmployeeKasbonOwnerApproval(input: HandleInput): 
   if (candidateError) throw new Error(`KASBON_PENDING_TASK_READ_FAILED:${candidateError.code ?? "UNKNOWN"}`);
 
   const ownerPhone = normalizePhone(input.phone);
-  const matching = (candidates ?? []).filter((task) => {
+  const requestedTaskNumber = approvalTaskNumber(input.text);
+  let matching = (candidates ?? []).filter((task) => {
     const meta = parseMeta(task.admin_notes);
     return Boolean(meta && meta.state === WAITING_STATE && normalizePhone(meta.ownerPhone) === ownerPhone);
   });
 
+  if (requestedTaskNumber) {
+    matching = matching.filter((task) => String(task.task_number ?? "").toUpperCase() === requestedTaskNumber);
+  }
+
   if (matching.length === 0) return false;
   if (matching.length > 1) {
-    const refs = matching.map((task) => task.task_number || `TASK-${task.id}`).join(", ");
-    await sendKasbonMessage(
-      ownerPhone,
-      `Ada lebih dari satu pengajuan kasbon menunggu persetujuan (${refs}). Mohon balas pada pesan pengajuan yang dimaksud agar approval tidak ambigu.`,
-      input.fonnteDevice ?? null,
-    );
-    return true;
+    const signatures = matching.map((task) => {
+      const meta = parseMeta(task.admin_notes)!;
+      return pendingSignature(meta);
+    });
+    const identical = signatures.every((value) => value === signatures[0]);
+    if (identical) {
+      const latest = matching[0]!;
+      const duplicates = matching.slice(1);
+      for (const duplicate of duplicates) {
+        const duplicateMeta = parseMeta(duplicate.admin_notes);
+        await supabase.from("ai_tasks").update({
+          required_action: "employee_kasbon_superseded_duplicate",
+          admin_notes: JSON.stringify({
+            ...(duplicateMeta ?? {}),
+            state: "superseded_duplicate",
+            supersededByTaskNumber: latest.task_number,
+          }),
+          updated_at: new Date().toISOString(),
+        }).eq("id", duplicate.id);
+      }
+      matching = [latest];
+    } else {
+      const refs = matching.map((task) => task.task_number || `TASK-${task.id}`).join(", ");
+      await sendKasbonMessage(
+        ownerPhone,
+        `Ada lebih dari satu pengajuan kasbon berbeda menunggu persetujuan (${refs}). Balas *OK KASBON-WA-...* untuk memilih pengajuan yang dimaksud.`,
+        input.fonnteDevice ?? null,
+      );
+      return true;
+    }
   }
 
   const task = matching[0]!;
