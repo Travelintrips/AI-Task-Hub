@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync,writeFileSync,mkdirSync,mkdtempSync,chmodSync,symlinkSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
-import {corePreparationPoolConfigFromFiles} from '../src/lib/gpt02-core-task-preparation.mjs';
+import {corePreparationPoolConfigFromFiles,createCoreTaskPreparer} from '../src/lib/gpt02-core-task-preparation.mjs';
 
 const ref='xssrfshdrtdfupgqwfdw';
 const host='aws-1-ap-southeast-2.pooler.supabase.com';
@@ -68,4 +68,23 @@ test('custody service is disabled and network isolated; never a task writer',()=
  assert.match(source,/databaseConnectionAttempted:false/);
  assert.match(source,/preparationAttempted:false/);
  assert.match(source,/dispatchPermitted:false/);
+});
+
+test('live preparation flag refuses legacy inline credentials before a database pool exists',()=>{
+ let created=0;
+ class Pool { constructor(){created++} }
+ const candidate={...env,GPT02_CORE_PREPARATION_ENABLED:'true',
+   GPT02_CORE_PREP_DATABASE_URL_DEV:goodDsn,GPT02_CORE_PREP_DEV_CA:ca};
+ assert.throws(()=>createCoreTaskPreparer({env:candidate,PoolClass:Pool}),
+   e=>e.code==='PREPARER_FILE_CUSTODY_REQUIRED');
+ assert.equal(created,0);
+});
+test('file-custody live mode refuses missing host credentials without constructing a pool',()=>{
+ let created=0;
+ class Pool { constructor(){created++} }
+ const candidate={...env,GPT02_CORE_PREPARATION_ENABLED:'true',
+   GPT02_CORE_PREP_CREDENTIAL_SOURCE:'systemd'};
+ assert.throws(()=>createCoreTaskPreparer({env:candidate,PoolClass:Pool}),
+   e=>e.code==='PREPARER_CREDENTIAL_FILE_REQUIRED');
+ assert.equal(created,0);
 });
