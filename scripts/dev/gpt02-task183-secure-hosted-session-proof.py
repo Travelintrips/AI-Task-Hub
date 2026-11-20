@@ -7,6 +7,7 @@ No credentials are accepted on argv, stdin, environment, or in logs.
 """
 import argparse
 import base64
+import fcntl
 import datetime as dt
 import hashlib
 import hmac
@@ -29,6 +30,8 @@ CREDS = Path("/etc/credstore.encrypted")
 RELOCK_TIMER = "gpt02-issue159-relock-catalog-auditor.timer"
 RELOCK_SERVICE = "gpt02-issue159-relock-catalog-auditor.service"
 TTL_SECONDS = 45
+LOCKFILE = Path("/run/lock/gpt02-task183-active-proof.lock")
+ADVISORY_KEY = 1831592026
 
 
 def deny(code):
@@ -148,6 +151,22 @@ def force_relock(conn):
         """)
 
 
+def acquire_exclusive_host_lock():
+    """Reject overlapping Task183 tests on this VPS, without stopping the watchdog."""
+    flags = os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0)
+    fd = os.open(str(LOCKFILE), flags, 0o600)
+    mode = os.fstat(fd)
+    if not stat.S_ISREG(mode.st_mode) or mode.st_uid != 0 or stat.S_IMODE(mode.st_mode) != 0o600:
+        os.close(fd)
+        deny("EXCLUSIVE_PROOF_LOCK_MODE_INVALID")
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        os.close(fd)
+        deny("ANOTHER_TASK183_PROOF_RUNNING")
+    return fd
+
+
 def main():
     parser = argparse.ArgumentParser(description="Read-only preparation; no live changes without --proof")
     parser.add_argument("--proof", action="store_true", help="One bounded hosted DEV login/session-termination proof; DBA custody required")
@@ -164,6 +183,7 @@ def main():
         print("DBA_CUSTODY_AVAILABLE=" + str((CREDS / "gpt02-task183-dba-dsn").is_file()).lower())
         print("DISPATCH_PERMITTED=FALSE")
         return 0
+    host_lock_fd = acquire_exclusive_host_lock()
     # The DBA credential must be provisioned independently in the root-host
     # custody system. It must NEVER pass through ChatGPT, GitHub or application env.
     admin_dsn = validate_dsn(encrypted_credential("gpt02-task183-dba-dsn", "task183-dba-dsn"), "dba")
@@ -173,6 +193,14 @@ def main():
 
     connect_kwargs = {"sslmode": "verify-full", "sslrootcert": str(CA), "connect_timeout": 6}
     admin = psycopg.connect(admin_dsn, autocommit=True, application_name="task183-safe-admin-proof", **connect_kwargs)
+    # This PostgreSQL advisory session lock prevents a second cooperative proof
+    # from another host. It does not alter roles or grant any privileges.
+    with admin.cursor() as cursor:
+        cursor.execute("SELECT pg_try_advisory_lock(%s)", (ADVISORY_KEY,))
+        if cursor.fetchone() != (True,):
+            admin.close()
+            deny("ANOTHER_HOSTED_TASK183_PROOF_RUNNING")
+    print("EXCLUSIVE_HOST_AND_DATABASE_PROOF_LOCKS=PASS", flush=True)
     started = threading.Event()
     ended = threading.Event()
     state = {"accepted": False, "interrupted": False, "unexpected_finish": False}
@@ -263,6 +291,8 @@ def main():
         except Exception:
             print("POSTFLIGHT_UNAVAILABLE_NO_GO")
         admin.close()
+        fcntl.flock(host_lock_fd, fcntl.LOCK_UN)
+        os.close(host_lock_fd)
 
 
 if __name__ == "__main__":
