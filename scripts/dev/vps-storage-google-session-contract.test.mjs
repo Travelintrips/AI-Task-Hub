@@ -70,6 +70,44 @@ test("Google OAuth identity and JWT authentication method must refer to the same
   assert.equal(oauthEvidenceAt([{ method: "oauth" }], validIdentities, identityProviders, now), null);
 });
 
+test("fresh Google OAuth accepts identity updated_at when last_sign_in_at is frozen", () => {
+  // Mirrors the observed CST-DEV behavior: login and identity.updated_at move,
+  // while the Google identity's last_sign_in_at remains at first enrollment.
+  const signedOAuthAt = Math.floor(now / 1000) - 8;
+  const oauthAmr = [{ method: "oauth", timestamp: signedOAuthAt }];
+  const firstLogin = new Date(now - 170 * 24 * 60 * 60_000).toISOString();
+  const latestGoogleUpdate = new Date(now - 7_500).toISOString();
+  const google = [{provider: "google", last_sign_in_at: firstLogin,
+    updated_at: latestGoogleUpdate}];
+  assert.equal(oauthEvidenceAt(oauthAmr, google, ["google"], now), signedOAuthAt * 1000);
+
+  // A recent identity update by itself must never admit a token refresh,
+  // password, stale OAuth event, wrong social provider, or AMR mismatch.
+  for (const badAmr of [
+    [{method: "token_refresh", timestamp: signedOAuthAt}],
+    [{method: "password", timestamp: signedOAuthAt}],
+    [{method: "oauth", timestamp: signedOAuthAt - 610}],
+    [{method: "oauth", timestamp: signedOAuthAt - 150}],
+    [],
+  ]) {
+    assert.equal(oauthEvidenceAt(badAmr, google, ["google"], now), null);
+  }
+  assert.equal(oauthEvidenceAt(oauthAmr, google, ["google","github"], now), null);
+  assert.equal(oauthEvidenceAt(oauthAmr, [...google, {...google[0]}], ["google"], now), null);
+  assert.equal(oauthEvidenceAt(oauthAmr, [{
+    provider: "google",last_sign_in_at:firstLogin,updated_at:new Date(now-200_000).toISOString()
+  }], ["google"], now), null);
+  assert.equal(oauthEvidenceAt(oauthAmr, [{
+    provider: "google",last_sign_in_at:firstLogin,updated_at:new Date(now+31_000).toISOString()
+  }], ["google"], now), null);
+  assert.equal(oauthEvidenceAt(oauthAmr, [{
+    provider: "email",updated_at:latestGoogleUpdate
+  }], ["google"], now), null);
+  assert.equal(oauthEvidenceAt(oauthAmr, [{
+    provider: "google",last_sign_in_at:firstLogin
+  }], ["google"], now), null);
+});
+
 test("expiry, malformed timestamp and weak app signing secret all fail closed", () => {
   for (const stamp of [now - 600_001, now + 30_001, "now", undefined, null, NaN, Infinity, -1]) {
     assert.equal(verified({ ...admin, authVerifiedAt: stamp }, env, now), false);
