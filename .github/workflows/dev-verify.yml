@@ -215,3 +215,122 @@ jobs:
         run: node --test scripts/dev/ai-task-pr196-synthetic-runtime-smoke.test.mjs
       - name: Verify Pino worker image portability
         run: pnpm --filter @workspace/api-server run test:build-portability
+
+  task183-onebatch-oci:
+    name: Task183 single candidate image build + synthetic HTTP acceptance (no deploy)
+    if: github.event_name == 'workflow_dispatch' && github.ref_name == 'test/dev-gpt02-preparer-file-custody-20261120'
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify exact integrated source and no execution authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git diff --check
+          test -f docs/dev/task183-one-batch-e2e-release-contract-20261120.md
+          test -f artifacts/api-server/tests/gpt02-preparer-one-shot-files.test.mjs
+          test -f artifacts/api-server/src/lib/gpt02-core-task-preparation.mjs
+          echo "TASK183_EXACT_SOURCE_AND_ONE_BATCH_CONTRACT_PASS"
+      - name: Build complete DEV candidate OCI image on GitHub only
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker build --file Dockerfile --tag ai-task-task183:onebatch .
+          docker image inspect ai-task-task183:onebatch >/dev/null
+          echo "TASK183_WHOLE_APPLICATION_IMAGE_BUILD_PASS"
+      - name: Test compiled API nonroot and unauthorized preparation denial with no network
+        shell: bash
+        run: |
+          set -euo pipefail
+          name="task183-onebatch-ci-$GITHUB_RUN_ID"
+          trap 'docker rm -f "$name" >/dev/null 2>&1 || true' EXIT
+          docker run -d --name "$name" --network none --read-only \
+            --tmpfs /tmp:rw,nosuid,nodev,size=32m \
+            --cap-drop ALL --security-opt no-new-privileges \
+            --memory 1024m --memory-swap 1024m --pids-limit 128 \
+            --env NODE_ENV=development --env APP_ENV=development \
+            --env HOST=127.0.0.1 --env PORT=8080 \
+            --env SESSION_SECRET=synthetic_task183_ci_only_32bytes_nonreal_000000 \
+            --env PUBLIC_APP_BASE_URL=http://127.0.0.1:8080 \
+            --env CORS_ALLOWED_ORIGINS=http://127.0.0.1:8080 \
+            --env SUPABASE_DATABASE_URL_DEV=postgresql://synthetic:fake@fixture-invalid:5432/fixture \
+            --env DB_SSL=false --env DB_CONNECTION_TIMEOUT_MS=250 \
+            --env SUPABASE_URL_DEV=https://synthetic.invalid \
+            --env DISABLE_BACKGROUND_SCHEDULERS=true \
+            --env AI_CORE_JOB_WA_ENABLED=false \
+            --env GPT02_CORE_PREPARATION_ENABLED=false \
+            --env RUN_STARTUP_MIGRATIONS=false \
+            --env DISABLE_STORAGE_BUCKET_AUTO_CREATE=true \
+            --env VPS_STORAGE_INVENTORY_READONLY_ENABLED=false \
+            --env LOG_LEVEL=error \
+            ai-task-task183:onebatch >/dev/null
+          test "$(docker inspect "$name" -f '{{.HostConfig.NetworkMode}}')" = none
+          test "$(docker inspect "$name" -f '{{.HostConfig.ReadonlyRootfs}}')" = true
+          test "$(docker inspect "$name" -f '{{.Config.User}}')" = node
+          test -z "$(docker port "$name")"
+          ready=false
+          for i in $(seq 1 40); do
+            test "$(docker inspect "$name" -f '{{.State.Running}}')" = true
+            if docker exec "$name" node -e "fetch('http://127.0.0.1:8080/api/healthz',{signal:AbortSignal.timeout(1200)}).then(r=>process.exit(r.status===200?0:1)).catch(()=>process.exit(2))" >/dev/null 2>&1; then
+              ready=true; break
+            fi
+            sleep 1
+          done
+          test "$ready" = true || { echo "CANDIDATE_HEALTH_TIMEOUT";exit 3; }
+          docker exec -i "$name" node - <<'NODE'
+          const fs=require('node:fs'),path=require('node:path');
+          if(process.getuid()===0)throw Error('ROOT_PROCESS_FORBIDDEN');
+          const base='http://127.0.0.1:8080';
+          async function check(route,method,status){
+            const response=await fetch(base+route,{
+              method,headers:{'Content-Type':'application/json'},
+              body:method==='POST'?JSON.stringify({prepareOnly:true}):undefined,
+              signal:AbortSignal.timeout(3500)});
+            if(response.status!==status)throw Error('HTTP_GATE_'+method+'_'+response.status);
+          }
+          await check('/api/healthz','GET',200);
+          await check('/api/ai-tasks/183/gpt02-preparation-readiness?companyId=default','GET',401);
+          await check('/api/ai-tasks/183/gpt02-prepare?companyId=default','POST',401);
+          function compiledMarker(dir){
+            for(const entry of fs.readdirSync(dir,{withFileTypes:true})){
+              const file=path.join(dir,entry.name);
+              if(entry.isDirectory()&&compiledMarker(file))return true;
+              if(entry.isFile()&&file.endsWith('.mjs')&&
+                 fs.readFileSync(file,'utf8').includes('PREPARER_ONE_SHOT_READONLY_BIND_REQUIRED'))return true;
+            }
+            return false;
+          }
+          if(!compiledMarker('/app/artifacts/api-server/dist'))
+             throw Error('ONE_SHOT_BRIDGE_NOT_IN_COMPILED_RUNTIME');
+          if(process.env.GPT02_CORE_PREPARATION_ENABLED==='true' ||
+             process.env.AI_CORE_JOB_WA_ENABLED!=='false' ||
+             process.env.DISABLE_BACKGROUND_SCHEDULERS!=='true')
+             throw Error('UNAUTHORIZED_WORKER_OR_PREPARER_ENABLED');
+          console.log('TASK183_FULL_OCI_HTTP_GATES_PASS_NONROOT_NETWORK_NONE_NO_WRITERS');
+          NODE
+      - name: Archive exact source image for one supervised DEV E2E
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          docker save ai-task-task183:onebatch | gzip -1 > /tmp/task183-onebatch-oci.tar.gz
+          test -s /tmp/task183-onebatch-oci.tar.gz
+          printf '%s\n' "$GITHUB_SHA" > /tmp/task183-onebatch-source.sha
+          cd /tmp
+          sha256sum task183-onebatch-oci.tar.gz > task183-onebatch-oci.tar.gz.sha256
+          sha256sum -c task183-onebatch-oci.tar.gz.sha256
+          echo "TASK183_EXACT_SOURCE_OCI_ARCHIVE_VERIFIED_NO_DEPLOYMENT"
+      - name: Upload short-lived private OCI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: task183-onebatch-oci
+          path: |
+            /tmp/task183-onebatch-oci.tar.gz
+            /tmp/task183-onebatch-source.sha
+            /tmp/task183-onebatch-oci.tar.gz.sha256
+          compression-level: 0
+          retention-days: 3
+          if-no-files-found: error
