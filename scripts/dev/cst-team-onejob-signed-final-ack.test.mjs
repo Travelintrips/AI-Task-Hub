@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import {createHash,generateKeyPairSync,sign} from "node:crypto";
 import {readFileSync} from "node:fs";
+import {reviewOneJobCrossRepoFinalAck}
+  from "../../artifacts/api-server/src/lib/cst-team-onejob-cross-repo-final-ack.ts";
 import test from "node:test";
 import {TEAM_ROLES} from "../../artifacts/api-server/src/lib/cst-ai-team-contract.ts";
 import {EXTERNAL_TEAM_AGENTS} from "../../artifacts/api-server/src/lib/cst-ai-team-external-review.ts";
@@ -179,4 +181,64 @@ test("review source cannot silently promote unsigned UI records or run a new job
  const original=readFileSync(new URL("../../artifacts/api-server/src/lib/cst-ai-team-external-review.ts",import.meta.url),"utf8");
  assert.match(original,/DEV_OPERATOR_COLLECTED_UNATTESTED/);
  assert.match(original,/signatureVerified\s*!==\s*false/);
+});
+
+
+test("signed Core reconciliation and Hub 4+1 evidence must bind one exact job/event/ledger",()=>{
+ const bundle=build();
+ const core=generateKeyPairSync("ed25519");
+ const fp=sha(core.publicKey.export({type:"spki",format:"der"}));
+ const trust={use:"CST_DEV_ONEJOB_FINAL_ACK_PUBLIC_PIN",project:"xssrfshdrtdfupgqwfdw",
+   issuerId:"cst-final-reconciler-dev",
+   publicKeyPem:core.publicKey.export({type:"spki",format:"pem"}).toString(),
+   fingerprint:fp};
+ const claims={domain:"cst-onejob-final-ack/v1",project:"xssrfshdrtdfupgqwfdw",
+   approvalId:"123e4567-e89b-12d3-a456-426614174000",
+   jobId:483,eventId:manifest.eventId,
+   deliveryId:"123e4567-e89b-12d3-a456-426614174002",
+   postNonce:"a".repeat(64),postProofDigest:"b".repeat(64),
+   finalAckId:"123e4567-e89b-12d3-a456-426614174003",
+   issuedAt:"2026-11-20T05:00:18.000Z"};
+ const bytes=Buffer.from(JSON.stringify(claims));
+ const coreAck={claims,signatureBase64:sign(null,bytes,core.privateKey).toString("base64")};
+ const ledger={approvalId:claims.approvalId,jobId:483,eventId:claims.eventId,
+   deliveryId:claims.deliveryId,finalAckId:claims.finalAckId,
+   postNonce:claims.postNonce,postProofDigest:claims.postProofDigest,
+   ackSignatureBase64:coreAck.signatureBase64,issuerPublicFingerprint:fp,
+   ackClaimsDigest:sha(bytes),sourceSha:manifest.sourceSha,
+   ownerApprovalSha256:manifest.ownerApprovalSha256,
+   subscriberReceiptSha256:manifest.subscriberReceiptSha256};
+ const input={hubBundle:bundle,hubTrustedRoots:trusted,
+   coreAck,coreIssuerRoot:trust,coreLedgerReadback:ledger};
+ const okay=reviewOneJobCrossRepoFinalAck(input,now);
+ assert.equal(okay.status,"SIGNED_CROSS_REPO_CONTRACT_MATCH_ONLY",JSON.stringify(okay));
+ assert.equal(okay.coreSignedReconciliationMatched,true);
+ assert.equal(okay.hubFourAgentSignaturesMatched,true);
+ assert.equal(okay.independentDbReadbackVerified,false);
+ assert.equal(okay.signerCustodyVerified,false);
+ assert.equal(okay.independentFinalAckVerified,false);
+ assert.equal(okay.operationalE2EVerified,false);
+ assert.equal(okay.dispatchPermitted,false);
+ const blocked=[
+  {...input,coreAck:{...coreAck,signatureBase64:bundle.finalAck.signatureBase64}},
+  {...input,coreAck:{...coreAck,claims:{...claims,eventId:"123e4567-e89b-12d3-a456-426614174009"}}},
+  {...input,coreLedgerReadback:{...ledger,ackClaimsDigest:"c".repeat(64)}},
+  {...input,coreLedgerReadback:{...ledger,sourceSha:"f".repeat(40)}},
+  {...input,coreIssuerRoot:{...trust,fingerprint:trusted.reviewer.publicKeySha256}},
+  {...input,hubBundle:{...bundle,agentAttestations:bundle.agentAttestations.slice(0,3)}},
+ ];
+ for(const bad of blocked){
+  const result=reviewOneJobCrossRepoFinalAck(bad,now);
+  assert.equal(result.status,"DENIED",JSON.stringify(result));
+  assert.equal(result.operationalE2EVerified,false);
+ }
+});
+test("cross-repo checker is pure and never turns operator evidence into release",()=>{
+ const text=readFileSync(new URL(
+  "../../artifacts/api-server/src/lib/cst-team-onejob-cross-repo-final-ack.ts",
+  import.meta.url),"utf8");
+ assert.match(text,/projectSignedOneJobFourAgentReview/);
+ assert.match(text,/independentDbReadbackVerified:false/);
+ assert.match(text,/independentFinalAckVerified:false/);
+ assert.doesNotMatch(text,/from "pg"|child_process|fetch\(|CREATE ROLE|INSERT INTO/);
 });

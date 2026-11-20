@@ -62,3 +62,24 @@ must continue to return `subscriberDeliveryVerified=false`,
 **Current outcome:** framework scoped, live one-job E2E and true four-agent
 signed Final ACK not available; the release remains NO-GO, despite
 successful sandbox tests.
+
+## Single cross-repository cryptographic reconciliation (still NO-GO)
+
+The Hub now has a pure fail-closed checker:
+`artifacts/api-server/src/lib/cst-team-onejob-cross-repo-final-ack.ts`.
+It REUSES Hub's existing Ed25519 four-agent + separate reviewer verifier,
+then independently verifies the Core post-execution reconciliation signature
+using the Core `cst-onejob-final-ack/v1` ordered claim contract. It matches
+the **same job, event, approval, delivery, source SHA, subscriber and Owner
+evidence hashes** against an expected Core ledger readback and insists that
+the Core issuer key is distinct from all five Hub signer roots. Rejects
+forgery, reused keys, missing agents, mismatched receipts, wrong source,
+wrong job/event and time-order mismatch.
+
+This is only a **cryptographic compatibility check**. An expected ledger
+object is not authenticated database provenance. Operational release still
+requires an independently executed CST-DEV DB readback, reviewed key custody,
+real four agent work, actual Owner session and relock/rollback. The checker
+always returns `operationalE2EVerified=false` and
+`independentFinalAckVerified=false`. No new Owner approval, credentials,
+HTTP routes, database writes, dispatch or PROD changes.
