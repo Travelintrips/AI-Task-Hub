@@ -50,8 +50,11 @@ It is separate from `cst-ai-team-dev-canary` and from operational `AI_TASK` task
   one per-run challenge. It does not invoke or route to an external agent.
 - `POST /api/cst-ai-team/external-reviews/:id/observations?companyId=1`
   accepts only one observation per predetermined role/profile/host pair:
-  `coding` = Travelintrips/main; `infrastructure` = DELL/dell-recovery;
+  `coding` = DELL/gpt02-dev; `infrastructure` = DELL/dell-recovery;
   `security` = DELL/dell-verifier; `qa` = DELL/dell-browser.
+  This mapping follows the Owner's DELL-only PC choice. It only pins
+  operator-collected observation profiles; no model availability, separate
+  signer custody, actual 4+1 attestations, or Final ACK is inferred.
   Observations contain a bounded result code and SHA-256 digests **only**,
   never raw chat, credentials, or bearer/session tokens. Exact role + challenge
   and unique event ID guard replay. QA cannot be recorded before the three

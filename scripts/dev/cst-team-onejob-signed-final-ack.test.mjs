@@ -22,6 +22,9 @@ const trusted=Object.fromEntries(
  }])
 );
 const now=new Date("2026-11-20T05:02:00.000Z");
+// DELL-only operator routing; this is NOT independent signer custody or release authority.
+assert.equal(EXTERNAL_TEAM_AGENTS.coding.host,"DELL");
+assert.equal(EXTERNAL_TEAM_AGENTS.coding.agentId,"gpt02-dev");
 const manifest=Object.freeze({
  version:1,project:"xssrfshdrtdfupgqwfdw",companyId:"1",
  jobId:483,jobCode:"OLLAMA-A1B2C3D4",

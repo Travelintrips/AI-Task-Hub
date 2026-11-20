@@ -39,6 +39,13 @@ test('one fixed scenario, with no user-controlled dispatch command',()=>{
   assert.equal(isExternalReviewStart(null),false);
   assert.equal(isExternalReviewStart([]),false);
 });
+test('DELL-only approved profile mapping rejects the older Travelintrips coding identity',()=>{
+  assert.deepEqual(EXTERNAL_TEAM_AGENTS.coding,{host:'DELL',agentId:'gpt02-dev'});
+  assert.deepEqual(Object.values(EXTERNAL_TEAM_AGENTS).map(x=>x.host),
+    ['DELL','DELL','DELL','DELL']);
+  assert.equal(externalObservationWorkerId(body('coding')),'openclaw:DELL:gpt02-dev');
+  assert.equal(parseExternalObservation({...body('coding'),host:'Travelintrips',agentId:'main'}),null);
+});
 test('only four pinned host / profile tuples accepted; no arbitrary credentials or transcripts',()=>{
   for(const role of Object.keys(EXTERNAL_TEAM_AGENTS)) {
     assert.deepEqual(parseExternalObservation(body(role)),body(role));

@@ -28,7 +28,7 @@ export function projectExternalReviewStatus(
 }
 
 export const EXTERNAL_TEAM_AGENTS: Record<TeamRole, { host: string; agentId: string }> = {
-  coding: { host: "Travelintrips", agentId: "main" },
+  coding: { host: "DELL", agentId: "gpt02-dev" },
   infrastructure: { host: "DELL", agentId: "dell-recovery" },
   security: { host: "DELL", agentId: "dell-verifier" },
   qa: { host: "DELL", agentId: "dell-browser" },
