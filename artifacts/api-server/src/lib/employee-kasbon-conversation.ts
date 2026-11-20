@@ -48,7 +48,7 @@ function isStart(text: string): boolean {
 }
 
 function parseCompactRequest(text: string): { amount: number; neededDate: string } | null {
-  const match = text.match(/^\s*(?:pengajuan\s+)?kasbon\s+(.+?)\s+tanggal\s+([0-3]\d-[01]\d-20\d\d)\s*[.!]?\s*$/i);
+  const match = text.match(/^\s*(?:pengajuan\s+)?kasbon\s+(.+?)\s+(?:tanggal\s+)?([0-3]\d-[01]\d-20\d\d)\s*[.!]?\s*$/i);
   if (!match) return null;
   const amount = parseAmount(match[1] ?? "");
   const neededDate = parseDate(match[2] ?? "");
