@@ -192,27 +192,28 @@ test("signed Core reconciliation and Hub 4+1 evidence must bind one exact job/ev
    issuerId:"cst-final-reconciler-dev",
    publicKeyPem:core.publicKey.export({type:"spki",format:"pem"}).toString(),
    fingerprint:fp};
- const claims={domain:"cst-onejob-final-ack/v1",project:"xssrfshdrtdfupgqwfdw",
+ const claims={domain:"cst-onejob-core-reconciliation/v1",project:"xssrfshdrtdfupgqwfdw",
    approvalId:"123e4567-e89b-12d3-a456-426614174000",
    jobId:483,eventId:manifest.eventId,
    deliveryId:"123e4567-e89b-12d3-a456-426614174002",
    postNonce:"a".repeat(64),postProofDigest:"b".repeat(64),
-   finalAckId:"123e4567-e89b-12d3-a456-426614174003",
+   reconciliationId:"123e4567-e89b-12d3-a456-426614174003",
    issuedAt:"2026-11-20T05:00:18.000Z"};
  const bytes=Buffer.from(JSON.stringify(claims));
- const coreAck={claims,signatureBase64:sign(null,bytes,core.privateKey).toString("base64")};
+ const coreReconciliation={claims,signatureBase64:sign(null,bytes,core.privateKey).toString("base64")};
  const ledger={approvalId:claims.approvalId,jobId:483,eventId:claims.eventId,
-   deliveryId:claims.deliveryId,finalAckId:claims.finalAckId,
+   deliveryId:claims.deliveryId,reconciliationId:claims.reconciliationId,
    postNonce:claims.postNonce,postProofDigest:claims.postProofDigest,
-   ackSignatureBase64:coreAck.signatureBase64,issuerPublicFingerprint:fp,
-   ackClaimsDigest:sha(bytes),sourceSha:manifest.sourceSha,
+   reconciliationSignatureBase64:coreReconciliation.signatureBase64,issuerPublicFingerprint:fp,
+   reconciliationClaimsDigest:sha(bytes),sourceSha:manifest.sourceSha,
    ownerApprovalSha256:manifest.ownerApprovalSha256,
    subscriberReceiptSha256:manifest.subscriberReceiptSha256};
  const input={hubBundle:bundle,hubTrustedRoots:trusted,
-   coreAck,coreIssuerRoot:trust,coreLedgerReadback:ledger};
+   coreReconciliation,coreIssuerRoot:trust,coreLedgerReadback:ledger};
  const okay=reviewOneJobCrossRepoFinalAck(input,now);
  assert.equal(okay.status,"SIGNED_CROSS_REPO_CONTRACT_MATCH_ONLY",JSON.stringify(okay));
  assert.equal(okay.coreSignedReconciliationMatched,true);
+ assert.equal(okay.coreReconciliationNotFinalAck,true);
  assert.equal(okay.hubFourAgentSignaturesMatched,true);
  assert.equal(okay.independentDbReadbackVerified,false);
  assert.equal(okay.signerCustodyVerified,false);
@@ -220,9 +221,10 @@ test("signed Core reconciliation and Hub 4+1 evidence must bind one exact job/ev
  assert.equal(okay.operationalE2EVerified,false);
  assert.equal(okay.dispatchPermitted,false);
  const blocked=[
-  {...input,coreAck:{...coreAck,signatureBase64:bundle.finalAck.signatureBase64}},
-  {...input,coreAck:{...coreAck,claims:{...claims,eventId:"123e4567-e89b-12d3-a456-426614174009"}}},
-  {...input,coreLedgerReadback:{...ledger,ackClaimsDigest:"c".repeat(64)}},
+  {...input,coreReconciliation:{...coreReconciliation,signatureBase64:bundle.finalAck.signatureBase64}},
+  {...input,coreReconciliation:{...coreReconciliation,claims:{...claims,eventId:"123e4567-e89b-12d3-a456-426614174009"}}},
+  {...input,coreReconciliation:{...coreReconciliation,claims:{...claims,domain:"cst-onejob-final-ack/v1"},signatureBase64:sign(null,Buffer.from(JSON.stringify({...claims,domain:"cst-onejob-final-ack/v1"})),core.privateKey).toString("base64")}},
+  {...input,coreLedgerReadback:{...ledger,reconciliationClaimsDigest:"c".repeat(64)}},
   {...input,coreLedgerReadback:{...ledger,sourceSha:"f".repeat(40)}},
   {...input,coreIssuerRoot:{...trust,fingerprint:trusted.reviewer.publicKeySha256}},
   {...input,hubBundle:{...bundle,agentAttestations:bundle.agentAttestations.slice(0,3)}},

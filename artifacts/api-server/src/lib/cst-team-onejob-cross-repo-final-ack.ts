@@ -2,7 +2,7 @@
  * Bridge existing signed evidence contracts from the two Draft PRs.
  *
  * Hub: four independent agent Ed25519 signatures + reviewer signature.
- * Core: separate signed post-execution reconciliation record.
+ * Core: signed post-execution reconciliation record, NOT Final ACK.
  * Both must agree with one independently obtained CST-DEV ledger readback.
  *
  * Pure, fail-closed cryptographic compatibility check. The readback and
@@ -15,14 +15,14 @@ import {projectSignedOneJobFourAgentReview}
   from "./cst-team-onejob-signed-final-ack.ts";
 
 const PROJECT="xssrfshdrtdfupgqwfdw";
-const DOMAIN="cst-onejob-final-ack/v1";
+const DOMAIN="cst-onejob-core-reconciliation/v1";
 const HEX40=/^[a-f0-9]{40}$/;
 const HEX64=/^[a-f0-9]{64}$/;
 const UUID=/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/;
 const BASE64=/^[A-Za-z0-9+/]{86}==$/;
 const CORE_FIELDS=[
  "domain","project","approvalId","jobId","eventId","deliveryId",
- "postNonce","postProofDigest","finalAckId","issuedAt"
+ "postNonce","postProofDigest","reconciliationId","issuedAt"
 ] as const;
 type Obj=Record<string,unknown>;
 const obj=(v:unknown):v is Obj=>v!==null&&typeof v==="object"&&!Array.isArray(v);
@@ -38,7 +38,7 @@ function coreBytes(v:Obj):Buffer{
 }
 export function reviewOneJobCrossRepoFinalAck(input:{
   hubBundle?:unknown; hubTrustedRoots?:unknown;
-  coreAck?:unknown; coreIssuerRoot?:unknown; coreLedgerReadback?:unknown;
+  coreReconciliation?:unknown; coreIssuerRoot?:unknown; coreLedgerReadback?:unknown;
 },now:Date=new Date()){
  const blockers:string[]=[];
  const need=(ok:boolean,reason:string)=>{if(!ok)blockers.push(reason);};
@@ -49,7 +49,7 @@ export function reviewOneJobCrossRepoFinalAck(input:{
  },now);
  need(hub.signedBundleConsistent,"HUB_FOUR_AGENTS_AND_REVIEWER_NOT_VERIFIED");
  const root=obj(input?.coreIssuerRoot)?input.coreIssuerRoot:null;
- const ack=obj(input?.coreAck)?input.coreAck:null;
+ const ack=obj(input?.coreReconciliation)?input.coreReconciliation:null;
  const claims=ack&&obj(ack.claims)?ack.claims:null;
  const ledger=obj(input?.coreLedgerReadback)?input.coreLedgerReadback:null;
  let coreKey:ReturnType<typeof createPublicKey>|null=null;
@@ -80,7 +80,7 @@ export function reviewOneJobCrossRepoFinalAck(input:{
  const hubTime=isoMs(hubAck?.issuedAt);
  const manifestTime=isoMs(manifest?.createdAt);
  need(exact(ack,["claims","signatureBase64"])&&exact(claims,CORE_FIELDS),
-   "CORE_ACK_ENVELOPE_INVALID");
+   "CORE_RECONCILIATION_ENVELOPE_INVALID");
  let coreValid=false;
  if(coreKey&&claims&&exact(claims,CORE_FIELDS)&&ack&&
     typeof ack.signatureBase64==="string"&&BASE64.test(ack.signatureBase64)){
@@ -88,11 +88,11 @@ export function reviewOneJobCrossRepoFinalAck(input:{
   coreValid=raw.length===64&&raw.toString("base64")===ack.signatureBase64&&
     verify(null,coreBytes(claims),coreKey,raw);
  }
- need(coreValid,"CORE_ACK_SIGNATURE_NOT_VERIFIED");
+ need(coreValid,"CORE_RECONCILIATION_SIGNATURE_NOT_VERIFIED");
  need(Boolean(claims&&claims.domain===DOMAIN&&claims.project===PROJECT&&
    Number.isSafeInteger(claims.jobId)&&Number(claims.jobId)>0&&
    claims.jobId!==482&&
-   [claims.approvalId,claims.eventId,claims.deliveryId,claims.finalAckId]
+   [claims.approvalId,claims.eventId,claims.deliveryId,claims.reconciliationId]
      .every(x=>UUID.test(String(x)))&&
    HEX64.test(String(claims.postNonce))&&
    HEX64.test(String(claims.postProofDigest))&&
@@ -100,7 +100,7 @@ export function reviewOneJobCrossRepoFinalAck(input:{
    Number.isFinite(hubTime)&&Number.isFinite(manifestTime)&&
    manifestTime<=coreTime&&coreTime<=hubTime&&hubTime<=current+30000&&
    current-coreTime<=30*60_000),
-   "CORE_ACK_SCOPE_OR_ORDER_INVALID");
+   "CORE_RECONCILIATION_SCOPE_OR_ORDER_INVALID");
  need(Boolean(claims&&manifest&&hubAck&&
    claims.jobId===manifest.jobId&&claims.eventId===manifest.eventId&&
    claims.jobId===hubAck.jobId&&claims.eventId===hubAck.eventId),
@@ -111,12 +111,12 @@ export function reviewOneJobCrossRepoFinalAck(input:{
    ledger.approvalId===claims.approvalId&&
    ledger.jobId===claims.jobId&&ledger.eventId===claims.eventId&&
    ledger.deliveryId===claims.deliveryId&&
-   ledger.finalAckId===claims.finalAckId&&
+   ledger.reconciliationId===claims.reconciliationId&&
    ledger.postNonce===claims.postNonce&&
    ledger.postProofDigest===claims.postProofDigest&&
-   ledger.ackSignatureBase64===ack?.signatureBase64&&
+   ledger.reconciliationSignatureBase64===ack?.signatureBase64&&
    ledger.issuerPublicFingerprint===fp&&
-   ledger.ackClaimsDigest===hash(coreBytes(claims))&&
+   ledger.reconciliationClaimsDigest===hash(coreBytes(claims))&&
    manifest&&ledger.sourceSha===manifest.sourceSha&&HEX40.test(String(ledger.sourceSha))&&
    ledger.ownerApprovalSha256===manifest.ownerApprovalSha256&&
    ledger.subscriberReceiptSha256===manifest.subscriberReceiptSha256);
@@ -127,6 +127,8 @@ export function reviewOneJobCrossRepoFinalAck(input:{
   coreSignedReconciliationMatched:coreValid&&ledgerValid,
   hubFourAgentSignaturesMatched:hub.signedBundleConsistent,
   // No user-supplied receipt or bool can become live permission.
+  // Final ACK belongs to the Hub reviewer only after four agent signatures.
+  coreReconciliationNotFinalAck:true,
   independentDbReadbackVerified:false,
   signerCustodyVerified:false,authenticatedOwnerSessionVerified:false,
   independentFinalAckVerified:false,operationalE2EVerified:false,

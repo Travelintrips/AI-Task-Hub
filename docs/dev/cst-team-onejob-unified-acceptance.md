@@ -83,3 +83,18 @@ real four agent work, actual Owner session and relock/rollback. The checker
 always returns `operationalE2EVerified=false` and
 `independentFinalAckVerified=false`. No new Owner approval, credentials,
 HTTP routes, database writes, dispatch or PROD changes.
+
+
+## Core receipt is not the Hub Final ACK (contract correction)
+
+Core PR #1769's post-execution signed record was previously labeled
+`FINAL_ACK_COMMITTED` before four agent attestations existed. Core now
+stores a `core_signed_reconciliations` candidate record and signs the
+`cst-onejob-core-reconciliation/v1` domain; it reports
+`CORE_RECONCILIATION_COMMITTED`, explicitly `finalAckIssued=false`.
+The Hub pure adapter matches this Core receipt with one exactly scoped
+four-agent + independent reviewer signed bundle and the expected ledger
+readback. The old Core `cst-onejob-final-ack/v1` signing domain is rejected.
+A matching offline bundle **never** proves independently acquired DB evidence,
+real signer custody, or an operational Final ACK. One Owner approval only,
+no new passwords, no PROD access, both PRs Draft / NO-GO.
