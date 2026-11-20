@@ -55,7 +55,7 @@ def check_native_auth(raw):
     try:
         import psycopg
         with psycopg.connect(
-            raw, sslmode="verify-full", sslrootcert=str(CA),
+            raw, autocommit=True, sslmode="verify-full", sslrootcert=str(CA),
             connect_timeout=6, application_name="gpt02-task183-dba-custody-verify",
             options="-c statement_timeout=3000",
         ) as conn:
