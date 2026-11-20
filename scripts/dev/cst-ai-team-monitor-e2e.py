@@ -333,7 +333,7 @@ def main():
             raise AssertionError("OPERATOR_REVIEW_START_FAIL")
         reviewid=review["id"]; challenge=review["challenge"]
         path="/api/cst-ai-team/external-reviews/"+reviewid+"/observations?companyId=1"
-        profile={"coding":("Travelintrips","main"),"infrastructure":("DELL","dell-recovery"),
+        profile={"coding":("DELL","gpt02-dev"),"infrastructure":("DELL","dell-recovery"),
                  "security":("DELL","dell-verifier"),"qa":("DELL","dell-browser")}
         def item(role):
             host,agent=profile[role]
@@ -344,6 +344,10 @@ def main():
         early,_=http(api_port,"POST",path,make_jwt(jwt_secret),item("qa"))
         bad=item("coding");bad["agentId"]="different-agent"
         mismatched,_=http(api_port,"POST",path,make_jwt(jwt_secret),bad)
+        legacy=item("coding");legacy["host"]="Travelintrips";legacy["agentId"]="main"
+        wrong_host,_=http(api_port,"POST",path,make_jwt(jwt_secret),legacy)
+        if wrong_host!=400:
+            raise AssertionError("LEGACY_NON_DELL_CODING_PROFILE_ALLOWED")
         stale=item("coding");stale["challenge"]="e1d00000-1111-4111-8111-111111111111"
         wrong_challenge,_=http(api_port,"POST",path,make_jwt(jwt_secret),stale)
         if (early,mismatched,wrong_challenge)!=(409,400,403):
