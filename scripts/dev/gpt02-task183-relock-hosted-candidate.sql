@@ -86,7 +86,15 @@ BEGIN
           'gpt02_stage.prepare_core_task_v1_internal(text,integer,text,text,text,text)','EXECUTE')
          AND (SELECT count(*)=2
               AND pg_catalog.bool_and(
-                p.prosecdef AND pg_catalog.pg_get_userbyid(p.proowner)='gpt02_core_prep_owner')
+                p.prosecdef AND pg_catalog.pg_get_userbyid(p.proowner)='gpt02_core_prep_owner'
+                AND pg_catalog.encode(pg_catalog.sha256(
+                   pg_catalog.convert_to(p.prosrc,'UTF8')),'hex')=
+                 CASE p.proname
+                   WHEN 'prepare_core_task'
+                     THEN 'a759ab94ab38e0f0fcf0b42bc14dbbf30308274344a14ade666e1bae38a1c456'
+                   WHEN 'prepare_core_task_v1_internal'
+                     THEN 'b18275516add255e76f31414a28732bdd900b556b10f38d42e2e4bdf9f7415d4'
+                   ELSE NULL END)
             FROM pg_catalog.pg_proc p
             JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
             WHERE n.nspname='gpt02_stage'
