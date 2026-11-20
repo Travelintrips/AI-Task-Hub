@@ -4,6 +4,7 @@
  * a native issuer, signer, lease or worker dispatch implementation.
  */
 import { X509Certificate } from 'node:crypto';
+import {lstatSync,readFileSync} from 'node:fs';
 const EXPECTED_DEV_REF='xssrfshdrtdfupgqwfdw';
 const PINNED_ROOT_FINGERPRINT='807025ad50d4ed219d2c9c7d299c004f824eb00cf7f65afef607d07b72e6cafa';
 const ROLE='gpt02_core_prep_login';
@@ -60,6 +61,94 @@ export function corePreparationPoolConfig(env){
    connectionTimeoutMillis:5000,statement_timeout:5000,idleTimeoutMillis:10000,
    application_name:'gpt02-core-preparation-DEV-only'};
 }
+/** Separate opt-in credential-file boundary; never fallback to the Hub DSN. */
+const PREPARER_CREDENTIAL_DIR='/run/credentials/gpt02-core-preparer.service';
+function restrictedCredential(path, directory, synthetic){
+ let ds,fs;
+ try{ds=lstatSync(directory);fs=lstatSync(path);}catch{deny('PREPARER_CREDENTIAL_FILE_REQUIRED')}
+ const uid=synthetic?(process.getuid?.()??fs.uid):0;
+ const gid=synthetic?(process.getgid?.()??fs.gid):0;
+ if(!ds.isDirectory()||ds.isSymbolicLink()||(!synthetic && (ds.mode&0o777)!==0o550)||
+    ds.uid!==uid||ds.gid!==gid||!fs.isFile()||fs.isSymbolicLink()||
+    fs.uid!==uid||fs.gid!==gid||![0o400,0o600,...(synthetic?[]:[0o440])].includes(fs.mode&0o777))
+   deny('PREPARER_CREDENTIAL_FILE_SECURITY_INVALID');
+ let value;try{value=readFileSync(path,'utf8')}catch{deny('PREPARER_CREDENTIAL_FILE_REQUIRED')}
+ if(value.length<1||value.length>8192)deny('PREPARER_CREDENTIAL_FILE_INVALID');
+ return value;
+}
+export function corePreparationPoolConfigFromFiles(env, options={}){
+ // An explicit test-only directory enables isolated fixture tests, never a runtime override.
+ const synthetic=options.synthetic===true;
+ if(synthetic && env.NODE_ENV!=='development')deny('EXPLICIT_SECURE_DEV_REQUIRED');
+ const dir=synthetic?options.testDirectory:PREPARER_CREDENTIAL_DIR;
+ if(typeof dir!=='string'||!dir.startsWith('/')||dir.includes('..'))deny('PREPARER_CREDENTIAL_DIRECTORY_REQUIRED');
+ if(env.GPT02_CORE_PREP_DATABASE_URL_DEV || env.GPT02_CORE_PREP_DEV_CA)
+   deny('PREPARER_INLINE_CREDENTIAL_FORBIDDEN');
+ const dsn=restrictedCredential(`${dir}/preparer-dsn`,dir,synthetic).trim();
+ const ca=restrictedCredential(`${dir}/supabase-root-ca.crt`,dir,synthetic);
+ return corePreparationPoolConfig({...env,GPT02_CORE_PREP_DATABASE_URL_DEV:dsn,GPT02_CORE_PREP_DEV_CA:ca});
+}
+/**
+ * Alternative one-shot DEV Docker bridge. The app stays non-root, and the
+ * credential is mounted only into a candidate DEV container for a short
+ * supervised window. This is opt-in, never a fallback, and never PROD.
+ *
+ * Runtime bind mount (not an image layer): /run/gpt02-preparer-one-shot
+ * Directory: owned by container UID/GID, mode 0500.
+ * Files: owned by that UID/GID, regular (no hard/sym links), mode 0400.
+ * Host bind mount MUST be read-only. The database role must also be
+ * short-lived and relocked independently after the one-shot attempt.
+ */
+const ONE_SHOT_DIR='/run/gpt02-preparer-one-shot';
+function oneShotCredential(name,dir,synthetic){
+ let directory,file;
+ try{directory=lstatSync(dir);file=lstatSync(`${dir}/${name}`);}
+ catch{deny('PREPARER_ONE_SHOT_FILE_REQUIRED')}
+ const uid=process.getuid?.(),gid=process.getgid?.();
+ if(!Number.isSafeInteger(uid)||!Number.isSafeInteger(gid)||(!synthetic&&uid===0))
+   deny('PREPARER_ONE_SHOT_NONROOT_REQUIRED');
+ if(!directory.isDirectory()||directory.isSymbolicLink()||
+    directory.uid!==uid||directory.gid!==gid||(directory.mode&0o777)!==0o500||
+    !file.isFile()||file.isSymbolicLink()||file.nlink!==1||
+    file.uid!==uid||file.gid!==gid||(file.mode&0o777)!==0o400)
+   deny('PREPARER_ONE_SHOT_CUSTODY_UNSAFE');
+ let value;
+ try{value=readFileSync(`${dir}/${name}`,'utf8');}
+ catch{deny('PREPARER_ONE_SHOT_FILE_REQUIRED')}
+ if(value.length<1||value.length>8192)deny('PREPARER_ONE_SHOT_FILE_INVALID');
+ return value;
+}
+export function corePreparationPoolConfigFromOneShotFiles(env,options={}){
+ if(env.NODE_ENV!=='development'||env.APP_ENV!=='development')
+   deny('EXPLICIT_SECURE_DEV_REQUIRED');
+ if(env.GPT02_CORE_PREP_DATABASE_URL_DEV||env.GPT02_CORE_PREP_DEV_CA)
+   deny('PREPARER_INLINE_CREDENTIAL_FORBIDDEN');
+ // Only exported synthetic test harnesses may supply alternate directories.
+ // The operational factory always uses the fixed container path.
+ const synthetic=options.synthetic===true;
+ const dir=synthetic?options.testDirectory:ONE_SHOT_DIR;
+ if(typeof dir!=='string'||!dir.startsWith('/')||dir.includes('..'))
+   deny('PREPARER_ONE_SHOT_DIRECTORY_INVALID');
+ if(!synthetic){
+  // A writable bind mount would defeat time-limited secret custody.
+  // Docker must bind the entire directory as an explicit read-only mount.
+  let mountinfo;
+  try{mountinfo=readFileSync('/proc/self/mountinfo','utf8')}
+  catch{deny('PREPARER_ONE_SHOT_READONLY_BIND_REQUIRED')}
+  const found=mountinfo.split('\n').some(line=>{
+   const columns=line.split(' ');
+   return columns[4]===ONE_SHOT_DIR&&
+     columns[5]?.split(',').includes('ro')===true;
+  });
+  if(!found)deny('PREPARER_ONE_SHOT_READONLY_BIND_REQUIRED');
+ }
+ const dsn=oneShotCredential('preparer-dsn',dir,synthetic).trim();
+ const ca=oneShotCredential('supabase-root-ca.crt',dir,synthetic);
+ return corePreparationPoolConfig({
+  ...env,GPT02_CORE_PREP_DATABASE_URL_DEV:dsn,GPT02_CORE_PREP_DEV_CA:ca
+ });
+}
+
 /**
  * Returns reserved candidate identities only; this is NOT an approved command.
  * The database function must verify real Hub PIC + Super Admin audit and atomically
@@ -218,7 +307,13 @@ export class Gpt02CoreTaskPreparer {
 /** No network connection or transaction is made by this factory. */
 export function createCoreTaskPreparer({env,PoolClass}){
  if(typeof PoolClass!=='function')deny('POSTGRES_POOL_CLASS_REQUIRED');
- const config=corePreparationPoolConfig(env);
+ // The operational factory never accepts inline credentials or implicit fallback.
+ const source=env?.GPT02_CORE_PREP_CREDENTIAL_SOURCE;
+ if(source!=='systemd'&&source!=='dev-one-shot-mount')
+   deny('PREPARER_FILE_CUSTODY_REQUIRED');
+ const config=source==='systemd'
+   ?corePreparationPoolConfigFromFiles(env)
+   :corePreparationPoolConfigFromOneShotFiles(env);
  const pool=new PoolClass(config);pool.on('error',()=>{});
  return {preparer:new Gpt02CoreTaskPreparer({pool}),close:()=>pool.end()};
 }

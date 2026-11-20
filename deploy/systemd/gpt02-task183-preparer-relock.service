@@ -1,0 +1,38 @@
+# SOURCE-ONLY, DEV Task183 dedicated relock candidate.
+# Never install/start without independent SQL wrapper, key custody and watchdog proof.
+[Unit]
+Description=GPT02 CST-DEV Task183 independent preparer relock once
+Wants=network-online.target
+After=network-online.target
+ConditionPathExists=/etc/credstore.encrypted/gpt02-task183-relock-dsn
+ConditionPathExists=/etc/ssl/certs/cst-dev-supabase-root.crt
+ConditionPathExists=/opt/ai-task-gpt02-preparer/current/scripts/dev/gpt02-task183-relock-once.mjs
+ConditionPathExists=/opt/ai-task-gpt02-preparer/current/artifacts/api-server/package.json
+ConditionPathExists=/opt/ai-task-gpt02-preparer/current/artifacts/api-server/node_modules/pg/package.json
+ConditionPathExists=/opt/actions-runner/_work/_tool/node/22.23.3/x64/bin/node
+
+[Service]
+Type=oneshot
+DynamicUser=yes
+LoadCredentialEncrypted=task183-relock-dsn:/etc/credstore.encrypted/gpt02-task183-relock-dsn
+LoadCredential=supabase-root-ca.crt:/etc/ssl/certs/cst-dev-supabase-root.crt
+Environment=NODE_ENV=development
+Environment=APP_ENV=development
+Environment=GPT02_TASK183_RELOCK_SCOPE=CST-DEV_TASK183
+ExecStart=/opt/actions-runner/_work/_tool/node/22.23.3/x64/bin/node /opt/ai-task-gpt02-preparer/current/scripts/dev/gpt02-task183-relock-once.mjs
+StateDirectory=gpt02-task183-relock
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+RestrictNamespaces=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+Restart=no
+TimeoutStartSec=15s
+StandardOutput=journal
+StandardError=journal
