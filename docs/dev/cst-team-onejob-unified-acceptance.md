@@ -1,12 +1,12 @@
 # Core AI + AI Task Hub — One-Batch CST-DEV Release Acceptance
 
 **One final release decision, two existing Draft PRs.** Core AI
-[PR #1765](https://github.com/Travelintrips/Core-AI-Foundation/pull/1765)
+[PR #1769](https://github.com/Travelintrips/Core-AI-Foundation/pull/1769)
 owns Company-1 model job, bound broker, RLS and subscriber receipt.
 AI Task Hub [PR #202](https://github.com/Travelintrips/AI-Task-Hub/pull/202)
 owns its cross-repository view and **independent four-agent** review.
 The complete technical scope and one-command offline QA reside in
-`Core-AI-Foundation/docs/dev/cst-team-onejob-single-batch-closeout.md`.
+`Core-AI-Foundation/docs/dev/cst-onejob-unified-one-batch-20261120.md`.
 This document keeps Hub from marking itself PASS before Core/Owner evidence is real.
 
 ## Finished offline QA is not operational E2E
@@ -69,7 +69,7 @@ The Hub now has a pure fail-closed checker:
 `artifacts/api-server/src/lib/cst-team-onejob-cross-repo-final-ack.ts`.
 It REUSES Hub's existing Ed25519 four-agent + separate reviewer verifier,
 then independently verifies the Core post-execution reconciliation signature
-using the Core `cst-onejob-final-ack/v1` ordered claim contract. It matches
+using the Core `cst-onejob-core-reconciliation/v1` ordered claim contract. It matches
 the **same job, event, approval, delivery, source SHA, subscriber and Owner
 evidence hashes** against an expected Core ledger readback and insists that
 the Core issuer key is distinct from all five Hub signer roots. Rejects
@@ -84,6 +84,20 @@ always returns `operationalE2EVerified=false` and
 `independentFinalAckVerified=false`. No new Owner approval, credentials,
 HTTP routes, database writes, dispatch or PROD changes.
 
+
+
+### Canonical Core source recovery (20 November 2026)
+
+Core Draft PR #1769 has recovered the existing independent QA PRE/POST issuer,
+append-only QA receipt writer, one-shot PULL subscriber and narrow RLS role
+proposal from historical PR #1767, without reviving Core-only Final ACK.
+The recovered source fixture stops at the signed subscriber/POST QA boundary.
+These components remain **default-OFF and undeployed**; they have no approved
+DEV credential or independently custodied signer. Hub's four distinct agent
+attestations and an independent reviewer still own the *actual* Final ACK.
+Until that real readback exists, `operationalE2EVerified=false` and
+`independentFinalAckVerified=false` remain mandatory. Nothing in this
+source recovery authorizes provisioning, job execution, or PROD deployment.
 
 ## Core receipt is not the Hub Final ACK (contract correction)
 
