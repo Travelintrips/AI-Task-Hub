@@ -246,7 +246,12 @@ export class Gpt02CoreTaskPreparer {
 /** No network connection or transaction is made by this factory. */
 export function createCoreTaskPreparer({env,PoolClass}){
  if(typeof PoolClass!=='function')deny('POSTGRES_POOL_CLASS_REQUIRED');
- const config=corePreparationPoolConfig(env);
+ // A live preparation window can never fall back to an inline/general Hub DSN.
+ if(env?.GPT02_CORE_PREPARATION_ENABLED==='true' &&
+    env.GPT02_CORE_PREP_CREDENTIAL_SOURCE!=='systemd')
+   deny('PREPARER_FILE_CUSTODY_REQUIRED');
+ const config=env?.GPT02_CORE_PREP_CREDENTIAL_SOURCE==='systemd'
+   ? corePreparationPoolConfigFromFiles(env) : corePreparationPoolConfig(env);
  const pool=new PoolClass(config);pool.on('error',()=>{});
  return {preparer:new Gpt02CoreTaskPreparer({pool}),close:()=>pool.end()};
 }
