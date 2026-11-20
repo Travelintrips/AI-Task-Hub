@@ -55,7 +55,7 @@ export function reviewOneJobCrossRepoFinalAck(input:{
  let coreKey:ReturnType<typeof createPublicKey>|null=null;
  let fp="";
  try{
-   if(!root||root.use!=="CST_DEV_ONEJOB_FINAL_ACK_PUBLIC_PIN"||
+   if(!root||root.use!=="CST_DEV_ONEJOB_CORE_RECONCILIATION_PUBLIC_PIN"||
       root.project!==PROJECT||typeof root.issuerId!=="string"||
       !/^cst-[a-z0-9_-]{8,80}$/.test(root.issuerId)||
       !HEX64.test(String(root.fingerprint)))throw Error("BAD_CORE_ROOT");

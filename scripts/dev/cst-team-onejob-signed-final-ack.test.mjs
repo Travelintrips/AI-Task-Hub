@@ -188,7 +188,7 @@ test("signed Core reconciliation and Hub 4+1 evidence must bind one exact job/ev
  const bundle=build();
  const core=generateKeyPairSync("ed25519");
  const fp=sha(core.publicKey.export({type:"spki",format:"der"}));
- const trust={use:"CST_DEV_ONEJOB_FINAL_ACK_PUBLIC_PIN",project:"xssrfshdrtdfupgqwfdw",
+ const trust={use:"CST_DEV_ONEJOB_CORE_RECONCILIATION_PUBLIC_PIN",project:"xssrfshdrtdfupgqwfdw",
    issuerId:"cst-final-reconciler-dev",
    publicKeyPem:core.publicKey.export({type:"spki",format:"pem"}).toString(),
    fingerprint:fp};
@@ -227,6 +227,7 @@ test("signed Core reconciliation and Hub 4+1 evidence must bind one exact job/ev
   {...input,coreLedgerReadback:{...ledger,reconciliationClaimsDigest:"c".repeat(64)}},
   {...input,coreLedgerReadback:{...ledger,sourceSha:"f".repeat(40)}},
   {...input,coreIssuerRoot:{...trust,fingerprint:trusted.reviewer.publicKeySha256}},
+  {...input,coreIssuerRoot:{...trust,use:"CST_DEV_ONEJOB_FINAL_ACK_PUBLIC_PIN"}},
   {...input,hubBundle:{...bundle,agentAttestations:bundle.agentAttestations.slice(0,3)}},
  ];
  for(const bad of blocked){
