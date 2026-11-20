@@ -1,4 +1,5 @@
 import { logger } from "./logger";
+import { isCstDevBoundedWorkerProbe } from "./cst-ai-team-contract";
 
 const DEFAULT_DEV_BASE_URL = "https://dev.cstlogistic.co.id/api";
 
@@ -27,6 +28,11 @@ function bridgeToken(): string | null {
 
 export function aiCoreBridgeConfigured(): boolean {
   return Boolean(safeBaseUrl() && bridgeToken());
+}
+
+/** Limited DEV registry readback. Reuses only the existing AI Task bridge identity. */
+export function fetchAiCoreTeamReadinessResponse(): Promise<Response> {
+  return bridgeFetch("/ai/coding/bridge/cst-team-readiness", { method: "GET" });
 }
 
 export function buildAiTaskExternalCommandId(companyId: string, taskId: number): string {
@@ -67,6 +73,7 @@ export async function submitAiTaskCommand(input: {
         correlationId: input.correlationId,
         companyId: input.companyId,
         aiTaskId: input.taskId,
+        ...(isCstDevBoundedWorkerProbe(input) ? { explicitWorkerTarget: true } : {}),
       },
     }),
   });

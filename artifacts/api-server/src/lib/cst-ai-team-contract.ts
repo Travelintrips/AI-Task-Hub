@@ -1,0 +1,153 @@
+/** DEV local canary only. No GPT02 approval, signature, dispatch or Final ACK. */
+export const TEAM_SOURCE = "cst-ai-team-dev-canary";
+export const TEAM_ROLES = ["coding", "infrastructure", "security", "qa"] as const;
+
+/** Pin only the existing DEV CST Company 1 model-free PC worker for its exact
+ * supported no-write probes. Explicit task/client selection still comes from
+ * the authenticated Hub execution request; this never grants a capability.
+ */
+export function isCstDevBoundedWorkerProbe(
+  input: { companyId: string; assignedClientId?: string | null; instruction: string },
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  return env.NODE_ENV === "development" && env.APP_ENV === "development"
+    && input.companyId === "1"
+    && input.assignedClientId === "openclaw-pc-worker-dev"
+    && ["ping", "status"].includes(input.instruction.trim().toLowerCase());
+}
+export type TeamRole = typeof TEAM_ROLES[number];
+export function canReadDevTeam(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.APP_ENV === "development" && env.NODE_ENV === "development";
+}
+export function canRunDevTeam(env: NodeJS.ProcessEnv = process.env): boolean {
+  return canReadDevTeam(env) && env.CST_AI_TEAM_DEV_ENABLED === "true";
+}
+/** A restarted API must never show an abandoned in-progress canary forever. */
+export const CANARY_STALE_AFTER_MS = 120_000;
+export function projectCanaryStatus(
+  status: string,
+  createdAt: Date | string | null,
+  nowMs: number = Date.now(),
+): { status: string; stale: boolean } {
+  const createdMs = createdAt == null ? Number.NaN : new Date(createdAt).getTime();
+  const stale = status === "processing" && (
+    !Number.isFinite(createdMs) || nowMs - createdMs > CANARY_STALE_AFTER_MS
+  );
+  return { status: stale ? "blocked" : status, stale };
+}
+
+export function canaryVerdict(evidence: Array<{role: string; status: string; ok: boolean}>): boolean {
+  // Exactly one successful terminal proof per role. Duplicate, unknown and
+  // conflicting rows must not inflate the number of verified canary roles.
+  if (evidence.length !== TEAM_ROLES.length) return false;
+  const seen = new Set<string>();
+  for (const record of evidence) {
+    if (!TEAM_ROLES.includes(record.role as TeamRole) || seen.has(record.role) ||
+        record.status !== "completed" || record.ok !== true) return false;
+    seen.add(record.role);
+  }
+  return seen.size === TEAM_ROLES.length;
+}
+
+/** Validate persisted diagnostic receipts, NOT any GPT02 external signature.
+ * Reject manually forged/mislabeled rows, duplicate terminal events and any
+ * attempt to turn canary evidence into signed execution authority.
+ */
+export function canaryLedgerVerdict(records: Array<{
+  eventType: string; phase: string | null; status: string | null;
+  workerId: string | null; signatureVerified: boolean;
+  payload: unknown;
+}>): boolean {
+  const terminal = records.filter(record =>
+    record.eventType === "team.completed" || record.eventType === "team.failed");
+  return canaryVerdict(terminal.map(record => ({
+    role: record.phase ?? "", status: record.status ?? "",
+    ok: typeof record.payload === "object" && record.payload !== null &&
+      (record.payload as Record<string, unknown>).ok === true,
+  }))) && terminal.every(record =>
+    record.eventType === "team.completed" &&
+    record.workerId === `cst-team-dev-${record.phase}` &&
+    record.signatureVerified === false &&
+    typeof record.payload === "object" && record.payload !== null &&
+    (record.payload as Record<string, unknown>).proofLevel === "DEV_LOCAL_CANARY_NOT_SIGNED");
+}
+
+/** Read-only operational job/parent binding. A verified callback is not GPT02
+ * attestation, independent QA, signed issuer approval or Final ACK.
+ * Job and parent task tenant must agree, including exact external lineage.
+ */
+export type CstOperationalProbe = {
+  taskId: number | null; companyId: string; taskCompanyId: string | null;
+  source: string; externalId: string; status: string;
+  commandId: string | null; assignedClientId: string | null;
+  workerId: string | null; callbackVerified: boolean;
+  attestationVerified: boolean; finalAckVerified: boolean;
+};
+export type CstOperationalTaskBinding = {
+  verified: false; workerCallbackVerified: boolean; taskId: number | null;
+  independentFinalAckVerified: false;
+  reason: "WORKER_CALLBACK_VERIFIED_SIGNED_E2E_NOT_ESTABLISHED" |
+          "NO_VERIFIED_OPERATIONAL_TASK_COMPANY_AND_WORKER_CALLBACK";
+};
+export function projectCstOperationalTaskBinding(
+  companyId: string, probes: CstOperationalProbe[],
+): CstOperationalTaskBinding {
+  const match = probes.find(job =>
+    companyId === "1" && job.companyId === companyId &&
+    job.taskCompanyId === companyId && job.source === "AI_TASK" &&
+    Number.isSafeInteger(job.taskId) && (job.taskId ?? 0) > 0 &&
+    job.externalId === `ai-task:${companyId}:${job.taskId}` &&
+    job.status === "completed" && Boolean(job.commandId) &&
+    job.assignedClientId === "openclaw-pc-worker-dev" &&
+    job.workerId === job.assignedClientId && job.callbackVerified === true);
+  if (!match) return { verified: false, workerCallbackVerified: false,
+    taskId: null, independentFinalAckVerified: false,
+    reason: "NO_VERIFIED_OPERATIONAL_TASK_COMPANY_AND_WORKER_CALLBACK" };
+  return { verified: false, workerCallbackVerified: true, taskId: match.taskId,
+    independentFinalAckVerified: false,
+    reason: "WORKER_CALLBACK_VERIFIED_SIGNED_E2E_NOT_ESTABLISHED" };
+}
+
+/** Read-only global Core capacity, NEVER proof that Company-1 has four agents.
+ * A successful canary or an active coding-worker lease cannot grant execution,
+ * worker-role authority, independent QA review, or an external Final ACK.
+ */
+export type IndependentTeamCapacityCounts = {
+  registeredCodingWorkers: number;
+  activeLeasedCodingWorkers: number;
+  recordedAiHandoffs: number;
+  availableOllamaCodingSlots: number;
+};
+export type IndependentTeamGate = {
+  mode: "READ_ONLY_GLOBAL_CAPACITY_NOT_AUTHORITY";
+  status: "blocked" | "unavailable";
+  checkedAt: string;
+  registeredCodingWorkers: number | null;
+  activeLeasedCodingWorkers: number | null;
+  recordedAiHandoffs: number | null;
+  availableOllamaCodingSlots: number | null;
+  verifiedIndependentTeam: false;
+  blockers: string[];
+};
+export function projectIndependentTeamGate(
+  counts: IndependentTeamCapacityCounts | null,
+  checkedAt: Date = new Date(),
+): IndependentTeamGate {
+  const basic = { mode: "READ_ONLY_GLOBAL_CAPACITY_NOT_AUTHORITY" as const,
+    checkedAt: checkedAt.toISOString(), verifiedIndependentTeam: false as const };
+  if (!counts ||
+      !Object.values(counts).every(n => Number.isSafeInteger(n) && n >= 0) ||
+      counts.activeLeasedCodingWorkers > counts.registeredCodingWorkers) {
+    return { ...basic, status: "unavailable",
+      registeredCodingWorkers: null, activeLeasedCodingWorkers: null,
+      recordedAiHandoffs: null, availableOllamaCodingSlots: null,
+      blockers: ["CORE_CAPACITY_READBACK_UNAVAILABLE"] };
+  }
+  const blockers = [
+    ...(counts.activeLeasedCodingWorkers < 4 ? ["FOUR_ACTIVE_CODING_WORKERS_NOT_VERIFIED"] : []),
+    ...(counts.recordedAiHandoffs === 0 ? ["NO_PERSISTED_MULTIWORKER_HANDOFF"] : []),
+    ...(counts.availableOllamaCodingSlots === 0 ? ["OLLAMA_CODING_CAPACITY_NOT_READY"] : []),
+    "FOUR_DISTINCT_AGENT_RECEIPTS_AND_INDEPENDENT_QA_FINAL_ACK_NOT_VERIFIED",
+  ];
+  return { ...basic, status: "blocked", ...counts, blockers };
+}

@@ -3,7 +3,7 @@ on:
   push:
     branches: [develop]
   pull_request:
-    branches: [develop]
+    branches: [develop, "test/dev-pr193-pr195-integrated-20261115"]
   workflow_dispatch:
 
 permissions:
@@ -52,6 +52,14 @@ jobs:
         run: bash scripts/dev/test-vps-identity-reader-postgres16.sh
       - name: Verify source VPS identity reader TLS and RLS on synthetic PostgreSQL 16
         run: timeout --kill-after=10s 240s bash scripts/dev/test-vps-identity-reader-node-pg16.sh
+      - name: Verify CST four-role DEV monitor guard (no dispatch)
+        run: node --experimental-strip-types --test scripts/dev/cst-ai-team-monitor.test.mjs
+      - name: Verify DEV operator-collected external review stays unsigned and non-authorizing
+        run: node --experimental-strip-types --test scripts/dev/cst-ai-team-external-review.test.mjs
+      - name: Verify four independent signed CST one-job agents and separate reviewer never fake Final ACK
+        run: node --experimental-strip-types --test scripts/dev/cst-team-onejob-signed-final-ack.test.mjs
+      - name: Verify DEV native Ollama QA preflight is strictly local and non-authorizing
+        run: node --test scripts/dev/cst-ai-team-local-ollama-qa.test.mjs
       - name: Verify blue-green DEV cannot start duplicate WA/Core background workers
         run: node --test scripts/dev/ai-task-background-worker-cutover-gate.test.mjs
       - name: Verify DEV cutover configuration parity and single WA worker handoff
@@ -203,6 +211,10 @@ jobs:
         run: pnpm run typecheck
       - name: Build
         run: pnpm run build
+      - name: Verify scoped CST DEV bounded worker pin never escalates or changes PROD
+        run: node --experimental-strip-types --test scripts/dev/cst-ai-team-worker-target.test.mjs
+      - name: Verify CST team isolated end-to-end persisted ledger and 4/4 role evidence
+        run: python3 scripts/dev/cst-ai-team-monitor-e2e.py
       - name: Verify PR196 integrated DEV runtime with synthetic credentials (no live DB)
         run: node --test scripts/dev/ai-task-pr196-synthetic-runtime-smoke.test.mjs
       - name: Verify Pino worker image portability
