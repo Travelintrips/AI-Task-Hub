@@ -13,6 +13,7 @@ import { logger } from "../lib/logger";
 import { sendFonnte, normalizePhone } from "../lib/fonnte";
 import { jobWaConfig, probeJobWaDevGateway } from "../lib/ai-job-wa-gateway";
 import { summarizeWhatsAppOnboarding } from "../lib/onboarding-wa-readiness.mjs";
+import { resolveOnboardingCustomerCompanyId } from "../lib/onboarding-customer-company-scope";
 
 const router: IRouter = Router();
 
@@ -200,11 +201,26 @@ router.get("/system/onboarding-status", requireAuth, async (req: Request, res: R
     const teamResult = await db.execute(sql`SELECT COUNT(*) AS cnt FROM team_members WHERE company_id = ${companyId}`).catch(() => ({ rows: [{ cnt: 0 }] }));
     const teamCount = safeCount(teamResult);
 
-    // Customers with phone
-    const custResult = await db.execute(sql`
-      SELECT COUNT(*) AS total, COUNT(CASE WHEN whatsapp IS NOT NULL THEN 1 END) AS with_wa
-      FROM customers WHERE company_id::text = ${companyId}
-    `).catch(() => ({ rows: [{ total: 0, with_wa: 0 }] }));
+    // Customers: exact numeric tenant ownership only; NULL/unowned customers
+    // must never count. CST-DEV 'default' is an explicitly scoped alias for
+    // active company id=1/code=CST, not permission to claim existing rows.
+    const customerCompanyId = resolveOnboardingCustomerCompanyId({
+      companyId,
+      nodeEnv: process.env.NODE_ENV,
+      appEnv: process.env.APP_ENV,
+      supabaseDevUrl: process.env.SUPABASE_URL_DEV,
+    });
+    const custResult = customerCompanyId === null
+      ? { rows: [{ total: 0, with_wa: 0 }] }
+      : await db.execute(sql`
+          SELECT COUNT(*) AS total,
+            COUNT(*) FILTER (WHERE c.whatsapp IS NOT NULL) AS with_wa
+          FROM customers c
+          JOIN companies company ON company.id = c.company_id
+          WHERE c.company_id = ${customerCompanyId}
+            AND company.is_active = true
+            AND (${companyId} <> 'default' OR company.code = 'CST')
+        `).catch(() => ({ rows: [{ total: 0, with_wa: 0 }] }));
     const custRow = safeRows(custResult)[0] ?? {};
 
     // Fleet units

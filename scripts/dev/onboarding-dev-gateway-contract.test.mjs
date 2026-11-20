@@ -35,6 +35,8 @@ test("onboarding endpoint is scoped to CST-DEV and performs read-only gateway ch
   assert.match(src, /await probeJobWaDevGateway\(\)/);
   assert.doesNotMatch(src, /sendJobViaDevWaGateway/);
   assert.match(src, /productionChannelReady/);
-  assert.match(src, /company_id::text = \$\{companyId\}/);
+  assert.match(src, /resolveOnboardingCustomerCompanyId/);
+  assert.match(src, /JOIN companies company ON company.id = c.company_id/);
+  assert.match(src, /company\.code = 'CST'/);
   assert.doesNotMatch(src, /company_id IS NULL OR/);
 });
