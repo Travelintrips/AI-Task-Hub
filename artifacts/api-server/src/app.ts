@@ -115,8 +115,14 @@ if (fs.existsSync(frontendDist)) {
   logger.warn({ frontendDist }, "Frontend dist not found — static serving skipped");
 }
 
-// E2E-only opt-out; default behavior is unchanged for DEV and PROD.
+// An unowned shell-launched DEV API process can inherit stale pooler credentials
+// from Remote Desktop Commander. Without explicit APP_ENV, it must NEVER start
+// autonomous timers, background reconciliation, DDL or Storage mutations.
+// Official APP_ENV=development/production retains its exact previous behavior.
+const hasExplicitAppEnv =
+  process.env.APP_ENV === "development" || process.env.APP_ENV === "production";
 if (process.env.DISABLE_BACKGROUND_SCHEDULERS !== "true") {
+  if (hasExplicitAppEnv) {
   // Start background services
   startFollowUpScheduler();
 
@@ -144,11 +150,15 @@ if (process.env.DISABLE_BACKGROUND_SCHEDULERS !== "true") {
       .then((n) => { if (n > 0) logger.info({ expired: n }, "intake-sessions: expired stale sessions"); })
       .catch(() => {});
   }, 60 * 60 * 1000);
+  } else {
+    logger.warn("AI Task background schedulers disabled: APP_ENV not explicit");
+  }
 }
 
-const shouldRunStartupMigrations =
+const shouldRunStartupMigrations = hasExplicitAppEnv && (
   process.env.RUN_STARTUP_MIGRATIONS === "true" ||
-  (process.env.RUN_STARTUP_MIGRATIONS !== "false" && process.env.NODE_ENV !== "production");
+  (process.env.RUN_STARTUP_MIGRATIONS !== "false" && process.env.NODE_ENV !== "production")
+);
 
 if (!shouldRunStartupMigrations) {
   logger.info("Startup DDL migrations disabled for this runtime");
@@ -1132,16 +1142,22 @@ if (shouldRunStartupMigrations && supabasePool) {
     .catch((err: unknown) => logger.warn({ err }, "Core table migration warning"));
 }
 
-// ── Freight / PPJK bucket — pastikan bucket "exportimport" ada di Supabase Storage ──
-import("./lib/storage").then((m) => m.ensureExportImportBucket()).catch(() => {});
+// STARTUP SIDE EFFECTS ONLY for an explicitly identified DEV/PROD process.
+// A stray API launched by a remote shell with APP_ENV missing must not run
+// Storage initialization or a database schema scan.
+if (hasExplicitAppEnv) {
+  // ── Freight / PPJK bucket ───────────────────────────────────────────────────
+  import("./lib/storage").then((m) => m.ensureExportImportBucket()).catch(() => {});
 
-// ── Sport Center bucket — pastikan bucket "payment-proofs" ada di project aktif ──
-ensurePaymentProofBucket().catch((err: unknown) => {
-  logger.warn({ err }, "storage: payment-proofs bucket check failed (non-fatal)");
-});
+  // ── Sport Center payment-proof bucket ───────────────────────────────────────
+  ensurePaymentProofBucket().catch((err: unknown) => {
+    logger.warn({ err }, "storage: payment-proofs bucket check failed (non-fatal)");
+  });
 
-// ── Sprint 10A-1.1 startup schema validation ───────────────────────────────────
-// Lightweight check — never fails startup, just logs drift summary.
-import("./lib/schema-startup-check").then((m) => m.runSchemaStartupCheck()).catch(() => {});
+  // ── Lightweight startup schema validation ──────────────────────────────────
+  import("./lib/schema-startup-check").then((m) => m.runSchemaStartupCheck()).catch(() => {});
+} else {
+  logger.warn("AI Task startup storage/schema checks disabled: APP_ENV not explicit");
+}
 
 export default app;

@@ -23,7 +23,14 @@ app.listen(port, host, (err) => {
   // Blue/green DEV previews must not start a second reconciler/WA worker.
   // Normal DEV keeps both workers whenever the opt-out flag is absent.
   if (process.env.DISABLE_BACKGROUND_SCHEDULERS !== "true") {
-    startAiCoreSourceReconciliationRuntime();
-    startAiJobWhatsAppDeliveryReconciliation();
+    // These extra reconcilers must not start from a stray shell-launched
+    // orphan with APP_ENV missing (it may inherit stale DB credentials).
+    // Official DEV and PROD explicitly set APP_ENV and keep their behavior.
+    if (process.env.APP_ENV === "development" || process.env.APP_ENV === "production") {
+      startAiCoreSourceReconciliationRuntime();
+      startAiJobWhatsAppDeliveryReconciliation();
+    } else {
+      logger.warn("AI Task Core/WA background workers disabled: APP_ENV not explicit");
+    }
   }
 });
