@@ -6,6 +6,12 @@ const required=[
  'scripts/dev/gpt02-preparer-relock-host-gate.mjs',
  'artifacts/api-server/package.json',
  'artifacts/api-server/node_modules/pg/package.json',
+ 'artifacts/api-server/node_modules/pg-pool/package.json',
+ 'artifacts/api-server/node_modules/pg-protocol/package.json',
+ 'artifacts/api-server/node_modules/pg-connection-string/package.json',
+ 'artifacts/api-server/node_modules/pg-types/package.json',
+ 'artifacts/api-server/node_modules/pgpass/package.json',
+ 'provenance/pg-only-package-lock.json',
  'artifacts/api-server/src/lib/gpt02-core-task-preparation.mjs',
  'deploy/systemd/gpt02-task183-preparer-relock.service',
  'deploy/systemd/gpt02-task183-preparer-relock.timer'
@@ -44,4 +50,21 @@ test('even complete local package never authorizes hosted role unlock',()=>{
  assert.equal(r.result,'PACKAGE_METADATA_PRESENT_NOT_HOSTED_AUTHORITY');
  assert.equal(r.hostedRoleUnlockPermitted,false);
  assert.equal(r.dispatchPermitted,false);
+});
+
+test('pg package integrity mismatch or missing offline lock are NO-GO',()=>{
+ const untrusted={...sourceFiles,
+   'artifacts/api-server/node_modules/pg/package.json':{exists:true,hashVerified:false}};
+ assert.ok(check({sourceFiles:untrusted}).reasons.includes(
+   'PACKAGE_FILE_UNVERIFIED:artifacts/api-server/node_modules/pg/package.json'));
+ const missing={...sourceFiles,
+   'provenance/pg-only-package-lock.json':{exists:false,hashVerified:false}};
+ assert.equal(check({sourceFiles:missing}).result,'NO_GO');
+});
+test('transitive pg library without its sha256 fails admission',()=>{
+ const lib='artifacts/api-server/node_modules/pg/lib/client.js';
+ const r=check({manifest:{...manifest,files:{...manifest.files,
+   [lib]:{sha256:'c'.repeat(64)}}}});
+ assert.equal(r.result,'NO_GO');
+ assert.ok(r.reasons.includes('PACKAGE_DEPENDENCY_UNVERIFIED:'+lib));
 });
