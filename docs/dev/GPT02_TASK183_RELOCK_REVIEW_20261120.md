@@ -15,8 +15,8 @@
 
 ## Verification performed, no hosted database mutation
 
-- `node --test scripts/dev/gpt02-task183-relock-once.test.mjs`: **12/12 PASS**.
-- `bash scripts/dev/test-gpt02-task183-relock-isolated.sh`: **PASS** using local `postgres:16-alpine` with `--network none`; verified idempotent relock, session termination, password clearing, crash/failure behavior and no retained authorization.
+- `node --test scripts/dev/gpt02-task183-relock-once.test.mjs`: **14/14 PASS**, including the bounded operational readback and rejection of malformed dual windows.
+- `bash scripts/dev/test-gpt02-task183-relock-isolated.sh`: **PASS** using local `postgres:16-alpine` with `--network none`; verified bounded canary **and** bounded operational wrapper-only windows, immediate relock on direct DML, unexpected role membership, private function EXECUTE or wrapper owner drift; plus idempotent relock, session termination, password clearing, crash/failure behavior and no retained authorization.
 - Existing dedicated preparer auth read-only proof and post-test relock historically **PASS 10 Nov 2026** ([Issue #157](https://github.com/Travelintrips/AI-Task-Hub/issues/157)). **Do not repeat the old proof as if it had never passed.**
 - Current Task #183 has 0 execution jobs and 0 preparations; Owner-signed per-task preparation and Final ACK are **not present**.
 
@@ -25,8 +25,12 @@
 1. Independent security/Owner review of the full hosted relock migration, including immutable function ACL and residual-session failure handling.
 2. Provision a **distinct** `gpt02_task183_relock_login` credential in the already-approved managed custody system. Do not share admin/bridge credentials or print any secret.
 3. Validate PostgreSQL role/function ownership, schema access and SQL-scoped permissions in CST-DEV; demonstrate *actual* independent watchdog readback using pinned TLS and no retries on auth failure.
-4. **Resolve the canary-vs-operational scope explicitly**. This candidate permits a bounded authentication-only canary only when the preparer cannot EXECUTE `gpt02_stage.prepare_core_task`, while the hosted operational wrapper currently grants EXECUTE to the preparer role. Do not activate a timer and assume it will preserve a legitimate preparation session; review separate bounded states and fail-closed transitions first.
-5. One fresh, real Google Super Admin/Owner approval must be bound cryptographically to exactly Task #183, its Hub/Core identities and nonce. A chat message such as “lanjut” is not that signature.
+4. **Review the now-tested canary-vs-operational separation before activation.** The source-only relock candidate recognizes (a) a bounded authentication-only canary with no wrapper EXECUTE, and (b) a bounded preparation-only window with exactly the official wrapper EXECUTE, never the internal implementation or direct table DML. Both require **connection limit 1**, TTL at most 3 minutes, no role memberships, no CREATE, no private approval/issuer function EXECUTE, intact RLS business-table surface, trusted SECURITY DEFINER ownership, and at most one active backend. A drift or expired TTL triggers immediate NOLOGIN/password clearing. This is **test evidence**, not authority to activate either state in CST-DEV.
+5. The **preparation-only** HTTP route requires a fresh verified Google Super Admin session and explicit same-origin intent; it does **not** require a per-command Ed25519 signature before creating the PENDING/prepared reservation. A **separate** Owner-signed, task-bound approval and Hub/Core/nonce checks are required **before execution/dispatch**. A chat message such as “lanjut” is not that signature.
 6. Only after approved DEV-only E2E tests with rollback and no duplicate dispatch may any broader activation be considered; PROD remains untouched.
 
 Do not merge/deploy this review package as an operational unlock. Link with [Issue #208](https://github.com/Travelintrips/AI-Task-Hub/issues/208).
+
+## Operational review note (20 Nov 2026)
+
+This candidate does not create a signed approval, operator session, DB role login, password, or timer activation. PostgreSQL 17 hosted metadata confirms the existing preparer role has **only wrapper EXECUTE**, cannot execute the internal function, has no role memberships, no DB CREATE, no direct business-table DML, and no access to private approval/issuer functions. Candidate preserves at most one short-lived authenticated preparation backend; it never authorizes a command. Review release gating and the genuine owner-operated preparation route before enabling any database credential.
