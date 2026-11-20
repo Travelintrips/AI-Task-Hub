@@ -181,7 +181,15 @@ def main():
 
     def sleeper():
         try:
-            with psycopg.connect(prep_dsn, autocommit=True, application_name="task183-hosted-session-proof", **connect_kwargs) as c:
+            # The session pooler may throttle historic failed postgres logins.
+            # Authenticate the scoped preparer directly against CST-DEV PG17;
+            # keep its credentials local and preserve the original role scope.
+            with psycopg.connect(
+                host="db." + REF + ".supabase.co", port=5432, dbname="postgres",
+                user=PREPARER, password=unquote(urlsplit(prep_dsn).password),
+                autocommit=True, application_name="task183-hosted-session-proof",
+                **connect_kwargs
+            ) as c:
                 with c.cursor() as cur:
                     cur.execute("SELECT session_user,current_database()")
                     if cur.fetchone() != (PREPARER, "postgres"):
