@@ -129,6 +129,19 @@ export function corePreparationPoolConfigFromOneShotFiles(env,options={}){
  const dir=synthetic?options.testDirectory:ONE_SHOT_DIR;
  if(typeof dir!=='string'||!dir.startsWith('/')||dir.includes('..'))
    deny('PREPARER_ONE_SHOT_DIRECTORY_INVALID');
+ if(!synthetic){
+  // A writable bind mount would defeat time-limited secret custody.
+  // Docker must bind the entire directory as an explicit read-only mount.
+  let mountinfo;
+  try{mountinfo=readFileSync('/proc/self/mountinfo','utf8')}
+  catch{deny('PREPARER_ONE_SHOT_READONLY_BIND_REQUIRED')}
+  const found=mountinfo.split('\n').some(line=>{
+   const columns=line.split(' ');
+   return columns[4]===ONE_SHOT_DIR&&
+     columns[5]?.split(',').includes('ro')===true;
+  });
+  if(!found)deny('PREPARER_ONE_SHOT_READONLY_BIND_REQUIRED');
+ }
  const dsn=oneShotCredential('preparer-dsn',dir,synthetic).trim();
  const ca=oneShotCredential('supabase-root-ca.crt',dir,synthetic);
  return corePreparationPoolConfig({
