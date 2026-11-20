@@ -51,7 +51,9 @@ def run():
         with (patch.object(mod, "ENV", env),
               patch.object(mod, "CA", ca),
               patch.object(mod, "native_check", return_value=False),
-              patch.object(mod, "checked_env", side_effect=unchanged_env)):
+              patch.object(mod, "checked_env", side_effect=unchanged_env),
+              patch.object(mod, "_is_root_owned_private_env",
+                           side_effect=lambda p: stat.S_IMODE(p.stat().st_mode) == 0o600)):
             lines, index, parsed = unchanged_env()
             try:
                 with contextlib.redirect_stdout(io.StringIO()):
@@ -66,7 +68,9 @@ def run():
         with (patch.object(mod, "ENV", env),
               patch.object(mod, "CA", ca),
               patch.object(mod, "native_check", return_value=True),
-              patch.object(mod, "checked_env", side_effect=unchanged_env)):
+              patch.object(mod, "checked_env", side_effect=unchanged_env),
+              patch.object(mod, "_is_root_owned_private_env",
+                           side_effect=lambda p: stat.S_IMODE(p.stat().st_mode) == 0o600)):
             lines, index, parsed = unchanged_env()
             with contextlib.redirect_stdout(io.StringIO()) as output:
                 mod.stage(lines, index, parsed, NEW_PASS)
