@@ -25,7 +25,7 @@ ORIGINAL = """function createCoreTaskPreparer({ env, PoolClass }) {
 
 REPLACEMENT = """// Task183 only: this exact mixed DEV build never accepts a preparer
 // credential through the API environment, the normal Hub connection pool,
-// or a writable/non-root credential path. Existing Kasbon code is untouched.
+// or a writable/non-root credential path. All unrelated code remains intact.
 const __TASK183_RO_DIR = "/run/credentials/gpt02-core-preparer.service";
 function __task183FileCustody(env) {
   if (env?.GPT02_CORE_PREP_CREDENTIAL_SOURCE !== "docker-readonly" ||
