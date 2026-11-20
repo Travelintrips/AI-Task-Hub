@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { useToast } from "@/hooks/use-toast";
 
 export default function Login() {
-  const { login } = useAuth();
+  const { login, googleLoginError, clearGoogleLoginError } = useAuth();
   const { toast } = useToast();
   const [email, setEmail]         = useState("");
   const [password, setPassword]   = useState("");
@@ -44,18 +44,25 @@ export default function Login() {
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-lg">Masuk</CardTitle>
-            <CardDescription>{isDevPasswordless ? "Masuk dengan Google atau email yang terdaftar" : "Gunakan email dan password yang terdaftar"}</CardDescription>
+            <CardDescription>{isDevPasswordless ? "Gunakan akun Google perusahaan yang terverifikasi" : "Gunakan email dan password yang terdaftar"}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            {googleLoginError && (
+              <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+                {googleLoginError}
+              </div>
+            )}
             <Button
               type="button"
               variant="outline"
               className="w-full"
               disabled={loading}
-              onClick={() => window.location.assign("/api/auth/google/start")}
+              onClick={() => { clearGoogleLoginError(); window.location.assign("/api/auth/google/start"); }}
             >
               Masuk dengan Google
             </Button>
+            {!isDevPasswordless && (
+              <>
             <div className="flex items-center gap-3">
               <div className="h-px flex-1 bg-border" />
               <span className="text-xs text-muted-foreground">atau</span>
@@ -105,11 +112,13 @@ export default function Login() {
                 {loading ? "Memproses..." : "Masuk"}
               </Button>
             </form>
+              </>
+            )}
           </CardContent>
         </Card>
 
         <div className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">
-          {isDevPasswordless ? "DEV: masuk dengan Google atau gunakan email aktif tanpa password." : "Gunakan akun Google perusahaan atau email/password yang sudah terdaftar."}
+          {isDevPasswordless ? "DEV: gunakan Masuk dengan Google. Login email tanpa verifikasi tidak diizinkan." : "Gunakan akun Google perusahaan atau email/password yang sudah terdaftar."}
         </div>
         <p className="text-center text-xs text-muted-foreground">
           Belum ada akun admin?{" "}
