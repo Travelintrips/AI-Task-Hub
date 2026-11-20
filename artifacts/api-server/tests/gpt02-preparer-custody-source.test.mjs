@@ -29,6 +29,24 @@ test('custody-only synthetic fixture has exactly the pinned CST-DEV identity and
  assert.equal(c.application_name,'gpt02-core-preparation-DEV-only');
  assert.equal(new URL(c.connectionString).username,`gpt02_core_prep_login.${ref}`);
 });
+test('direct transport uses the same isolated custody file and never inline credentials',t=>{
+ const {directory}=fixture(t);
+ const c=call({...env,GPT02_CORE_PREP_DEV_TRANSPORT:'direct'},directory);
+ const uri=new URL(c.connectionString);
+ assert.equal(uri.hostname,'db.xssrfshdrtdfupgqwfdw.supabase.co');
+ assert.equal(decodeURIComponent(uri.username),'gpt02_core_prep_login');
+ assert.equal(c.ssl.servername,uri.hostname);
+ assert.equal(c.ssl.rejectUnauthorized,true);
+ assert.equal(c.max,1);
+ for(const unsafe of [
+  {GPT02_CORE_PREP_DATABASE_URL_DEV:goodDsn},
+  {GPT02_CORE_PREP_DEV_CA:ca},
+  {GPT02_CORE_PREP_DEV_PROJECT_REF:'nzdweipzckfszczzqtuw'},
+  {GPT02_HUB_DEV_PROJECT_REF:'nzdweipzckfszczzqtuw'},
+  {NODE_ENV:'production'},
+  {GPT02_CORE_PREP_DEV_TRANSPORT:'foreign'},
+ ]) assert.throws(()=>call({...env,GPT02_CORE_PREP_DEV_TRANSPORT:'direct',...unsafe},directory));
+});
 test('file custody refuses inline API secrets and foreign PROD/tenant host',t=>{
  const {directory}=fixture(t);
  for(const patch of [{GPT02_CORE_PREP_DATABASE_URL_DEV:goodDsn},{GPT02_CORE_PREP_DEV_CA:ca},
