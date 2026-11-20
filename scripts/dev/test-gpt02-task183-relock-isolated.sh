@@ -3,7 +3,8 @@ set -euo pipefail
 # Disposable local PostgreSQL fixture only. No Supabase credentials or network.
 W="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 NAME=gpt02-task183-relock-candidate-$$
-cleanup(){ docker rm -f "$NAME" >/dev/null 2>&1 || true; }
+WORK="$(mktemp -d /tmp/gpt02-task183-fixture.XXXXXXXX)"
+cleanup(){ docker rm -f "$NAME" >/dev/null 2>&1 || true; rm -rf "$WORK"; }
 trap cleanup EXIT
 docker run -d --name "$NAME" --network none --security-opt no-new-privileges -e POSTGRES_USER=fixture_root -e POSTGRES_PASSWORD=SYNTHETIC_FIXTURE_ROOT -e POSTGRES_DB=postgres postgres:16-alpine >/dev/null
 # PostgreSQL's initdb accepts one temporary local socket before shutdown
@@ -59,7 +60,22 @@ docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U fixture_root -d postgres -c "
  GRANT EXECUTE ON FUNCTION gpt02_stage.prepare_core_task(text,integer,text,text,text,text)
   TO gpt02_core_prep_login;
 " >/dev/null
-docker exec -i "$NAME" psql -X -v ON_ERROR_STOP=1 -U fixture_root -d postgres < "$W/gpt02-task183-relock-hosted-candidate.sql" >/dev/null
+# The checked-in SQL pins REAL CST-DEV function digests. This offline fixture
+# uses two intentionally synthetic function bodies, so patch ONLY the local
+# disposable test copy; never change the hosted fixed hashes in source.
+python3 - "$W/gpt02-task183-relock-hosted-candidate.sql" "$WORK/fixture.sql" <<'PY'
+import hashlib,sys
+from pathlib import Path
+s=Path(sys.argv[1]).read_text()
+hosted=[
+ 'a759ab94ab38e0f0fcf0b42bc14dbbf30308274344a14ade666e1bae38a1c456',
+ 'b18275516add255e76f31414a28732bdd900b556b10f38d42e2e4bdf9f7415d4']
+for h in hosted: assert s.count(h)==1
+fixture=hashlib.sha256(b'SELECT 1').hexdigest()
+for h in hosted: s=s.replace(h,fixture)
+Path(sys.argv[2]).write_text(s)
+PY
+docker exec -i "$NAME" psql -X -v ON_ERROR_STOP=1 -U fixture_root -d postgres < "$WORK/fixture.sql" >/dev/null
 # SECURITY DEFINER boundary: unrelated authenticated accounts and PUBLIC
 # must have no permission to invoke the only privileged relock function.
 docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U fixture_root -d postgres -c "CREATE ROLE gpt02_task183_untrusted_login LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS CONNECTION LIMIT 1 PASSWORD 'SYNTHETIC_UNTRUSTED_ONLY' VALID UNTIL '2030-01-01'" >/dev/null
@@ -95,6 +111,22 @@ owner_failure=$(docker exec -e PGPASSWORD=SYNTHETIC_RELOCK_ONLY "$NAME" psql -X 
 test "$owner_failure" = 't|0|0|f|f' || { echo "WRAPPER_OWNER_DRIFT_DID_NOT_RELOCK"; exit 23; }
 docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U fixture_root -d postgres -c "ALTER FUNCTION gpt02_stage.prepare_core_task(text,integer,text,text,text,text) OWNER TO gpt02_core_prep_owner" >/dev/null
 echo "WRAPPER_OWNER_DRIFT_RELOCK_PASS"
+# Even with the exact owner, a changed function body is not authorized.
+# Both function bodies must match the official persisted CST-DEV fingerprints.
+docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U fixture_root -d postgres -Atqc "DO \$\$ BEGIN EXECUTE format('ALTER ROLE gpt02_core_prep_login LOGIN CONNECTION LIMIT 1 PASSWORD %L VALID UNTIL %L','SYNTHETIC_PREPARER_ONLY',(clock_timestamp()+interval '40 seconds')::text); END \$\$;" >/dev/null
+docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U fixture_root -d postgres -c "CREATE OR REPLACE FUNCTION gpt02_stage.prepare_core_task(text,integer,text,text,text,text) RETURNS integer LANGUAGE SQL SECURITY DEFINER AS 'SELECT 2'" >/dev/null
+body_owner=$(docker exec "$NAME" psql -X -U fixture_root -d postgres -Atqc "SELECT pg_get_userbyid(p.proowner)||'|'||p.prosecdef::text FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='gpt02_stage' AND p.proname='prepare_core_task'")
+test "$body_owner" = 'gpt02_core_prep_owner|true' || { echo "UNEXPECTED_SYNTHETIC_OWNER_DRIFT"; exit 26; }
+body_failure=$(docker exec -e PGPASSWORD=SYNTHETIC_RELOCK_ONLY "$NAME" psql -X -w -v ON_ERROR_STOP=1 -h 127.0.0.1 -U gpt02_task183_relock_login -d postgres -Atqc 'SELECT * FROM gpt02_guard.relock_task183_preparer()')
+test "$body_failure" = 't|0|0|f|f' || { echo "SAME_OWNER_WRAPPER_BODY_DRIFT_NOT_RELOCKED"; exit 27; }
+docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U fixture_root -d postgres -c "CREATE OR REPLACE FUNCTION gpt02_stage.prepare_core_task(text,integer,text,text,text,text) RETURNS integer LANGUAGE SQL SECURITY DEFINER AS 'SELECT 1'" >/dev/null
+echo "SAME_OWNER_WRAPPER_SHA256_DRIFT_RELOCK_PASS"
+docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U fixture_root -d postgres -Atqc "DO \$\$ BEGIN EXECUTE format('ALTER ROLE gpt02_core_prep_login LOGIN CONNECTION LIMIT 1 PASSWORD %L VALID UNTIL %L','SYNTHETIC_PREPARER_ONLY',(clock_timestamp()+interval '40 seconds')::text); END \$\$;" >/dev/null
+docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U fixture_root -d postgres -c "CREATE OR REPLACE FUNCTION gpt02_stage.prepare_core_task_v1_internal(text,integer,text,text,text,text) RETURNS integer LANGUAGE SQL SECURITY DEFINER AS 'SELECT 2'" >/dev/null
+internal_failure=$(docker exec -e PGPASSWORD=SYNTHETIC_RELOCK_ONLY "$NAME" psql -X -w -v ON_ERROR_STOP=1 -h 127.0.0.1 -U gpt02_task183_relock_login -d postgres -Atqc 'SELECT * FROM gpt02_guard.relock_task183_preparer()')
+test "$internal_failure" = 't|0|0|f|f' || { echo "SAME_OWNER_INTERNAL_BODY_DRIFT_NOT_RELOCKED"; exit 28; }
+docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U fixture_root -d postgres -c "CREATE OR REPLACE FUNCTION gpt02_stage.prepare_core_task_v1_internal(text,integer,text,text,text,text) RETURNS integer LANGUAGE SQL SECURITY DEFINER AS 'SELECT 1'" >/dev/null
+echo "SAME_OWNER_INTERNAL_SHA256_DRIFT_RELOCK_PASS"
 # Unrelated private function rights must never be treated as valid custody.
 docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U fixture_root -d postgres -c "CREATE FUNCTION gpt02_private.synthetic_untrusted() RETURNS integer LANGUAGE SQL AS 'SELECT 1'; REVOKE EXECUTE ON FUNCTION gpt02_private.synthetic_untrusted() FROM PUBLIC; GRANT EXECUTE ON FUNCTION gpt02_private.synthetic_untrusted() TO gpt02_core_prep_login" >/dev/null
 docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U fixture_root -d postgres -Atqc "DO \$\$ BEGIN EXECUTE format('ALTER ROLE gpt02_core_prep_login LOGIN CONNECTION LIMIT 1 PASSWORD %L VALID UNTIL %L','SYNTHETIC_PREPARER_ONLY',(clock_timestamp()+interval '40 seconds')::text); END \$\$;" >/dev/null
@@ -117,10 +149,10 @@ docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U fixture_root -d postgres -Atqc
 bounded=$(docker exec -e PGPASSWORD=SYNTHETIC_RELOCK_ONLY "$NAME" psql -X -w -v ON_ERROR_STOP=1 -h 127.0.0.1 -U gpt02_task183_relock_login -d postgres -Atqc 'SELECT * FROM gpt02_guard.relock_task183_preparer()')
 test "$bounded" = 'f|0|0|t|f' || { echo "BOUNDED_LOGIN_PREMATURE_RELOCK"; exit 6; }
 # A failure to count a bounded canary's sessions must force NOLOGIN.
-python3 - "$W" <<'PY'
+python3 - "$WORK" <<'PY'
 from pathlib import Path
 import sys
-p=Path(sys.argv[1]);src=(p/'gpt02-task183-relock-hosted-candidate.sql').read_text()
+p=Path(sys.argv[1]);src=(p/'fixture.sql').read_text()
 fn=src[src.index('CREATE FUNCTION gpt02_guard.relock_task183_preparer()'):src.index('REVOKE ALL ON FUNCTION')]
 fn=fn.replace('CREATE FUNCTION ','CREATE OR REPLACE FUNCTION ',1)
 needle=("SELECT count(*)::integer INTO remaining FROM pg_catalog.pg_stat_activity\n"
@@ -129,10 +161,10 @@ assert fn.count(needle)==1
 (p/'inject-census-failure.sql').write_text(fn.replace(needle,"RAISE EXCEPTION 'SYNTHETIC_CANARY_CENSUS_FAILURE';",1))
 (p/'restore-function.sql').write_text(fn)
 PY
-docker exec -i "$NAME" psql -X -v ON_ERROR_STOP=1 -U fixture_root -d postgres < "$W/inject-census-failure.sql" >/dev/null
+docker exec -i "$NAME" psql -X -v ON_ERROR_STOP=1 -U fixture_root -d postgres < "$WORK/inject-census-failure.sql" >/dev/null
 census=$(docker exec -e PGPASSWORD=SYNTHETIC_RELOCK_ONLY "$NAME" psql -X -w -v ON_ERROR_STOP=1 -h 127.0.0.1 -U gpt02_task183_relock_login -d postgres -Atqc 'SELECT * FROM gpt02_guard.relock_task183_preparer()')
 test "$census" = 't|0|0|f|f' || { echo "CANARY_CENSUS_FAILURE_DID_NOT_FORCE_RELOCK";exit 16; }
-docker exec -i "$NAME" psql -X -v ON_ERROR_STOP=1 -U fixture_root -d postgres < "$W/restore-function.sql" >/dev/null
+docker exec -i "$NAME" psql -X -v ON_ERROR_STOP=1 -U fixture_root -d postgres < "$WORK/restore-function.sql" >/dev/null
 docker exec "$NAME" psql -X -v ON_ERROR_STOP=1 -U fixture_root -d postgres -Atqc "DO \$\$ BEGIN EXECUTE format('ALTER ROLE gpt02_core_prep_login LOGIN CONNECTION LIMIT 1 PASSWORD %L VALID UNTIL %L','SYNTHETIC_PREPARER_ONLY',(clock_timestamp()+interval '40 seconds')::text); END \$\$;" >/dev/null
 echo "CANARY_CENSUS_FAILURE_RELOCKED_ROLE_PASS"
 docker exec -d -e PGPASSWORD=SYNTHETIC_PREPARER_ONLY "$NAME" psql -X -w -h 127.0.0.1 -U gpt02_core_prep_login -d postgres -Atqc 'SELECT pg_sleep(40)' >/dev/null
@@ -170,17 +202,17 @@ docker exec -d -e PGPASSWORD=SYNTHETIC_PREPARER_ONLY "$NAME" psql -X -w -h 127.0
 sleep 0.7
 before=$(docker exec "$NAME" psql -X -U fixture_root -d postgres -Atqc "SELECT count(*) FROM pg_stat_activity WHERE usename='gpt02_core_prep_login'")
 test "$before" = 1 || { echo "FAILURE_SESSION_FIXTURE_MISSING"; exit 11; }
-python3 - "$W" <<'PY'
+python3 - "$WORK" <<'PY'
 from pathlib import Path
 import sys
-p=Path(sys.argv[1]);src=(p/'gpt02-task183-relock-hosted-candidate.sql').read_text()
+p=Path(sys.argv[1]);src=(p/'fixture.sql').read_text()
 fn=src[src.index('CREATE FUNCTION gpt02_guard.relock_task183_preparer()'):src.index('REVOKE ALL ON FUNCTION')]
 assert fn.count('IF pg_catalog.pg_terminate_backend(sess.pid) THEN')==1
 fn=fn.replace('CREATE FUNCTION ','CREATE OR REPLACE FUNCTION ',1)
 fn=fn.replace('IF pg_catalog.pg_terminate_backend(sess.pid) THEN',"RAISE EXCEPTION 'SYNTHETIC_TERMINATION_FAILURE';\n     IF pg_catalog.pg_terminate_backend(sess.pid) THEN")
 (p/'inject-termination-failure.sql').write_text(fn)
 PY
-docker exec -i "$NAME" psql -X -v ON_ERROR_STOP=1 -U fixture_root -d postgres < "$W/inject-termination-failure.sql" >/dev/null
+docker exec -i "$NAME" psql -X -v ON_ERROR_STOP=1 -U fixture_root -d postgres < "$WORK/inject-termination-failure.sql" >/dev/null
 partial=$(docker exec -e PGPASSWORD=SYNTHETIC_RELOCK_ONLY "$NAME" psql -X -w -v ON_ERROR_STOP=1 -h 127.0.0.1 -U gpt02_task183_relock_login -d postgres -Atqc 'SELECT * FROM gpt02_guard.relock_task183_preparer()')
 test "$partial" = 'f|0|1|f|f' || { echo "PARTIAL_RELOCK_RESPONSE_MISSING"; exit 12; }
 safe=$(docker exec "$NAME" psql -X -U fixture_root -d postgres -Atqc "SELECT rolcanlogin,rolconnlimit,rolpassword IS NULL,rolvaliduntil<now(),(SELECT count(*) FROM pg_stat_activity WHERE usename='gpt02_core_prep_login') FROM pg_authid WHERE rolname='gpt02_core_prep_login'")
