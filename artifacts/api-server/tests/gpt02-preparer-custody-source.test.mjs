@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync,writeFileSync,mkdirSync,mkdtempSync,chmodSync,symlinkSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
-import {corePreparationPoolConfigFromFiles,createCoreTaskPreparer} from '../src/lib/gpt02-core-task-preparation.mjs';
+import {corePreparationPoolConfigFromFiles,corePreparationPoolConfigFromDockerReadonlyFiles,createCoreTaskPreparer} from '../src/lib/gpt02-core-task-preparation.mjs';
 
 const ref='xssrfshdrtdfupgqwfdw';
 const host='aws-1-ap-southeast-2.pooler.supabase.com';
@@ -87,4 +87,23 @@ test('file-custody live mode refuses missing host credentials without constructi
  assert.throws(()=>createCoreTaskPreparer({env:candidate,PoolClass:Pool}),
    e=>e.code==='PREPARER_CREDENTIAL_FILE_REQUIRED');
  assert.equal(created,0);
+});
+
+
+test('nonroot docker-readonly custody refuses missing RO bind mount before constructing a pool',()=>{
+ let pools=0;
+ class Pool{constructor(){pools++}}
+ const config={...env,GPT02_CORE_PREPARATION_ENABLED:'true',
+   GPT02_CORE_PREP_CREDENTIAL_SOURCE:'docker-readonly'};
+ assert.throws(()=>createCoreTaskPreparer({env:config,PoolClass:Pool}),
+   e=>e.code==='PREPARER_DOCKER_READONLY_MOUNT_REQUIRED'||
+      e.code==='PREPARER_NONROOT_CONTAINER_REQUIRED');
+ assert.equal(pools,0);
+});
+
+test('docker-readonly mode rejects any inline DSN or TLS override before filesystem access',()=>{
+ const config={...env,GPT02_CORE_PREP_CREDENTIAL_SOURCE:'docker-readonly',
+   GPT02_CORE_PREP_DATABASE_URL_DEV:goodDsn};
+ assert.throws(()=>corePreparationPoolConfigFromDockerReadonlyFiles(config),
+   e=>e.code==='PREPARER_INLINE_CREDENTIAL_FORBIDDEN');
 });
