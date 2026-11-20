@@ -217,5 +217,5 @@ test('read-only hosted preflight preserves expected CST-DEV fingerprint and priv
  assert.match(sql,/task183_signed_approval_count/);
  assert.match(sql,/a759ab94ab38e0f0fcf0b42bc14dbbf30308274344a14ade666e1bae38a1c456/);
  assert.match(sql,/b18275516add255e76f31414a28732bdd900b556b10f38d42e2e4bdf9f7415d4/);
- assert.doesNotMatch(sql,/^\\s*(?:CREATE|ALTER|DROP|GRANT|REVOKE|INSERT|UPDATE|DELETE|CALL|DO)\\s+/mi);
+ assert.doesNotMatch(sql,/^\s*(?:CREATE|ALTER|DROP|GRANT|REVOKE|INSERT|UPDATE|DELETE|CALL|DO)\s+/mi);
 });
