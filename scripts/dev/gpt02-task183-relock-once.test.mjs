@@ -192,3 +192,19 @@ test('two active windows or over-limit sessions never become verified readback',
    e=>e.code==='TASK183_RELOCK_READBACK_INVALID');
  }
 });
+
+test('operational wrapper and internal PostgreSQL body digests must match CST-DEV pinned SHA256',()=>{
+ const sql=readFileSync(new URL('./gpt02-task183-relock-hosted-candidate.sql',import.meta.url),'utf8');
+ const expected=[
+  'a759ab94ab38e0f0fcf0b42bc14dbbf30308274344a14ade666e1bae38a1c456',
+  'b18275516add255e76f31414a28732bdd900b556b10f38d42e2e4bdf9f7415d4'
+ ];
+ for(const hash of expected){
+  assert.equal(sql.split(hash).length-1,1,'pinned hash must appear exactly once: '+hash.slice(0,8));
+ }
+ assert.match(sql,/pg_catalog\.sha256\(/);
+ assert.match(sql,/pg_catalog\.convert_to\(p\.prosrc,'UTF8'\)/);
+ assert.match(sql,/CASE p\.proname/);
+ assert.match(sql,/WHEN 'prepare_core_task_v1_internal'/);
+ assert.match(sql,/WHEN 'prepare_core_task'/);
+});
