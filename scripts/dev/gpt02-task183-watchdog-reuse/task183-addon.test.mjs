@@ -67,6 +67,11 @@ test('invalid, dual-window, residual-session and inconsistent count responses ar
   {...locked,sessions_remaining:1},
   {...locked,sessions_terminated:-1},
   {...locked,canary_active:true},
+  // Missing confirmation of lock and no authorized active window is an
+  // incomplete relock, never a successful watchdog pass.
+  {...locked,role_locked:false},
+  {...locked,role_locked:false,sessions_remaining:1},
+  {...locked,role_locked:false,sessions_terminated:1},
   {...bounded,canary_active:true},
   {...bounded,sessions_remaining:2},
   {...bounded,sessions_terminated:1},
@@ -120,4 +125,15 @@ test('existing Issue159 lanes and custody remain unchanged in source',()=>{
   'process.env.GPT02_TASK183_RELOCK_REUSE_ENABLED'])
   assert.ok(s.includes(key),key);
  assert.doesNotMatch(s,/task183-relock-dsn|Task183PreparerPassword|NEW_RELOCK_SECRET/);
+});
+
+test('incomplete Task183 relock causes NO_GO without skipping legacy cleanup',async()=>{
+ let oldCalls=0,newCalls=0;
+ await assert.rejects(runCombinedRelockLanes({},{
+  task183Enabled:true,
+  runLegacy:async()=>{oldCalls++;return {readerInstalled:true};},
+  runTask183:async()=>{newCalls++;return await relockTask183WithExistingAuditor(
+   clientWithRow({...locked,role_locked:false}));},
+ }),e=>e.message==='RELOCK_TASK183_LANE_FAILED');
+ assert.equal(oldCalls,1);assert.equal(newCalls,1);
 });
