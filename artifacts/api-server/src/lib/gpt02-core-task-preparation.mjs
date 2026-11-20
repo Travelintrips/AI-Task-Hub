@@ -4,6 +4,7 @@
  * a native issuer, signer, lease or worker dispatch implementation.
  */
 import { X509Certificate } from 'node:crypto';
+import {lstatSync,readFileSync} from 'node:fs';
 const EXPECTED_DEV_REF='xssrfshdrtdfupgqwfdw';
 const PINNED_ROOT_FINGERPRINT='807025ad50d4ed219d2c9c7d299c004f824eb00cf7f65afef607d07b72e6cafa';
 const ROLE='gpt02_core_prep_login';
@@ -59,6 +60,33 @@ export function corePreparationPoolConfig(env){
  return {connectionString:raw,ssl:{ca:pinnedCa,rejectUnauthorized:true},max:1,
    connectionTimeoutMillis:5000,statement_timeout:5000,idleTimeoutMillis:10000,
    application_name:'gpt02-core-preparation-DEV-only'};
+}
+/** Separate opt-in credential-file boundary; never fallback to the Hub DSN. */
+const PREPARER_CREDENTIAL_DIR='/run/credentials/gpt02-core-preparer.service';
+function restrictedCredential(path, directory, synthetic){
+ let ds,fs;
+ try{ds=lstatSync(directory);fs=lstatSync(path);}catch{deny('PREPARER_CREDENTIAL_FILE_REQUIRED')}
+ const uid=synthetic?(process.getuid?.()??fs.uid):0;
+ const gid=synthetic?(process.getgid?.()??fs.gid):0;
+ if(!ds.isDirectory()||ds.isSymbolicLink()||(!synthetic && (ds.mode&0o777)!==0o550)||
+    ds.uid!==uid||ds.gid!==gid||!fs.isFile()||fs.isSymbolicLink()||
+    fs.uid!==uid||fs.gid!==gid||![0o400,0o600,...(synthetic?[]:[0o440])].includes(fs.mode&0o777))
+   deny('PREPARER_CREDENTIAL_FILE_SECURITY_INVALID');
+ let value;try{value=readFileSync(path,'utf8')}catch{deny('PREPARER_CREDENTIAL_FILE_REQUIRED')}
+ if(value.length<1||value.length>8192)deny('PREPARER_CREDENTIAL_FILE_INVALID');
+ return value;
+}
+export function corePreparationPoolConfigFromFiles(env, options={}){
+ // An explicit test-only directory enables isolated fixture tests, never a runtime override.
+ const synthetic=options.synthetic===true;
+ if(synthetic && env.NODE_ENV!=='development')deny('EXPLICIT_SECURE_DEV_REQUIRED');
+ const dir=synthetic?options.testDirectory:PREPARER_CREDENTIAL_DIR;
+ if(typeof dir!=='string'||!dir.startsWith('/')||dir.includes('..'))deny('PREPARER_CREDENTIAL_DIRECTORY_REQUIRED');
+ if(env.GPT02_CORE_PREP_DATABASE_URL_DEV || env.GPT02_CORE_PREP_DEV_CA)
+   deny('PREPARER_INLINE_CREDENTIAL_FORBIDDEN');
+ const dsn=restrictedCredential(`${dir}/preparer-dsn`,dir,synthetic).trim();
+ const ca=restrictedCredential(`${dir}/supabase-root-ca.crt`,dir,synthetic);
+ return corePreparationPoolConfig({...env,GPT02_CORE_PREP_DATABASE_URL_DEV:dsn,GPT02_CORE_PREP_DEV_CA:ca});
 }
 /**
  * Returns reserved candidate identities only; this is NOT an approved command.
