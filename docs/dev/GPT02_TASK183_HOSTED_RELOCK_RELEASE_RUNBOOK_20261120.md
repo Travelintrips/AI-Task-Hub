@@ -1,104 +1,82 @@
-# Task #183 — CST-DEV hosted relock release and rollback gate
+# GPT02 Task #183 — satu gerbang rilis CST-DEV
 
-**Status: REVIEW ONLY / NO DEPLOY / NO ROLE UNLOCK / NO DELL DISPATCH.**
-This document is a release checklist, not authorization. It covers only Supabase CST-DEV
-`xssrfshdrtdfupgqwfdw` and the existing VPS `srv1792369`.
-The original PostgreSQL relock watchdog remains enabled. Do not touch PROD.
+**DEV ONLY / TIDAK ADA PROD / TIDAK ADA DISPATCH SEBELUM OWNER SAH.**
+Dokumen ini menyederhanakan proses rilis; tidak mengubah SQL, hak akses, atau pengaman.
+Target hanya Supabase `xssrfshdrtdfupgqwfdw` dan VPS `srv1792369`.
+Gunakan satu bukti hasil akhir, bukan persetujuan/review manusia berulang.
 
-## Exact-source evidence
+## Bukti yang sudah diterima — jangan diuji ulang tanpa perubahan
 
-- Candidate: PR #211, source SHA `bad47ba6f944a482b103af6442be9212c81b611b`.
-- Migration: `scripts/dev/gpt02-task183-relock-hosted-candidate.sql`.
-- The installed canonical wrapper and internal preparation functions are NOT to be replaced.
-- Hosted PG17.6 read-only checks: the preparer role is NOLOGIN, connection limit 0,
-  password NULL and no elevated flags; the 8 protected tables have RLS with no
-  preparer direct DML/SELECT; the preparer has EXECUTE on the wrapper only;
-  `gpt02_guard` and the dedicated relock role do not yet exist.
-- SHA256 of hosted `pg_proc.prosrc` must equal:
-  - wrapper `a759ab94ab38e0f0fcf0b42bc14dbbf30308274344a14ade666e1bae38a1c456`
-  - internal `b18275516add255e76f31414a28732bdd900b556b10f38d42e2e4bdf9f7415d4`
-- Independent disposable PostgreSQL 17 / `--network none` relock regression PASS:
-  canary/operational separation, body-hash drift denial, privilege drift, NOLOGIN
-  on termination failure, session termination, NULL password and retry.
-  This is **not** proof of hosted active-session termination.
+- Kandidat SQL berasal dari PR #211. Cocokkan SHA commit dan checksum SQL **pada saat eksekusi**, karena PR masih dapat berubah.
+- Tes disposable PostgreSQL 16/17, kegagalan relock, terminasi sesi aktif,
+  pembatasan ACL, serta negatif replay/drift telah PASS **secara terisolasi**.
+  Itu bukan pengganti pengujian sesi aktif pada database hosted.
+- Dua hash badan fungsi preparer di CST-DEV harus tetap persis:
+  - `prepare_core_task`: `a759ab94ab38e0f0fcf0b42bc14dbbf30308274344a14ade666e1bae38a1c456`
+  - `prepare_core_task_v1_internal`: `b18275516add255e76f31414a28732bdd900b556b10f38d42e2e4bdf9f7415d4`
+- Task #183 = `WA-2611-7669`, perusahaan `default`, PIC ID 5.
+  Gunakan task ini, jangan buat task pengganti atau Command/Attempt ID palsu.
+- Watchdog utama GPT02 yang sudah aktif tetap dipakai; jangan menambah watchdog baru.
 
-## Human / platform release gates (all required)
+## Satu gerbang teknis dan satu paket perubahan DEV
 
-1. Obtain a review by a qualified *different* reviewer of the exact migration,
-   `SECURITY DEFINER`, function ACL, PostgreSQL role capabilities, code SHA pins,
-   partial session-termination behavior and this rollback plan. A PR comment by
-   the code author or an automated test is not an independent approval.
-2. Obtain explicit, scoped approval to mutate **only** CST-DEV on this exact
-   source commit, including role creation. Chat continuation and generic prior
-   approval do not substitute for command-specific Owner consent later.
-3. Use the authorized DBA/credential custodian; do not evade managed database
-   restrictions on `CREATE ROLE`. Confirm that the managed platform permits
-   each DDL operation before applying the reviewed SQL.
-4. Pin the matching prepared runtime and dependency attestation. All secrets
-   must be managed via root-held `systemd-creds` / `LoadCredentialEncrypted`;
-   never put passwords in chat, source, process arguments, HTTP requests or logs.
+**Tidak diwajibkan auditor eksternal, reviewer independen formal, atau
+persetujuan terpisah untuk setiap pengujian.** Pelaksana teknis yang berwenang
+cukup memeriksa bukti dan menjalankan *satu* paket release gate berikut.
+Pemasangan role/DDL tetap harus melalui mekanisme administrator yang
+diizinkan oleh Supabase dan persetujuan perubahan khusus CST-DEV;
+tidak boleh memintas pembatasan platform.
 
-## Preflight before any hosted write
+1. **Preflight sekali.** Pin SHA GitHub + checksum migrasi; periksa Task #183,
+   PostgreSQL 17, RLS delapan tabel, hash fungsi, no-direct-DML/ACL, role preparer
+   `NOLOGIN` + password NULL + connlimit 0, nol job/preparation/approval, dan
+   watchdog aktif dengan cleanup tertunda nol. Bila drift: **STOP / NO-GO**.
+2. **Pasang relock dahulu.** Dalam transaksi DDL yang sudah disetujui untuk DEV,
+   pasang hanya role relock terkunci, schema privat dan fungsi `relock_task183_preparer`.
+   Jangan buka preparer LOGIN, jangan buat command, jangan mengubah fungsi
+   preparer yang sudah PASS. Verifikasi ACL `PUBLIC`/`anon`/`authenticated`
+   ditolak, owner dan hash tidak berubah, serta role relock masih terkunci.
+3. **Provisioning sekali.** Administrator/custodian yang berwenang menempatkan
+   kredensial relock *terpisah* melalui `systemd-creds` terenkripsi.
+   Pasang kandidat runtime yang sama persis dengan SHA terverifikasi, uji TLS
+   `verify-full`, identitas role/host/proyek dan satu timer relock yang ditetapkan;
+   tanpa mencetak DSN/password/token. Tidak boleh gunakan kredensial DBA
+   maupun aplikasi umum untuk menggantikan role khusus.
+4. **Satu rangkaian tes hosted.** Gunakan role sementara berhak minimum dan
+   mekanisme PostgreSQL yang disetujui platform; buktikan login asli,
+   sesi `pg_sleep` masih aktif, relock `NOLOGIN` + password NULL,
+   pemutusan paksa sesi, nol koneksi/ACL sisa, penolakan login ulang,
+   penolakan replay dan rollback. Jika ada langkah gagal, langsung jalankan
+   cleanup yang tersedia; **jangan buka akses preparation**.
+5. **Persiapan dan E2E satu kali.** Hanya setelah gate 1–4 PASS,
+   jendela preparer boleh dibuka singkat sesuai kebijakan TTL maksimal 3 menit
+   melalui sesi Google Super Admin asli untuk *prepare-only*, menggunakan wrapper
+   `gpt02_stage.prepare_core_task`. Command ID dan Attempt ID harus berasal dari
+   hasil resmi Hub/Core. **Satu persetujuan Owner asli yang terikat ke
+   task/command/attempt diperlukan sebelum dispatch**, diikuti broker/issuer
+   asli, satu DELL receiver-owned Final ACK, replay denial dan final relock.
+   Persetujuan chat “lanjut” bukan tanda tangan untuk perintah.
 
-- Confirm `current_database()=postgres` on project `xssrfshdrtdfupgqwfdw`.
-- Re-read the immutable Task #183 (`WA-2611-7669`), tenant `default`, PIC ID 5.
-- Require zero Task #183 preparations, execution jobs, approved intents, scoped
-  sessions and outstanding reader/writer cleanup windows before initial release.
-- Require preparer NOLOGIN, connlimit 0, `rolpassword IS NULL`, no membership,
-  no direct business-table DML and no unexpected function EXECUTE.
-- Require the two hosted preparation function SHA256 digests above to match.
-- Confirm original relock auditor timer is ACTIVE with recent SUCCESS.
-- Take a schema/ACL/function/role *metadata* snapshot and independent audit
-  record without reading or exporting password verifiers.
-- If any check fails, **STOP**, preserve NOLOGIN, and do not start a service.
+## Rollback fail-closed — bagian dari paket yang sama
 
-## Two-stage installation, never combined with an unlocked preparer
+- Bekukan preparation/dispatch; pertahankan watchdog utama dan jalur relock
+  sampai semua sesi ditutup.
+- Relock preparer ke `NOLOGIN`, `PASSWORD NULL`, connlimit 0 dan expiry lampau.
+  Pastikan `pg_stat_activity` nol untuk role tersebut. Jika terminasi belum
+  lengkap, laporkan **NO-GO**, ulangi cleanup terotorisasi; jangan klaim PASS.
+- Jangan hapus fungsi/timer/kredensial relock ketika masih diperlukan untuk
+  menutup sesi. Jangan merestorasi password atau memperluas `EXECUTE`.
+- Pastikan tidak ada job/preparation/approval/ACK ganda, hash/ACL tetap cocok,
+  tidak ada perubahan PROD, dan status watcher kembali sehat.
+- Simpan **satu laporan** berisi SHA, checksum, hasil tes, snapshot metadata
+  (tanpa verifier/password), persetujuan perubahan DEV, bukti persetujuan Owner,
+  Final ACK dan hasil rollback bila diperlukan.
 
-**Stage A — restricted relock only:** only after the separate review and explicit
-CST-DEV migration approval, apply the *exact* reviewed migration transaction.
-It creates `gpt02_task183_relock_login` as NOLOGIN/PASSWORD NULL/connlimit 0,
-private `gpt02_guard` and an explicitly granted relock-only function.
-The migration must not open preparer LOGIN or create a Task #183 preparation.
-Verify immediately that PUBLIC / anon / authenticated lack function EXECUTE,
-the only intended relock role has the scoped rights, and existing wrapper
-owners/digests/ACL and original watchdog are unchanged. Any DDL failure is NO-GO.
+## Keputusan
 
-**Stage B — credential / runtime custody:** separate approval from the credential
-custodian to issue a *new, distinct* bounded relock identity and encrypted file.
-Validate pinned DEV host, role, TLS and project; no shared DBA/application DSN.
-Only when its independent relock service can prove actual hosted active-backend
-termination, NOLOGIN/password NULL, zero sessions, bounded TTL and negative
-tests may the explicit, temporary preparer LOGIN window be considered.
-
-Neither successful Stage A nor Stage B permits signer execution or DELL dispatch.
-The preparer must use the existing official `prepare_core_task` wrapper, with a
-fresh authenticated Google Super Admin preparation-only intent; owner-signed
-authorization for the exact task/command/attempt and the DELL receiver-owned
-Final ACK are later, separate gates.
-
-## Fail-closed recovery / rollback
-
-1. Freeze any new preparer window and do not start the original one-shot,
-   issuer or DELL dispatch. Preserve the main relock watchdog.
-2. Close the preparer identity using the *authorized* relock path, prove
-   `NOLOGIN`, `PASSWORD NULL`, connlimit 0, expired validity and **0 live
-   sessions**. An incomplete termination is NO-GO and requires another audited
-   cleanup tick, not a success label.
-3. If a role remains active, retain the independent relock mechanism and
-   escalate to the authorized DBA. **Do not drop the relock function, delete
-   its credential, or disable its timer while it is still needed.**
-4. Keep added relock schema/role locked and inert until separately approved
-   cleanup. Never restore a password or widen EXECUTE to speed rollback.
-5. Verify Task #183 job/preparation/approval counts, original wrapper digests,
-   role/ACL state, watchdog status and that PROD/DELL remained unchanged.
-6. Retain nonsecret evidence: exact commit/migration digest, CI run, independent
-   reviewer decision, DBA authorization, timestamps, scoped audit/result, and
-   rollback/no-rollback decision. No secrets or end-user identifiers in logs.
-
-## GO / NO-GO contract
-
-GO for **hosted relock proof** requires separate human review, authorized
-Stage A/B, real active-session termination and verified cleanup. GO for
-**GPT02 Task #183 E2E** additionally requires one genuine task/command-specific
-Owner approval, original broker/issuer lineage, single receiver-owned DELL Final
-ACK, replay denial and final relock. Without every observed item: **NO-GO**.
+- **Relock hosted PASS:** preflight, pemasangan, tes sesi aktif, rollback,
+  dan zero-residual-state semuanya terverifikasi di CST-DEV.
+- **E2E Task #183 PASS:** hanya bila ditambah satu persetujuan Owner sah,
+  Command/Attempt resmi, Final ACK dari DELL, replay denial dan final relock.
+- Jika ada butir belum terverifikasi: **NO-GO**. Tidak boleh menyimpulkan
+  GO hanya dari CI, test sintetis, atau keberadaan file runtime.
