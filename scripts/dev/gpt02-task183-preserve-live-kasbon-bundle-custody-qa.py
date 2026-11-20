@@ -11,7 +11,7 @@ import subprocess
 
 BASE = Path("/opt/ai-task-gpt02-preparer/qa-oauth-hotfix-preserve-kasbon")
 INPUT = BASE / "live-index.mjs"
-OUTPUT = BASE / "task183-custody-guarded-index.mjs"
+OUTPUT = BASE / "task183-custody-guarded-v2-index.mjs"
 EXPECTED_SHA = "22e084ba5580b20ee0bbd05568444b4ed7b7117b693ca6ab495a0d651a3999da"
 
 ORIGINAL = """function createCoreTaskPreparer({ env, PoolClass }) {
@@ -37,6 +37,10 @@ function __task183FileCustody(env) {
   const uid = process.getuid?.(), gid = process.getgid?.();
   if (!Number.isInteger(uid) || uid <= 0 || !Number.isInteger(gid))
     deny("PREPARER_NONROOT_CONTAINER_REQUIRED");
+  // Reject untrusted transport before opening any credential file.
+  const transport = env?.GPT02_CORE_PREP_DEV_TRANSPORT ?? "pooler";
+  if (transport !== "pooler" && transport !== "direct")
+    deny("PREPARER_DB_TRANSPORT_UNSUPPORTED");
   let stat, mounts;
   try {
     stat = __task183Fs.lstatSync(__TASK183_RO_DIR);
@@ -74,9 +78,6 @@ function __task183FileCustody(env) {
     GPT02_CORE_PREP_DATABASE_URL_DEV: read("preparer-dsn").trim(),
     GPT02_CORE_PREP_DEV_CA: read("supabase-root-ca.crt"),
   });
-  const transport = env?.GPT02_CORE_PREP_DEV_TRANSPORT ?? "pooler";
-  if (transport !== "pooler" && transport !== "direct")
-    deny("PREPARER_DB_TRANSPORT_UNSUPPORTED");
   if (transport === "direct") {
     const direct = new URL(config.connectionString);
     direct.hostname = "db.xssrfshdrtdfupgqwfdw.supabase.co";
