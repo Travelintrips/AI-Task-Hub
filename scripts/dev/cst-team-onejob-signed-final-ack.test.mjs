@@ -6,7 +6,7 @@ import {TEAM_ROLES} from "../../artifacts/api-server/src/lib/cst-ai-team-contrac
 import {EXTERNAL_TEAM_AGENTS} from "../../artifacts/api-server/src/lib/cst-ai-team-external-review.ts";
 import {
   oneJobAgentSigningBytes,oneJobFinalAckSigningBytes,
-  digestOneJobAgentQuorum,projectSignedOneJobFourAgentReview,
+  digestOneJobCoreManifest,digestOneJobAgentQuorum,projectSignedOneJobFourAgentReview,
 } from "../../artifacts/api-server/src/lib/cst-team-onejob-signed-final-ack.ts";
 
 const sha=bytes=>createHash("sha256").update(bytes).digest("hex");
@@ -40,6 +40,7 @@ function agent(role,prior,offset,i=0) {
   project:"xssrfshdrtdfupgqwfdw",companyId:"1",
   jobId:483,eventId:manifest.eventId,sourceSha:manifest.sourceSha,
   subscriberReceiptSha256:manifest.subscriberReceiptSha256,
+  manifestSha256:digestOneJobCoreManifest(manifest),
   challenge:manifest.challenge,result:"PASS",
   summarySha256:String(i+1).repeat(64),
   priorThreeSha256:prior,nonce:String(i+5).repeat(64),
@@ -62,6 +63,7 @@ function build() {
   eventId:manifest.eventId,sourceSha:manifest.sourceSha,
   ownerApprovalSha256:manifest.ownerApprovalSha256,
   subscriberReceiptSha256:manifest.subscriberReceiptSha256,
+  manifestSha256:digestOneJobCoreManifest(manifest),
   agentQuorumSha256:digestOneJobAgentQuorum(all),
   decision:"PASS",nonce:"9".repeat(64),
   issuedAt:"2026-11-20T05:00:20.000Z",
@@ -176,5 +178,5 @@ test("review source cannot silently promote unsigned UI records or run a new job
  assert.doesNotMatch(s,/from "pg"|from "child_process"|\bfetch\(/);
  const original=readFileSync(new URL("../../artifacts/api-server/src/lib/cst-ai-team-external-review.ts",import.meta.url),"utf8");
  assert.match(original,/DEV_OPERATOR_COLLECTED_UNATTESTED/);
- assert.match(original,/signatureVerified\s*===?\s*false|signatureVerified:\s*false/);
+ assert.match(original,/signatureVerified\s*!==\s*false/);
 });
