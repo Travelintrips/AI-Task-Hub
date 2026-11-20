@@ -49,7 +49,8 @@ function serialize(v:unknown,fields:readonly string[]):Buffer {
 }
 export function digestOneJobCoreManifest(manifest:unknown):string {
  return sha(serialize(manifest,MANIFEST_FIELDS));
-}\nexport function oneJobAgentSigningBytes(role:TeamRole,payload:unknown):Buffer {
+}
+export function oneJobAgentSigningBytes(role:TeamRole,payload:unknown):Buffer {
  if(!TEAM_ROLES.includes(role))throw Error("ONEJOB_SIGNER_ROLE_INVALID");
  return Buffer.concat([
   Buffer.from("CST_DEV_ONEJOB_AGENT_ATTESTATION_V1:"+role+"\n","utf8"),
