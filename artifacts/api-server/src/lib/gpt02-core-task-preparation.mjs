@@ -88,6 +88,49 @@ export function corePreparationPoolConfigFromFiles(env, options={}){
  const ca=restrictedCredential(`${dir}/supabase-root-ca.crt`,dir,synthetic);
  return corePreparationPoolConfig({...env,GPT02_CORE_PREP_DATABASE_URL_DEV:dsn,GPT02_CORE_PREP_DEV_CA:ca});
 }
+/** Strict, non-root Docker-readonly custody for the existing DEV API.
+ * Distinct from systemd's root-owned credential files: no path override,
+ * no inline DSN and no permission to prepare without authenticated admin.
+ * The mount must be a dedicated read-only bind mount of a private directory.
+ */
+export function corePreparationPoolConfigFromDockerReadonlyFiles(env){
+ const directory=PREPARER_CREDENTIAL_DIR;
+ if(env?.GPT02_CORE_PREP_CREDENTIAL_SOURCE!=='docker-readonly')
+   deny('PREPARER_DOCKER_CREDENTIAL_SOURCE_REQUIRED');
+ if(env.GPT02_CORE_PREP_DATABASE_URL_DEV || env.GPT02_CORE_PREP_DEV_CA)
+   deny('PREPARER_INLINE_CREDENTIAL_FORBIDDEN');
+ const uid=process.getuid?.(),gid=process.getgid?.();
+ if(!Number.isInteger(uid)||uid<=0||!Number.isInteger(gid))
+   deny('PREPARER_NONROOT_CONTAINER_REQUIRED');
+ let ds,mounts;
+ try{ds=lstatSync(directory);mounts=readFileSync('/proc/self/mountinfo','utf8');}
+ catch{deny('PREPARER_DOCKER_READONLY_MOUNT_REQUIRED')}
+ if(!ds.isDirectory()||ds.isSymbolicLink()||ds.uid!==uid||ds.gid!==gid||
+    (ds.mode&0o777)!==0o500)
+   deny('PREPARER_DOCKER_CREDENTIAL_DIRECTORY_INVALID');
+ // Compare the kernel's exact mountpoint. A normal writable directory or
+ // merely an environment-variable path cannot become a custody source.
+ const mounted=mounts.split('\n').some(line=>{
+   const parts=line.split(' ');
+   return parts[4]===directory && parts[5]?.split(',').includes('ro');
+ });
+ if(!mounted)deny('PREPARER_DOCKER_READONLY_MOUNT_REQUIRED');
+ const read=name=>{
+   let fs;
+   try{fs=lstatSync(directory+'/'+name);}catch{deny('PREPARER_CREDENTIAL_FILE_REQUIRED')}
+   if(!fs.isFile()||fs.isSymbolicLink()||fs.uid!==uid||fs.gid!==gid||
+      (fs.mode&0o777)!==0o400)
+     deny('PREPARER_DOCKER_CREDENTIAL_FILE_INVALID');
+   let value;
+   try{value=readFileSync(directory+'/'+name,'utf8')}
+   catch{deny('PREPARER_CREDENTIAL_FILE_REQUIRED')}
+   if(value.length<1||value.length>8192)deny('PREPARER_CREDENTIAL_FILE_INVALID');
+   return value;
+ };
+ const dsn=read('preparer-dsn').trim(),ca=read('supabase-root-ca.crt');
+ return corePreparationPoolConfig({...env,GPT02_CORE_PREP_DATABASE_URL_DEV:dsn,GPT02_CORE_PREP_DEV_CA:ca});
+}
+
 /**
  * Returns reserved candidate identities only; this is NOT an approved command.
  * The database function must verify real Hub PIC + Super Admin audit and atomically
@@ -248,10 +291,12 @@ export function createCoreTaskPreparer({env,PoolClass}){
  if(typeof PoolClass!=='function')deny('POSTGRES_POOL_CLASS_REQUIRED');
  // A live preparation window can never fall back to an inline/general Hub DSN.
  if(env?.GPT02_CORE_PREPARATION_ENABLED==='true' &&
-    env.GPT02_CORE_PREP_CREDENTIAL_SOURCE!=='systemd')
+    !['systemd','docker-readonly'].includes(env.GPT02_CORE_PREP_CREDENTIAL_SOURCE))
    deny('PREPARER_FILE_CUSTODY_REQUIRED');
  const config=env?.GPT02_CORE_PREP_CREDENTIAL_SOURCE==='systemd'
-   ? corePreparationPoolConfigFromFiles(env) : corePreparationPoolConfig(env);
+   ? corePreparationPoolConfigFromFiles(env) :
+   env?.GPT02_CORE_PREP_CREDENTIAL_SOURCE==='docker-readonly'
+     ? corePreparationPoolConfigFromDockerReadonlyFiles(env) : corePreparationPoolConfig(env);
  const pool=new PoolClass(config);pool.on('error',()=>{});
  return {preparer:new Gpt02CoreTaskPreparer({pool}),close:()=>pool.end()};
 }
