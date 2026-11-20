@@ -22,12 +22,12 @@ const MANIFEST_FIELDS=[
 ] as const;
 const AGENT_FIELDS=[
  "version","type","role","host","agentId","project","companyId","jobId",
- "eventId","sourceSha","subscriberReceiptSha256","challenge","result",
+ "eventId","sourceSha","subscriberReceiptSha256","manifestSha256","challenge","result",
  "summarySha256","priorThreeSha256","nonce","observedAt"
 ] as const;
 const FINAL_ACK_FIELDS=[
  "version","type","project","companyId","jobId","eventId","sourceSha",
- "ownerApprovalSha256","subscriberReceiptSha256","agentQuorumSha256",
+ "ownerApprovalSha256","subscriberReceiptSha256","manifestSha256","agentQuorumSha256",
  "decision","nonce","issuedAt"
 ] as const;
 type Obj=Record<string,unknown>;
@@ -47,7 +47,9 @@ function serialize(v:unknown,fields:readonly string[]):Buffer {
  if(!exact(v,fields))throw Error("ONEJOB_UNEXPECTED_SIGNED_FIELDS");
  return Buffer.from(JSON.stringify(Object.fromEntries(fields.map(k=>[k,v[k]]))),"utf8");
 }
-export function oneJobAgentSigningBytes(role:TeamRole,payload:unknown):Buffer {
+export function digestOneJobCoreManifest(manifest:unknown):string {
+ return sha(serialize(manifest,MANIFEST_FIELDS));
+}\nexport function oneJobAgentSigningBytes(role:TeamRole,payload:unknown):Buffer {
  if(!TEAM_ROLES.includes(role))throw Error("ONEJOB_SIGNER_ROLE_INVALID");
  return Buffer.concat([
   Buffer.from("CST_DEV_ONEJOB_AGENT_ATTESTATION_V1:"+role+"\n","utf8"),
@@ -111,6 +113,7 @@ function verifyAgent(
    p.jobId===manifest.jobId && p.eventId===manifest.eventId &&
    p.sourceSha===manifest.sourceSha &&
    p.subscriberReceiptSha256===manifest.subscriberReceiptSha256 &&
+   p.manifestSha256===digestOneJobCoreManifest(manifest) &&
    p.challenge===manifest.challenge && p.result==="PASS" &&
    HEX64.test(String(p.summarySha256)) &&
    p.priorThreeSha256===prior &&
@@ -179,6 +182,7 @@ export function projectSignedOneJobFourAgentReview(input:{
    p.eventId===m.eventId&&p.sourceSha===m.sourceSha &&
    p.ownerApprovalSha256===m.ownerApprovalSha256 &&
    p.subscriberReceiptSha256===m.subscriberReceiptSha256 &&
+   p.manifestSha256===digestOneJobCoreManifest(m) &&
    p.agentQuorumSha256===quorum && p.decision==="PASS" &&
    HEX64.test(String(p.nonce))&&
    Number.isFinite(issued)&&issued>=qaAt&&issued<=t+30000 &&
