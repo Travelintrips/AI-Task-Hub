@@ -11,6 +11,8 @@
 - The corresponding encrypted relock credential **does not exist**; the dedicated relock timer is disabled, and the source-only service references an uninstalled `/opt/ai-task-gpt02-preparer/current` path.
 - The regular OC-to-Hub scoped Task #183 reader is already LIVE in a separate DEV canary, with GET authorized and unauthorized writes rejected. This is **not** preparation authorization.
 
+- The custody-only service candidate references `corePreparationPoolConfigFromFiles`, available in the isolated QA bundle but **not exported by the current AI Task Hub develop library**; do not deploy this unit without a compatible, reviewed library and its tests.
+
 ## Verification performed, no hosted database mutation
 
 - `node --test scripts/dev/gpt02-task183-relock-once.test.mjs`: **12/12 PASS**.
