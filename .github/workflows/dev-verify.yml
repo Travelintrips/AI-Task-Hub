@@ -140,6 +140,8 @@ jobs:
         run: |
           node --test artifacts/api-server/tests/gpt02-preparer-custody-source.test.mjs scripts/dev/gpt02-task183-relock-once.test.mjs
           bash scripts/dev/test-gpt02-task183-relock-isolated.sh
+      - name: Verify existing Issue159 watchdog reuse for Task183 (OFF by default, no deploy)
+        run: node --test scripts/dev/gpt02-task183-watchdog-reuse/task183-addon.test.mjs
       - name: Validate persisted-task instruction bound to dedicated GPT02 Core preparer (no dispatch)
         run: |
           node --test scripts/dev/gpt02-preparer-instruction-bound-wrapper.contract.test.mjs
