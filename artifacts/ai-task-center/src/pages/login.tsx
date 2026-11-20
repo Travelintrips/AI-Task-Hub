@@ -21,7 +21,7 @@ export default function Login() {
     e.preventDefault();
     setLoading(true);
     try {
-      await login(email, isDevPasswordless ? "" : password);
+      await login(email, password);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Login gagal";
       toast({ title: "Login gagal", description: msg, variant: "destructive" });
