@@ -212,10 +212,12 @@ def main():
         server_key = hmac.new(salted, b"Server Key", hashlib.sha256).digest()
         b64 = lambda value: base64.b64encode(value).decode("ascii")
         verifier = "SCRAM-SHA-256$4096:" + b64(salt) + "$" + b64(stored_key) + ":" + b64(server_key)
+        # Arm emergency cleanup before sending ALTER; even an uncertain
+        # connection/response failure must attempt a direct relock in finally.
+        changed = True
         with admin.cursor() as cur:
             cur.execute(sql.SQL("ALTER ROLE gpt02_core_prep_login LOGIN CONNECTION LIMIT 1 PASSWORD {} VALID UNTIL {}").format(
                 sql.Literal(verifier), sql.Literal(valid_until)))
-        changed = True
         worker = threading.Thread(target=sleeper, daemon=True)
         worker.start()
         if not started.wait(9):
