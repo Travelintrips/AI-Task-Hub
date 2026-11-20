@@ -6,6 +6,7 @@
 import { X509Certificate } from 'node:crypto';
 import {lstatSync,readFileSync} from 'node:fs';
 const EXPECTED_DEV_REF='xssrfshdrtdfupgqwfdw';
+const PINNED_DIRECT_DEV_HOST=`db.${EXPECTED_DEV_REF}.supabase.co`;
 const PINNED_ROOT_FINGERPRINT='807025ad50d4ed219d2c9c7d299c004f824eb00cf7f65afef607d07b72e6cafa';
 const ROLE='gpt02_core_prep_login';
 const COMPANY='default';
@@ -57,6 +58,24 @@ export function corePreparationPoolConfig(env){
  if(!['postgresql:','postgres:'].includes(url.protocol)||url.hostname!==host||url.port!=='5432'||
    url.pathname!=='/postgres'||user!==`${ROLE}.${project}`||!url.password||url.search||url.hash)
    deny('PREPARER_DSN_SCOPE_MISMATCH');
+ // Supavisor may throttle the pooler during operational recovery. The direct
+ // PostgreSQL host was separately proved by pinned-TLS on CST-DEV; allow
+ // ONLY an explicit DEV choice. This rewrites a verified dedicated-role
+ // credential, never a caller URL, and does not grant or extend any DB role.
+ const transport=env.GPT02_CORE_PREP_DEV_TRANSPORT??'pooler';
+ if(transport!=='pooler'&&transport!=='direct')
+   deny('PREPARER_DB_TRANSPORT_UNSUPPORTED');
+ if(transport==='direct'){
+   const direct=new URL(raw);
+   direct.hostname=PINNED_DIRECT_DEV_HOST;
+   direct.username=ROLE;
+   // Same password and database, but native role name rather than pooler
+   // project suffix. Exact servername guards TLS hostname verification.
+   return {connectionString:direct.toString(),
+     ssl:{ca:pinnedCa,rejectUnauthorized:true,servername:PINNED_DIRECT_DEV_HOST},
+     max:1,connectionTimeoutMillis:5000,statement_timeout:5000,
+     idleTimeoutMillis:10000,application_name:'gpt02-core-preparation-DEV-only'};
+ }
  return {connectionString:raw,ssl:{ca:pinnedCa,rejectUnauthorized:true},max:1,
    connectionTimeoutMillis:5000,statement_timeout:5000,idleTimeoutMillis:10000,
    application_name:'gpt02-core-preparation-DEV-only'};
