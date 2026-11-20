@@ -8,12 +8,16 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
  * getUser(accessToken) must validate the same Supabase JWT before this
  * decoded AMR is inspected. A linked Google identity alone is insufficient:
  * there must be exactly one OAuth identity (Google), no other social provider,
- * and its trusted last-sign-in event must coincide with the JWT's latest AMR.
+ * and a trusted identity timestamp must coincide with the JWT's latest AMR.
+ * Supabase Auth may leave identity.last_sign_in_at at identity creation while
+ * updating identity.updated_at during a fresh Google OAuth sign-in. Accept
+ * updated_at ONLY when the signed, server-validated OAuth AMR independently
+ * matches it (within 90 seconds); updated_at alone never authorizes anything.
  * Returns the EARLIER original auth timestamp for the signed app proof.
  */
 export function recentGoogleOAuthEvidenceAt(
   amr: unknown,
-  identities: ReadonlyArray<{ provider?: unknown; last_sign_in_at?: unknown }> | undefined,
+  identities: ReadonlyArray<{ provider?: unknown; last_sign_in_at?: unknown; updated_at?: unknown }> | undefined,
   linkedProviders: unknown,
   nowMs: number = Date.now(),
 ): number | null {
@@ -37,15 +41,21 @@ export function recentGoogleOAuthEvidenceAt(
     return null;
 
   const googleIdentities = identities.filter((i) => i.provider === "google");
-  if (googleIdentities.length !== 1 ||
-      typeof googleIdentities[0].last_sign_in_at !== "string") return null;
+  if (googleIdentities.length !== 1) return null;
 
-  const lastGoogleUse = Date.parse(googleIdentities[0].last_sign_in_at);
-  const googleAge = nowMs - lastGoogleUse;
-  if (!Number.isFinite(lastGoogleUse) ||
-      googleAge < -30_000 || googleAge > UTC_FRESHNESS_MS) return null;
-  if (Math.abs(amrAt - lastGoogleUse) > 90_000) return null;
-  return Math.min(amrAt, lastGoogleUse, nowMs);
+  // Both values come from getUser(accessToken), never user_metadata or the
+  // caller's request body. Supabase may leave last_sign_in_at unchanged on
+  // repeat OAuth logins; updated_at is useful only with a matching signed AMR.
+  const googleIdentity = googleIdentities[0];
+  const trustedTimes = [
+    googleIdentity.last_sign_in_at, googleIdentity.updated_at,
+  ].filter((value): value is string => typeof value === "string")
+    .map((value) => Date.parse(value))
+    .filter((at) => Number.isFinite(at) &&
+      nowMs - at >= -30_000 && nowMs - at <= UTC_FRESHNESS_MS &&
+      Math.abs(amrAt - at) <= 90_000);
+  if (trustedTimes.length === 0) return null;
+  return Math.min(amrAt, Math.max(...trustedTimes), nowMs);
 }
 
 /** Stable Supabase Auth UID allowlist, host-controlled and independent of
