@@ -70,42 +70,61 @@ test("Google OAuth identity and JWT authentication method must refer to the same
   assert.equal(oauthEvidenceAt([{ method: "oauth" }], validIdentities, identityProviders, now), null);
 });
 
-test("fresh Google OAuth accepts identity updated_at when last_sign_in_at is frozen", () => {
-  // Mirrors the observed CST-DEV behavior: login and identity.updated_at move,
-  // while the Google identity's last_sign_in_at remains at first enrollment.
+test("fresh Google OAuth tolerates frozen identity sign-in only with dual current Supabase evidence", () => {
+  // Mirrors CST-DEV: identity.last_sign_in_at stays at enrollment while both
+  // identity.updated_at and auth.users.last_sign_in_at advance on fresh OAuth.
   const signedOAuthAt = Math.floor(now / 1000) - 8;
   const oauthAmr = [{ method: "oauth", timestamp: signedOAuthAt }];
   const firstLogin = new Date(now - 170 * 24 * 60 * 60_000).toISOString();
   const latestGoogleUpdate = new Date(now - 7_500).toISOString();
-  const google = [{provider: "google", last_sign_in_at: firstLogin,
-    updated_at: latestGoogleUpdate}];
-  assert.equal(oauthEvidenceAt(oauthAmr, google, ["google"], now), signedOAuthAt * 1000);
+  const userLastSignIn = new Date(now - 8_000).toISOString();
+  const google = [{provider:"google",last_sign_in_at:firstLogin,
+    updated_at:latestGoogleUpdate}];
+  assert.equal(oauthEvidenceAt(oauthAmr, google, ["google"], now,
+    userLastSignIn), signedOAuthAt * 1000);
 
-  // A recent identity update by itself must never admit a token refresh,
-  // password, stale OAuth event, wrong social provider, or AMR mismatch.
+  // The older source would admit identity.updated_at alone; that must NOT
+  // suffice for a high-impact GPT02 Super Admin app JWT claim.
+  for (const badUserTime of [
+    undefined,null,"invalid",new Date(now-150_000).toISOString(),
+    new Date(now+31_000).toISOString(),
+  ]) {
+    assert.equal(oauthEvidenceAt(oauthAmr,google,["google"],now,badUserTime),null);
+  }
   for (const badAmr of [
-    [{method: "token_refresh", timestamp: signedOAuthAt}],
-    [{method: "password", timestamp: signedOAuthAt}],
-    [{method: "oauth", timestamp: signedOAuthAt - 610}],
-    [{method: "oauth", timestamp: signedOAuthAt - 150}],
+    [{method:"token_refresh",timestamp:signedOAuthAt}],
+    [{method:"password",timestamp:signedOAuthAt}],
+    [{method:"oauth",timestamp:signedOAuthAt-610}],
+    [{method:"oauth",timestamp:signedOAuthAt-150}],
     [],
   ]) {
-    assert.equal(oauthEvidenceAt(badAmr, google, ["google"], now), null);
+    assert.equal(oauthEvidenceAt(badAmr,google,["google"],now,
+      userLastSignIn),null);
   }
-  assert.equal(oauthEvidenceAt(oauthAmr, google, ["google","github"], now), null);
-  assert.equal(oauthEvidenceAt(oauthAmr, [...google, {...google[0]}], ["google"], now), null);
-  assert.equal(oauthEvidenceAt(oauthAmr, [{
-    provider: "google",last_sign_in_at:firstLogin,updated_at:new Date(now-200_000).toISOString()
-  }], ["google"], now), null);
-  assert.equal(oauthEvidenceAt(oauthAmr, [{
-    provider: "google",last_sign_in_at:firstLogin,updated_at:new Date(now+31_000).toISOString()
-  }], ["google"], now), null);
-  assert.equal(oauthEvidenceAt(oauthAmr, [{
-    provider: "email",updated_at:latestGoogleUpdate
-  }], ["google"], now), null);
-  assert.equal(oauthEvidenceAt(oauthAmr, [{
-    provider: "google",last_sign_in_at:firstLogin
-  }], ["google"], now), null);
+  assert.equal(oauthEvidenceAt(oauthAmr,google,["google","github"],now,
+    userLastSignIn),null);
+  assert.equal(oauthEvidenceAt(oauthAmr,[...google,{...google[0]}],
+    ["google"],now,userLastSignIn),null);
+  for (const staleOrFuture of [
+    new Date(now-200_000).toISOString(),
+    new Date(now+31_000).toISOString()
+  ]) {
+    assert.equal(oauthEvidenceAt(oauthAmr,[{
+      provider:"google",last_sign_in_at:firstLogin,updated_at:staleOrFuture
+    }],["google"],now,userLastSignIn),null);
+  }
+  assert.equal(oauthEvidenceAt(oauthAmr,[{
+    provider:"email",updated_at:latestGoogleUpdate
+  }],["google"],now,userLastSignIn),null);
+  assert.equal(oauthEvidenceAt(oauthAmr,[{
+    provider:"google",last_sign_in_at:firstLogin
+  }],["google"],now,userLastSignIn),null);
+  // A recent but inconsistent identity event must fail closed even if the
+  // other two fields were just updated.
+  assert.equal(oauthEvidenceAt(oauthAmr,[{
+    provider:"google",last_sign_in_at:new Date(now-500_000).toISOString(),
+    updated_at:latestGoogleUpdate
+  }],["google"],now,userLastSignIn),null);
 });
 
 test("expiry, malformed timestamp and weak app signing secret all fail closed", () => {
@@ -136,6 +155,10 @@ test("only verified Supabase Google exchange may mint limited application JWT cl
   assert.ok(google.includes("hasGoogleIdentity"));
   assert.ok(google.includes("jwt.decode(accessToken)"));
   assert.ok(google.includes("recentGoogleOAuthEvidenceAt("));
+  assert.ok(google.includes("authUser.last_sign_in_at"));
+  const helper=readFileSync("artifacts/api-server/src/lib/vps-storage-google-session.ts","utf8");
+  assert.ok(helper.includes("identityUpdatedAt - userSignedInAt"));
+
   assert.ok(google.includes('registeredUser.role === "super_admin" && verifiedGoogleOAuthAt !== null'));
   assert.ok(google.includes("authSupabaseId: authUser.id"));
 });
