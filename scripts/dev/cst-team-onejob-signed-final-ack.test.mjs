@@ -204,7 +204,7 @@ test("signed Core reconciliation and Hub 4+1 evidence must bind one exact job/ev
  const ledger={approvalId:claims.approvalId,jobId:483,eventId:claims.eventId,
    deliveryId:claims.deliveryId,reconciliationId:claims.reconciliationId,
    postNonce:claims.postNonce,postProofDigest:claims.postProofDigest,
-   reconciliationSignatureBase64:coreReconciliation.signatureBase64,issuerPublicFingerprint:fp,
+   ackSignatureBase64:coreReconciliation.signatureBase64,issuerPublicFingerprint:fp,
    reconciliationClaimsDigest:sha(bytes),sourceSha:manifest.sourceSha,
    ownerApprovalSha256:manifest.ownerApprovalSha256,
    subscriberReceiptSha256:manifest.subscriberReceiptSha256};

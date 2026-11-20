@@ -114,7 +114,7 @@ export function reviewOneJobCrossRepoFinalAck(input:{
    ledger.reconciliationId===claims.reconciliationId&&
    ledger.postNonce===claims.postNonce&&
    ledger.postProofDigest===claims.postProofDigest&&
-   ledger.reconciliationSignatureBase64===ack?.signatureBase64&&
+   ledger.ackSignatureBase64===ack?.signatureBase64&&
    ledger.issuerPublicFingerprint===fp&&
    ledger.reconciliationClaimsDigest===hash(coreBytes(claims))&&
    manifest&&ledger.sourceSha===manifest.sourceSha&&HEX40.test(String(ledger.sourceSha))&&
