@@ -44,22 +44,22 @@ test('only the fixed relock function is queried once; no direct ALTER or Task wr
  class Client{
   connection={stream:{authorized:true,encrypted:true}};
   async connect(){calls.push('connect')}
-  async query(sql){calls.push(sql);return {rows:[{role_locked:true,sessions_terminated:2,sessions_remaining:0,canary_active:false}]}}
+  async query(sql){calls.push(sql);return {rows:[{role_locked:true,sessions_terminated:2,sessions_remaining:0,canary_active:false,operational_active:false}]}}
   async end(){calls.push('end')}
  }
  const r=await relockOnce(env,{ClientClass:Client,readCredential:readCred});
- assert.deepEqual(r,{roleLocked:true,sessionsTerminated:2,sessionsRemaining:0,canaryActive:false,relockComplete:true,dispatchPermitted:false,preparationAttempted:false});
- assert.deepEqual(calls,['connect','SELECT role_locked,sessions_terminated,sessions_remaining,canary_active FROM gpt02_guard.relock_task183_preparer()','end']);
+ assert.deepEqual(r,{roleLocked:true,sessionsTerminated:2,sessionsRemaining:0,canaryActive:false,operationalActive:false,relockComplete:true,dispatchPermitted:false,preparationAttempted:false});
+ assert.deepEqual(calls,['connect','SELECT role_locked,sessions_terminated,sessions_remaining,canary_active,operational_active FROM gpt02_guard.relock_task183_preparer()','end']);
 });
 test('bounded valid canary result does not represent release authority',async()=>{
  class Client{
   connection={stream:{authorized:true,encrypted:true}};
   async connect(){}
-  async query(){return {rows:[{role_locked:false,sessions_terminated:0,sessions_remaining:0,canary_active:true}]}}
+  async query(){return {rows:[{role_locked:false,sessions_terminated:0,sessions_remaining:0,canary_active:true,operational_active:false}]}}
   async end(){}
  }
  const r=await relockOnce(env,{ClientClass:Client,readCredential:readCred});
- assert.equal(r.roleLocked,false);assert.equal(r.canaryActive,true);assert.equal(r.relockComplete,false);assert.equal(r.dispatchPermitted,false);
+ assert.equal(r.roleLocked,false);assert.equal(r.canaryActive,true);assert.equal(r.operationalActive,false);assert.equal(r.relockComplete,false);assert.equal(r.dispatchPermitted,false);
 });
 test('unverified TLS rejects before any query',async()=>{
  let queries=0,ends=0;
@@ -76,13 +76,13 @@ test('unverified TLS rejects before any query',async()=>{
 test('malformed SQL readback cannot be accepted',async()=>{
  for(const rows of [
     [],
-    [{role_locked:'true',sessions_terminated:0,sessions_remaining:0,canary_active:false}],
-    [{role_locked:true,sessions_terminated:-1,sessions_remaining:0,canary_active:false}],
-    [{role_locked:true,sessions_terminated:0,sessions_remaining:-2,canary_active:false}],
-    [{role_locked:true,sessions_terminated:0,sessions_remaining:1,canary_active:false}],
-    [{role_locked:true,sessions_terminated:0,sessions_remaining:0,canary_active:true}],
-    [{role_locked:true,sessions_terminated:0,sessions_remaining:0,canary_active:false},
-     {role_locked:true,sessions_terminated:0,sessions_remaining:0,canary_active:false}]
+    [{role_locked:'true',sessions_terminated:0,sessions_remaining:0,canary_active:false,operational_active:false}],
+    [{role_locked:true,sessions_terminated:-1,sessions_remaining:0,canary_active:false,operational_active:false}],
+    [{role_locked:true,sessions_terminated:0,sessions_remaining:-2,canary_active:false,operational_active:false}],
+    [{role_locked:true,sessions_terminated:0,sessions_remaining:1,canary_active:false,operational_active:false}],
+    [{role_locked:true,sessions_terminated:0,sessions_remaining:0,canary_active:true,operational_active:false}],
+    [{role_locked:true,sessions_terminated:0,sessions_remaining:0,canary_active:false,operational_active:false},
+     {role_locked:true,sessions_terminated:0,sessions_remaining:0,canary_active:false,operational_active:false}]
   ]){
   class Client{
    connection={stream:{authorized:true,encrypted:true}};
@@ -127,7 +127,7 @@ test('SQL wrapper is hard-coded for denial/relock, not login grants',()=>{
  assert.match(s,/PASSWORD NULL/);
  assert.doesNotMatch(s,/ALTER ROLE gpt02_core_prep_login LOGIN/);
  assert.match(s,/canary_privilege_safe := NOT pg_catalog.has_function_privilege/);
- assert.match(s,/AND canary_privilege_safe/);
+ assert.match(s,/canary_privilege_safe OR operational_window_safe/);
  assert.doesNotMatch(s,/(?:PERFORM|CALL)\s+gpt02_stage\.prepare_core_task/);
 });
 
@@ -136,12 +136,12 @@ test('residual session never becomes a completed relock',async()=>{
  class Client{
   connection={stream:{authorized:true,encrypted:true}};
   async connect(){calls.push('connect')}
-  async query(sql){calls.push(sql);return {rows:[{role_locked:false,sessions_terminated:0,sessions_remaining:1,canary_active:false}]}}
+  async query(sql){calls.push(sql);return {rows:[{role_locked:false,sessions_terminated:0,sessions_remaining:1,canary_active:false,operational_active:false}]}}
   async end(){calls.push('end')}
  }
  const r=await relockOnce(env,{ClientClass:Client,readCredential:readCred});
  assert.equal(r.relockComplete,false);
- assert.equal(r.canaryActive,false);
+ assert.equal(r.canaryActive,false);assert.equal(r.operationalActive,false);
  assert.equal(r.sessionsRemaining,1);
  assert.equal(r.dispatchPermitted,false);
  assert.equal(calls.length,3);
@@ -159,4 +159,36 @@ test('hosted non-superuser can use relock without pg_authid UPDATE or superuser-
  assert.match(command[1],/NOLOGIN CONNECTION LIMIT 0 PASSWORD NULL VALID UNTIL/);
  assert.doesNotMatch(command[1],/\b(?:NOSUPERUSER|NOCREATEDB|NOREPLICATION|NOBYPASSRLS|NOCREATEROLE)\b/);
  assert.match(sql,/pg_catalog\.pg_authid WHERE rolname='gpt02_core_prep_login'/);
+});
+
+test('bounded operational preparation window never implies Owner approval or dispatch',async()=>{
+ class Client{
+  connection={stream:{authorized:true,encrypted:true}};
+  async connect(){}
+  async query(){return {rows:[{role_locked:false,sessions_terminated:0,
+   sessions_remaining:1,canary_active:false,operational_active:true}]}}
+  async end(){}
+ }
+ const result=await relockOnce(env,{ClientClass:Client,readCredential:readCred});
+ assert.equal(result.operationalActive,true);
+ assert.equal(result.canaryActive,false);
+ assert.equal(result.relockComplete,false);
+ assert.equal(result.dispatchPermitted,false);
+ assert.equal(result.preparationAttempted,false);
+});
+test('two active windows or over-limit sessions never become verified readback',async()=>{
+ for(const row of [
+  {role_locked:false,sessions_terminated:0,sessions_remaining:0,canary_active:true,operational_active:true},
+  {role_locked:false,sessions_terminated:0,sessions_remaining:2,canary_active:false,operational_active:true},
+  {role_locked:true,sessions_terminated:0,sessions_remaining:0,canary_active:false,operational_active:true},
+ ]){
+  class Client{
+    connection={stream:{authorized:true,encrypted:true}};
+    async connect(){}
+    async query(){return {rows:[row]}}
+    async end(){}
+  }
+  await assert.rejects(()=>relockOnce(env,{ClientClass:Client,readCredential:readCred}),
+   e=>e.code==='TASK183_RELOCK_READBACK_INVALID');
+ }
 });
