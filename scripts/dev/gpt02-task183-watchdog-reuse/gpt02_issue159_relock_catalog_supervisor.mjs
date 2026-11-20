@@ -210,6 +210,9 @@ export async function relockTask183WithExistingAuditor(client) {
      (row.canary_active && row.operational_active) ||
      (row.role_locked && (row.canary_active || row.operational_active ||
        row.sessions_remaining!==0)) ||
+     // A partial relock with no valid active window is not a healthy cycle.
+     // Report failure so the existing watchdog can retry and alert.
+     (!row.role_locked && !row.canary_active && !row.operational_active) ||
      ((row.canary_active || row.operational_active) && row.sessions_terminated!==0))
     throw new Error('RELOCK_TASK183_UNTRUSTED_RESULT');
   return Object.freeze({
