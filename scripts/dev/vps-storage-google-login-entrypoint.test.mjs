@@ -34,15 +34,21 @@ test("Google OAuth entrypoint remains visible on DEV and PROD", () => {
   }
 });
 
-test("existing DEV email passwordless and PROD password input remain untouched", () => {
-  assert.match(loginSource, /await login\(email, isDevPasswordless \? "" : password\)/);
-  assert.match(loginSource, /\{!isDevPasswordless && \(\s*<div className="space-y-2">/);
+test("DEV Google-only login hides blocked email-only form; PROD retains password form", () => {
+  assert.match(loginSource, /await login\(email, password\)/);
+  assert.match(loginSource, /\{!isDevPasswordless && \(\s*<>\s*<div className="flex items-center gap-3">/);
   assert.match(loginSource, /type=\{showPassword \? "text" : "password"\}/);
+  assert.match(loginSource, /DEV: gunakan Masuk dengan Google/);
+  assert.doesNotMatch(loginSource, /await login\(email, isDevPasswordless/);
 });
 
 test("Google OAuth fragment is still exchanged for the app session", () => {
   assert.match(authContextSource, /hash\.get\("access_token"\)/);
-  assert.match(authContextSource, /apiGoogleLogin\(supabaseAccessToken\)/);
+  assert.match(authContextSource, /apiGoogleLogin\(oauth\.accessToken\)/);
+  assert.match(authContextSource, /setGoogleLoginError\(/);
+  assert.match(authContextSource, /hash\.get\("error"\)/);
+  assert.match(authContextSource, /query\.get\("code"\)/);
+  assert.match(authContextSource, /clearAuth\(\)/);
   assert.match(authContextSource, /history\.replaceState/);
   assert.match(authApiSource, /authFetch\("\/api\/auth\/google"/);
 });
