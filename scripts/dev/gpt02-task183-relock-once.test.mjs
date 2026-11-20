@@ -208,3 +208,14 @@ test('operational wrapper and internal PostgreSQL body digests must match CST-DE
  assert.match(sql,/WHEN 'prepare_core_task_v1_internal'/);
  assert.match(sql,/WHEN 'prepare_core_task'/);
 });
+
+test('read-only hosted preflight preserves expected CST-DEV fingerprint and privilege evidence',()=>{
+ const sql=readFileSync(new URL('./gpt02-task183-relock-hosted-readonly-preflight.sql',import.meta.url),'utf8');
+ assert.match(sql,/trusted_function_source_hashes/);
+ assert.match(sql,/preparer_locked_and_password_cleared/);
+ assert.match(sql,/independent_relock_role_count/);
+ assert.match(sql,/task183_signed_approval_count/);
+ assert.match(sql,/a759ab94ab38e0f0fcf0b42bc14dbbf30308274344a14ade666e1bae38a1c456/);
+ assert.match(sql,/b18275516add255e76f31414a28732bdd900b556b10f38d42e2e4bdf9f7415d4/);
+ assert.doesNotMatch(sql,/^\\s*(?:CREATE|ALTER|DROP|GRANT|REVOKE|INSERT|UPDATE|DELETE|CALL|DO)\\s+/mi);
+});
