@@ -3,7 +3,7 @@ on:
   push:
     branches: [develop]
   pull_request:
-    branches: [develop]
+    branches: [develop, "test/dev-pr193-pr195-integrated-20261115"]
   workflow_dispatch:
 
 permissions:
@@ -56,6 +56,8 @@ jobs:
         run: node --experimental-strip-types --test scripts/dev/cst-ai-team-monitor.test.mjs
       - name: Verify DEV operator-collected external review stays unsigned and non-authorizing
         run: node --experimental-strip-types --test scripts/dev/cst-ai-team-external-review.test.mjs
+      - name: Verify four independent signed CST one-job agents and separate reviewer never fake Final ACK
+        run: node --experimental-strip-types --test scripts/dev/cst-team-onejob-signed-final-ack.test.mjs
       - name: Verify DEV native Ollama QA preflight is strictly local and non-authorizing
         run: node --test scripts/dev/cst-ai-team-local-ollama-qa.test.mjs
       - name: Verify blue-green DEV cannot start duplicate WA/Core background workers
