@@ -9,6 +9,12 @@ const REQUIRED=[
  'scripts/dev/gpt02-preparer-relock-host-gate.mjs',
  'artifacts/api-server/package.json',
  'artifacts/api-server/node_modules/pg/package.json',
+ 'artifacts/api-server/node_modules/pg-pool/package.json',
+ 'artifacts/api-server/node_modules/pg-protocol/package.json',
+ 'artifacts/api-server/node_modules/pg-connection-string/package.json',
+ 'artifacts/api-server/node_modules/pg-types/package.json',
+ 'artifacts/api-server/node_modules/pgpass/package.json',
+ 'provenance/pg-only-package-lock.json',
  'artifacts/api-server/src/lib/gpt02-core-task-preparation.mjs',
  'deploy/systemd/gpt02-task183-preparer-relock.service',
  'deploy/systemd/gpt02-task183-preparer-relock.timer'
@@ -22,11 +28,18 @@ export function assessPackagePreflight({manifest,sourceFiles,activeLink,credenti
  }else{
    for(const rel of REQUIRED){
      if(!sourceFiles?.[rel]?.exists)reasons.push('PACKAGE_FILE_MISSING:'+rel);
-     if(rel!=='artifacts/api-server/node_modules/pg/package.json' &&
-       rel!=='artifacts/api-server/package.json' &&
-       rel!=='scripts/dev/gpt02-preparer-relock-host-gate.mjs' &&
-       !sourceFiles?.[rel]?.hashVerified)
+     if(!sourceFiles?.[rel]?.hashVerified ||
+        !/^[a-f0-9]{64}$/.test(manifest.files?.[rel]?.sha256||''))
        reasons.push('PACKAGE_FILE_UNVERIFIED:'+rel);
+   }
+ }
+ if(manifest?.files){
+   for(const [rel,record] of Object.entries(manifest.files)){
+     if((rel.startsWith('artifacts/api-server/node_modules/') ||
+         rel.startsWith('provenance/')) &&
+       (!sourceFiles?.[rel]?.exists || !sourceFiles?.[rel]?.hashVerified ||
+        !/^[a-f0-9]{64}$/.test(record?.sha256||'')))
+       reasons.push('PACKAGE_DEPENDENCY_UNVERIFIED:'+rel);
    }
  }
  if(!activeLink?.isSymlink||!activeLink?.matchesManifest)
@@ -60,7 +73,13 @@ export function inspectPackagePreflight(root=ROOT,credPath=DEV_SECRET){
  }catch{}
  const sourceFiles={};
  if(release&&manifest){
-  for(const rel of REQUIRED){
+  // Every packaged dependency file must remain hash-pinned, not only the
+  // top-level pg manifest. No symlinked or unrecorded runtime libraries.
+  const allFiles=[...new Set([...REQUIRED,
+    ...Object.keys(manifest.files).filter(p=>
+      p.startsWith('artifacts/api-server/node_modules/') ||
+      p.startsWith('provenance/'))])];
+  for(const rel of allFiles){
    try{
     const file=join(release,rel);
     const info=lstatSync(file);
