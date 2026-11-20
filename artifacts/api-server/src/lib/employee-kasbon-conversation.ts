@@ -163,14 +163,32 @@ export async function handleEmployeeKasbonConversationInbound(input: {
     const compact = parseCompactRequest(text);
 
     if (!compact) {
-      const guide = [
-        "Silakan kirim pengajuan dengan format:",
-        "",
-        "*Pengajuan kasbon [nominal] tanggal [DD-MM-YYYY]*",
-        "",
-        "Contoh:",
-        "*Pengajuan kasbon 500.000 tanggal 19-11-2026*",
-      ].join("\n");
+      const isCompactAttempt = /^\s*(?:pengajuan\s+)?kasbon\b/i.test(text);
+      const dateToken = text.match(/\b([0-2]\d|3[01])-(0[1-9]|1[0-2])-(20\d\d)\b/)?.[0] ?? null;
+      const amountProbe = parseAmount(dateToken ? text.replace(dateToken, "") : text.replace(/^\s*(?:pengajuan\s+)?kasbon\b/i, ""));
+      let guide: string;
+      if (isCompactAttempt && (!amountProbe || !dateToken)) {
+        const missing = !amountProbe && !dateToken
+          ? "nominal dan tanggal"
+          : !amountProbe
+            ? "nominal"
+            : "tanggal";
+        guide = [
+          `Pengajuan belum lengkap. Mohon cantumkan ${missing} kasbon.`,
+          "",
+          "Contoh:",
+          "*Pengajuan kasbon 500.000 20-11-2026*",
+        ].join("\n");
+      } else {
+        guide = [
+          "Silakan kirim pengajuan dengan format:",
+          "",
+          "*Pengajuan kasbon [nominal] [DD-MM-YYYY]*",
+          "",
+          "Contoh:",
+          "*Pengajuan kasbon 500.000 20-11-2026*",
+        ].join("\n");
+      }
       await sendEmployeeKasbonWa({
         to: phone,
         text: guide,
