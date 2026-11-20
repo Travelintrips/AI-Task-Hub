@@ -11,7 +11,7 @@
 - The corresponding encrypted relock credential **does not exist**; the dedicated relock timer is disabled, and the source-only service references an uninstalled `/opt/ai-task-gpt02-preparer/current` path.
 - The regular OC-to-Hub scoped Task #183 reader is already LIVE in a separate DEV canary, with GET authorized and unauthorized writes rejected. This is **not** preparation authorization.
 
-- The candidate branch now adds the existing QA-tested `corePreparationPoolConfigFromFiles` file-custody helper and source-only `gpt02-core-preparer.service` with credential isolation. **No operational factory cutover or live service activation** is performed. Synthetic custody / fail-closed tests PASS 6/6 (combined 34/34 with existing preparation and relock units). The separate relock-identity and operational-window review gates remain.
+- The candidate branch now adds the existing QA-tested `corePreparationPoolConfigFromFiles` file-custody helper and source-only `gpt02-core-preparer.service` with credential isolation. **No operational factory cutover or live service activation** is performed. Synthetic custody / fail-closed tests PASS **8/8** (combined **36/36** with existing preparation and relock units). The operational factory now requires file custody when `GPT02_CORE_PREPARATION_ENABLED=true`; attempts to fall back to an inline/general Hub DSN are rejected before a DB pool is constructed. The separate relock-identity and operational-window review gates remain.
 
 ## Verification performed, no hosted database mutation
 
