@@ -34,3 +34,22 @@ Do not merge/deploy this review package as an operational unlock. Link with [Iss
 ## Operational review note (20 Nov 2026)
 
 This candidate does not create a signed approval, operator session, DB role login, password, or timer activation. PostgreSQL 17 hosted metadata confirms the existing preparer role has **only wrapper EXECUTE**, cannot execute the internal function, has no role memberships, no DB CREATE, no direct business-table DML, and no access to private approval/issuer functions. Candidate preserves at most one short-lived authenticated preparation backend; it never authorizes a command. Review release gating and the genuine owner-operated preparation route before enabling any database credential.
+
+## Hosted read-only fingerprint preflight — 20 Nov 2026
+
+The checked-in SQL `scripts/dev/gpt02-task183-relock-hosted-readonly-preflight.sql`
+was executed as a **SELECT-only** query against authorized Supabase CST-DEV project
+`xssrfshdrtdfupgqwfdw`. Readback: both functions present; SHA-256 of wrapper and
+internal functions both equal the source-only relock pins; all eight scoped
+tables use RLS; preparer has no direct table grants or memberships; wrapper
+execute is allowed but direct internal function execute denied; preparer is
+`NOLOGIN` and password verifier cleared. The independent relock role and
+function are **both absent**; Task #183 has **zero jobs, preparations, and
+signed approvals**.
+
+The source-only PostgreSQL test now deliberately modifies **each function body
+under the unchanged trusted owner** and verifies the watchdog relocks it;
+synthetic fixture SHA-256 substitutions occur only in a temporary PostgreSQL
+fixture file, never in the hosted migration candidate. No hosted writes were
+performed by this preflight. The proposed independent relock security-definer
+and any future operator approval still require separate review before install.
