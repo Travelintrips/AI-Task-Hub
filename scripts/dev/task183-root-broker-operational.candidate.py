@@ -45,6 +45,23 @@ MODULES={
  "custody":"task183-dormant-signature-custody.py",
 }
 
+def verify_custody_recovery(state):
+    """Allow durable existing receipts across restarts; never reauthorize them.
+
+    TwoPhase treats RESERVED as UNRESOLVED_SIGNING and denies a second signer
+    call. Invalid counts, missing audit protections or elevated privileges
+    remain a hard NO-GO.
+    """
+    if (type(state) is not dict or state.get("installed") is not True or
+        state.get("readOnly") is not True or
+        state.get("issuerAuthorized") is not False or
+        state.get("dispatchPermitted") is not False):
+        fail("TASK183_CUSTODY_RECOVERY_INVALID")
+    counts=[state.get(k) for k in ("total","unresolved","completed")]
+    if any(type(v) is not int or v<0 for v in counts) or counts[0]!=counts[1]+counts[2]:
+        fail("TASK183_CUSTODY_RECOVERY_COUNTS_INVALID")
+    return {"total":counts[0],"unresolved":counts[1],"completed":counts[2]}
+
 def preflight():
     if os.geteuid()!=0 or os.getegid()!=0:
         fail("ROOT_BROKER_CUSTODY_REQUIRED")
@@ -58,10 +75,7 @@ def preflight():
         fail("TASK183_RELEASE_SENTINEL_INVALID")
     modules={k:load(k,v) for k,v in MODULES.items()}
     state=modules["custody"].audit(operational=True)
-    if not (state["installed"] is True and state["total"]==0 and
-            state["unresolved"]==0 and state["completed"]==0 and
-            state["issuerAuthorized"] is False and state["dispatchPermitted"] is False):
-        fail("TASK183_LIVE_CUSTODY_NOT_PRISTINE")
+    verify_custody_recovery(state)
     # Verify trust fingerprint up-front. Owner decisions remain read-only.
     verifier=modules["verify"].make_verifier(operational=True)
     trust=modules["verify"].v
