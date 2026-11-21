@@ -645,6 +645,31 @@ export default function AiTaskDetail() {
       gpt02PicAudit?.auditPresent===true,
     retry:false,refetchInterval:15_000,refetchOnWindowFocus:true,
   });
+  // Task183 recovery review request only: signed Super Admin may request
+  // independent Owner review; this NEVER approves or issues a command.
+  const {data: task183RecoveryReviewStatus} = useQuery<{
+    taskId?:number;requested:boolean;requestId?:string;status:string;
+    approvalGranted:false;dispatchPermitted:false;readOnly?:true;
+  }>({
+    queryKey:["task183-recovery-review-status",id],
+    queryFn:()=>apiFetch("/ai-tasks/183/gpt02-recovery-review-status?companyId=default"),
+    enabled:currentUser?.role==="super_admin" && task?.id===183,
+    retry:false,refetchInterval:30_000,
+  });
+  const task183RecoveryReviewMutation = useMutation({
+    mutationFn:()=>apiFetch("/ai-tasks/183/gpt02-recovery-review-request?companyId=default",{
+      method:"POST",
+      headers:{"X-GPT02-Intent":"recovery-review-only"},
+      body:JSON.stringify({requestReview:true}),
+    }),
+    onSuccess:()=>{
+      toast({title:"Permintaan review pemulihan dicatat",
+        description:"Menunggu review Owner independen. Belum ada persetujuan, command, atau dispatch."});
+      void queryClient.invalidateQueries({queryKey:["task183-recovery-review-status",id]});
+    },
+    onError:(err:Error)=>toast({title:"Permintaan review ditolak",
+      description:err.message,variant:"destructive"}),
+  });
   const gpt02PrepareOnlyMutation = useMutation({
     mutationFn:()=>apiFetch(
       `/ai-tasks/${id}/gpt02-prepare?companyId=${encodeURIComponent(task?.companyId ?? "")}`,{
@@ -1362,6 +1387,32 @@ export default function AiTaskDetail() {
                   approval sah: {task183Postprep.validApprovalCount};
                   binding attempt: {task183Postprep.verifiedBindings}.</p>
                 <p>Keputusan: {task183Postprep.status}. Tidak mengulang preparation otomatis.</p>
+                {!task183Postprep.reservationCurrent &&
+                  task183Postprep.status==="NO_GO_RESERVATION_EXPIRED" && (
+                  <div className="pt-2 space-y-1">
+                    <Button type="button" size="sm" variant="outline"
+                      disabled={task183RecoveryReviewMutation.isPending ||
+                        task183RecoveryReviewStatus?.requested!==false}
+                      onClick={()=>{
+                        if (window.confirm("Ajukan satu permintaan review pemulihan Task #183 ke antrean DEV? Ini BUKAN persetujuan Owner dan tidak membuat command atau menjalankan GPT02."))
+                          task183RecoveryReviewMutation.mutate();
+                      }}>
+                      {task183RecoveryReviewMutation.isPending
+                        ? "Mencatat permintaan review..."
+                        : task183RecoveryReviewStatus?.requested
+                          ? "Review pemulihan sudah diajukan"
+                          : task183RecoveryReviewStatus?.requested===false
+                            ? "Ajukan review pemulihan (tanpa eksekusi)"
+                            : "Memeriksa antrean review..."}
+                    </Button>
+                    <p>Permintaan review hanya untuk verifikasi Owner berikutnya.
+                      Tidak mengaktifkan signer, membuat attempt, atau mengirim worker.</p>
+                    {task183RecoveryReviewStatus?.requested && (
+                      <p role="status">Status permintaan: {task183RecoveryReviewStatus.status}.
+                        Ini bukan approval.</p>
+                    )}
+                  </div>
+                )}
               </div>
             )}
             {task.id===183 && task183PostprepError && (

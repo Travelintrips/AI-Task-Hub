@@ -22,6 +22,7 @@ import subprocess
 import threading
 import time
 from pathlib import Path
+import importlib.util as _importlib_util
 from urllib import request, error
 from urllib.parse import unquote, urlsplit
 from psycopg import sql
@@ -168,6 +169,21 @@ def prepare_bounded(token):
         if changed and not verified_relock:
             raise RuntimeError("FINAL_RELOCK_NOT_VERIFIED")
 
+REVIEW_INTAKE_FILE = Path("/opt/ai-coding-standalone-dev/qa/task183-recovery-review-intake-dev.py")
+REVIEW_REQUEST_PATH = "/api/ai-tasks/183/gpt02-recovery-review-request?companyId=default"
+REVIEW_STATUS_PATH = "/api/ai-tasks/183/gpt02-recovery-review-status?companyId=default"
+REVIEW_BODY = b'{"requestReview":true}'
+
+def load_review_intake():
+    if (not REVIEW_INTAKE_FILE.is_file() or REVIEW_INTAKE_FILE.is_symlink()
+        or REVIEW_INTAKE_FILE.stat().st_uid!=0
+        or stat.S_IMODE(REVIEW_INTAKE_FILE.stat().st_mode)!=0o400):
+        raise RuntimeError("ROOT_REVIEW_SOURCE_CUSTODY_INVALID")
+    spec=_importlib_util.spec_from_file_location("task183_recovery_review_intake",REVIEW_INTAKE_FILE)
+    module=_importlib_util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
 class Handler(http.server.BaseHTTPRequestHandler):
     server_version="Task183Dev/1.0"
     sys_version=""
@@ -180,6 +196,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Length",str(len(raw)))
         self.end_headers();self.wfile.write(raw)
     def do_GET(self):
+        if self.path==REVIEW_STATUS_PATH:
+            raw=self.headers.get("Authorization","")
+            if not raw.startswith("Bearer "):
+                self.reply(401,{"error":"AUTHENTICATION_REQUIRED"});return
+            try:
+                actor=verify_jwt(raw[7:])
+                result=load_review_intake().get_status(actor)
+                self.reply(200,{**result,"taskId":183,"readOnly":True})
+            except (ValueError,TypeError,UnicodeError,KeyError):
+                self.reply(403,{"error":"REVIEW_STATUS_NOT_AUTHORIZED"});return
+            except Exception as exc:
+                print("REVIEW_STATUS_UNAVAILABLE",type(exc).__name__,flush=True)
+                self.reply(503,{"error":"REVIEW_STATUS_UNAVAILABLE","dispatchPermitted":False})
+            return
         if self.path=="/internal/healthz":
             self.reply(200,{"status":"ok","taskId":183,"dispatchPermitted":False})
             return
@@ -218,6 +248,32 @@ class Handler(http.server.BaseHTTPRequestHandler):
             print("TASK183_STATUS_READ_FAILED",type(err).__name__,flush=True)
             self.reply(503,{"error":"POSTPREP_READINESS_UNAVAILABLE","dispatchPermitted":False})
     def do_POST(self):
+        if self.path==REVIEW_REQUEST_PATH:
+            if (self.headers.get("Origin")!=ORIGIN
+              or self.headers.get("Host")!="dev-ai-task.cstlogistic.co.id"):
+                self.reply(403,{"error":"SAME_ORIGIN_REQUIRED"});return
+            if (self.headers.get("X-GPT02-Intent")!="recovery-review-only"
+                or self.headers.get("Content-Type","").split(";")[0].strip()!="application/json"
+                or self.headers.get("Content-Length")!=str(len(REVIEW_BODY))):
+                self.reply(400,{"error":"EXPLICIT_REVIEW_ONLY_INTENT_REQUIRED"});return
+            if self.rfile.read(len(REVIEW_BODY))!=REVIEW_BODY:
+                self.reply(400,{"error":"EXACT_REVIEW_BODY_REQUIRED"});return
+            raw=self.headers.get("Authorization","")
+            if not raw.startswith("Bearer "):
+                self.reply(401,{"error":"AUTHENTICATION_REQUIRED"});return
+            try:
+                actor=verify_jwt(raw[7:])
+                intake=load_review_intake()
+                result=intake.record_pending_request(actor=actor,source=intake.source_readback())
+                self.reply(201 if result["created"] else 200,{**result,"taskId":183})
+            except (ValueError,TypeError,UnicodeError,KeyError):
+                self.reply(409,{"error":"RECOVERY_REVIEW_SCOPE_OR_DUPLICATE_DENIED",
+                                "approvalGranted":False,"dispatchPermitted":False});return
+            except Exception as exc:
+                print("REVIEW_REQUEST_FAILED_CLOSED",type(exc).__name__,flush=True)
+                self.reply(503,{"error":"RECOVERY_REVIEW_REQUEST_UNAVAILABLE",
+                                "approvalGranted":False,"dispatchPermitted":False})
+            return
         if self.path!=TASK_PATH:
             self.reply(404,{"error":"NOT_FOUND"});return
         if self.headers.get("Origin")!=ORIGIN or self.headers.get("Host")!="dev-ai-task.cstlogistic.co.id":
