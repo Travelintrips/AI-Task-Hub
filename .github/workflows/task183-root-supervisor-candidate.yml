@@ -19,6 +19,7 @@ on:
       - 'scripts/dev/task183-broker-indirect-module-custody.test.py'
       - 'scripts/dev/task183-root-broker-systemd-sandbox-preflight.py'
       - 'scripts/dev/task183-live-release-readiness.readonly.py'
+      - 'scripts/dev/task183-writer-real-schema-isolated.test.py'
       - 'scripts/dev/task183-owner-approval-http.candidate.py'
       - 'scripts/dev/task183-owner-approval-http.candidate.test.py'
       - 'scripts/dev/task183-wire-owner-approval-http.candidate.py'
@@ -68,6 +69,8 @@ jobs:
         run: python3 -m py_compile scripts/dev/task183-root-sign-once-supervisor.candidate.py scripts/dev/task183-root-sign-once-supervisor.candidate.test.py scripts/dev/task183-local-receipt-broker.candidate.py scripts/dev/task183-local-receipt-broker.candidate.test.py scripts/dev/task183-two-phase-signing.candidate.py scripts/dev/task183-two-phase-signing.candidate.test.py scripts/dev/task183-patch-existing-signer-two-phase.candidate.py scripts/dev/task183-patch-existing-signer-two-phase.candidate.test.py scripts/dev/task183-two-phase-unix-bridge.candidate.py scripts/dev/task183-two-phase-unix-bridge.candidate.test.py
       - name: Validate real-systemd peer and integrated live negative probe source (VPS execution required)
         run: python3 -m py_compile scripts/dev/task183-systemd-peer-policy.candidate.py scripts/dev/task183-dynamic-user-peer-runtime.fixture.py scripts/dev/task183-integrated-live-no-go-probe.py scripts/dev/task183-operational-custody-negative-proof.py
+      - name: Validate VPS-only real-schema writer-reader regression syntax
+        run: python3 -m py_compile scripts/dev/task183-writer-real-schema-isolated.test.py
       - name: Task183 signed-session Owner decision route contract
         run: |
           python3 scripts/dev/task183-owner-approval-http.candidate.test.py
