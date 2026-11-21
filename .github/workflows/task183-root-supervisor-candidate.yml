@@ -4,6 +4,8 @@ on:
     branches:
       - fix/dev-task183-prep-readiness-ui-20261121
     paths:
+      - 'scripts/dev/task183-two-phase-unix-bridge.candidate.py'
+      - 'scripts/dev/task183-two-phase-unix-bridge.candidate.test.py'
       - 'scripts/dev/task183-patch-existing-signer-two-phase.candidate.py'
       - 'scripts/dev/task183-patch-existing-signer-two-phase.candidate.test.py'
       - 'scripts/dev/task183-exact-live-operational-signer.snapshot.py.txt'
@@ -30,7 +32,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Syntax check
-        run: python3 -m py_compile scripts/dev/task183-root-sign-once-supervisor.candidate.py scripts/dev/task183-root-sign-once-supervisor.candidate.test.py scripts/dev/task183-local-receipt-broker.candidate.py scripts/dev/task183-local-receipt-broker.candidate.test.py scripts/dev/task183-two-phase-signing.candidate.py scripts/dev/task183-two-phase-signing.candidate.test.py scripts/dev/task183-patch-existing-signer-two-phase.candidate.py scripts/dev/task183-patch-existing-signer-two-phase.candidate.test.py
+        run: python3 -m py_compile scripts/dev/task183-root-sign-once-supervisor.candidate.py scripts/dev/task183-root-sign-once-supervisor.candidate.test.py scripts/dev/task183-local-receipt-broker.candidate.py scripts/dev/task183-local-receipt-broker.candidate.test.py scripts/dev/task183-two-phase-signing.candidate.py scripts/dev/task183-two-phase-signing.candidate.test.py scripts/dev/task183-patch-existing-signer-two-phase.candidate.py scripts/dev/task183-patch-existing-signer-two-phase.candidate.test.py scripts/dev/task183-two-phase-unix-bridge.candidate.py scripts/dev/task183-two-phase-unix-bridge.candidate.test.py
       - name: Synthetic concurrent crash and replay proof
         run: python3 scripts/dev/task183-root-sign-once-supervisor.candidate.test.py
       - name: Synthetic Unix broker peer custody replay and restart proof
@@ -41,3 +43,5 @@ jobs:
         run: python3 -m pip install --user cryptography
       - name: Gate actual approval and recovery signer methods using ephemeral key
         run: python3 scripts/dev/task183-patch-existing-signer-two-phase.candidate.test.py
+      - name: Two-phase Unix broker process identity and restart proof
+        run: python3 scripts/dev/task183-two-phase-unix-bridge.candidate.test.py
