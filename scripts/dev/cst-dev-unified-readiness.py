@@ -72,9 +72,19 @@ code,out,err=run(["docker","exec",NAMES["app"],"node","-e",js],timeout=22)
 try: results["database"]=json.loads(out)
 except Exception:results["database"]={"probe":"FAILED"}
 results["database_probe_pass"]=code==0
+# AI Core is intentionally using a dedicated role on Supabase's transaction
+# pooler (6543); do not misclassify that as a failed Session Pooler. Validate
+# a genuine read-only query inside the existing Core container instead.
+core_js='''const {Client}=require("/app/node_modules/.pnpm/pg@8.22.0/node_modules/pg");
+let c=new Client({connectionString:process.env.SUPABASE_DATABASE_URL_DEV,connectionTimeoutMillis:7000,query_timeout:7000,application_name:"core-ai-dev-readonly-operational-audit"});
+(async()=>{try{await c.connect();await c.query("BEGIN READ ONLY");let r=await c.query("select count(*)::int as n from ai_platform.ai_jobs");console.log(JSON.stringify({jobs:r.rows[0].n}));await c.query("ROLLBACK")}catch(e){console.log(JSON.stringify({error:e.code||"CORE_DB_ERROR"}));process.exitCode=3}finally{await c.end().catch(()=>{})}})()'''
+core_rc,core_out,_=run(["docker","exec",NAMES["core"],"node","-e",core_js],timeout=22)
+try:results["core_database"]=json.loads(core_out)
+except Exception:results["core_database"]={"probe":"FAILED"}
+results["core_database_probe_pass"]=core_rc==0
 results["safe_to_attempt_task183"]=False
 results["blockers"]=[]
-if results["core"]["db_mode"]!="DIRECT":results["blockers"].append("CORE_AI_STILL_USING_POOLER")
+if not results["core_database_probe_pass"]:results["blockers"].append("CORE_AI_DATABASE_QUERY_FAILED")
 if not results["database_probe_pass"]:results["blockers"].append("DB_PROBE_FAILED")
 if not results["watchdog_active"]:results["blockers"].append("WATCHDOG_INACTIVE")
 if not all(results[k]["running"] and results[k]["healthy"] for k in ("app","auth","audit","prepare")):results["blockers"].append("API_COMPONENT_UNHEALTHY")
