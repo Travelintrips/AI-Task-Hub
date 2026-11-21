@@ -5,7 +5,8 @@ from pathlib import Path
 HERE=Path(__file__).resolve().parent
 spec=importlib.util.spec_from_file_location("owner_patch",HERE/"task183-wire-owner-approval-http.candidate.py")
 p=importlib.util.module_from_spec(spec);spec.loader.exec_module(p)
-base=(HERE/"task183-single-click-broker-dev.py").read_text()
+base=(HERE/"task183-before-owner-approval-http.baseline.py.txt").read_text()
+current=(HERE/"task183-single-click-broker-dev.py").read_text()
 candidate=p.patched(base)
 n=0
 def check(label,ok):
@@ -17,6 +18,7 @@ def funcmap(src):
  handler=next(x for x in tree.body if isinstance(x,ast.ClassDef) and x.name=="Handler")
  return {m.name:ast.get_source_segment(src,m) for m in handler.body if isinstance(m,ast.FunctionDef)}
 orig=funcmap(base);new=funcmap(candidate)
+check("DEPLOYED_REPO_MATCHES_EXACT_PATCH",candidate==current)
 check("ORIGINAL_ROUTES_PRESERVED",orig["do_GET"]==new["do_GET"])
 check("NO_OTHER_HANDLER_MUTATION",all(orig[n]==new[n] for n in orig if n!="do_POST"))
 check("EXACT_ADDITIVE_OWNER_ROUTE",'if self.path==OWNER_APPROVAL_PATH:' in new["do_POST"])
