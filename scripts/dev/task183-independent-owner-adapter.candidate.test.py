@@ -69,6 +69,7 @@ with tempfile.TemporaryDirectory(prefix="task183-owner-adapter-fixture-") as td:
   deny(label,{**base,"claims":{**claims,**changed}})
  db.execute("DELETE FROM gpt02_task183_owner_recovery_outbox");db.commit()
  deny("MISSING_OUTBOX_NO_GO",base)
+ db.execute("INSERT INTO gpt02_task183_owner_recovery_outbox VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",outbox)
  db.execute("UPDATE admin_identities SET enabled=0");db.commit()
  deny("DISABLED_OWNER_NO_GO",base)
  db.close()
