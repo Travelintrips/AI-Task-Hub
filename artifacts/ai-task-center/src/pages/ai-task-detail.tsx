@@ -729,6 +729,18 @@ export default function AiTaskDetail() {
       task183RecoveryConsentStatus?.recorded===true,
     retry:false,refetchInterval:30_000,refetchOnWindowFocus:true,
   });
+  // Separate final Owner decision: requires an explicit authenticated click.
+  const task183OwnerDecisionMutation = useMutation({
+    mutationFn:()=>apiFetch("/ai-tasks/183/gpt02-owner-approval?companyId=default",{
+      method:"POST",
+      headers:{"X-GPT02-Intent":"approve-task183-recovery-attempt2-only"},
+      body:JSON.stringify({approveRecoveryAttempt2:true}),
+    }),
+    onSuccess:()=>toast({title:"Keputusan Owner Task #183 tercatat",
+      description:"Tidak ada tanda tangan signer, command, issuer, atau dispatch baru."}),
+    onError:(err:Error)=>toast({title:"Persetujuan Owner ditolak",
+      description:err.message,variant:"destructive"}),
+  });
   const task183RecoveryConsentMutation = useMutation({
     mutationFn:async (evidenceSha256:string)=>{
       const challenge=(await apiFetch(
@@ -1541,8 +1553,27 @@ export default function AiTaskDetail() {
                                 {task183OwnerIdentity?.eligible===true &&
                                   task183OwnerIdentity.googleSessionVerified===true &&
                                   task183OwnerIdentity.enabledOperatorLinkVerified===true ? (
-                                  <p role="status">Identitas Super Admin dan pemetaan Owner GPT02: terverifikasi baca-saja.
-                                    Tanda tangan persetujuan pemulihan belum tersedia.</p>
+                                  <div className="space-y-2">
+                                    <p role="status">Identitas Super Admin dan pemetaan Owner GPT02 terverifikasi.
+                                      Keputusan final memerlukan tindakan Anda secara eksplisit.</p>
+                                    <Button type="button" size="sm" variant="outline"
+                                      data-testid="task183-explicit-owner-approval"
+                                      disabled={task183OwnerDecisionMutation.isPending ||
+                                        task183OwnerDecisionMutation.isSuccess ||
+                                        task183RecoveryConsentStatus?.recorded!==true ||
+                                        task183Postprep?.status!=="NO_GO_RESERVATION_EXPIRED"}
+                                      onClick={()=>{
+                                        if(window.confirm("Setujui satu keputusan Owner untuk recovery attempt #2 Task #183? Keputusan akan dicatat ke database DEV melalui sesi Super Admin Anda. Ini tidak menandatangani lewat signer, membuat command, atau mengizinkan dispatch."))
+                                          task183OwnerDecisionMutation.mutate();
+                                      }}>
+                                      {task183OwnerDecisionMutation.isPending
+                                        ? "Mencatat keputusan Owner..."
+                                        : task183OwnerDecisionMutation.isSuccess
+                                          ? "Keputusan Owner sudah tercatat"
+                                          : "Setujui recovery attempt #2 (tanpa eksekusi)"}
+                                    </Button>
+                                    <p>Issuer dan dispatch tetap terkunci sampai verifikasi terpisah.</p>
+                                  </div>
                                 ) : task183OwnerIdentityError ? (
                                   <p role="alert">Pemetaan Owner pada sesi aktif belum terverifikasi; persetujuan tetap ditahan.</p>
                                 ) : (
