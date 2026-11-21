@@ -4,6 +4,7 @@ on:
     branches:
       - fix/dev-task183-prep-readiness-ui-20261121
     paths:
+      - 'scripts/dev/task183-integrated-live-no-go-probe.py'
       - 'scripts/dev/task183-pinned-approval-verifier.candidate.py'
       - 'scripts/dev/task183-pinned-approval-verifier.candidate.test.py'
       - 'scripts/dev/task183-pinned-approval-verifier.offline.test.py'
@@ -49,8 +50,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Syntax check
         run: python3 -m py_compile scripts/dev/task183-root-sign-once-supervisor.candidate.py scripts/dev/task183-root-sign-once-supervisor.candidate.test.py scripts/dev/task183-local-receipt-broker.candidate.py scripts/dev/task183-local-receipt-broker.candidate.test.py scripts/dev/task183-two-phase-signing.candidate.py scripts/dev/task183-two-phase-signing.candidate.test.py scripts/dev/task183-patch-existing-signer-two-phase.candidate.py scripts/dev/task183-patch-existing-signer-two-phase.candidate.test.py scripts/dev/task183-two-phase-unix-bridge.candidate.py scripts/dev/task183-two-phase-unix-bridge.candidate.test.py
-      - name: Validate real-systemd peer proof source (VPS execution required)
-        run: python3 -m py_compile scripts/dev/task183-systemd-peer-policy.candidate.py scripts/dev/task183-dynamic-user-peer-runtime.fixture.py
+      - name: Validate real-systemd peer and integrated live negative probe source (VPS execution required)
+        run: python3 -m py_compile scripts/dev/task183-systemd-peer-policy.candidate.py scripts/dev/task183-dynamic-user-peer-runtime.fixture.py scripts/dev/task183-integrated-live-no-go-probe.py
       - name: Dormant systemd broker unit security contract
         run: python3 scripts/dev/task183-dormant-broker-unit.candidate.test.py
       - name: Synthetic concurrent crash and replay proof
