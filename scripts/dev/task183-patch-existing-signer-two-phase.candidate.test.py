@@ -15,7 +15,7 @@ from pathlib import Path
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 HERE=Path(__file__).resolve().parent
-LIVE=Path("/opt/ai-coding-standalone-dev/gpt02_issue159_operational_signer.py")
+LIVE=HERE/"task183-exact-live-operational-signer.snapshot.py.txt"
 def load(name,filename):
     spec=importlib.util.spec_from_file_location(name,HERE/filename)
     module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
