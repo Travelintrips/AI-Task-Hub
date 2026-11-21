@@ -627,8 +627,157 @@ export default function AiTaskDetail() {
       queryFn:()=>apiFetch(`/ai-tasks/${id}/gpt02-preparation-readiness?companyId=${encodeURIComponent(task?.companyId ?? "")}`),
       enabled:currentUser?.role==="super_admin" && Boolean(task?.companyId) &&
         gpt02PicAudit?.auditPresent===true,
-      retry:false,refetchInterval:30_000,
+      // The one-shot DEV preparation window is short; keep its signed
+      // read-only readiness visible promptly without granting any authority.
+      // POST admission and role checks still fail closed independently.
+      retry:false,refetchInterval:10_000,refetchOnWindowFocus:true,
     });
+  // Task183 reservation: read-only, never an approval or dispatch grant.
+  const {data: task183Postprep, error: task183PostprepError} = useQuery<{
+    taskId:number;status:string;reservationExpiryUtc:string|null;
+    reservationCurrent:boolean;corePreparations:number;hubJobs:number;
+    officialCommandCount:number;validApprovalCount:number;verifiedBindings:number;
+    preparerLocked:boolean;dispatchPermitted:false;readOnly:true;
+  }>({
+    queryKey:["task183-postprepare-readiness",id],
+    queryFn:()=>apiFetch("/ai-tasks/183/gpt02-postprepare-readiness?companyId=default"),
+    enabled:currentUser?.role==="super_admin" && task?.id===183 &&
+      gpt02PicAudit?.auditPresent===true,
+    retry:false,refetchInterval:15_000,refetchOnWindowFocus:true,
+  });
+  // Task183 recovery review request only: signed Super Admin may request
+  // independent Owner review; this NEVER approves or issues a command.
+  const {data: task183RecoveryReviewStatus} = useQuery<{
+    taskId?:number;requested:boolean;requestId?:string;status:string;
+    approvalGranted:false;dispatchPermitted:false;readOnly?:true;
+  }>({
+    queryKey:["task183-recovery-review-status",id],
+    queryFn:()=>apiFetch("/ai-tasks/183/gpt02-recovery-review-status?companyId=default"),
+    enabled:currentUser?.role==="super_admin" && task?.id===183,
+    retry:false,refetchInterval:30_000,
+  });
+  // Read-only exact reviewer evidence; not a signed approval or nonce.
+  const {data: task183RecoveryEvidence, error: task183RecoveryEvidenceError} =
+    useQuery<{
+      evidence: {
+        version:number;environment:string;purpose:string;requestId:string;
+        taskId:number;companyId:string;coreTaskId:string;hubExecutionId:string;
+        originalAttemptId:string;commandCandidateId:string;
+        originalExpiryMs:number;requestedAtMs:number;status:string;
+      };
+      evidenceSha256:string;readOnly:true;ownerApprovalGranted:false;
+      signedApprovalReceived:false;nonceConsumed:false;issuerGrant:false;
+      commandIssued:false;dispatchPermitted:false;attemptIssued:false;
+    }>({
+      queryKey:["task183-recovery-review-evidence",id],
+      queryFn:()=>apiFetch("/ai-tasks/183/gpt02-recovery-review-evidence?companyId=default"),
+      enabled:currentUser?.role==="super_admin" && task?.id===183 &&
+        task183RecoveryReviewStatus?.requested===true,
+      retry:false,refetchInterval:30_000,refetchOnWindowFocus:true,
+    });
+  // A real Super Admin may explicitly attest having read the verified
+  // evidence. This does not sign or approve an issuer/command/attempt.
+  const {data: task183ReviewAck} = useQuery<{
+    recorded:boolean;status:string;evidenceSha256?:string;
+    ownerApprovalGranted:false;nonceConsumed?:false;dispatchPermitted?:false;
+  }>({
+    queryKey:["task183-recovery-review-ack-status",id],
+    queryFn:()=>apiFetch("/ai-tasks/183/gpt02-recovery-review-ack-status?companyId=default"),
+    enabled:currentUser?.role==="super_admin" && task?.id===183 &&
+      task183RecoveryReviewStatus?.requested===true,
+    retry:false,refetchInterval:30_000,refetchOnWindowFocus:true,
+  });
+  const task183ReviewAckMutation = useMutation({
+    mutationFn:(evidenceSha256:string)=>apiFetch(
+      "/ai-tasks/183/gpt02-recovery-review-ack?companyId=default",{
+        method:"POST",
+        headers:{"X-GPT02-Intent":"acknowledge-review-only"},
+        body:JSON.stringify({evidenceSha256,reviewedOnly:true}),
+      }),
+    onSuccess:()=>{
+      toast({title:"Pembacaan bukti review tercatat",
+        description:"Tidak ada persetujuan Owner bertanda tangan, penerbitan attempt, atau dispatch."});
+      void queryClient.invalidateQueries({queryKey:["task183-recovery-review-ack-status",id]});
+    },
+    onError:(err:Error)=>toast({title:"Konfirmasi review ditolak",
+      description:err.message,variant:"destructive"}),
+  });
+  // Explicit Google Super Admin consent to recovery review only. It is
+  // challenge-bound, single-use, and never an issuer/Owner Ed25519 grant.
+  const {data: task183RecoveryConsentStatus} = useQuery<{
+    recorded:boolean;state:string;requestId?:string;
+    signedOwnerApproval?:false;issuerAuthority?:false;
+    attemptIssued?:false;dispatchPermitted:false;
+  }>({
+    queryKey:["task183-recovery-consent-status",id],
+    queryFn:()=>apiFetch("/ai-tasks/183/gpt02-recovery-consent-status?companyId=default"),
+    enabled:currentUser?.role==="super_admin" && task?.id===183 &&
+      task183ReviewAck?.recorded===true,
+    retry:false,refetchInterval:30_000,refetchOnWindowFocus:true,
+  });
+  // Live signed Google session is independently mapped to the existing
+  // root-owned approval DB operator identity. This does not authorize signing.
+  const {data: task183OwnerIdentity, error: task183OwnerIdentityError} = useQuery<{
+    eligible:true;taskId:183;googleSessionVerified:true;
+    enabledOperatorLinkVerified:true;approvalDecisionCreated:false;
+    cryptographicOwnerSignatureVerified:false;issuerAuthorized:false;
+    dispatchPermitted:false;readOnly:true;
+  }>({
+    queryKey:["task183-owner-identity-readiness",id],
+    queryFn:()=>apiFetch("/ai-tasks/183/gpt02-owner-identity-readiness?companyId=default"),
+    enabled:currentUser?.role==="super_admin" && task?.id===183 &&
+      task183RecoveryConsentStatus?.recorded===true,
+    retry:false,refetchInterval:30_000,refetchOnWindowFocus:true,
+  });
+  const task183RecoveryConsentMutation = useMutation({
+    mutationFn:async (evidenceSha256:string)=>{
+      const challenge=(await apiFetch(
+        "/ai-tasks/183/gpt02-recovery-consent-challenge?companyId=default",{
+          method:"POST",
+          headers:{"X-GPT02-Intent":"recovery-consent-challenge-only"},
+          body:JSON.stringify({startRecoveryConsent:true}),
+        })) as {
+          challengeId:string;nonce:string;evidenceSha256:string;
+          ownerApprovalGranted:false;dispatchPermitted:false;
+        };
+      if(challenge.evidenceSha256!==evidenceSha256 ||
+         challenge.ownerApprovalGranted!==false ||
+         challenge.dispatchPermitted!==false ||
+         typeof challenge.nonce!=="string" ||
+         typeof challenge.challengeId!=="string")
+        throw new Error("Bukti challenge berbeda; otorisasi tidak dilakukan.");
+      return apiFetch("/ai-tasks/183/gpt02-recovery-consent?companyId=default",{
+        method:"POST",
+        headers:{"X-GPT02-Intent":"recovery-consent-record-only"},
+        body:JSON.stringify({
+          challengeId:challenge.challengeId,
+          nonce:challenge.nonce,evidenceSha256,
+          authorizeRecoveryOnly:true,
+        }),
+      });
+    },
+    onSuccess:()=>{
+      toast({title:"Niat pemulihan Super Admin dicatat",
+        description:"Menunggu verifikasi issuer independen. Tidak ada job, command, atau dispatch baru."});
+      void queryClient.invalidateQueries({queryKey:["task183-recovery-consent-status",id]});
+    },
+    onError:(err:Error)=>toast({title:"Niat pemulihan ditolak",
+      description:err.message,variant:"destructive"}),
+  });
+  const task183RecoveryReviewMutation = useMutation({
+    mutationFn:()=>apiFetch("/ai-tasks/183/gpt02-recovery-review-request?companyId=default",{
+      method:"POST",
+      headers:{"X-GPT02-Intent":"recovery-review-only"},
+      body:JSON.stringify({requestReview:true}),
+    }),
+    onSuccess:()=>{
+      toast({title:"Permintaan review pemulihan dicatat",
+        description:"Menunggu review Owner independen. Belum ada persetujuan, command, atau dispatch."});
+      void queryClient.invalidateQueries({queryKey:["task183-recovery-review-status",id]});
+    },
+    onError:(err:Error)=>toast({title:"Permintaan review ditolak",
+      description:err.message,variant:"destructive"}),
+  });
   const gpt02PrepareOnlyMutation = useMutation({
     mutationFn:()=>apiFetch(
       `/ai-tasks/${id}/gpt02-prepare?companyId=${encodeURIComponent(task?.companyId ?? "")}`,{
@@ -1319,7 +1468,9 @@ export default function AiTaskDetail() {
                 gpt02PreparationReadiness.reason==="FRESH_TASK_INSTRUCTION_REQUIRED" ?
                   "Instruksi masih berupa referensi lama. Gunakan koreksi ber-audit di atas terlebih dahulu." :
                 gpt02PreparationReadiness.reason==="GPT02_PREPARER_LOGIN_LOCKED" ?
-                  "Akun preparer khusus masih NOLOGIN; belum boleh membuat Core Task." :
+                  task.id===183 && gpt02PreparationReadiness.preparationEligible && gpt02PreparationReadiness.featureEnabled ?
+                    "Siap meminta preparation satu kali. Server akan membuka akses terbatas, memproses permintaan, lalu mengunci kembali tanpa dispatch." :
+                    "Akun preparer khusus masih NOLOGIN; belum boleh membuat Core Task." :
                 gpt02PreparationReadiness.reason==="GPT02_PREPARER_PASSWORD_VERIFIER_MISSING" ?
                   "Autentikasi akun preparer belum tersedia; diperlukan kredensial khusus yang terverifikasi." :
                 gpt02PreparationReadiness.reason==="GPT02_PREPARER_INDEPENDENT_AUTH_NOT_VERIFIED" ?
@@ -1330,8 +1481,124 @@ export default function AiTaskDetail() {
                   "Siap mengajukan persiapan saja; belum memiliki izin menjalankan worker." :
                   `Persiapan belum memenuhi syarat: ${gpt02PreparationReadiness.reason}`}
             </p>
+            {task.id===183 && task183Postprep?.corePreparations===1 && (
+              <div data-testid="task183-reservation-release-gate" role="status"
+                className="rounded border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 space-y-1">
+                <p className="font-semibold">{task183Postprep.reservationCurrent
+                  ? "Reservasi GPT02 tercatat — belum ada izin dispatch"
+                  : "Reservasi GPT02 sudah kedaluwarsa — eksekusi tetap ditolak"}</p>
+                <p>{task183Postprep.reservationExpiryUtc
+                  ? "Batas berlaku: " + new Date(task183Postprep.reservationExpiryUtc).toLocaleString("id-ID",{timeZone:"Asia/Jakarta",hour12:false}) + " WIB."
+                  : "Waktu berlaku belum dapat diverifikasi."}</p>
+                <p>Core preparation: {task183Postprep.corePreparations}; Hub Job: {task183Postprep.hubJobs};
+                  command resmi: {task183Postprep.officialCommandCount};
+                  approval sah: {task183Postprep.validApprovalCount};
+                  binding attempt: {task183Postprep.verifiedBindings}.</p>
+                <p>Keputusan: {task183Postprep.status}. Tidak mengulang preparation otomatis.</p>
+                {!task183Postprep.reservationCurrent &&
+                  task183Postprep.status==="NO_GO_RESERVATION_EXPIRED" && (
+                  <div className="pt-2 space-y-1">
+                    <Button type="button" size="sm" variant="outline"
+                      disabled={task183RecoveryReviewMutation.isPending ||
+                        task183RecoveryReviewStatus?.requested!==false}
+                      onClick={()=>{
+                        if (window.confirm("Ajukan satu permintaan review pemulihan Task #183 ke antrean DEV? Ini BUKAN persetujuan Owner dan tidak membuat command atau menjalankan GPT02."))
+                          task183RecoveryReviewMutation.mutate();
+                      }}>
+                      {task183RecoveryReviewMutation.isPending
+                        ? "Mencatat permintaan review..."
+                        : task183RecoveryReviewStatus?.requested
+                          ? "Review pemulihan sudah diajukan"
+                          : task183RecoveryReviewStatus?.requested===false
+                            ? "Ajukan review pemulihan (tanpa eksekusi)"
+                            : "Memeriksa antrean review..."}
+                    </Button>
+                    <p>Permintaan review hanya untuk verifikasi Owner berikutnya.
+                      Tidak mengaktifkan signer, membuat attempt, atau mengirim worker.</p>
+                    {task183RecoveryReviewStatus?.requested && (
+                      <p role="status">Status permintaan: {task183RecoveryReviewStatus.status}.
+                        Ini bukan approval.</p>
+                    )}
+                    {task183RecoveryEvidence?.readOnly === true &&
+                      task183RecoveryEvidence.ownerApprovalGranted === false && (
+                      <div data-testid="task183-review-evidence"
+                        className="mt-2 rounded border border-slate-300 p-2 space-y-1">
+                        <p className="font-semibold">Bukti review pemulihan — baca-saja</p>
+                        <p>ID permintaan: <code>{task183RecoveryEvidence.evidence.requestId}</code></p>
+                        <p>Core Task: <code>{task183RecoveryEvidence.evidence.coreTaskId}</code></p>
+                        <p>Hub Job: <code>{task183RecoveryEvidence.evidence.hubExecutionId}</code></p>
+                        <p>Attempt awal: <code>{task183RecoveryEvidence.evidence.originalAttemptId}</code></p>
+                        <p>SHA-256 bukti: <code>{task183RecoveryEvidence.evidenceSha256}</code></p>
+                        <p>Tidak ada persetujuan Owner, nonce yang dikonsumsi,
+                          command baru, atau izin dispatch.</p>
+                        {task183ReviewAck?.recorded ? (
+                          <div className="space-y-2">
+                            <p role="status">Bukti telah dibaca oleh Super Admin — belum menjadi izin menjalankan GPT02.</p>
+                            {task183RecoveryConsentStatus?.recorded === true ? (
+                              <div className="space-y-1">
+                                <p role="status">Niat pemulihan Super Admin telah tercatat.
+                                  Menunggu penerbitan izin oleh issuer independen; belum ada command atau dispatch.</p>
+                                {task183OwnerIdentity?.eligible===true &&
+                                  task183OwnerIdentity.googleSessionVerified===true &&
+                                  task183OwnerIdentity.enabledOperatorLinkVerified===true ? (
+                                  <p role="status">Identitas Super Admin dan pemetaan Owner GPT02: terverifikasi baca-saja.
+                                    Tanda tangan persetujuan pemulihan belum tersedia.</p>
+                                ) : task183OwnerIdentityError ? (
+                                  <p role="alert">Pemetaan Owner pada sesi aktif belum terverifikasi; persetujuan tetap ditahan.</p>
+                                ) : (
+                                  <p>Memeriksa identitas Owner terhadap persetujuan DEV...</p>
+                                )}
+                              </div>
+                            ) : (
+                              <Button type="button" size="sm" variant="outline"
+                                disabled={task183RecoveryConsentMutation.isPending ||
+                                  task183RecoveryConsentStatus?.recorded!==false ||
+                                  !task183RecoveryEvidence?.evidenceSha256 ||
+                                  task183Postprep?.status!=="NO_GO_RESERVATION_EXPIRED"}
+                                onClick={()=>{
+                                  if (window.confirm("Setujui pencatatan niat pemulihan Task #183 dari sesi Super Admin Anda? Ini memakai nonce sekali pakai, tetapi BUKAN tanda tangan Owner Ed25519, tidak menerbitkan attempt/command, dan tidak menjalankan GPT02."))
+                                    task183RecoveryConsentMutation.mutate(task183RecoveryEvidence.evidenceSha256);
+                                }}>
+                                {task183RecoveryConsentMutation.isPending
+                                  ? "Memverifikasi nonce satu kali..."
+                                  : "Catat niat pemulihan Super Admin (tanpa eksekusi)"}
+                              </Button>
+                            )}
+                          </div>
+                        ) : (
+                          <Button type="button" size="sm" variant="outline"
+                            disabled={task183ReviewAckMutation.isPending ||
+                              !task183RecoveryEvidence.evidenceSha256 ||
+                              task183Postprep?.status!=="NO_GO_RESERVATION_EXPIRED"}
+                            onClick={()=>{
+                              if (window.confirm("Konfirmasi bahwa Anda sudah meninjau bukti Task #183 ini? Tindakan hanya mencatat pembacaan hash bukti. Ini BUKAN persetujuan Owner atau izin eksekusi."))
+                                task183ReviewAckMutation.mutate(task183RecoveryEvidence.evidenceSha256);
+                            }}>
+                            {task183ReviewAckMutation.isPending
+                              ? "Mencatat pembacaan bukti..."
+                              : "Saya sudah meninjau bukti (tanpa persetujuan)"}
+                          </Button>
+                        )}
+                      </div>
+                    )}
+                    {task183RecoveryReviewStatus?.requested &&
+                      task183RecoveryEvidenceError && (
+                      <p role="alert">Bukti review tidak dapat diverifikasi; tindakan lanjutan tetap ditahan.</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+            {task.id===183 && task183PostprepError && (
+              <p role="alert" className="text-xs text-amber-800">
+                Bukti reservasi belum dapat dibaca; eksekusi tetap ditahan.
+              </p>
+            )}
             <Button type="button" variant="outline" size="sm"
-              disabled={!gpt02PreparationReadiness?.canRequestPreparation ||
+              disabled={!(gpt02PreparationReadiness?.canRequestPreparation ||
+                (task.id===183 && gpt02PreparationReadiness?.preparationEligible===true &&
+                  gpt02PreparationReadiness?.featureEnabled===true &&
+                  gpt02PreparationReadiness?.reason==="GPT02_PREPARER_LOGIN_LOCKED")) ||
                 gpt02PrepareOnlyMutation.isPending || gpt02PreparationReadinessFetching ||
                 Boolean(executionData?.execution)}
               onClick={() => {
