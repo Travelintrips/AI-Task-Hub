@@ -4,6 +4,8 @@ on:
     branches:
       - fix/dev-task183-prep-readiness-ui-20261121
     paths:
+      - 'scripts/dev/task183-stage-exact-recovery-signer.candidate.py'
+      - 'scripts/dev/task183-stage-exact-recovery-signer.candidate.test.py'
       - 'scripts/dev/task183-operational-custody-negative-proof.py'
       - 'scripts/dev/task183-signer-unix-gate.candidate.py'
       - 'scripts/dev/task183-signer-unix-gate.candidate.test.py'
@@ -77,6 +79,8 @@ jobs:
         run: python3 scripts/dev/task183-reader-backed-broker-authorization.candidate.test.py
       - name: Signer-side Unix admission and no-sign replay proof
         run: python3 scripts/dev/task183-signer-unix-gate.candidate.test.py
+      - name: Exact pinned signer source recovery-only preservation regression
+        run: python3 scripts/dev/task183-stage-exact-recovery-signer.candidate.test.py
       - name: Ed25519 trust manifest fingerprint and Unix broker signature binding
         run: |
           python3 scripts/dev/task183-pinned-approval-verifier.offline.test.py
