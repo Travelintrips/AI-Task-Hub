@@ -57,7 +57,8 @@ def db_counts(admin):
                 "(SELECT count(*)::integer FROM public.ai_execution_jobs WHERE task_id=183)")
             return cur.fetchone()
         finally:
-            admin.rollback()
+            # Explicit SQL rollback on an autocommit=True connection.
+            cur.execute("ROLLBACK")
 
 
 def main():
@@ -134,8 +135,10 @@ def main():
             source.ensure_watchdog()
             core, jobs = db_counts(admin)
             if core>0 or jobs>0:
+                if (core,jobs)!=(1,1):
+                    fail("PREPARATION_COUNT_MISMATCH_FAIL_CLOSED")
                 action_observed = True
-                print("TASK183_PREPARATION_OBSERVED="+str(core==1 and jobs==1),flush=True)
+                print("TASK183_PREPARATION_OBSERVED=TRUE",flush=True)
                 print("CORE_PREPARATIONS="+str(core),flush=True)
                 print("HUB_JOBS="+str(jobs),flush=True)
                 break
