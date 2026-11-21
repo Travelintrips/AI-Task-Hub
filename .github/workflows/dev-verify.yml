@@ -152,6 +152,8 @@ jobs:
         run: python3 scripts/dev/task183-owner-identity-readiness.test.py
       - name: Verify Task183 explicit synthetic Owner decision and immutable outbox are atomic
         run: python3 scripts/dev/task183-owner-recovery-decision-writer.fixture.test.py
+      - name: Verify dormant Task183 approval schema preserves old records and prevents implicit approval
+        run: python3 scripts/dev/task183-install-dormant-owner-approval-schema.test.py
       - name: Verify Task183 attempt2 atomic Core Hub issuance in isolated PostgreSQL
         run: bash scripts/dev/test-gpt02-task183-attempt2-issuer-isolated.sh
       - name: Verify idempotent Core coding task preparation without command dispatch
