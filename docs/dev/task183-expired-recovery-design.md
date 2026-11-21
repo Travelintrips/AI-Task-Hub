@@ -66,3 +66,11 @@ The original Task183 review has a genuine signed Google Super Admin request and 
 The only possible final record is SUPERADMIN_RECOVERY_INTENT_PENDING_INDEPENDENT_ISSUER. The record deliberately has signedOwnerApproval=false, issuerAuthority=false, issuerNonceConsumed=false, attemptIssued=false and dispatchPermitted=false. This is **not** an Ed25519 signer approval, does not modify Supabase, does not create a new attempt and cannot launch a worker. It is one authentic human authorization *intent*, awaiting independent issuer and signed Owner approval requirements.
 
 The UI uses one genuine Super Admin click and explicit confirm to request and atomically consume its single-use nonce. No automatic click or fake Owner response. The old prepared record is preserved and NO_GO_RESERVATION_EXPIRED remains active until independent issuer testing and approval.
+
+## Independent issuer admission: current NO-GO proven
+
+Task #183 signed Google Super Admin intent exists and its five-minute challenge nonce was locally consumed exactly once during validity. This is not an independent issuer signature or lease. The original Core/Hub reservation remains the only one and issuer/attestor/preparer database roles remain NOLOGIN.
+
+The scoped scripts/dev/task183-recovery-issuer-preflight.py checks the root-owned append-only review, hash-bound read acknowledgment, Super Admin consent, consumed nonce, and original Hub/Core/attempt via an independent PostgreSQL READ ONLY reader. Issuer, attestor and preparer role lock states are also checked. Synthetic fixture tests cover missing ACK, missing consent, missing nonce consumption, altered Core, leaked preparer role, duplicate jobs and unapproved command/binding, all fail closed.
+
+Real live result: NO_GO_INDEPENDENT_SIGNED_OWNER_APPROVAL_MISSING. Google Super Admin intent is not command-bound signed Owner approval, has no issuer authority, does not unlock a role and cannot replay or create an attempt. This preflight writes no database rows, creates no services and is not an operational issuer. A separately authorized versioned issuer is required before any possible second attempt.
