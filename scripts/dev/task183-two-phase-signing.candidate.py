@@ -24,14 +24,26 @@ def reject(reason):raise ValueError(reason)
 
 class TwoPhase:
     def __init__(self, store, *, fixture_only=True):
-        if fixture_only is not True:reject("LIVE_TWO_PHASE_SERVICE_NOT_AUTHORIZED")
         self.store=Path(store)
-        if not str(self.store).startswith("/tmp/task183-two-phase-fixture-"):
+        self.operational=(fixture_only is False)
+        if type(fixture_only) is not bool:
+            reject("EXPLICIT_OPERATIONAL_OR_FIXTURE_MODE_REQUIRED")
+        if self.operational:
+            # Exact root-owned CST-DEV custody only; never user-chosen paths.
+            if self.store!=custody.STORE:
+                reject("PINNED_ROOT_CUSTODY_REQUIRED")
+            custody._guard(self.store,operational=True)
+        elif (not str(self.store).startswith("/tmp/task183-two-phase-fixture-")
+              or self.store.is_symlink()):
             reject("FIXTURE_STORE_REQUIRED")
-        if not custody.audit(path=self.store,operational=False)["installed"]:
+        if not custody.audit(path=self.store,operational=self.operational)["installed"]:
             reject("CUSTODY_NOT_INSTALLED")
 
     def _db(self):
+        # Repeat root custody checks before EVERY database connection.
+        if self.operational:
+            custody._guard(self.store,operational=True)
+            custody.audit(path=self.store,operational=True)
         db=sqlite3.connect(str(self.store), timeout=8, isolation_level=None)
         db.execute("PRAGMA busy_timeout=8000")
         db.execute("PRAGMA journal_mode=DELETE")
