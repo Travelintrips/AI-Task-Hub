@@ -79,7 +79,11 @@ def verify_jwt(token, now=None):
         raise ValueError("JWT_EXPIRED_OR_INVALID")
     if type(data.get("iat")) is not int or data["iat"]>now+30 or data["iat"]<now-8*86400:
         raise ValueError("JWT_ISSUED_AT_INVALID")
-    if data.get("role")!="super_admin" or data.get("companyId")!="default":
+    # A genuine cross-company Super Admin is stored with company_id=NULL.
+    # The existing AI Task getCompanyIdForWrite() resolves NULL to default
+    # for an authenticated Super Admin; do not reject that signed claim.
+    # The URL and original POST API still strictly enforce companyId=default.
+    if data.get("role")!="super_admin" or "companyId" not in data or data["companyId"] not in (None,"default"):
         raise ValueError("SUPERADMIN_COMPANY_REQUIRED")
     if data.get("authSource")!="supabase_google_identity":
         raise ValueError("GOOGLE_APP_SESSION_REQUIRED")

@@ -32,9 +32,15 @@ def assertion(label,yes):
     if not yes:raise AssertionError(label)
 
 now=int(time.time())
-claims={"id":"google_fixture_superadmin","email":"superadmin@example.test","role":"super_admin","companyId":"default","authSource":"supabase_google_identity","authSupabaseId":"01234567-89ab-4cde-8fab-0123456789ab","authVerifiedAt":(now-3600)*1000,"iat":now-3600,"exp":now+600}
+claims={"id":"google_fixture_superadmin","email":"superadmin@example.test","role":"super_admin","companyId":None,"authSource":"supabase_google_identity","authSupabaseId":"01234567-89ab-4cde-8fab-0123456789ab","authVerifiedAt":(now-3600)*1000,"iat":now-3600,"exp":now+600}
 token=jwt(claims)
 assertion("SIGNED_SUPERADMIN_GOOGLE_CLAIMS_ACCEPTED",broker.verify_jwt(token,now)["role"]=="super_admin")
+assertion("CROSS_COMPANY_SUPERADMIN_NULL_COMPANY_ACCEPTED",broker.verify_jwt(token,now)["companyId"] is None)
+assertion("SCOPED_SUPERADMIN_DEFAULT_ACCEPTED",broker.verify_jwt(jwt({**claims,"companyId":"default"}),now)["companyId"]=="default")
+try:broker.verify_jwt(jwt({k:v for k,v in claims.items() if k!="companyId"}),now)
+except ValueError:assertion("MISSING_COMPANY_CLAIM_DENIED",True)
+else:assertion("MISSING_COMPANY_CLAIM_DENIED",False)
+
 for label,update in [
     ("NON_SUPERADMIN_DENIED",{"role":"staff"}),
     ("FOREIGN_COMPANY_DENIED",{"companyId":"other"}),

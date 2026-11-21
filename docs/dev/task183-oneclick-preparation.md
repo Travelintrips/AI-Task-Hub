@@ -16,3 +16,9 @@ QA already performed in isolation:
 - Ensure VPS has the trusted custody scripts, root-only 0400 and watchdog timer active.
 
 Target: VPS srv1792369, Supabase xssrfshdrtdfupgqwfdw, not PROD.
+
+## Super Admin NULL company claim hotfix (21 November 2026)
+
+Actual AI Task Super Admin Google profile on CST-DEV legitimately has company_id = NULL because it is a cross-company administrator. The existing signed Google app token carries this null claim, and getCompanyIdForWrite() on the original API resolves authenticated Super Admin NULL scope to default. Initial broker implementation required the literal string default, causing browser HTTP 403 before any preparation was attempted. Broker now allows a **present, signed** companyId claim equal to null or default, only together with a valid signed Google Super Admin token; absent companyId, any other tenant, non-Super Admin, fake or expired JWT still fail closed. Task path and original preparation API enforce companyId=default.
+
+Unit coverage: signed null company accepted, signed default accepted, absent claim denied, foreign company denied, expired and tampered token denied, mock positive POST and mock failure relock PASS. Broker systemd service restarted healthy and unauthenticated public POST still HTTP 401. Real successful preparation/E2E not claimed.
