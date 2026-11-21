@@ -168,6 +168,8 @@ jobs:
         run: python3 scripts/dev/task183-dormant-signature-custody.test.py
       - name: Verify approval-only signer dependency override candidate without changing active unit
         run: python3 scripts/dev/task183-approval-only-systemd-override.candidate.test.py
+      - name: Verify scoped existing approval instance unit removes issuer dependency without relaxing sandbox
+        run: python3 scripts/dev/task183-generate-approval-instance-unit.test.py
       - name: Verify dormant Task183 approval schema preserves old records and prevents implicit approval
         run: python3 scripts/dev/task183-install-dormant-owner-approval-schema.test.py
       - name: Verify Task183 attempt2 atomic Core Hub issuance in isolated PostgreSQL
