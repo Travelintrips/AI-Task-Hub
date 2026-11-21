@@ -31,3 +31,9 @@ This candidate issues NO Core Task, Hub Job, command, approval or lease. It is s
 4. Official command creation and attempt binding, owner command approval, issuer lease/fence, optional dispatch, receiver ACK and replay denial, all fully verified in DEV before any PROD change.
 
 Release status: NO-GO. A synthetic recovery review is not a successful operational recovery.
+
+## Isolated Owner signature review gate (not deployed)
+
+The standalone verifier `scripts/dev/gpt02-task183-recovery-signature-gate.mjs` only verifies a synthetic-compatible Ed25519 review signature with domain-separated bytes. It requires an **independently trusted, pinned Ed25519 public key fingerprint**, exact original Task/Core/Hub/attempt identifiers, an authoritative Owner identity mapping, a narrowly scoped review-only purpose, current bounded expiry and an original reservation already expired. It rejects alternate tenants, Task IDs, reused attempts, foreign Owners, tampered signatures, invalid key types and wrong signers. Every result, including a valid synthetic signature, explicitly sets `approvalGranted=false`, `dispatchPermitted=false`, `canIssueAttempt=false`. No private key, database, HTTP or signing capability exists in the module.
+
+The test suite creates **synthetic, ephemeral Ed25519 keys** only inside the fixture and does not connect to CST-DEV. The verifier is not connected to the VPS signer custody or any user-session approval endpoint. Verification is not nonce consumption and is **not permission for a versioned attempt**, issuer lease, worker or command. Operational integration needs trusted public-key custody, genuine Owner action, transactionally consumed nonce, separate issuer authority and the complete E2E review.

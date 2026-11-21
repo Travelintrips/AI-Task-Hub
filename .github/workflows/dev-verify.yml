@@ -128,6 +128,8 @@ jobs:
           bash -n scripts/dev/test-gpt02-lifecycle-start-isolated.sh
       - name: Verify expired Task183 versioned recovery review is inert and immutable
         run: bash scripts/dev/test-gpt02-expired-reservation-v2-candidate.sh
+      - name: Verify Task183 Ed25519 recovery review identity without granting authorization
+        run: node --test scripts/dev/gpt02-task183-recovery-signature-gate.test.mjs
       - name: Verify idempotent Core coding task preparation without command dispatch
         run: |
           bash scripts/dev/test-gpt02-core-task-preparation-isolated.sh
