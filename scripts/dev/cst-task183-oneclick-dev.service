@@ -1,0 +1,25 @@
+[Unit]
+Description=CST-DEV Task183 one-click preparation broker (no dispatch)
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+UMask=0077
+WorkingDirectory=/opt/ai-coding-standalone-dev/qa
+ExecStart=/usr/bin/python3 /opt/ai-coding-standalone-dev/qa/task183-single-click-broker-dev.py
+Restart=on-failure
+RestartSec=4s
+TimeoutStopSec=12s
+KillSignal=SIGTERM
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+LimitNOFILE=256
+
+[Install]
+WantedBy=multi-user.target
