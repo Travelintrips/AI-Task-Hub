@@ -37,19 +37,17 @@ NEW_RECOVERY='''        signature=self._task183_sign_with_gate(
 
 def patch(source):
     replacements=[(OLD_INIT,NEW_INIT),(OLD_RECOVERY,NEW_RECOVERY)]
+    original_approval='self.key.sign(signing_bytes("approval",c))'
+    original_recovery='self.key.sign(recovery_signing_bytes(claims))'
+    if source.count(original_approval)!=1 or source.count(original_recovery)!=1:
+        raise ValueError("EXISTING_SIGNER_SCOPE_DRIFT")
     for old,new in replacements:
         if source.count(old)!=1:
             raise ValueError("EXACT_SIGNER_SOURCE_DRIFT")
         source=source.replace(old,new,1)
-    if source.count("self.key.sign(")!=3:
-        # One callback in gate, plus existing hub/core/issuer roles.
-        # The original signer has additional Hub/Core/Issuer key calls;
-        # ensure none of the two approval paths still sign directly.
-        assert "self.key.sign(signing_bytes(\"approval\",c))" not in source
-        assert "self.key.sign(recovery_signing_bytes(claims))" not in source
-    if "self.key.sign(signing_bytes(\\"approval\\",c))" not in source:
+    if source.count(original_approval)!=1:
         raise ValueError("EXISTING_APPROVAL_PATH_CHANGED")
-    if "self.key.sign(recovery_signing_bytes(claims))" in source:
+    if original_recovery in source:
         raise ValueError("TASK183_RECOVERY_SIGNER_NOT_GATED")
     return source
 
@@ -64,7 +62,7 @@ def main():
     if not str(out).startswith("/tmp/task183-signer-gate-fixture-"):
         raise SystemExit("ISOLATED_CANDIDATE_ONLY")
     out.write_text(patch(src.read_text()))
-    print("TASK183_APPROVAL_AND_RECOVERY_SIGNER_GATED_CANDIDATE=PASS")
+    print("TASK183_RECOVERY_ONLY_SIGNER_GATED_CANDIDATE=PASS")
     print("LIVE_SIGNER_CHANGED=FALSE")
 
 if __name__=="__main__":main()
