@@ -2,7 +2,7 @@
 """Synthetic signed actor & ephemeral filesystem only. Never touch real DB."""
 import tempfile,importlib.util,sqlite3
 from pathlib import Path
-s=importlib.util.spec_from_file_location('ack','/opt/ai-coding-standalone-dev/qa/task183-recovery-review-intake-dev.py')
+s=importlib.util.spec_from_file_location('ack',str(Path(__file__).with_name('task183-recovery-review-intake-dev.py')))
 m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
 NOW=1800000000000
 actor={'id':'google_synthetic_superadmin','role':'super_admin','companyId':None}
