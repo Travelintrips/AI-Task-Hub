@@ -104,7 +104,12 @@ class Handler(socketserver.BaseRequestHandler):
             signed=readframe(c)
             if set(signed)!={"signature"}:
                 raise ValueError("SIGNATURE_FRAME_INVALID")
-            verify=lambda sig:service.verify(role,digest,rid,evidence,sig) is True
+            # Recovery verifier receives exact canonical claims, preventing
+            # a callback from validating an unrelated signed payload.
+            if role=="recovery-approval":
+                verify=lambda sig:service.verify(role,digest,rid,evidence,claims,sig) is True
+            else:
+                verify=lambda sig:service.verify(role,digest,rid,evidence,sig) is True
             result=engine.complete(
                 digest=domain_digest,request=rid,evidence=evidence,
                 signature=signed["signature"],independent_signature_verify=verify)
