@@ -41,7 +41,9 @@ with tempfile.TemporaryDirectory(prefix="task183-two-phase-fixture-") as td:
   check("REPLAY_DOES_NOT_INVITE_SIGN",ask(sign_callback=sign)["signingPermitted"] is False and calls[0]==1)
   check("MUTATED_EVIDENCE_DENIED",ask({**request,"evidenceSha256":"c"*64},sign_callback=sign)["status"]=="DENIED")
   check("SPOOFED_OWNER_FIELD_DENIED",ask({**request,"ownerVerified":True},sign_callback=sign)["status"]=="DENIED")
-  recovery={**request,"role":"recovery-approval","approvalDigest":"c"*64,"requestId":str(uuid.uuid4())}
+  recovery={**request,"role":"recovery-approval","approvalDigest":"c"*64,"requestId":"6bcd8419254dc21c0b149eb09e68a7b6da66"}
+  check("RECOVERY_UUID_FORMAT_DENIED",ask({**recovery,"requestId":str(uuid.uuid4())},sign_callback=sign)["status"]=="DENIED")
+  check("APPROVAL_UNHYPHENATED_FORMAT_DENIED",ask({**request,"requestId":"a"*36},sign_callback=sign)["status"]=="DENIED")
   check("CRASH_SIMULATED_AFTER_RESERVE",ask(recovery,interrupt_after_reserve=True)["status"]=="SIMULATED_PROCESS_CRASH")
   check("CRASH_NO_SIGNATURE",calls[0]==1)
   check("CRASH_REPLAY_UNRESOLVED",ask(recovery,sign_callback=sign)["status"]=="UNRESOLVED_SIGNING")
