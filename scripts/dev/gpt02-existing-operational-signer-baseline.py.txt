@@ -1,0 +1,37 @@
+# Minimal source-compatible, synthetic-only test fixture for patching
+# the EXISTING signer source anchors. Not runnable as a systemd service.
+import base64,hashlib,json,os,socket,stat,time
+from pathlib import Path
+WORKER="openclaw-dell-chatgpt-wake-dev"
+NONCE_RE=__import__("re").compile(r"^[A-Za-z0-9_-]{32,128}$")
+UUID_RE=__import__("re").compile(r"^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$")
+def deny(code):
+    raise RuntimeError(code)
+def exact(value,fields):
+    return type(value) is dict and set(value)==set(fields)
+def canonical(value,fields):
+    if not exact(value,fields):deny("CLAIMS_FIELDS_INVALID")
+    return json.dumps({k:value[k] for k in fields},ensure_ascii=False,separators=(",",":")).encode()
+class Signer:
+    def __init__(self,role,key,public):
+        self.role=role
+        self.key=key
+        self.public=public
+    def sign_approval(self,data):
+        return {"legacy":"approval"}
+    def sign_hub(self,data):
+        return {"legacy":"hub"}
+    def sign_core(self,data):
+        return {"legacy":"core"}
+    def sign_issuer(self,data):
+        return {"legacy":"issuer"}
+def read_request(conn):
+    routes={b"POST /sign-approval HTTP/1.1":"approval",b"POST /sign-issuer HTTP/1.1":"issuer"}
+    return routes.get(conn)
+class Handler:
+    signer=None
+    def handle(self):
+        route,data=read_request(None)
+        if not self.signer or route!=self.signer.role: deny("ROUTE_ROLE_MISMATCH")
+        method={"approval":self.signer.sign_approval,"hub":self.signer.sign_hub,"core":self.signer.sign_core,"issuer":self.signer.sign_issuer}[route]
+        return method(data)
