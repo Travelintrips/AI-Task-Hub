@@ -22,3 +22,19 @@ Target: VPS srv1792369, Supabase xssrfshdrtdfupgqwfdw, not PROD.
 Actual AI Task Super Admin Google profile on CST-DEV legitimately has company_id = NULL because it is a cross-company administrator. The existing signed Google app token carries this null claim, and getCompanyIdForWrite() on the original API resolves authenticated Super Admin NULL scope to default. Initial broker implementation required the literal string default, causing browser HTTP 403 before any preparation was attempted. Broker now allows a **present, signed** companyId claim equal to null or default, only together with a valid signed Google Super Admin token; absent companyId, any other tenant, non-Super Admin, fake or expired JWT still fail closed. Task path and original preparation API enforce companyId=default.
 
 Unit coverage: signed null company accepted, signed default accepted, absent claim denied, foreign company denied, expired and tampered token denied, mock positive POST and mock failure relock PASS. Broker systemd service restarted healthy and unauthenticated public POST still HTTP 401. Real successful preparation/E2E not claimed.
+
+## Post-preparation release gate (21 Nov 2026)
+
+The genuine Super Admin one-click preparation succeeded and generated exactly one Hub job and one Core task, both PENDING/prepared, with the preparer relocked (NOLOGIN, NULL verifier, zero sessions). Task #183 is **not** ready for issuer/dispatch: the Core Task exists, but there is no matching official bridge command, command-bound approval, or immutable attempt binding.
+
+Do not attempt to use the Issue159 approval-intent API as authority for Task #183 merely because it exists on the same VPS. Issue159 intent is independently scoped and not equivalent to command-bound approval for the new Core Task.
+
+Read-only VPS verification:
+python3 /opt/ai-coding-standalone-dev/qa/task183-postprepare-readiness.py
+
+The script reads CST-DEV facts under an explicit PostgreSQL READ ONLY transaction, verifies exact Core/Hub lineage, strict single-count cardinality, expiry, preparer relock, command presence, immutable attempt binding and a valid command-bound approval. It intentionally returns NO-GO while evidence is incomplete. The terminal READY_FOR_INDEPENDENT_ISSUER_CHECK_ONLY state still does not grant dispatch.
+
+Synthetic fail-closed suite:
+python3 /opt/ai-coding-standalone-dev/qa/task183-postprepare-readiness.test.py
+
+12/12 cases PASS: missing command, approval, binding; expired reservation; duplicate Hub/Core; unlocked preparer; leaked sessions; invalid/unavailable readback, etc. No task, database, or role writes. Reservation originally expired 2026-11-21 11:25:28.870Z (18:25:28 WIB); do not extend/replay it outside the official independently authorized flow.
