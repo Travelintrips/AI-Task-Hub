@@ -3,11 +3,13 @@
 Starts TWO transient synthetic services, never the operational signer.
 No credentials, approval, real broker store or signing.
 """
-import os,socket,struct,threading,tempfile,subprocess,grp,pathlib
+import os,socket,struct,threading,tempfile,subprocess,grp,pathlib,importlib.util
 UNIT="cst-task183-dynamic-peer-fixture.service"
 BAD_UNIT="cst-task183-impostor-peer-fixture.service"
 GROUP="gpt02-issue159-signers"
 GID=grp.getgrnam(GROUP).gr_gid
+spec=importlib.util.spec_from_file_location("policy",pathlib.Path(__file__).with_name("task183-systemd-peer-policy.candidate.py"))
+policy=importlib.util.module_from_spec(spec);spec.loader.exec_module(policy)
 n=0
 def check(label,condition):
  global n
@@ -39,7 +41,7 @@ with tempfile.TemporaryDirectory(prefix="task183-peer-runtime-",dir="/run") as t
     with conn:
      data=inspect(conn)
      received.append(data)
-     allowed=(data["unit"] and data["group"] and not data["root"])
+     allowed=policy.authenticated_peer(conn,unit=UNIT,group=GROUP)
      conn.sendall(b"ACCEPT" if allowed else b"REJECT")
   except Exception as e:
    received.append({"error":str(e)})
