@@ -4,6 +4,9 @@ on:
     branches:
       - fix/dev-task183-prep-readiness-ui-20261121
     paths:
+      - 'scripts/dev/task183-dormant-broker-launcher.py'
+      - 'scripts/dev/task183-dormant-root-broker.candidate.service'
+      - 'scripts/dev/task183-dormant-broker-unit.candidate.test.py'
       - 'scripts/dev/task183-broker-peer-gate.candidate.test.py'
       - 'scripts/dev/task183-systemd-peer-policy.candidate.py'
       - 'scripts/dev/task183-dynamic-user-peer-runtime.fixture.py'
@@ -43,6 +46,8 @@ jobs:
         run: python3 -m py_compile scripts/dev/task183-root-sign-once-supervisor.candidate.py scripts/dev/task183-root-sign-once-supervisor.candidate.test.py scripts/dev/task183-local-receipt-broker.candidate.py scripts/dev/task183-local-receipt-broker.candidate.test.py scripts/dev/task183-two-phase-signing.candidate.py scripts/dev/task183-two-phase-signing.candidate.test.py scripts/dev/task183-patch-existing-signer-two-phase.candidate.py scripts/dev/task183-patch-existing-signer-two-phase.candidate.test.py scripts/dev/task183-two-phase-unix-bridge.candidate.py scripts/dev/task183-two-phase-unix-bridge.candidate.test.py
       - name: Validate real-systemd peer proof source (VPS execution required)
         run: python3 -m py_compile scripts/dev/task183-systemd-peer-policy.candidate.py scripts/dev/task183-dynamic-user-peer-runtime.fixture.py
+      - name: Dormant systemd broker unit security contract
+        run: python3 scripts/dev/task183-dormant-broker-unit.candidate.test.py
       - name: Synthetic concurrent crash and replay proof
         run: python3 scripts/dev/task183-root-sign-once-supervisor.candidate.test.py
       - name: Synthetic Unix broker peer custody replay and restart proof
