@@ -68,9 +68,21 @@ class Handler(socketserver.BaseRequestHandler):
             expected=RECOVERY_ID if role=="recovery-approval" else APPROVAL_ID
             if type(rid) is not str or not expected.fullmatch(rid):
                 raise ValueError("ROLE_SPECIFIC_REQUEST_ID_REQUIRED")
-            # domain separation is fixed by the broker and cannot be caller-chosen
+            # Recovery must bind FULL claims to the canonical signed payload.
+            if role=="recovery-approval":
+                claims=request["claims"]
+                if type(claims) is not dict or set(claims)!=RECOVERY_FIELDS:
+                    raise ValueError("COMPLETE_RECOVERY_CLAIMS_REQUIRED")
+                canonical=json.dumps({k:claims[k] for k in ("version","environment","audience","companyId","hubTaskId","recoveryAttemptNumber","requestId","evidenceSha256","originalCoreTaskId","originalHubExecutionId","originalAttemptId","ownerSubject","nonce","issuedAt","expiresAt","purpose","dispatchPermitted")},ensure_ascii=False,separators=(",",":")).encode()
+                expected_digest=hashlib.sha256((RECOVERY_DOMAIN+"\n").encode()+canonical).hexdigest()
+                if (claims["requestId"]!=rid or claims["evidenceSha256"]!=evidence
+                    or claims["audience"]!=RECOVERY_DOMAIN
+                    or expected_digest!=digest):
+                    raise ValueError("RECOVERY_CANONICAL_BINDING_MISMATCH")
+                owner_ok=service.authorize(role,digest,rid,evidence,claims) is True
+            else:
+                owner_ok=service.authorize(role,digest,rid,evidence) is True
             domain_digest=hashlib.sha256((role+"\n"+digest).encode()).hexdigest()
-            owner_ok=service.authorize(role,digest,rid,evidence) is True
             engine=phase.TwoPhase(service.store)
             answer=engine.reserve(
                 digest=domain_digest,request=rid,evidence=evidence,
