@@ -8,7 +8,7 @@ import argparse,hashlib
 from pathlib import Path
 import importlib.util
 BASE_SHA="c004af2cffa54e834e4d40c33f5cdb947cbfbff63f72deae08c22c50411f9dce"
-GATE="/opt/ai-coding-standalone-dev/qa/task183-signer-unix-gate.candidate.py"
+GATE="/opt/ai-coding-standalone-dev/task183_signer_unix_gate.py"
 HERE=Path(__file__).resolve().parent
 sp=importlib.util.spec_from_file_location("task183_patch",HERE/"task183-patch-existing-signer-two-phase.candidate.py")
 patcher=importlib.util.module_from_spec(sp);sp.loader.exec_module(patcher)
@@ -18,7 +18,7 @@ NEW='''    # Task183 is recovery-only. No other existing signer role is modified
     if role=="approval":
         import importlib.util as _task183_import
         import stat as _task183_stat
-        _task183_path=Path("/opt/ai-coding-standalone-dev/qa/task183-signer-unix-gate.candidate.py")
+        _task183_path=Path("/opt/ai-coding-standalone-dev/task183_signer_unix_gate.py")
         _task183_st=os.lstat(_task183_path)
         if (not _task183_stat.S_ISREG(_task183_st.st_mode) or
             _task183_stat.S_ISLNK(_task183_st.st_mode) or
