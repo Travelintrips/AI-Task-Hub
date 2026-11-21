@@ -23,8 +23,12 @@ core='22222222-2222-4222-8222-222222222222'
 hub='33333333-3333-4333-8333-333333333333'
 candidate='44444444-4444-4444-8444-444444444444'
 sha="$(printf '%064d' 1)"
-digest="$(printf '%064d' 2)"
-fp="$(printf '%064d' 3)"
+# Verify a freshly signed synthetic Ed25519 Owner approval before inserting
+# a TEST receipt. Never access any CST real signer keys or production roles.
+fixture="$(node "$ROOT/scripts/dev/gpt02-task183-recovery-issuer-approval.fixture.mjs")"
+digest="$(node -e 'const x=JSON.parse(process.argv[1]);if(x.verifiedFixture!==true||x.realOwnerApproved!==false||x.issuerAuthorized!==false||x.signerDomain!=="GPT02_TASK183_RECOVERY_ISSUER_APPROVAL_V1"||!/^[a-f0-9]{64}$/.test(x.approvalDigest))process.exit(3);console.log(x.approvalDigest)' "$fixture")"
+fp="$(node -e 'const x=JSON.parse(process.argv[1]);if(!/^[a-f0-9]{64}$/.test(x.signerFingerprint))process.exit(3);console.log(x.signerFingerprint)' "$fixture")"
+echo PASS:SYNTHETIC_ED25519_RECEIPT_CRYPTOGRAPHICALLY_VERIFIED
 receipt='55555555-5555-4555-8555-555555555555'
 pg postgres -q -c "INSERT INTO isolated.old_preparations(company_id,hub_task_id,core_task_id,hub_execution_id,attempt_id,command_candidate_id,expires_at) VALUES('default',183,'$core','$hub','$old','$candidate',clock_timestamp()-interval '20 minutes')"
 denied(){ local label="$1" actor="$2" sql="$3" term="$4" output; if output="$(query "$actor" "$sql" 2>&1)";then echo "FAIL:$label:accepted";exit 4;fi; [[ "$output" == *"$term"* ]] || { echo "FAIL:$label:$output";exit 4; }; echo "PASS:$label"; }
