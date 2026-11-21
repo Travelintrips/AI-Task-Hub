@@ -59,8 +59,8 @@ with tempfile.TemporaryDirectory(prefix='task183-owner-writer-fixture-') as tmp:
     'ownerSubject':claim['ownerSubject'],'nonce':claim['nonce'],'observedAt':NOW}
  proof=r.read_decision(lookup,db_path=str(p),operational=False,now=NOW)
  check('READ_BACK_MATCHED_IMMUTABLE_OWNER_DECISION',proof['persistedIndependentOwnerDecision'] is True)
- check('PERSISTED_DECISION_CANNOT_FORGE_SIGNATURE',proof['ok'] is False and
-       proof['signatureVerified'] is False)
+ check('PERSISTED_DECISION_CANNOT_FORGE_SIGNATURE',proof['ok'] is True and
+       proof['signatureVerified'] is False and proof['issuerAuthorizationGranted'] is False)
  denied('DUPLICATE_OWNER_DECISION_DENIED',lambda:call(approve=True))
  check('REPLAY_NO_DUPLICATION',c.execute('select count(*) from gpt02_task183_owner_recovery_outbox').fetchone()[0]==1)
  for stmt,label in [

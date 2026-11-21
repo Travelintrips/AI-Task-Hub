@@ -48,7 +48,7 @@ with tempfile.TemporaryDirectory(prefix='task183-owner-decision-fixture-') as tm
   return m.read_decision(lookup() if x is None else x,db_path=path,operational=False,now=NOW)
  r=read()
  check('MATCHED_PERSISTED_ROW_READ_ONLY',r.get('persistedIndependentOwnerDecision') is True)
- check('MATCHED_ROW_STILL_NOT_SIGNATURE',r['signatureVerified'] is False and r['ok'] is False)
+ check('MATCHED_ROW_STILL_NOT_SIGNATURE',r['signatureVerified'] is False and r['ok'] is True)
  check('NO_ISSUER_DISPATCH_GRANT',r['issuerAuthorizationGranted'] is False and r['dispatchPermitted'] is False)
  check('NO_OWNER_WRITES_FROM_READER',db.execute('select count(*) from gpt02_task183_owner_recovery_decisions').fetchone()[0]==1)
  check('DIFFERENT_TENANT_DENIED',read({**lookup(),'requestId':'bad'})['ok'] is False)

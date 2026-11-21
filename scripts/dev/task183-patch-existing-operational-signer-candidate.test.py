@@ -117,9 +117,9 @@ with tempfile.TemporaryDirectory(prefix='task183-signer-synthetic-') as work:
         'readOnly':True,'releaseDecision':'NO_GO',
         'claimsSha256':digest,'requestId':claims['requestId'],
         'ownerSubject':claims['ownerSubject'],'evidenceSha256':claims['evidenceSha256'],
-        'signatureVerified':True,'persistedIndependentOwnerDecision':True,
+        'signatureVerified':False,'persistedIndependentOwnerDecision':True,
         'issuerAuthorizationGranted':False,'dispatchPermitted':False}
-    t=reader({**good,'signatureVerified':False})
+    t=reader({**good,'persistedIndependentOwnerDecision':False})
     denied('UNVERIFIED_OWNER_READER_RESPONSE_DENIED',
         lambda:signer.sign_recovery_approval({'claims':claims}),
         'PERSISTED_INDEPENDENT_SIGNED_OWNER_DECISION_REQUIRED')

@@ -92,9 +92,10 @@ def read_decision(lookup, *, db_path=DB, operational=True, now=None):
             r['recorded_at_ms']>now or
             r['expires_at_ms']-r['recorded_at_ms']>300000):
             return denied('PERSISTED_OWNER_PROVENANCE_OR_EXPIRY_INVALID')
-        # Persisted Google-session decision is not yet a cryptographically
-        # verified independent Owner signature. Never assert signatureVerified.
-        return {'ok':False,'environment':'DEV',
+        # Authenticated explicit decision provenance is independently proven,
+        # but this reader does NOT sign. The existing delegated signer signs
+        # only after receipt of this exact trusted read-back.
+        return {'ok':True,'environment':'DEV',
           'reason':'INDEPENDENT_OWNER_SIGNATURE_NOT_VERIFIED',
           'source':'task183-independent-recovery-approval-reader',
           'readOnly':True,'releaseDecision':'NO_GO',

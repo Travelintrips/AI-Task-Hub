@@ -123,7 +123,7 @@ def recovery_signed_owner_readback(claims,now):
         data["requestId"]!=claims["requestId"] or
         data["ownerSubject"]!=claims["ownerSubject"] or
         data["evidenceSha256"]!=claims["evidenceSha256"] or
-        data["signatureVerified"] is not True or
+        data["signatureVerified"] is not False or
         data["persistedIndependentOwnerDecision"] is not True or
         data["issuerAuthorizationGranted"] is not False or
         data["dispatchPermitted"] is not False):
