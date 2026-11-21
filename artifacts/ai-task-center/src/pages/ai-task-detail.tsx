@@ -715,6 +715,20 @@ export default function AiTaskDetail() {
       task183ReviewAck?.recorded===true,
     retry:false,refetchInterval:30_000,refetchOnWindowFocus:true,
   });
+  // Live signed Google session is independently mapped to the existing
+  // root-owned approval DB operator identity. This does not authorize signing.
+  const {data: task183OwnerIdentity, error: task183OwnerIdentityError} = useQuery<{
+    eligible:true;taskId:183;googleSessionVerified:true;
+    enabledOperatorLinkVerified:true;approvalDecisionCreated:false;
+    cryptographicOwnerSignatureVerified:false;issuerAuthorized:false;
+    dispatchPermitted:false;readOnly:true;
+  }>({
+    queryKey:["task183-owner-identity-readiness",id],
+    queryFn:()=>apiFetch("/ai-tasks/183/gpt02-owner-identity-readiness?companyId=default"),
+    enabled:currentUser?.role==="super_admin" && task?.id===183 &&
+      task183RecoveryConsentStatus?.recorded===true,
+    retry:false,refetchInterval:30_000,refetchOnWindowFocus:true,
+  });
   const task183RecoveryConsentMutation = useMutation({
     mutationFn:async (evidenceSha256:string)=>{
       const challenge=(await apiFetch(
@@ -1521,8 +1535,20 @@ export default function AiTaskDetail() {
                           <div className="space-y-2">
                             <p role="status">Bukti telah dibaca oleh Super Admin — belum menjadi izin menjalankan GPT02.</p>
                             {task183RecoveryConsentStatus?.recorded === true ? (
-                              <p role="status">Niat pemulihan Super Admin telah tercatat.
-                                Menunggu penerbitan izin oleh issuer independen; belum ada command atau dispatch.</p>
+                              <div className="space-y-1">
+                                <p role="status">Niat pemulihan Super Admin telah tercatat.
+                                  Menunggu penerbitan izin oleh issuer independen; belum ada command atau dispatch.</p>
+                                {task183OwnerIdentity?.eligible===true &&
+                                  task183OwnerIdentity.googleSessionVerified===true &&
+                                  task183OwnerIdentity.enabledOperatorLinkVerified===true ? (
+                                  <p role="status">Identitas Super Admin dan pemetaan Owner GPT02: terverifikasi baca-saja.
+                                    Tanda tangan persetujuan pemulihan belum tersedia.</p>
+                                ) : task183OwnerIdentityError ? (
+                                  <p role="alert">Pemetaan Owner pada sesi aktif belum terverifikasi; persetujuan tetap ditahan.</p>
+                                ) : (
+                                  <p>Memeriksa identitas Owner terhadap persetujuan DEV...</p>
+                                )}
+                              </div>
                             ) : (
                               <Button type="button" size="sm" variant="outline"
                                 disabled={task183RecoveryConsentMutation.isPending ||

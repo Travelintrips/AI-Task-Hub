@@ -178,6 +178,7 @@ REVIEW_ACK_STATUS_PATH = "/api/ai-tasks/183/gpt02-recovery-review-ack-status?com
 RECOVERY_CONSENT_CHALLENGE_PATH="/api/ai-tasks/183/gpt02-recovery-consent-challenge?companyId=default"
 RECOVERY_CONSENT_PATH="/api/ai-tasks/183/gpt02-recovery-consent?companyId=default"
 RECOVERY_CONSENT_STATUS_PATH="/api/ai-tasks/183/gpt02-recovery-consent-status?companyId=default"
+OWNER_IDENTITY_STATUS_PATH="/api/ai-tasks/183/gpt02-owner-identity-readiness?companyId=default"
 RECOVERY_CHALLENGE_BODY=b'{"startRecoveryConsent":true}'
 REVIEW_BODY = b'{"requestReview":true}'
 
@@ -203,6 +204,32 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Length",str(len(raw)))
         self.end_headers();self.wfile.write(raw)
     def do_GET(self):
+        if self.path==OWNER_IDENTITY_STATUS_PATH:
+            raw=self.headers.get("Authorization","")
+            if not raw.startswith("Bearer "):
+                self.reply(401,{"error":"AUTHENTICATION_REQUIRED"});return
+            try:
+                actor=verify_jwt(raw[7:])
+                source_path=Path("/opt/ai-coding-standalone-dev/qa/task183-owner-identity-readiness.py")
+                st=source_path.lstat()
+                if (source_path.is_symlink() or st.st_uid!=0 or
+                    stat.S_IMODE(st.st_mode)!=0o400):
+                    raise RuntimeError("OWNER_IDENTITY_READER_SOURCE_UNTRUSTED")
+                spec=_importlib_util.spec_from_file_location("task183_owner_identity_readiness",source_path)
+                module=_importlib_util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+                result=module.eligible_owner(actor)
+                if result.get("eligible") is not True or result.get("issuerAuthorized") is not False or result.get("dispatchPermitted") is not False:
+                    raise ValueError("OWNER_IDENTITY_PROOF_INVALID")
+                self.reply(200,result)
+            except (ValueError,TypeError,UnicodeError,KeyError):
+                self.reply(403,{"error":"SUPERADMIN_OWNER_LINK_NOT_AUTHORIZED",
+                    "eligible":False,"issuerAuthorized":False,"dispatchPermitted":False})
+            except Exception as exc:
+                print("OWNER_IDENTITY_READER_UNAVAILABLE",type(exc).__name__,flush=True)
+                self.reply(503,{"error":"OWNER_IDENTITY_READER_UNAVAILABLE",
+                    "eligible":False,"issuerAuthorized":False,"dispatchPermitted":False})
+            return
         if self.path==RECOVERY_CONSENT_STATUS_PATH:
             auth=self.headers.get("Authorization","")
             if not auth.startswith("Bearer "):
