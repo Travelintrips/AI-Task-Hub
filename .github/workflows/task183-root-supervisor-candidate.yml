@@ -4,6 +4,11 @@ on:
     branches:
       - fix/dev-task183-prep-readiness-ui-20261121
     paths:
+      - 'scripts/dev/task183-pinned-approval-verifier.candidate.py'
+      - 'scripts/dev/task183-pinned-approval-verifier.candidate.test.py'
+      - 'scripts/dev/task183-pinned-approval-verifier.offline.test.py'
+      - 'scripts/dev/task183-pinned-broker-verifier.candidate.py'
+      - 'scripts/dev/task183-pinned-broker-verifier.candidate.test.py'
       - 'scripts/dev/task183-dormant-broker-launcher.py'
       - 'scripts/dev/task183-dormant-root-broker.candidate.service'
       - 'scripts/dev/task183-dormant-broker-unit.candidate.test.py'
@@ -66,3 +71,7 @@ jobs:
         run: python3 scripts/dev/task183-independent-owner-adapter.candidate.test.py
       - name: Reader-backed Unix broker synthetic E2E and live database read-only denial
         run: python3 scripts/dev/task183-reader-backed-broker-authorization.candidate.test.py
+      - name: Ed25519 trust manifest fingerprint and Unix broker signature binding
+        run: |
+          python3 scripts/dev/task183-pinned-approval-verifier.offline.test.py
+          python3 scripts/dev/task183-pinned-broker-verifier.candidate.test.py
