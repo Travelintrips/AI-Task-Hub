@@ -45,6 +45,25 @@ MODULES={
  "custody":"task183-dormant-signature-custody.py",
 }
 
+# Modules imported indirectly by the broker must meet the same root-only
+# custody requirements as direct imports. Never trust an unreviewed dependency.
+INDIRECT_MODULES=(
+ "task183-two-phase-signing.candidate.py",
+ "task183-independent-owner-adapter.candidate.py",
+ "task183-pinned-approval-verifier.candidate.py",
+ "task183-owner-recovery-decision-reader.py",
+)
+
+def verify_indirect_module_custody(root=ROOT):
+    for filename in INDIRECT_MODULES:
+        path=Path(root)/filename
+        st=os.lstat(path)
+        if (not stat.S_ISREG(st.st_mode) or stat.S_ISLNK(st.st_mode)
+            or st.st_uid!=0 or st.st_gid!=0
+            or stat.S_IMODE(st.st_mode)!=0o400):
+            fail("BROKER_INDIRECT_MODULE_CUSTODY_INVALID")
+    return True
+
 def verify_custody_recovery(state):
     """Allow durable existing receipts across restarts; never reauthorize them.
 
@@ -73,6 +92,7 @@ def preflight():
     # Sentinel contents are deliberately not interpreted as Owner approval.
     if SENTINEL.read_text().strip()!="CST_DEV_TASK183_BROKER_RELEASE_V1":
         fail("TASK183_RELEASE_SENTINEL_INVALID")
+    verify_indirect_module_custody()
     modules={k:load(k,v) for k,v in MODULES.items()}
     state=modules["custody"].audit(operational=True)
     verify_custody_recovery(state)
