@@ -52,9 +52,17 @@ class Handler(socketserver.BaseRequestHandler):
         c=self.request
         c.settimeout(2)
         service=self.server
-        cred=c.getsockopt(socket.SOL_SOCKET,CREDENTIAL,12)
-        _,uid,gid=struct.unpack("3i",cred)
-        if (uid,gid)!=(service.allowed_uid,service.allowed_gid):
+        # Operational candidate: an injected exact-systemd-unit policy is checked
+        # before parsing claims, calling Owner reader, or touching receipt store.
+        # The static UID/GID fallback exists ONLY for /tmp fixture tests.
+        policy=getattr(service,"peer_verifier",None)
+        if policy is not None:
+            allowed=(callable(policy) and policy(c) is True)
+        else:
+            cred=c.getsockopt(socket.SOL_SOCKET,CREDENTIAL,12)
+            _,uid,gid=struct.unpack("3i",cred)
+            allowed=(uid,gid)==(service.allowed_uid,service.allowed_gid)
+        if not allowed:
             frame(c,{"status":"DENIED","reason":"PEER_CREDENTIAL_MISMATCH"})
             return
         try:
@@ -112,7 +120,7 @@ class Server(socketserver.ThreadingMixIn,socketserver.UnixStreamServer):
     allow_reuse_address=False
 
 class FixtureBroker:
-    def __init__(self,*,socket_path,store,authorize,verify,allowed_uid=None,allowed_gid=None):
+    def __init__(self,*,socket_path,store,authorize,verify,allowed_uid=None,allowed_gid=None,peer_verifier=None):
         path=Path(socket_path)
         if (not str(path).startswith("/tmp/task183-two-phase-fixture-") or
             path.name!="signer-two-phase.sock" or path.exists() or path.is_symlink()):
@@ -134,6 +142,10 @@ class FixtureBroker:
         self.server.verify=verify
         self.server.allowed_uid=self.allowed_uid
         self.server.allowed_gid=self.allowed_gid
+        if peer_verifier is not None and not callable(peer_verifier):
+            self.server.server_close()
+            raise ValueError("PEER_VERIFIER_MUST_BE_CALLABLE")
+        self.server.peer_verifier=peer_verifier
         os.chmod(path,0o600)
         self.thread=threading.Thread(target=self.server.serve_forever,daemon=True)
     def start(self):self.thread.start()
