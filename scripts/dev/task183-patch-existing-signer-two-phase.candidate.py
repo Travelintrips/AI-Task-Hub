@@ -29,9 +29,6 @@ NEW_INIT='''    def __init__(self,role,key,public,task183_gate=None):
         return base64.urlsafe_b64encode(result).decode().rstrip("=")
 
     def sign_approval(self,data):'''
-OLD_APPROVAL='''        sig=base64.urlsafe_b64encode(self.key.sign(signing_bytes("approval",c))).decode().rstrip("=")'''
-NEW_APPROVAL='''        sig=self._task183_sign_with_gate(
-            "approval",c,digest,c["commandId"],signing_bytes("approval",c))'''
 OLD_RECOVERY='''        signature=base64.urlsafe_b64encode(
             self.key.sign(recovery_signing_bytes(claims))).decode().rstrip("=")'''
 NEW_RECOVERY='''        signature=self._task183_sign_with_gate(
@@ -39,7 +36,7 @@ NEW_RECOVERY='''        signature=self._task183_sign_with_gate(
             recovery_signing_bytes(claims))'''
 
 def patch(source):
-    replacements=[(OLD_INIT,NEW_INIT),(OLD_APPROVAL,NEW_APPROVAL),(OLD_RECOVERY,NEW_RECOVERY)]
+    replacements=[(OLD_INIT,NEW_INIT),(OLD_RECOVERY,NEW_RECOVERY)]
     for old,new in replacements:
         if source.count(old)!=1:
             raise ValueError("EXACT_SIGNER_SOURCE_DRIFT")
@@ -50,6 +47,10 @@ def patch(source):
         # ensure none of the two approval paths still sign directly.
         assert "self.key.sign(signing_bytes(\"approval\",c))" not in source
         assert "self.key.sign(recovery_signing_bytes(claims))" not in source
+    if "self.key.sign(signing_bytes(\\"approval\\",c))" not in source:
+        raise ValueError("EXISTING_APPROVAL_PATH_CHANGED")
+    if "self.key.sign(recovery_signing_bytes(claims))" in source:
+        raise ValueError("TASK183_RECOVERY_SIGNER_NOT_GATED")
     return source
 
 def main():
