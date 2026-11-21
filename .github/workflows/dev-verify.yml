@@ -132,6 +132,8 @@ jobs:
         run: node --test scripts/dev/gpt02-task183-recovery-signature-gate.test.mjs
       - name: Verify Task183 Super Admin recovery review request is append-only and non-authorizing
         run: python3 scripts/dev/task183-recovery-review-intake-dev.test.py
+      - name: Verify Task183 human review acknowledgement is hash-bound and non-authorizing
+        run: python3 scripts/dev/task183-recovery-review-ack.test.py
       - name: Verify idempotent Core coding task preparation without command dispatch
         run: |
           bash scripts/dev/test-gpt02-core-task-preparation-isolated.sh

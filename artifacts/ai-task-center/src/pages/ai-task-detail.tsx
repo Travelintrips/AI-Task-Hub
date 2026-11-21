@@ -675,6 +675,33 @@ export default function AiTaskDetail() {
         task183RecoveryReviewStatus?.requested===true,
       retry:false,refetchInterval:30_000,refetchOnWindowFocus:true,
     });
+  // A real Super Admin may explicitly attest having read the verified
+  // evidence. This does not sign or approve an issuer/command/attempt.
+  const {data: task183ReviewAck} = useQuery<{
+    recorded:boolean;status:string;evidenceSha256?:string;
+    ownerApprovalGranted:false;nonceConsumed?:false;dispatchPermitted?:false;
+  }>({
+    queryKey:["task183-recovery-review-ack-status",id],
+    queryFn:()=>apiFetch("/ai-tasks/183/gpt02-recovery-review-ack-status?companyId=default"),
+    enabled:currentUser?.role==="super_admin" && task?.id===183 &&
+      task183RecoveryReviewStatus?.requested===true,
+    retry:false,refetchInterval:30_000,refetchOnWindowFocus:true,
+  });
+  const task183ReviewAckMutation = useMutation({
+    mutationFn:(evidenceSha256:string)=>apiFetch(
+      "/ai-tasks/183/gpt02-recovery-review-ack?companyId=default",{
+        method:"POST",
+        headers:{"X-GPT02-Intent":"acknowledge-review-only"},
+        body:JSON.stringify({evidenceSha256,reviewedOnly:true}),
+      }),
+    onSuccess:()=>{
+      toast({title:"Pembacaan bukti review tercatat",
+        description:"Tidak ada persetujuan Owner bertanda tangan, penerbitan attempt, atau dispatch."});
+      void queryClient.invalidateQueries({queryKey:["task183-recovery-review-ack-status",id]});
+    },
+    onError:(err:Error)=>toast({title:"Konfirmasi review ditolak",
+      description:err.message,variant:"destructive"}),
+  });
   const task183RecoveryReviewMutation = useMutation({
     mutationFn:()=>apiFetch("/ai-tasks/183/gpt02-recovery-review-request?companyId=default",{
       method:"POST",
@@ -1442,6 +1469,22 @@ export default function AiTaskDetail() {
                         <p>SHA-256 bukti: <code>{task183RecoveryEvidence.evidenceSha256}</code></p>
                         <p>Tidak ada persetujuan Owner, nonce yang dikonsumsi,
                           command baru, atau izin dispatch.</p>
+                        {task183ReviewAck?.recorded ? (
+                          <p role="status">Bukti telah dibaca oleh Super Admin — belum menjadi izin menjalankan GPT02.</p>
+                        ) : (
+                          <Button type="button" size="sm" variant="outline"
+                            disabled={task183ReviewAckMutation.isPending ||
+                              !task183RecoveryEvidence.evidenceSha256 ||
+                              task183Postprep?.status!=="NO_GO_RESERVATION_EXPIRED"}
+                            onClick={()=>{
+                              if (window.confirm("Konfirmasi bahwa Anda sudah meninjau bukti Task #183 ini? Tindakan hanya mencatat pembacaan hash bukti. Ini BUKAN persetujuan Owner atau izin eksekusi."))
+                                task183ReviewAckMutation.mutate(task183RecoveryEvidence.evidenceSha256);
+                            }}>
+                            {task183ReviewAckMutation.isPending
+                              ? "Mencatat pembacaan bukti..."
+                              : "Saya sudah meninjau bukti (tanpa persetujuan)"}
+                          </Button>
+                        )}
                       </div>
                     )}
                     {task183RecoveryReviewStatus?.requested &&

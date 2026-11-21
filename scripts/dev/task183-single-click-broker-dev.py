@@ -173,6 +173,8 @@ REVIEW_INTAKE_FILE = Path("/opt/ai-coding-standalone-dev/qa/task183-recovery-rev
 REVIEW_REQUEST_PATH = "/api/ai-tasks/183/gpt02-recovery-review-request?companyId=default"
 REVIEW_STATUS_PATH = "/api/ai-tasks/183/gpt02-recovery-review-status?companyId=default"
 REVIEW_PACKET_PATH = "/api/ai-tasks/183/gpt02-recovery-review-evidence?companyId=default"
+REVIEW_ACK_PATH = "/api/ai-tasks/183/gpt02-recovery-review-ack?companyId=default"
+REVIEW_ACK_STATUS_PATH = "/api/ai-tasks/183/gpt02-recovery-review-ack-status?companyId=default"
 REVIEW_BODY = b'{"requestReview":true}'
 
 def load_review_intake():
@@ -197,6 +199,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Length",str(len(raw)))
         self.end_headers();self.wfile.write(raw)
     def do_GET(self):
+        if self.path==REVIEW_ACK_STATUS_PATH:
+            raw=self.headers.get("Authorization","")
+            if not raw.startswith("Bearer "):
+                self.reply(401,{"error":"AUTHENTICATION_REQUIRED"});return
+            try:
+                actor=verify_jwt(raw[7:])
+                status=load_review_intake().get_review_acknowledgement(actor)
+                self.reply(200,{**status,"taskId":183,"readOnly":True,
+                    "dispatchPermitted":False})
+            except (ValueError,TypeError,UnicodeError,KeyError):
+                self.reply(403,{"error":"REVIEW_ACK_STATUS_NOT_AUTHORIZED","dispatchPermitted":False})
+            except Exception as exc:
+                print("REVIEW_ACK_STATUS_UNAVAILABLE",type(exc).__name__,flush=True)
+                self.reply(503,{"error":"REVIEW_ACK_STATUS_UNAVAILABLE","dispatchPermitted":False})
+            return
         if self.path==REVIEW_PACKET_PATH:
             raw=self.headers.get("Authorization","")
             if not raw.startswith("Bearer "):
@@ -265,6 +282,42 @@ class Handler(http.server.BaseHTTPRequestHandler):
             print("TASK183_STATUS_READ_FAILED",type(err).__name__,flush=True)
             self.reply(503,{"error":"POSTPREP_READINESS_UNAVAILABLE","dispatchPermitted":False})
     def do_POST(self):
+        if self.path==REVIEW_ACK_PATH:
+            if (self.headers.get("Origin")!=ORIGIN or
+                self.headers.get("Host")!="dev-ai-task.cstlogistic.co.id"):
+                self.reply(403,{"error":"SAME_ORIGIN_REQUIRED"});return
+            if (self.headers.get("X-GPT02-Intent")!="acknowledge-review-only"
+                or self.headers.get("Content-Type","").split(";")[0].strip()!="application/json"):
+                self.reply(400,{"error":"ACK_EXPLICIT_INTENT_REQUIRED"});return
+            length=self.headers.get("Content-Length","")
+            if not length.isdigit() or int(length)<20 or int(length)>256:
+                self.reply(400,{"error":"ACK_BODY_SIZE_INVALID"});return
+            try:
+                body=json.loads(self.rfile.read(int(length)).decode("utf-8"))
+                if (not isinstance(body,dict) or set(body)!={"evidenceSha256","reviewedOnly"}
+                    or body["reviewedOnly"] is not True
+                    or not isinstance(body["evidenceSha256"],str)):
+                    raise ValueError("ACK_SHAPE_INVALID")
+            except (ValueError,TypeError,UnicodeError):
+                self.reply(400,{"error":"ACK_BODY_INVALID"});return
+            raw=self.headers.get("Authorization","")
+            if not raw.startswith("Bearer "):
+                self.reply(401,{"error":"AUTHENTICATION_REQUIRED"});return
+            try:
+                actor=verify_jwt(raw[7:])
+                result=load_review_intake().attest_review_evidence(
+                  actor=actor,evidence_sha256=body["evidenceSha256"])
+                if result.get("ownerApprovalGranted") is not False or result.get("dispatchPermitted") is not False:
+                    raise RuntimeError("ACK_AUTHORITY_CONTRACT_INVALID")
+                self.reply(201 if result["created"] else 200,result)
+            except (ValueError,TypeError,UnicodeError,KeyError):
+                self.reply(409,{"error":"ACK_EVIDENCE_OR_ACTOR_DENIED",
+                    "ownerApprovalGranted":False,"dispatchPermitted":False})
+            except Exception as exc:
+                print("REVIEW_ACK_FAILED_CLOSED",type(exc).__name__,flush=True)
+                self.reply(503,{"error":"REVIEW_ACK_UNAVAILABLE",
+                    "ownerApprovalGranted":False,"dispatchPermitted":False})
+            return
         if self.path==REVIEW_REQUEST_PATH:
             if (self.headers.get("Origin")!=ORIGIN
               or self.headers.get("Host")!="dev-ai-task.cstlogistic.co.id"):

@@ -37,6 +37,14 @@ class IntakeMock:
     "evidenceSha256":"f"*64,"readOnly":True,
     "ownerApprovalGranted":False,"signedApprovalReceived":False,
     "nonceConsumed":False,"dispatchPermitted":False,"attemptIssued":False}
+ def attest_review_evidence(self,*,actor,evidence_sha256):
+  assert actor["role"]=="super_admin" and evidence_sha256=="f"*64
+  return {"recorded":True,"created":True,"status":"REVIEWED_ONLY_NO_AUTHORIZATION",
+    "ownerApprovalGranted":False,"nonceConsumed":False,
+    "issuerGrant":False,"attemptIssued":False,"dispatchPermitted":False}
+ def get_review_acknowledgement(self,actor):
+  return {"recorded":False,"status":"NOT_REVIEWED",
+    "ownerApprovalGranted":False,"dispatchPermitted":False}
 
 server=http.server.HTTPServer(('127.0.0.1',0),broker.Handler)
 thread=threading.Thread(target=server.serve_forever,daemon=True)
@@ -76,6 +84,22 @@ try:
   code,pkt=call('GET',evidence_path,headers)
   assert_status('PACKET_SIGNED_READ_ONLY',code,200)
   assert pkt["ownerApprovalGranted"] is False and pkt["dispatchPermitted"] is False and pkt["evidence"]["taskId"]==183
+  ack_status=broker.REVIEW_ACK_STATUS_PATH
+  ack_path=broker.REVIEW_ACK_PATH
+  assert_status('ACK_STATUS_NO_AUTH_DENIED',call('GET',ack_status)[0],401)
+  assert_status('ACK_STATUS_FORGED_JWT_DENIED',call('GET',ack_status,{'Authorization':'Bearer AAA.BBB.CCC'})[0],403)
+  assert_status('ACK_STATUS_SIGNED_READ',call('GET',ack_status,headers)[0],200)
+  ack_body=json.dumps({'evidenceSha256':'f'*64,'reviewedOnly':True},separators=(',',':')).encode()
+  ack_headers={**headers,'X-GPT02-Intent':'acknowledge-review-only'}
+  assert_status('ACK_POST_NOAUTH_DENIED',call('POST',ack_path,{k:v for k,v in ack_headers.items() if k!='Authorization'},ack_body)[0],401)
+  assert_status('ACK_POST_WRONG_ORIGIN_DENIED',call('POST',ack_path,{**ack_headers,'Origin':'https://evil.example'},ack_body)[0],403)
+  assert_status('ACK_POST_WRONG_INTENT_DENIED',call('POST',ack_path,{**ack_headers,'X-GPT02-Intent':'prepare-only'},ack_body)[0],400)
+  assert_status('ACK_POST_WRONG_BODY_DENIED',call('POST',ack_path,ack_headers,b'{}')[0],400)
+  assert_status('ACK_POST_FORGED_JWT_DENIED',call('POST',ack_path,{**ack_headers,'Authorization':'Bearer AAA.BBB.CCC'},ack_body)[0],409)
+  ack_code,ack_data=call('POST',ack_path,ack_headers,ack_body)
+  assert_status('ACK_POST_AUTHENTICATED_REVIEW_ONLY',ack_code,201)
+  assert ack_data['ownerApprovalGranted'] is False and ack_data['dispatchPermitted'] is False
+
 
  print('BROKER_RECOVERY_REVIEW_HTTP=PASS')
  print('PRODUCTION_AND_CST_DEV_DATABASE_WRITES=FALSE')

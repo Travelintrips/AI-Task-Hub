@@ -231,3 +231,94 @@ def review_evidence_packet(actor, store_path=DB_PATH, actual_source=None, now_ms
             "signedApprovalReceived":False,"nonceConsumed":False,
             "issuerGrant":False,"commandIssued":False,
             "dispatchPermitted":False,"attemptIssued":False}
+
+def attest_review_evidence(*,actor,evidence_sha256,store_path=DB_PATH,actual_source=None,now_ms=None):
+    """Authenticated, immutable human evidence review ACK, NEVER Owner approval.
+
+    Requires explicit authenticated Super Admin action bound to the current
+    canonical evidence SHA-256. Does not sign, issue, approve or dispatch.
+    """
+    if not isinstance(evidence_sha256,str) or not re.fullmatch(r"[0-9a-f]{64}",evidence_sha256):
+        raise ValueError("EVIDENCE_DIGEST_INVALID")
+    if not isinstance(actor,dict) or actor.get("role")!="super_admin" or actor.get("companyId") not in (None,"default") or not str(actor.get("id","")).startswith("google_"):
+        raise ValueError("SIGNED_GOOGLE_SUPERADMIN_REQUIRED")
+    packet=review_evidence_packet(actor,store_path=store_path,actual_source=actual_source,now_ms=now_ms)
+    if packet["evidenceSha256"]!=evidence_sha256 or packet["evidence"]["requestId"] is None:
+        raise ValueError("EVIDENCE_DIGEST_CHANGED")
+    path=Path(store_path)
+    if path.is_symlink() or not path.is_file():raise ValueError("REVIEW_STORE_UNAVAILABLE")
+    if path==DB_PATH:
+        st=path.stat()
+        if st.st_uid!=0 or stat.S_IMODE(st.st_mode)!=0o600:
+            raise ValueError("REVIEW_STORE_CUSTODY_INVALID")
+    stamp=int(time.time()*1000) if now_ms is None else int(now_ms)
+    db=sqlite3.connect(str(path),timeout=5,isolation_level=None)
+    try:
+        db.execute("PRAGMA busy_timeout=5000")
+        db.execute("""CREATE TABLE IF NOT EXISTS evidence_acknowledgements (
+            request_id TEXT PRIMARY KEY REFERENCES reviews(request_id),
+            reviewer_id TEXT NOT NULL,
+            evidence_sha256 TEXT NOT NULL CHECK(length(evidence_sha256)=64),
+            reviewed_at_ms INTEGER NOT NULL,
+            decision TEXT NOT NULL CHECK(decision='REVIEWED_ONLY_NO_AUTHORIZATION'),
+            owner_approval_granted INTEGER NOT NULL DEFAULT 0 CHECK(owner_approval_granted=0),
+            nonce_consumed INTEGER NOT NULL DEFAULT 0 CHECK(nonce_consumed=0),
+            issuer_grant INTEGER NOT NULL DEFAULT 0 CHECK(issuer_grant=0),
+            attempt_issued INTEGER NOT NULL DEFAULT 0 CHECK(attempt_issued=0),
+            dispatch_permitted INTEGER NOT NULL DEFAULT 0 CHECK(dispatch_permitted=0)
+        )""")
+        db.execute("""CREATE TRIGGER IF NOT EXISTS acknowledgement_immutable_update
+            BEFORE UPDATE ON evidence_acknowledgements
+            BEGIN SELECT RAISE(ABORT,'IMMUTABLE_ACKNOWLEDGEMENT'); END""")
+        db.execute("""CREATE TRIGGER IF NOT EXISTS acknowledgement_immutable_delete
+            BEFORE DELETE ON evidence_acknowledgements
+            BEGIN SELECT RAISE(ABORT,'IMMUTABLE_ACKNOWLEDGEMENT'); END""")
+        db.execute("BEGIN IMMEDIATE")
+        existing=db.execute("""SELECT reviewer_id,evidence_sha256,decision
+           FROM evidence_acknowledgements WHERE request_id=?""",
+           (packet["evidence"]["requestId"],)).fetchone()
+        if existing:
+            db.execute("ROLLBACK")
+            if existing!=(actor["id"],evidence_sha256,"REVIEWED_ONLY_NO_AUTHORIZATION"):
+                raise ValueError("ACKNOWLEDGEMENT_CONFLICT")
+            return {"recorded":True,"created":False,"status":existing[2],
+                "requestId":packet["evidence"]["requestId"],"evidenceSha256":evidence_sha256,
+                "ownerApprovalGranted":False,"nonceConsumed":False,"issuerGrant":False,
+                "attemptIssued":False,"dispatchPermitted":False}
+        db.execute("""INSERT INTO evidence_acknowledgements
+           (request_id,reviewer_id,evidence_sha256,reviewed_at_ms,decision)
+           VALUES(?,?,?,?,?)""",
+           (packet["evidence"]["requestId"],actor["id"],evidence_sha256,
+             stamp,"REVIEWED_ONLY_NO_AUTHORIZATION"))
+        db.execute("COMMIT")
+        return {"recorded":True,"created":True,"status":"REVIEWED_ONLY_NO_AUTHORIZATION",
+           "requestId":packet["evidence"]["requestId"],"evidenceSha256":evidence_sha256,
+           "ownerApprovalGranted":False,"nonceConsumed":False,"issuerGrant":False,
+           "attemptIssued":False,"dispatchPermitted":False}
+    except:
+        if db.in_transaction:db.execute("ROLLBACK")
+        raise
+    finally:db.close()
+
+def get_review_acknowledgement(actor,store_path=DB_PATH):
+    if actor.get("role")!="super_admin" or not str(actor.get("id","")).startswith("google_"):
+        raise ValueError("SUPER_ADMIN_REQUIRED")
+    p=Path(store_path)
+    if not p.is_file():return {"recorded":False,"status":"NOT_REVIEWED","ownerApprovalGranted":False}
+    db=sqlite3.connect(f"file:{p}?mode=ro",uri=True,timeout=4)
+    try:
+        request=db.execute("""SELECT request_id,requested_by FROM reviews
+            WHERE hub_task_id=183 AND company_id='default'""").fetchone()
+        if not request or request[1]!=actor["id"]:
+            raise ValueError("REVIEW_REQUEST_NOT_OWNED_BY_ACTOR")
+        row=db.execute("""SELECT reviewer_id,evidence_sha256,decision
+            FROM evidence_acknowledgements WHERE request_id=?""",(request[0],)).fetchone()
+        if not row:return {"recorded":False,"status":"NOT_REVIEWED","ownerApprovalGranted":False}
+        if row[0]!=actor["id"] or row[2]!="REVIEWED_ONLY_NO_AUTHORIZATION":
+            raise ValueError("ACKNOWLEDGEMENT_TRUST_MISMATCH")
+        return {"recorded":True,"status":row[2],"evidenceSha256":row[1],
+          "ownerApprovalGranted":False,"nonceConsumed":False,"dispatchPermitted":False}
+    except sqlite3.OperationalError as exc:
+        if "no such table" in str(exc):return {"recorded":False,"status":"NOT_REVIEWED","ownerApprovalGranted":False}
+        raise
+    finally:db.close()
