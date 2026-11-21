@@ -4,6 +4,8 @@ on:
     branches:
       - fix/dev-task183-prep-readiness-ui-20261121
     paths:
+      - 'scripts/dev/task183-reader-backed-broker-authorization.candidate.py'
+      - 'scripts/dev/task183-reader-backed-broker-authorization.candidate.test.py'
       - 'scripts/dev/task183-independent-owner-adapter.candidate.py'
       - 'scripts/dev/task183-independent-owner-adapter.candidate.test.py'
       - 'scripts/dev/task183-owner-recovery-decision-reader.py'
@@ -50,3 +52,5 @@ jobs:
         run: python3 scripts/dev/task183-two-phase-unix-bridge.candidate.test.py
       - name: Validate independent Owner decision provenance with the existing reader
         run: python3 scripts/dev/task183-independent-owner-adapter.candidate.test.py
+      - name: Reader-backed Unix broker synthetic E2E and live database read-only denial
+        run: python3 scripts/dev/task183-reader-backed-broker-authorization.candidate.test.py
