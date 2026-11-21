@@ -78,12 +78,14 @@ with tempfile.TemporaryDirectory(prefix='task183-signer-synthetic-') as work:
         lambda:mod.Signer('hub',key,{}).sign_recovery_approval({'claims':claims}),
         'RECOVERY_SIGNER_ROLE_MISMATCH')
     sockdir=Path(work)/'reader'
-    sockdir.mkdir(mode=0o700)
+    sockdir.mkdir(mode=0o750)
+    gid=mod.grp.getgrnam('gpt02-issue159-signers').gr_gid
+    os.chown(sockdir,0,gid)
     sock=sockdir/'approval.sock'
     incoming={}
     def reader(response_data=None):
         listener=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM)
-        listener.bind(str(sock));os.chmod(sock,0o600);listener.listen(1)
+        listener.bind(str(sock));os.chown(sock,0,gid);os.chmod(sock,0o660);listener.listen(1)
         def serve():
             try:
                 conn,_=listener.accept()

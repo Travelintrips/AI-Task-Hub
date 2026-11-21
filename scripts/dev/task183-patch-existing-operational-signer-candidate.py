@@ -27,6 +27,9 @@ def recovery_signed_owner_readback(claims,now):
     local human-ack/recovery-intent SQLite queue as an Owner signature.
     """
     import struct
+    # Match existing approval-reader custody: root-owned socket and parent,
+    # group access restricted to the already existing signer group.
+    reader_group=grp.getgrnam("gpt02-issue159-signers").gr_gid
     if not exact(claims,RECOVERY_FIELDS):deny("RECOVERY_CLAIM_SHAPE_INVALID")
     import re
     if (not isinstance(claims.get("requestId"),str) or not re.fullmatch(r"[a-f0-9]{36}",claims["requestId"]) or
@@ -57,9 +60,11 @@ def recovery_signed_owner_readback(claims,now):
     except OSError:
         deny("INDEPENDENT_RECOVERY_OWNER_APPROVAL_READER_MISSING")
     if (not stat.S_ISDIR(pst.st_mode) or stat.S_ISLNK(pst.st_mode)
-        or pst.st_uid!=0 or stat.S_IMODE(pst.st_mode)!=0o700
+        or pst.st_uid!=0 or pst.st_gid!=reader_group or
+        stat.S_IMODE(pst.st_mode)!=0o750
         or not stat.S_ISSOCK(st.st_mode) or stat.S_ISLNK(st.st_mode)
-        or st.st_uid!=0 or stat.S_IMODE(st.st_mode)!=0o600):
+        or st.st_uid!=0 or st.st_gid!=reader_group or
+        stat.S_IMODE(st.st_mode)!=0o660):
         deny("RECOVERY_OWNER_READER_CUSTODY_INVALID")
     payload={"claimsSha256":digest,"taskId":183,"requestId":claims["requestId"],
              "evidenceSha256":claims["evidenceSha256"],

@@ -1,6 +1,6 @@
 # Minimal source-compatible, synthetic-only test fixture for patching
 # the EXISTING signer source anchors. Not runnable as a systemd service.
-import base64,hashlib,json,os,socket,stat,time
+import base64,hashlib,json,os,socket,stat,time,grp
 from pathlib import Path
 WORKER="openclaw-dell-chatgpt-wake-dev"
 NONCE_RE=__import__("re").compile(r"^[A-Za-z0-9_-]{32,128}$")

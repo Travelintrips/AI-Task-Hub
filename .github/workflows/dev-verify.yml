@@ -141,7 +141,11 @@ jobs:
       - name: Verify Task183 recovery issuer-approval Ed25519 claims and pinned signer domain
         run: node --test scripts/dev/gpt02-task183-recovery-issuer-approval-verifier.test.mjs
       - name: Verify existing signer recovery-domain surgical patch remains fail-closed
-        run: python3 scripts/dev/task183-patch-existing-operational-signer-candidate.test.py
+        run: |
+          # Ephemeral CI runner only: reproduce the real root-owned Unix
+          # socket and existing supplementary signer-group custody model.
+          sudo groupadd -f gpt02-issue159-signers
+          sudo -E python3 scripts/dev/task183-patch-existing-operational-signer-candidate.test.py
       - name: Verify Task183 attempt2 atomic Core Hub issuance in isolated PostgreSQL
         run: bash scripts/dev/test-gpt02-task183-attempt2-issuer-isolated.sh
       - name: Verify idempotent Core coding task preparation without command dispatch
