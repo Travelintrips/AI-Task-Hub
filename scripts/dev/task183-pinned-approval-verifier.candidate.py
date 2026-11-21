@@ -39,7 +39,7 @@ def canonical_bytes(claims):
         {k:claims[k] for k in FIELDS},ensure_ascii=False,separators=(",",":")
     ).encode()
 
-def _key(path,*,operational,manifest_path=MANIFEST):
+def _key(path,*,operational,manifest_path=None):
     p=Path(path)
     if operational and p!=PINNED:fail("PINNED_APPROVAL_PUBLIC_KEY_REQUIRED")
     st=os.lstat(p)
@@ -51,11 +51,11 @@ def _key(path,*,operational,manifest_path=MANIFEST):
     if len(raw)>4096:fail("PUBLIC_KEY_TOO_LARGE")
     key=load_pem_public_key(raw)
     if not isinstance(key,Ed25519PublicKey):fail("PUBLIC_KEY_NOT_ED25519")
-    if operational:
-        manifest=Path(manifest_path)
-        if manifest!=MANIFEST:fail("PINNED_TRUST_MANIFEST_REQUIRED")
+    if operational or manifest_path is not None:
+        manifest=MANIFEST if manifest_path is None else Path(manifest_path)
+        if operational and manifest!=MANIFEST:fail("PINNED_TRUST_MANIFEST_REQUIRED")
         trust_stat=os.lstat(manifest)
-        if not stat.S_ISREG(trust_stat.st_mode) or stat.S_ISLNK(trust_stat.st_mode) or trust_stat.st_uid!=0:
+        if not stat.S_ISREG(trust_stat.st_mode) or stat.S_ISLNK(trust_stat.st_mode) or (operational and trust_stat.st_uid!=0):
             fail("TRUST_MANIFEST_CUSTODY_INVALID")
         record=json.loads(manifest.read_text())
         if (type(record) is not dict or
@@ -67,7 +67,7 @@ def _key(path,*,operational,manifest_path=MANIFEST):
             fail("TRUST_APPROVAL_FINGERPRINT_MISMATCH")
     return key
 
-def verify(*,role,digest,request_id,evidence_sha256,claims,signature,key_path=PINNED,operational=True):
+def verify(*,role,digest,request_id,evidence_sha256,claims,signature,key_path=PINNED,operational=True,manifest_path=None):
     if role!="recovery-approval":return False
     if type(signature) is not str or not B64.fullmatch(signature):return False
     try:
@@ -80,7 +80,7 @@ def verify(*,role,digest,request_id,evidence_sha256,claims,signature,key_path=PI
         sig=base64.urlsafe_b64decode(signature+"==")
         if len(sig)!=64 or base64.urlsafe_b64encode(sig).decode().rstrip("=")!=signature:
             return False
-        _key(key_path,operational=operational).verify(sig,body)
+        _key(key_path,operational=operational,manifest_path=manifest_path).verify(sig,body)
         return True
     except (ValueError,OSError,InvalidSignature,TypeError,json.JSONDecodeError):
         return False
