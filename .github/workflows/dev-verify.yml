@@ -126,6 +126,8 @@ jobs:
         run: |
           node scripts/dev/test-gpt02-worker-fallback-contract.mjs
           bash -n scripts/dev/test-gpt02-lifecycle-start-isolated.sh
+      - name: Verify expired Task183 versioned recovery review is inert and immutable
+        run: bash scripts/dev/test-gpt02-expired-reservation-v2-candidate.sh
       - name: Verify idempotent Core coding task preparation without command dispatch
         run: |
           bash scripts/dev/test-gpt02-core-task-preparation-isolated.sh
