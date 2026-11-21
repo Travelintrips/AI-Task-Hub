@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Synthetic Unix bridge proof: no real signer, owner account, or credential."""
-import importlib.util,os,tempfile,uuid,base64
+import importlib.util,os,tempfile,uuid,base64,json,hashlib
 from pathlib import Path
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 HERE=Path(__file__).resolve().parent
@@ -24,7 +24,7 @@ with tempfile.TemporaryDirectory(prefix="task183-two-phase-fixture-") as td:
  def verify(role,digest,rid,evidence,sig):
   try:key.public_key().verify(base64.urlsafe_b64decode(sig+"=="),b"fixture-task183-signing-payload");return True
   except Exception:return False
- def auth(role,digest,rid,evidence):return authorized[0]
+ def auth(role,digest,rid,evidence,claims=None):return authorized[0]
  path=root/"signer-two-phase.sock"
  service=b.FixtureBroker(socket_path=path,store=store,authorize=auth,verify=verify)
  service.start()
@@ -41,7 +41,13 @@ with tempfile.TemporaryDirectory(prefix="task183-two-phase-fixture-") as td:
   check("REPLAY_DOES_NOT_INVITE_SIGN",ask(sign_callback=sign)["signingPermitted"] is False and calls[0]==1)
   check("MUTATED_EVIDENCE_DENIED",ask({**request,"evidenceSha256":"c"*64},sign_callback=sign)["status"]=="DENIED")
   check("SPOOFED_OWNER_FIELD_DENIED",ask({**request,"ownerVerified":True},sign_callback=sign)["status"]=="DENIED")
-  recovery={**request,"role":"recovery-approval","approvalDigest":"c"*64,"requestId":"6bcd8419254dc21c0b149eb09e68a7b6da66"}
+  recovery_claims={k:"fixture" for k in ("version","environment","audience","companyId","hubTaskId","recoveryAttemptNumber","requestId","evidenceSha256","originalCoreTaskId","originalHubExecutionId","originalAttemptId","ownerSubject","nonce","issuedAt","expiresAt","purpose","dispatchPermitted")}
+  recovery_claims.update(version=1,environment="DEV",audience=b.RECOVERY_DOMAIN,companyId="default",hubTaskId=183,recoveryAttemptNumber=2,requestId="6bcd8419254dc21c0b149eb09e68a7b6da66",evidenceSha256="b"*64,ownerSubject="owner:synthetic",nonce="N"*48,issuedAt=1800000000000,expiresAt=1800000050000,purpose="PREPARE_ATTEMPT2_ONLY",dispatchPermitted=False)
+  keys=("version","environment","audience","companyId","hubTaskId","recoveryAttemptNumber","requestId","evidenceSha256","originalCoreTaskId","originalHubExecutionId","originalAttemptId","ownerSubject","nonce","issuedAt","expiresAt","purpose","dispatchPermitted")
+  recovery_digest=hashlib.sha256((b.RECOVERY_DOMAIN+"\\n").encode()+json.dumps({k:recovery_claims[k] for k in keys},ensure_ascii=False,separators=(",",":")).encode()).hexdigest()
+  recovery={**request,"role":"recovery-approval","approvalDigest":recovery_digest,"requestId":recovery_claims["requestId"],"claims":recovery_claims}
+  check("RECOVERY_MISSING_COMPLETE_CLAIMS_DENIED",ask({k:v for k,v in recovery.items() if k!="claims"},sign_callback=sign)["status"]=="DENIED")
+  check("RECOVERY_CANONICAL_MUTATION_DENIED",ask({**recovery,"claims":{**recovery_claims,"nonce":"Z"*48}},sign_callback=sign)["status"]=="DENIED")
   check("RECOVERY_UUID_FORMAT_DENIED",ask({**recovery,"requestId":str(uuid.uuid4())},sign_callback=sign)["status"]=="DENIED")
   check("APPROVAL_UNHYPHENATED_FORMAT_DENIED",ask({**request,"requestId":"a"*36},sign_callback=sign)["status"]=="DENIED")
   check("CRASH_SIMULATED_AFTER_RESERVE",ask(recovery,interrupt_after_reserve=True)["status"]=="SIMULATED_PROCESS_CRASH")
