@@ -627,7 +627,10 @@ export default function AiTaskDetail() {
       queryFn:()=>apiFetch(`/ai-tasks/${id}/gpt02-preparation-readiness?companyId=${encodeURIComponent(task?.companyId ?? "")}`),
       enabled:currentUser?.role==="super_admin" && Boolean(task?.companyId) &&
         gpt02PicAudit?.auditPresent===true,
-      retry:false,refetchInterval:30_000,
+      // A bounded DEV preparer window can be short. Poll quickly only for
+      // this authenticated task detail; the POST independently rechecks all
+      // admission and role fences, so a stale UI state cannot authorize work.
+      retry:false,refetchInterval:10_000,refetchOnWindowFocus:true,
     });
   const gpt02PrepareOnlyMutation = useMutation({
     mutationFn:()=>apiFetch(
