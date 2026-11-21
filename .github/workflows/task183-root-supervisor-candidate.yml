@@ -4,6 +4,9 @@ on:
     branches:
       - fix/dev-task183-prep-readiness-ui-20261121
     paths:
+      - 'scripts/dev/task183-operational-custody-negative-proof.py'
+      - 'scripts/dev/task183-signer-unix-gate.candidate.py'
+      - 'scripts/dev/task183-signer-unix-gate.candidate.test.py'
       - 'scripts/dev/task183-integrated-live-no-go-probe.py'
       - 'scripts/dev/task183-pinned-approval-verifier.candidate.py'
       - 'scripts/dev/task183-pinned-approval-verifier.candidate.test.py'
@@ -51,7 +54,7 @@ jobs:
       - name: Syntax check
         run: python3 -m py_compile scripts/dev/task183-root-sign-once-supervisor.candidate.py scripts/dev/task183-root-sign-once-supervisor.candidate.test.py scripts/dev/task183-local-receipt-broker.candidate.py scripts/dev/task183-local-receipt-broker.candidate.test.py scripts/dev/task183-two-phase-signing.candidate.py scripts/dev/task183-two-phase-signing.candidate.test.py scripts/dev/task183-patch-existing-signer-two-phase.candidate.py scripts/dev/task183-patch-existing-signer-two-phase.candidate.test.py scripts/dev/task183-two-phase-unix-bridge.candidate.py scripts/dev/task183-two-phase-unix-bridge.candidate.test.py
       - name: Validate real-systemd peer and integrated live negative probe source (VPS execution required)
-        run: python3 -m py_compile scripts/dev/task183-systemd-peer-policy.candidate.py scripts/dev/task183-dynamic-user-peer-runtime.fixture.py scripts/dev/task183-integrated-live-no-go-probe.py
+        run: python3 -m py_compile scripts/dev/task183-systemd-peer-policy.candidate.py scripts/dev/task183-dynamic-user-peer-runtime.fixture.py scripts/dev/task183-integrated-live-no-go-probe.py scripts/dev/task183-operational-custody-negative-proof.py
       - name: Dormant systemd broker unit security contract
         run: python3 scripts/dev/task183-dormant-broker-unit.candidate.test.py
       - name: Synthetic concurrent crash and replay proof
@@ -72,6 +75,8 @@ jobs:
         run: python3 scripts/dev/task183-independent-owner-adapter.candidate.test.py
       - name: Reader-backed Unix broker synthetic E2E and live database read-only denial
         run: python3 scripts/dev/task183-reader-backed-broker-authorization.candidate.test.py
+      - name: Signer-side Unix admission and no-sign replay proof
+        run: python3 scripts/dev/task183-signer-unix-gate.candidate.test.py
       - name: Ed25519 trust manifest fingerprint and Unix broker signature binding
         run: |
           python3 scripts/dev/task183-pinned-approval-verifier.offline.test.py
