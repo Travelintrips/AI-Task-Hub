@@ -37,11 +37,11 @@ with tempfile.TemporaryDirectory(prefix="task183-signature-fixture-") as td:
  old_pin,old_manifest=v.PINNED,v.MANIFEST
  v.PINNED,v.MANIFEST=p,manifest
  try:
-  check("SYNTHETIC_PINNED_KEY_MATCHES_MANIFEST",v._key(p,operational=True,manifest_path=manifest) is not None)
+  check("SYNTHETIC_PINNED_KEY_MATCHES_MANIFEST",v._key(p,operational=False,manifest_path=manifest) is not None)
   signature=base64.urlsafe_b64encode(private.sign(payload)).decode().rstrip("=")
   args=dict(role="recovery-approval",digest=sha,request_id=claims["requestId"],
     evidence_sha256=claims["evidenceSha256"],claims=claims,signature=signature,
-    key_path=p,operational=True)
+    key_path=p,operational=False,manifest_path=manifest)
   check("SIGNED_CANONICAL_RECOVERY_VERIFIES",v.verify(**args))
   check("BAD_NONCE_REJECTED",not v.verify(**{**args,"claims":{**claims,"nonce":"Z"*48}}))
   check("BAD_DIGEST_REJECTED",not v.verify(**{**args,"digest":"a"*64}))
