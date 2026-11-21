@@ -11,7 +11,7 @@ import os
 import re
 import stat
 from pathlib import Path
-from cryptography.hazmat.primitives.serialization import load_pem_public_key
+from cryptography.hazmat.primitives.serialization import load_pem_public_key,Encoding,PublicFormat
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from cryptography.exceptions import InvalidSignature
 
@@ -21,6 +21,7 @@ FIELDS=("version","environment","audience","companyId","hubTaskId",
 "originalHubExecutionId","originalAttemptId","ownerSubject","nonce",
 "issuedAt","expiresAt","purpose","dispatchPermitted")
 PINNED=Path("/etc/gpt02-dev/public/approval-public.pem")
+MANIFEST=Path("/etc/gpt02-dev/trust-fingerprints.json")
 HEX=re.compile(r"^[a-f0-9]{64}$")
 B64=re.compile(r"^[A-Za-z0-9_-]{86}$")
 
@@ -38,7 +39,7 @@ def canonical_bytes(claims):
         {k:claims[k] for k in FIELDS},ensure_ascii=False,separators=(",",":")
     ).encode()
 
-def _key(path,*,operational):
+def _key(path,*,operational,manifest_path=MANIFEST):
     p=Path(path)
     if operational and p!=PINNED:fail("PINNED_APPROVAL_PUBLIC_KEY_REQUIRED")
     st=os.lstat(p)
@@ -50,6 +51,20 @@ def _key(path,*,operational):
     if len(raw)>4096:fail("PUBLIC_KEY_TOO_LARGE")
     key=load_pem_public_key(raw)
     if not isinstance(key,Ed25519PublicKey):fail("PUBLIC_KEY_NOT_ED25519")
+    if operational:
+        manifest=Path(manifest_path)
+        if manifest!=MANIFEST:fail("PINNED_TRUST_MANIFEST_REQUIRED")
+        trust_stat=os.lstat(manifest)
+        if not stat.S_ISREG(trust_stat.st_mode) or stat.S_ISLNK(trust_stat.st_mode) or trust_stat.st_uid!=0:
+            fail("TRUST_MANIFEST_CUSTODY_INVALID")
+        record=json.loads(manifest.read_text())
+        if (type(record) is not dict or
+            type(record.get("approval")) is not str or
+            not HEX.fullmatch(record["approval"])):
+            fail("TRUST_APPROVAL_FINGERPRINT_MISSING")
+        actual=hashlib.sha256(key.public_bytes(Encoding.DER,PublicFormat.SubjectPublicKeyInfo)).hexdigest()
+        if actual!=record["approval"]:
+            fail("TRUST_APPROVAL_FINGERPRINT_MISMATCH")
     return key
 
 def verify(*,role,digest,request_id,evidence_sha256,claims,signature,key_path=PINNED,operational=True):
@@ -67,5 +82,5 @@ def verify(*,role,digest,request_id,evidence_sha256,claims,signature,key_path=PI
             return False
         _key(key_path,operational=operational).verify(sig,body)
         return True
-    except (ValueError,OSError,InvalidSignature,TypeError):
+    except (ValueError,OSError,InvalidSignature,TypeError,json.JSONDecodeError):
         return False
