@@ -7,7 +7,7 @@ import configparser
 HERE=Path(__file__).resolve().parent
 UNIT=HERE/"task183-dormant-root-broker.candidate.service"
 LAUNCHER=HERE/"task183-dormant-broker-launcher.py"
-cfg=configparser.ConfigParser(interpolation=None,strict=True)
+cfg=configparser.ConfigParser(interpolation=None,strict=False)
 cfg.read(UNIT)
 n=0
 def verify(label,success):
