@@ -148,6 +148,8 @@ jobs:
           sudo -E python3 scripts/dev/task183-patch-existing-operational-signer-candidate.test.py
       - name: Verify Task183 independent Owner recovery decision reader never infers a signature
         run: python3 scripts/dev/task183-owner-recovery-decision-reader.test.py
+      - name: Verify Task183 explicit synthetic Owner decision and immutable outbox are atomic
+        run: python3 scripts/dev/task183-owner-recovery-decision-writer.fixture.test.py
       - name: Verify Task183 attempt2 atomic Core Hub issuance in isolated PostgreSQL
         run: bash scripts/dev/test-gpt02-task183-attempt2-issuer-isolated.sh
       - name: Verify idempotent Core coding task preparation without command dispatch
