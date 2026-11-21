@@ -34,6 +34,27 @@ with tempfile.TemporaryDirectory(prefix='task183-review-fixture-') as folder:
  passed('REPLAY_IDEMPOTENT',not same["created"] and same["requestId"]==first["requestId"])
  r=m.get_status(actor,store)
  passed('GET_STATUS_ONLY',r["requested"] and r["status"]==m.REVIEW_STATUS)
+ packet=m.review_evidence_packet(actor,store_path=store,actual_source=row,now_ms=NOW)
+ passed('READ_ONLY_MATCHED_EVIDENCE_PACKET',
+        packet["evidence"]["requestId"]==first["requestId"] and
+        len(packet["evidenceSha256"])==64 and
+        packet["readOnly"] and not packet["ownerApprovalGranted"] and
+        not packet["dispatchPermitted"] and not packet["signedApprovalReceived"])
+ packet_again=m.review_evidence_packet(actor,store_path=store,actual_source=row,now_ms=NOW)
+ passed('REPEATED_EVIDENCE_DIGEST_STABLE',
+        packet["evidenceSha256"]==packet_again["evidenceSha256"])
+ for label,changed in [
+    ('PACKET_TAMPERED_ATTEMPT_DENIED',{"attempt_id":"55555555-5555-4555-8555-555555555555"}),
+    ('PACKET_WRONG_HUB_DENIED',{"hub_execution_id":"66666666-6666-4666-8666-666666666666"}),
+    ('PACKET_NEW_COMMAND_DENIED',{"command_count":1}),
+    ('PACKET_SOURCE_PREPARER_UNLOCKED_DENIED',{"preparer_locked":False})]:
+    try:m.review_evidence_packet(actor,store_path=store,actual_source={**row,**changed},now_ms=NOW)
+    except ValueError:passed(label,True)
+    else:passed(label,False)
+ try:m.review_evidence_packet({**actor,"id":"google_someone_else"},store_path=store,actual_source=row,now_ms=NOW)
+ except ValueError:passed('PACKET_FOREIGN_ACTOR_DENIED',True)
+ else:passed('PACKET_FOREIGN_ACTOR_DENIED',False)
+
  denied('FOREIGN_REQUESTER_DENIED',actor_arg={**actor,"id":"google_synthetic_admin_B"})
  for tag,key,value in [
   ('OTHER_TASK_DENIED','hub_task_id',184),('FOREIGN_COMPANY_DENIED','company_id','other'),

@@ -32,6 +32,11 @@ class IntakeMock:
   return {"requestId":"mock_review_123","status":"PENDING_INDEPENDENT_OWNER_REVIEW","created":len(counter)==1,"approvalGranted":False,"dispatchPermitted":False,"attemptIssued":False}
  def get_status(self,actor):
   return {"requested":bool(counter),"status":"PENDING_INDEPENDENT_OWNER_REVIEW" if counter else "NOT_REQUESTED","approvalGranted":False,"dispatchPermitted":False}
+ def review_evidence_packet(self,actor):
+  return {"evidence":{"taskId":183,"requestId":"mock_review_123"},
+    "evidenceSha256":"f"*64,"readOnly":True,
+    "ownerApprovalGranted":False,"signedApprovalReceived":False,
+    "nonceConsumed":False,"dispatchPermitted":False,"attemptIssued":False}
 
 server=http.server.HTTPServer(('127.0.0.1',0),broker.Handler)
 thread=threading.Thread(target=server.serve_forever,daemon=True)
@@ -65,6 +70,13 @@ try:
   assert result["requested"] is True and result["readOnly"] is True
   assert_status('GET_REVIEW_STATUS_NO_AUTH',call('GET',status)[0],401)
   assert_status('GET_WRONG_TASK_REVIEW',call('GET','/api/ai-tasks/184/gpt02-recovery-review-status?companyId=default',headers)[0],404)
+  evidence_path=broker.REVIEW_PACKET_PATH
+  assert_status('PACKET_NO_AUTH_DENIED',call('GET',evidence_path)[0],401)
+  assert_status('PACKET_FORGED_JWT_DENIED',call('GET',evidence_path,{"Authorization":"Bearer AAA.BBB.CCC"})[0],403)
+  code,pkt=call('GET',evidence_path,headers)
+  assert_status('PACKET_SIGNED_READ_ONLY',code,200)
+  assert pkt["ownerApprovalGranted"] is False and pkt["dispatchPermitted"] is False and pkt["evidence"]["taskId"]==183
+
  print('BROKER_RECOVERY_REVIEW_HTTP=PASS')
  print('PRODUCTION_AND_CST_DEV_DATABASE_WRITES=FALSE')
 finally:

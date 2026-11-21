@@ -172,3 +172,62 @@ def get_status(actor,store_path=DB_PATH):
         if row[1]!=actor.get("id"):raise ValueError("REQUEST_NOT_VISIBLE_TO_OTHER_USER")
         return {"requested":True,"requestId":row[0],"status":row[2],"approvalGranted":False,"dispatchPermitted":False}
     finally:db.close()
+
+def review_evidence_packet(actor, store_path=DB_PATH, actual_source=None, now_ms=None):
+    """Independent read-only evidence for human review; no approval authority.
+
+    A packet is available only for an existing authenticated request and
+    only when the current authoritative DEV source still matches its saved
+    immutable identifiers. No signing, nonce consumption or mutations.
+    """
+    if not isinstance(actor,dict) or actor.get("role")!="super_admin" or not str(actor.get("id","")).startswith("google_"):
+        raise ValueError("SUPERADMIN_NOT_VERIFIED")
+    path=Path(store_path)
+    if not path.is_file() or path.is_symlink():
+        raise ValueError("REVIEW_REQUEST_NOT_FOUND")
+    conn=sqlite3.connect(f"file:{path}?mode=ro",uri=True,timeout=3)
+    try:
+        conn.row_factory=sqlite3.Row
+        row=conn.execute("""SELECT request_id,company_id,hub_task_id,
+          original_core_task_id,original_hub_job_id,original_attempt_id,
+          original_command_candidate,original_expired_at_ms,requested_by,
+          requested_at_ms,status,owner_approval_granted,issuer_grant,dispatch_permitted
+          FROM reviews WHERE company_id='default' AND hub_task_id=183""").fetchone()
+        if row is None:raise ValueError("REVIEW_REQUEST_NOT_FOUND")
+        saved=dict(row)
+    finally:conn.close()
+    if saved["requested_by"]!=actor["id"]:raise ValueError("REVIEW_REQUEST_ACTOR_MISMATCH")
+    if (saved["status"]!=REVIEW_STATUS or saved["owner_approval_granted"]!=0 or
+        saved["issuer_grant"]!=0 or saved["dispatch_permitted"]!=0):
+        raise ValueError("REVIEW_STATE_UNTRUSTED")
+    source=validate_source(source_readback() if actual_source is None else actual_source, now_ms)
+    compare={
+     "company_id":"company_id","hub_task_id":"hub_task_id",
+     "original_core_task_id":"core_task_id","original_hub_job_id":"hub_execution_id",
+     "original_attempt_id":"attempt_id",
+     "original_command_candidate":"command_candidate_id",
+     "original_expired_at_ms":"expires_at_ms"
+    }
+    for saved_key,source_key in compare.items():
+        expected=(int(source[source_key]) if saved_key=="original_expired_at_ms"
+                  else source[source_key])
+        if saved[saved_key]!=expected:
+            raise ValueError("ORIGINAL_PREPARATION_EVIDENCE_MISMATCH")
+    proof={
+        "version":1,"environment":"CST-DEV",
+        "purpose":"INDEPENDENT_OWNER_RECOVERY_REVIEW_ONLY",
+        "requestId":saved["request_id"],"taskId":183,"companyId":"default",
+        "coreTaskId":saved["original_core_task_id"],
+        "hubExecutionId":saved["original_hub_job_id"],
+        "originalAttemptId":saved["original_attempt_id"],
+        "commandCandidateId":saved["original_command_candidate"],
+        "originalExpiryMs":saved["original_expired_at_ms"],
+        "requestedAtMs":saved["requested_at_ms"],
+        "status":saved["status"]
+    }
+    digest=hashlib.sha256(json.dumps(proof,separators=(",",":"),sort_keys=True).encode()).hexdigest()
+    return {"evidence":proof,"evidenceSha256":digest,
+            "readOnly":True,"ownerApprovalGranted":False,
+            "signedApprovalReceived":False,"nonceConsumed":False,
+            "issuerGrant":False,"commandIssued":False,
+            "dispatchPermitted":False,"attemptIssued":False}

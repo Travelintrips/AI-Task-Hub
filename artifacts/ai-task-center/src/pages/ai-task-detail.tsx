@@ -656,6 +656,25 @@ export default function AiTaskDetail() {
     enabled:currentUser?.role==="super_admin" && task?.id===183,
     retry:false,refetchInterval:30_000,
   });
+  // Read-only exact reviewer evidence; not a signed approval or nonce.
+  const {data: task183RecoveryEvidence, error: task183RecoveryEvidenceError} =
+    useQuery<{
+      evidence: {
+        version:number;environment:string;purpose:string;requestId:string;
+        taskId:number;companyId:string;coreTaskId:string;hubExecutionId:string;
+        originalAttemptId:string;commandCandidateId:string;
+        originalExpiryMs:number;requestedAtMs:number;status:string;
+      };
+      evidenceSha256:string;readOnly:true;ownerApprovalGranted:false;
+      signedApprovalReceived:false;nonceConsumed:false;issuerGrant:false;
+      commandIssued:false;dispatchPermitted:false;attemptIssued:false;
+    }>({
+      queryKey:["task183-recovery-review-evidence",id],
+      queryFn:()=>apiFetch("/ai-tasks/183/gpt02-recovery-review-evidence?companyId=default"),
+      enabled:currentUser?.role==="super_admin" && task?.id===183 &&
+        task183RecoveryReviewStatus?.requested===true,
+      retry:false,refetchInterval:30_000,refetchOnWindowFocus:true,
+    });
   const task183RecoveryReviewMutation = useMutation({
     mutationFn:()=>apiFetch("/ai-tasks/183/gpt02-recovery-review-request?companyId=default",{
       method:"POST",
@@ -1410,6 +1429,24 @@ export default function AiTaskDetail() {
                     {task183RecoveryReviewStatus?.requested && (
                       <p role="status">Status permintaan: {task183RecoveryReviewStatus.status}.
                         Ini bukan approval.</p>
+                    )}
+                    {task183RecoveryEvidence?.readOnly === true &&
+                      task183RecoveryEvidence.ownerApprovalGranted === false && (
+                      <div data-testid="task183-review-evidence"
+                        className="mt-2 rounded border border-slate-300 p-2 space-y-1">
+                        <p className="font-semibold">Bukti review pemulihan — baca-saja</p>
+                        <p>ID permintaan: <code>{task183RecoveryEvidence.evidence.requestId}</code></p>
+                        <p>Core Task: <code>{task183RecoveryEvidence.evidence.coreTaskId}</code></p>
+                        <p>Hub Job: <code>{task183RecoveryEvidence.evidence.hubExecutionId}</code></p>
+                        <p>Attempt awal: <code>{task183RecoveryEvidence.evidence.originalAttemptId}</code></p>
+                        <p>SHA-256 bukti: <code>{task183RecoveryEvidence.evidenceSha256}</code></p>
+                        <p>Tidak ada persetujuan Owner, nonce yang dikonsumsi,
+                          command baru, atau izin dispatch.</p>
+                      </div>
+                    )}
+                    {task183RecoveryReviewStatus?.requested &&
+                      task183RecoveryEvidenceError && (
+                      <p role="alert">Bukti review tidak dapat diverifikasi; tindakan lanjutan tetap ditahan.</p>
                     )}
                   </div>
                 )}

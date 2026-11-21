@@ -172,6 +172,7 @@ def prepare_bounded(token):
 REVIEW_INTAKE_FILE = Path("/opt/ai-coding-standalone-dev/qa/task183-recovery-review-intake-dev.py")
 REVIEW_REQUEST_PATH = "/api/ai-tasks/183/gpt02-recovery-review-request?companyId=default"
 REVIEW_STATUS_PATH = "/api/ai-tasks/183/gpt02-recovery-review-status?companyId=default"
+REVIEW_PACKET_PATH = "/api/ai-tasks/183/gpt02-recovery-review-evidence?companyId=default"
 REVIEW_BODY = b'{"requestReview":true}'
 
 def load_review_intake():
@@ -196,6 +197,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Length",str(len(raw)))
         self.end_headers();self.wfile.write(raw)
     def do_GET(self):
+        if self.path==REVIEW_PACKET_PATH:
+            raw=self.headers.get("Authorization","")
+            if not raw.startswith("Bearer "):
+                self.reply(401,{"error":"AUTHENTICATION_REQUIRED"});return
+            try:
+                actor=verify_jwt(raw[7:])
+                packet=load_review_intake().review_evidence_packet(actor)
+                if packet.get("readOnly") is not True or packet.get("ownerApprovalGranted") is not False or packet.get("dispatchPermitted") is not False:
+                    raise ValueError("UNTRUSTED_EVIDENCE_PACKET")
+                self.reply(200,packet)
+            except (ValueError,TypeError,UnicodeError,KeyError):
+                self.reply(403,{"error":"REVIEW_PACKET_NOT_AUTHORIZED","dispatchPermitted":False})
+            except Exception as exc:
+                print("REVIEW_PACKET_UNAVAILABLE",type(exc).__name__,flush=True)
+                self.reply(503,{"error":"REVIEW_PACKET_UNAVAILABLE","dispatchPermitted":False})
+            return
         if self.path==REVIEW_STATUS_PATH:
             raw=self.headers.get("Authorization","")
             if not raw.startswith("Bearer "):
