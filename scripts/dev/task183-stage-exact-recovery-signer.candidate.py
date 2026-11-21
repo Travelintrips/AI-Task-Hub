@@ -23,7 +23,8 @@ NEW='''    # Task183 is recovery-only. No other existing signer role is modified
         if (not _task183_stat.S_ISREG(_task183_st.st_mode) or
             _task183_stat.S_ISLNK(_task183_st.st_mode) or
             _task183_st.st_uid!=0 or
-            _task183_stat.S_IMODE(_task183_st.st_mode)!=0o400):
+            _task183_st.st_gid!=__import__("grp").getgrnam("gpt02-issue159-signers").gr_gid or
+            _task183_stat.S_IMODE(_task183_st.st_mode)!=0o440):
             deny("TASK183_GATE_SOURCE_CUSTODY_DENIED")
         _task183_spec=_task183_import.spec_from_file_location("task183_unix_gate",str(_task183_path))
         _task183_mod=_task183_import.module_from_spec(_task183_spec)
