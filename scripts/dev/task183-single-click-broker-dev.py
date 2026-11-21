@@ -182,7 +182,41 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path=="/internal/healthz":
             self.reply(200,{"status":"ok","taskId":183,"dispatchPermitted":False})
-        else:self.reply(404,{"error":"NOT_FOUND"})
+            return
+        if self.path!="/api/ai-tasks/183/gpt02-postprepare-readiness?companyId=default":
+            self.reply(404,{"error":"NOT_FOUND"});return
+        raw=self.headers.get("Authorization","")
+        if not raw.startswith("Bearer "):
+            self.reply(401,{"error":"AUTHENTICATION_REQUIRED"});return
+        try:
+            verify_jwt(raw[7:])
+        except (ValueError,TypeError,UnicodeError,KeyError):
+            self.reply(403,{"error":"VERIFIED_SUPERADMIN_GOOGLE_SESSION_REQUIRED"});return
+        try:
+            proc=subprocess.run(["/usr/bin/python3",
+                "/opt/ai-coding-standalone-dev/qa/task183-postprepare-readiness.py"],
+                capture_output=True,text=True,timeout=25)
+            report=json.loads(proc.stdout)
+            if proc.returncode not in (0,2) or report.get("project")!="CST-DEV" or report.get("hub_task")!=183 or report.get("dispatch_authorized") is not False or report.get("writes_performed") is not False:
+                raise ValueError("READBACK_CONTRACT_MISMATCH")
+            proof=report.get("proof",{})
+            if not isinstance(proof,dict) or not isinstance(report.get("status"),str):
+                raise ValueError("READBACK_MISSING")
+            # A negative operational release decision is normal HTTP 200
+            # for this strictly read-only status endpoint.
+            self.reply(200,{"taskId":183,"status":report["status"],
+              "reservationExpiryUtc":proof.get("reservation_expiry_utc"),
+              "reservationCurrent":proof.get("reservation_current") is True,
+              "corePreparations":proof.get("preparations"),
+              "hubJobs":proof.get("hub_jobs"),
+              "officialCommandCount":proof.get("official_command"),
+              "validApprovalCount":proof.get("valid_command_approvals"),
+              "verifiedBindings":proof.get("verified_bindings"),
+              "preparerLocked":proof.get("preparer_locked") is True,
+              "dispatchPermitted":False,"readOnly":True})
+        except Exception as err:
+            print("TASK183_STATUS_READ_FAILED",type(err).__name__,flush=True)
+            self.reply(503,{"error":"POSTPREP_READINESS_UNAVAILABLE","dispatchPermitted":False})
     def do_POST(self):
         if self.path!=TASK_PATH:
             self.reply(404,{"error":"NOT_FOUND"});return

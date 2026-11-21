@@ -632,6 +632,19 @@ export default function AiTaskDetail() {
       // POST admission and role checks still fail closed independently.
       retry:false,refetchInterval:10_000,refetchOnWindowFocus:true,
     });
+  // Task183 reservation: read-only, never an approval or dispatch grant.
+  const {data: task183Postprep, error: task183PostprepError} = useQuery<{
+    taskId:number;status:string;reservationExpiryUtc:string|null;
+    reservationCurrent:boolean;corePreparations:number;hubJobs:number;
+    officialCommandCount:number;validApprovalCount:number;verifiedBindings:number;
+    preparerLocked:boolean;dispatchPermitted:false;readOnly:true;
+  }>({
+    queryKey:["task183-postprepare-readiness",id],
+    queryFn:()=>apiFetch("/ai-tasks/183/gpt02-postprepare-readiness?companyId=default"),
+    enabled:currentUser?.role==="super_admin" && task?.id===183 &&
+      gpt02PicAudit?.auditPresent===true,
+    retry:false,refetchInterval:15_000,refetchOnWindowFocus:true,
+  });
   const gpt02PrepareOnlyMutation = useMutation({
     mutationFn:()=>apiFetch(
       `/ai-tasks/${id}/gpt02-prepare?companyId=${encodeURIComponent(task?.companyId ?? "")}`,{
@@ -1335,6 +1348,27 @@ export default function AiTaskDetail() {
                   "Siap mengajukan persiapan saja; belum memiliki izin menjalankan worker." :
                   `Persiapan belum memenuhi syarat: ${gpt02PreparationReadiness.reason}`}
             </p>
+            {task.id===183 && task183Postprep?.corePreparations===1 && (
+              <div data-testid="task183-reservation-release-gate" role="status"
+                className="rounded border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900 space-y-1">
+                <p className="font-semibold">{task183Postprep.reservationCurrent
+                  ? "Reservasi GPT02 tercatat — belum ada izin dispatch"
+                  : "Reservasi GPT02 sudah kedaluwarsa — eksekusi tetap ditolak"}</p>
+                <p>{task183Postprep.reservationExpiryUtc
+                  ? "Batas berlaku: " + new Date(task183Postprep.reservationExpiryUtc).toLocaleString("id-ID",{timeZone:"Asia/Jakarta",hour12:false}) + " WIB."
+                  : "Waktu berlaku belum dapat diverifikasi."}</p>
+                <p>Core preparation: {task183Postprep.corePreparations}; Hub Job: {task183Postprep.hubJobs};
+                  command resmi: {task183Postprep.officialCommandCount};
+                  approval sah: {task183Postprep.validApprovalCount};
+                  binding attempt: {task183Postprep.verifiedBindings}.</p>
+                <p>Keputusan: {task183Postprep.status}. Tidak mengulang preparation otomatis.</p>
+              </div>
+            )}
+            {task.id===183 && task183PostprepError && (
+              <p role="alert" className="text-xs text-amber-800">
+                Bukti reservasi belum dapat dibaca; eksekusi tetap ditahan.
+              </p>
+            )}
             <Button type="button" variant="outline" size="sm"
               disabled={!(gpt02PreparationReadiness?.canRequestPreparation ||
                 (task.id===183 && gpt02PreparationReadiness?.preparationEligible===true &&

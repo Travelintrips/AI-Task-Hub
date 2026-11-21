@@ -86,4 +86,38 @@ try:
         else:assertion("FAILED_PREPARATION_HTTP_409",False)
 finally:
     server.shutdown();server.server_close();thread.join(timeout=3)
+# Test the new authenticated, read-only post-preparation status surface.
+# This does not access a real DB: verify_jwt and subprocess.run are mocked.
+mock_report={"project":"CST-DEV","hub_task":183,"status":"NO_GO_RESERVATION_EXPIRED",
+    "dispatch_authorized":False,"writes_performed":False,
+    "proof":{"reservation_expiry_utc":"2026-11-21T11:25:28.870Z",
+      "reservation_current":False,"preparations":1,"hub_jobs":1,
+      "official_command":0,"valid_command_approvals":0,
+      "verified_bindings":0,"preparer_locked":True}}
+class FakeResult:
+    returncode=2
+    stdout=json.dumps(mock_report)
+fake_server=http.server.HTTPServer(("127.0.0.1",0),broker.Handler)
+fake_thread=threading.Thread(target=fake_server.serve_forever,daemon=True)
+fake_thread.start()
+status_uri=f"http://127.0.0.1:{fake_server.server_address[1]}/api/ai-tasks/183/gpt02-postprepare-readiness?companyId=default"
+try:
+    for label,headers,expected in (
+       ("STATUS_NO_AUTH_DENIED",{},401),
+       ("STATUS_INVALID_TOKEN_DENIED",{"Authorization":"Bearer AAA.BBB.CCC"},403)):
+        q=urllib.request.Request(status_uri,headers=headers)
+        try:
+            urllib.request.urlopen(q,timeout=4)
+        except urllib.error.HTTPError as er:code=er.code
+        else:code=200
+        assertion(label,code==expected)
+    with mock.patch.object(broker,"verify_jwt",return_value=claims),mock.patch.object(broker.subprocess,"run",return_value=FakeResult()):
+        q=urllib.request.Request(status_uri,headers={"Authorization":"Bearer mocked-fixture"})
+        with urllib.request.urlopen(q,timeout=4) as response:
+            data=json.load(response)
+            assertion("STATUS_EXPIRED_HTTP_200",response.status==200)
+            assertion("STATUS_EXPIRED_FAIL_CLOSED",data["status"]=="NO_GO_RESERVATION_EXPIRED" and data["dispatchPermitted"] is False)
+            assertion("STATUS_EXPIRY_READ_ONLY",data["reservationCurrent"] is False and data["readOnly"] is True)
+finally:
+    fake_server.shutdown();fake_server.server_close();fake_thread.join(timeout=3)
 print("NO_REAL_DB_OR_ROLE_MUTATIONS=TRUE")

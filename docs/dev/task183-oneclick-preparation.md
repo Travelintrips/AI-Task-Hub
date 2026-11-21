@@ -38,3 +38,8 @@ Synthetic fail-closed suite:
 python3 /opt/ai-coding-standalone-dev/qa/task183-postprepare-readiness.test.py
 
 12/12 cases PASS: missing command, approval, binding; expired reservation; duplicate Hub/Core; unlocked preparer; leaked sessions; invalid/unavailable readback, etc. No task, database, or role writes. Reservation originally expired 2026-11-21 11:25:28.870Z (18:25:28 WIB); do not extend/replay it outside the official independently authorized flow.
+
+## Expired reservation read-only visibility (21 Nov 2026)
+A genuine prepared Task #183 reservation expired on 2026-11-21T11:25:28.870Z before any official command, independent attempt binding, or Owner approval was produced. No repeat preparation or lease extension is authorized. The existing root-held broker provides an exact scoped, signed Super Admin GET: /api/ai-tasks/183/gpt02-postprepare-readiness?companyId=default. It uses the already-tested read-only release gate and returns HTTP 200 with status NO_GO_RESERVATION_EXPIRED, original expiry and evidence counts (NO command, approval or binding), without any signer or dispatch authority.
+
+The Task #183 frontend displays the result as informational status (not an approval control), and all other task routes remain unchanged. Anonymous requests receive 401, malformed signed sessions 403, and synthetic verified read-only status contract tests PASS; database writes remain OFF.
