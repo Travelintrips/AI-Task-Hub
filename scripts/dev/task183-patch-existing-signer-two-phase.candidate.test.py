@@ -84,7 +84,7 @@ with tempfile.TemporaryDirectory(prefix="task183-two-phase-fixture-") as td:
     claims["commandId"]=str(uuid.uuid4())
     c2={name:("fixture" if name!="requestId" else str(uuid.uuid4()))
             for name in fixture.RECOVERY_FIELDS}
-    c2["requestId"]=str(uuid.uuid4())
+    c2["requestId"]="6bcd8419254dc21c0b149eb09e68a7b6da66"
     c2["dispatchPermitted"]=False
     normal=fixture.Signer("approval",key,{},task183_gate=None)
     denied("NO_GATE_APPROVAL_FAIL_CLOSED",lambda:normal.sign_approval({"claims":claims}))
