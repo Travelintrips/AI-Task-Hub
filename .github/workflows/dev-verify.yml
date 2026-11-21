@@ -162,6 +162,8 @@ jobs:
           sudo -E python3 scripts/dev/task183-signed-owner-to-verifier-e2e.test.py
       - name: Verify Task183 approval signature one-shot atomic envelope and replay fence
         run: python3 scripts/dev/task183-one-shot-signature-envelope.fixture.test.py
+      - name: Verify Task183 crash-safe signer reservation survives restart without signing twice
+        run: python3 scripts/dev/task183-durable-sign-once.fixture.test.py
       - name: Verify dormant Task183 approval schema preserves old records and prevents implicit approval
         run: python3 scripts/dev/task183-install-dormant-owner-approval-schema.test.py
       - name: Verify Task183 attempt2 atomic Core Hub issuance in isolated PostgreSQL
