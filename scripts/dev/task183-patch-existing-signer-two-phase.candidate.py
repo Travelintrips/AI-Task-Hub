@@ -22,7 +22,7 @@ NEW_INIT='''    def __init__(self,role,key,public,task183_gate=None):
         # The signer keeps the private key. The broker must never be given it.
         result=gate.sign_once(
             role=role,claims=claims,approval_digest=digest,
-            request_id=request_id,evidence_sha256=hashlib.sha256(payload).hexdigest(),
+            request_id=request_id,evidence_sha256=(claims["evidenceSha256"] if role=="recovery-approval" else hashlib.sha256(payload).hexdigest()),
             signing_bytes=payload,signer_callback=lambda:self.key.sign(payload))
         if type(result) is not bytes or len(result)!=64:
             deny("TASK183_DURABLE_SIGNATURE_INVALID")
