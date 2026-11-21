@@ -21,7 +21,8 @@ with tempfile.TemporaryDirectory(prefix="task183-two-phase-fixture-") as td:
  def sign():
   calls[0]+=1
   return base64.urlsafe_b64encode(key.sign(b"fixture-task183-signing-payload")).decode().rstrip("=")
- def verify(role,digest,rid,evidence,sig):
+ def verify(role,digest,rid,evidence,*tail):
+  sig=tail[-1]
   try:key.public_key().verify(base64.urlsafe_b64decode(sig+"=="),b"fixture-task183-signing-payload");return True
   except Exception:return False
  def auth(role,digest,rid,evidence,claims=None):return authorized[0]
