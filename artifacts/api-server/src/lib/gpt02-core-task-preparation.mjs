@@ -4,7 +4,9 @@
  * a native issuer, signer, lease or worker dispatch implementation.
  */
 import { X509Certificate } from 'node:crypto';
+import {lstatSync,readFileSync} from 'node:fs';
 const EXPECTED_DEV_REF='xssrfshdrtdfupgqwfdw';
+const PINNED_DIRECT_DEV_HOST=`db.${EXPECTED_DEV_REF}.supabase.co`;
 const PINNED_ROOT_FINGERPRINT='807025ad50d4ed219d2c9c7d299c004f824eb00cf7f65afef607d07b72e6cafa';
 const ROLE='gpt02_core_prep_login';
 const COMPANY='default';
@@ -56,10 +58,98 @@ export function corePreparationPoolConfig(env){
  if(!['postgresql:','postgres:'].includes(url.protocol)||url.hostname!==host||url.port!=='5432'||
    url.pathname!=='/postgres'||user!==`${ROLE}.${project}`||!url.password||url.search||url.hash)
    deny('PREPARER_DSN_SCOPE_MISMATCH');
+ // Supavisor may throttle the pooler during operational recovery. The direct
+ // PostgreSQL host was separately proved by pinned-TLS on CST-DEV; allow
+ // ONLY an explicit DEV choice. This rewrites a verified dedicated-role
+ // credential, never a caller URL, and does not grant or extend any DB role.
+ const transport=env.GPT02_CORE_PREP_DEV_TRANSPORT??'pooler';
+ if(transport!=='pooler'&&transport!=='direct')
+   deny('PREPARER_DB_TRANSPORT_UNSUPPORTED');
+ if(transport==='direct'){
+   const direct=new URL(raw);
+   direct.hostname=PINNED_DIRECT_DEV_HOST;
+   direct.username=ROLE;
+   // Same password and database, but native role name rather than pooler
+   // project suffix. Exact servername guards TLS hostname verification.
+   return {connectionString:direct.toString(),
+     ssl:{ca:pinnedCa,rejectUnauthorized:true,servername:PINNED_DIRECT_DEV_HOST},
+     max:1,connectionTimeoutMillis:5000,statement_timeout:5000,
+     idleTimeoutMillis:10000,application_name:'gpt02-core-preparation-DEV-only'};
+ }
  return {connectionString:raw,ssl:{ca:pinnedCa,rejectUnauthorized:true},max:1,
    connectionTimeoutMillis:5000,statement_timeout:5000,idleTimeoutMillis:10000,
    application_name:'gpt02-core-preparation-DEV-only'};
 }
+/** Separate opt-in credential-file boundary; never fallback to the Hub DSN. */
+const PREPARER_CREDENTIAL_DIR='/run/credentials/gpt02-core-preparer.service';
+function restrictedCredential(path, directory, synthetic){
+ let ds,fs;
+ try{ds=lstatSync(directory);fs=lstatSync(path);}catch{deny('PREPARER_CREDENTIAL_FILE_REQUIRED')}
+ const uid=synthetic?(process.getuid?.()??fs.uid):0;
+ const gid=synthetic?(process.getgid?.()??fs.gid):0;
+ if(!ds.isDirectory()||ds.isSymbolicLink()||(!synthetic && (ds.mode&0o777)!==0o550)||
+    ds.uid!==uid||ds.gid!==gid||!fs.isFile()||fs.isSymbolicLink()||
+    fs.uid!==uid||fs.gid!==gid||![0o400,0o600,...(synthetic?[]:[0o440])].includes(fs.mode&0o777))
+   deny('PREPARER_CREDENTIAL_FILE_SECURITY_INVALID');
+ let value;try{value=readFileSync(path,'utf8')}catch{deny('PREPARER_CREDENTIAL_FILE_REQUIRED')}
+ if(value.length<1||value.length>8192)deny('PREPARER_CREDENTIAL_FILE_INVALID');
+ return value;
+}
+export function corePreparationPoolConfigFromFiles(env, options={}){
+ // An explicit test-only directory enables isolated fixture tests, never a runtime override.
+ const synthetic=options.synthetic===true;
+ if(synthetic && env.NODE_ENV!=='development')deny('EXPLICIT_SECURE_DEV_REQUIRED');
+ const dir=synthetic?options.testDirectory:PREPARER_CREDENTIAL_DIR;
+ if(typeof dir!=='string'||!dir.startsWith('/')||dir.includes('..'))deny('PREPARER_CREDENTIAL_DIRECTORY_REQUIRED');
+ if(env.GPT02_CORE_PREP_DATABASE_URL_DEV || env.GPT02_CORE_PREP_DEV_CA)
+   deny('PREPARER_INLINE_CREDENTIAL_FORBIDDEN');
+ const dsn=restrictedCredential(`${dir}/preparer-dsn`,dir,synthetic).trim();
+ const ca=restrictedCredential(`${dir}/supabase-root-ca.crt`,dir,synthetic);
+ return corePreparationPoolConfig({...env,GPT02_CORE_PREP_DATABASE_URL_DEV:dsn,GPT02_CORE_PREP_DEV_CA:ca});
+}
+/** Strict, non-root Docker-readonly custody for the existing DEV API.
+ * Distinct from systemd's root-owned credential files: no path override,
+ * no inline DSN and no permission to prepare without authenticated admin.
+ * The mount must be a dedicated read-only bind mount of a private directory.
+ */
+export function corePreparationPoolConfigFromDockerReadonlyFiles(env){
+ const directory=PREPARER_CREDENTIAL_DIR;
+ if(env?.GPT02_CORE_PREP_CREDENTIAL_SOURCE!=='docker-readonly')
+   deny('PREPARER_DOCKER_CREDENTIAL_SOURCE_REQUIRED');
+ if(env.GPT02_CORE_PREP_DATABASE_URL_DEV || env.GPT02_CORE_PREP_DEV_CA)
+   deny('PREPARER_INLINE_CREDENTIAL_FORBIDDEN');
+ const uid=process.getuid?.(),gid=process.getgid?.();
+ if(!Number.isInteger(uid)||uid<=0||!Number.isInteger(gid))
+   deny('PREPARER_NONROOT_CONTAINER_REQUIRED');
+ let ds,mounts;
+ try{ds=lstatSync(directory);mounts=readFileSync('/proc/self/mountinfo','utf8');}
+ catch{deny('PREPARER_DOCKER_READONLY_MOUNT_REQUIRED')}
+ if(!ds.isDirectory()||ds.isSymbolicLink()||ds.uid!==uid||ds.gid!==gid||
+    (ds.mode&0o777)!==0o500)
+   deny('PREPARER_DOCKER_CREDENTIAL_DIRECTORY_INVALID');
+ // Compare the kernel's exact mountpoint. A normal writable directory or
+ // merely an environment-variable path cannot become a custody source.
+ const mounted=mounts.split('\n').some(line=>{
+   const parts=line.split(' ');
+   return parts[4]===directory && parts[5]?.split(',').includes('ro');
+ });
+ if(!mounted)deny('PREPARER_DOCKER_READONLY_MOUNT_REQUIRED');
+ const read=name=>{
+   let fs;
+   try{fs=lstatSync(directory+'/'+name);}catch{deny('PREPARER_CREDENTIAL_FILE_REQUIRED')}
+   if(!fs.isFile()||fs.isSymbolicLink()||fs.uid!==uid||fs.gid!==gid||
+      (fs.mode&0o777)!==0o400)
+     deny('PREPARER_DOCKER_CREDENTIAL_FILE_INVALID');
+   let value;
+   try{value=readFileSync(directory+'/'+name,'utf8')}
+   catch{deny('PREPARER_CREDENTIAL_FILE_REQUIRED')}
+   if(value.length<1||value.length>8192)deny('PREPARER_CREDENTIAL_FILE_INVALID');
+   return value;
+ };
+ const dsn=read('preparer-dsn').trim(),ca=read('supabase-root-ca.crt');
+ return corePreparationPoolConfig({...env,GPT02_CORE_PREP_DATABASE_URL_DEV:dsn,GPT02_CORE_PREP_DEV_CA:ca});
+}
+
 /**
  * Returns reserved candidate identities only; this is NOT an approved command.
  * The database function must verify real Hub PIC + Super Admin audit and atomically
@@ -218,7 +308,14 @@ export class Gpt02CoreTaskPreparer {
 /** No network connection or transaction is made by this factory. */
 export function createCoreTaskPreparer({env,PoolClass}){
  if(typeof PoolClass!=='function')deny('POSTGRES_POOL_CLASS_REQUIRED');
- const config=corePreparationPoolConfig(env);
+ // A live preparation window can never fall back to an inline/general Hub DSN.
+ if(env?.GPT02_CORE_PREPARATION_ENABLED==='true' &&
+    !['systemd','docker-readonly'].includes(env.GPT02_CORE_PREP_CREDENTIAL_SOURCE))
+   deny('PREPARER_FILE_CUSTODY_REQUIRED');
+ const config=env?.GPT02_CORE_PREP_CREDENTIAL_SOURCE==='systemd'
+   ? corePreparationPoolConfigFromFiles(env) :
+   env?.GPT02_CORE_PREP_CREDENTIAL_SOURCE==='docker-readonly'
+     ? corePreparationPoolConfigFromDockerReadonlyFiles(env) : corePreparationPoolConfig(env);
  const pool=new PoolClass(config);pool.on('error',()=>{});
  return {preparer:new Gpt02CoreTaskPreparer({pool}),close:()=>pool.end()};
 }

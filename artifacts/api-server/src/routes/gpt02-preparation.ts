@@ -26,7 +26,14 @@ async function readDedicatedPreparerCatalog(){
    r.rolcreaterole AS "createRole",r.rolcreatedb AS "createDb",
    r.rolreplication AS "replication",r.rolinherit AS "inherit",
    (SELECT count(*)::integer FROM pg_stat_activity s
-       WHERE s.usename=r.rolname) AS "activeSessions",
+       WHERE s.usename=r.rolname AND s.state IS DISTINCT FROM 'idle')
+       AS "activeSessions",
+   (SELECT count(*)::integer FROM pg_stat_activity s
+       WHERE s.usename=r.rolname AND s.state='idle'
+         AND s.application_name='Supavisor') AS "knownPooledIdleSessions",
+   (SELECT count(*)::integer FROM pg_stat_activity s
+       WHERE s.usename=r.rolname AND s.state='idle'
+         AND s.application_name IS DISTINCT FROM 'Supavisor') AS "unexpectedIdleSessions",
    (SELECT count(*)::integer FROM pg_auth_members m
        WHERE m.member=r.oid) AS "memberships",
    has_database_privilege(r.oid,current_database(),'CREATE') AS "canCreateDatabase"
