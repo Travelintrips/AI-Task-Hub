@@ -15,6 +15,7 @@ on:
       - 'scripts/dev/task183-pinned-approval-verifier.offline.test.py'
       - 'scripts/dev/task183-pinned-broker-verifier.candidate.py'
       - 'scripts/dev/task183-pinned-broker-verifier.candidate.test.py'
+      - 'scripts/dev/task183-root-broker-restart-readiness.candidate.test.py'
       - 'scripts/dev/task183-root-broker-operational.candidate.py'
       - 'scripts/dev/task183-root-broker-operational.candidate.service'
       - 'scripts/dev/task183-root-broker-operational.candidate.test.py'
@@ -66,6 +67,7 @@ jobs:
         run: |
           python3 -m py_compile scripts/dev/task183-root-broker-operational.candidate.py
           python3 scripts/dev/task183-root-broker-operational.candidate.test.py
+          python3 scripts/dev/task183-root-broker-restart-readiness.candidate.test.py
           # Real systemd-analyze verify is run on CST-DEV VPS where the existing approval-reader unit is installed.
       - name: Synthetic concurrent crash and replay proof
         run: python3 scripts/dev/task183-root-sign-once-supervisor.candidate.test.py
