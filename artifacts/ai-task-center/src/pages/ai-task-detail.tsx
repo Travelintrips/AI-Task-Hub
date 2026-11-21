@@ -1322,7 +1322,9 @@ export default function AiTaskDetail() {
                 gpt02PreparationReadiness.reason==="FRESH_TASK_INSTRUCTION_REQUIRED" ?
                   "Instruksi masih berupa referensi lama. Gunakan koreksi ber-audit di atas terlebih dahulu." :
                 gpt02PreparationReadiness.reason==="GPT02_PREPARER_LOGIN_LOCKED" ?
-                  "Akun preparer khusus masih NOLOGIN; belum boleh membuat Core Task." :
+                  task.id===183 && gpt02PreparationReadiness.preparationEligible && gpt02PreparationReadiness.featureEnabled ?
+                    "Siap meminta preparation satu kali. Server akan membuka akses terbatas, memproses permintaan, lalu mengunci kembali tanpa dispatch." :
+                    "Akun preparer khusus masih NOLOGIN; belum boleh membuat Core Task." :
                 gpt02PreparationReadiness.reason==="GPT02_PREPARER_PASSWORD_VERIFIER_MISSING" ?
                   "Autentikasi akun preparer belum tersedia; diperlukan kredensial khusus yang terverifikasi." :
                 gpt02PreparationReadiness.reason==="GPT02_PREPARER_INDEPENDENT_AUTH_NOT_VERIFIED" ?
@@ -1334,7 +1336,10 @@ export default function AiTaskDetail() {
                   `Persiapan belum memenuhi syarat: ${gpt02PreparationReadiness.reason}`}
             </p>
             <Button type="button" variant="outline" size="sm"
-              disabled={!gpt02PreparationReadiness?.canRequestPreparation ||
+              disabled={!(gpt02PreparationReadiness?.canRequestPreparation ||
+                (task.id===183 && gpt02PreparationReadiness?.preparationEligible===true &&
+                  gpt02PreparationReadiness?.featureEnabled===true &&
+                  gpt02PreparationReadiness?.reason==="GPT02_PREPARER_LOGIN_LOCKED")) ||
                 gpt02PrepareOnlyMutation.isPending || gpt02PreparationReadinessFetching ||
                 Boolean(executionData?.execution)}
               onClick={() => {
