@@ -627,7 +627,10 @@ export default function AiTaskDetail() {
       queryFn:()=>apiFetch(`/ai-tasks/${id}/gpt02-preparation-readiness?companyId=${encodeURIComponent(task?.companyId ?? "")}`),
       enabled:currentUser?.role==="super_admin" && Boolean(task?.companyId) &&
         gpt02PicAudit?.auditPresent===true,
-      retry:false,refetchInterval:30_000,
+      // The one-shot DEV preparation window is short; keep its signed
+      // read-only readiness visible promptly without granting any authority.
+      // POST admission and role checks still fail closed independently.
+      retry:false,refetchInterval:10_000,refetchOnWindowFocus:true,
     });
   const gpt02PrepareOnlyMutation = useMutation({
     mutationFn:()=>apiFetch(
