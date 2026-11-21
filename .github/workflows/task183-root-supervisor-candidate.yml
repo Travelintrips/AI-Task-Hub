@@ -15,6 +15,9 @@ on:
       - 'scripts/dev/task183-pinned-approval-verifier.offline.test.py'
       - 'scripts/dev/task183-pinned-broker-verifier.candidate.py'
       - 'scripts/dev/task183-pinned-broker-verifier.candidate.test.py'
+      - 'scripts/dev/task183-root-broker-operational.candidate.py'
+      - 'scripts/dev/task183-root-broker-operational.candidate.service'
+      - 'scripts/dev/task183-root-broker-operational.candidate.test.py'
       - 'scripts/dev/task183-dormant-broker-launcher.py'
       - 'scripts/dev/task183-dormant-root-broker.candidate.service'
       - 'scripts/dev/task183-dormant-broker-unit.candidate.test.py'
@@ -59,6 +62,11 @@ jobs:
         run: python3 -m py_compile scripts/dev/task183-systemd-peer-policy.candidate.py scripts/dev/task183-dynamic-user-peer-runtime.fixture.py scripts/dev/task183-integrated-live-no-go-probe.py scripts/dev/task183-operational-custody-negative-proof.py
       - name: Dormant systemd broker unit security contract
         run: python3 scripts/dev/task183-dormant-broker-unit.candidate.test.py
+      - name: Validate guarded operational broker candidate without service activation
+        run: |
+          python3 -m py_compile scripts/dev/task183-root-broker-operational.candidate.py
+          python3 scripts/dev/task183-root-broker-operational.candidate.test.py
+          systemd-analyze verify scripts/dev/task183-root-broker-operational.candidate.service
       - name: Synthetic concurrent crash and replay proof
         run: python3 scripts/dev/task183-root-sign-once-supervisor.candidate.test.py
       - name: Synthetic Unix broker peer custody replay and restart proof
