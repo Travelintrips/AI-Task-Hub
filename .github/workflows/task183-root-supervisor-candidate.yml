@@ -1,0 +1,28 @@
+name: Task183 isolated root signer supervisor candidate
+on:
+  push:
+    branches:
+      - fix/dev-task183-prep-readiness-ui-20261121
+    paths:
+      - 'scripts/dev/task183-root-sign-once-supervisor.candidate.py'
+      - 'scripts/dev/task183-root-sign-once-supervisor.candidate.test.py'
+      - 'scripts/dev/task183-dormant-signature-custody.py'
+      - '.github/workflows/task183-root-supervisor-candidate.yml'
+  pull_request:
+    paths:
+      - 'scripts/dev/task183-root-sign-once-supervisor.candidate.py'
+      - 'scripts/dev/task183-root-sign-once-supervisor.candidate.test.py'
+      - 'scripts/dev/task183-dormant-signature-custody.py'
+      - '.github/workflows/task183-root-supervisor-candidate.yml'
+permissions:
+  contents: read
+jobs:
+  isolated-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax check
+        run: python3 -m py_compile scripts/dev/task183-root-sign-once-supervisor.candidate.py scripts/dev/task183-root-sign-once-supervisor.candidate.test.py
+      - name: Synthetic concurrent crash and replay proof
+        run: python3 scripts/dev/task183-root-sign-once-supervisor.candidate.test.py
