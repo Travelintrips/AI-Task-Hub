@@ -156,6 +156,12 @@ jobs:
         run: python3 scripts/dev/task183-owner-recovery-decision-writer.fixture.test.py
       - name: Verify Task183 real DEV Owner approval writer refuses implicit decisions and repeats
         run: python3 scripts/dev/task183-owner-approval-writer-dev.test.py
+      - name: Verify Task183 end-to-end signed Owner fixture through existing reader signer and independent Ed25519 verifier
+        run: |
+          sudo groupadd -f gpt02-issue159-signers
+          sudo -E python3 scripts/dev/task183-signed-owner-to-verifier-e2e.test.py
+      - name: Verify Task183 approval signature one-shot atomic envelope and replay fence
+        run: python3 scripts/dev/task183-one-shot-signature-envelope.fixture.test.py
       - name: Verify dormant Task183 approval schema preserves old records and prevents implicit approval
         run: python3 scripts/dev/task183-install-dormant-owner-approval-schema.test.py
       - name: Verify Task183 attempt2 atomic Core Hub issuance in isolated PostgreSQL
