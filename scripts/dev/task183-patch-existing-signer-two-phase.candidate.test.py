@@ -86,6 +86,7 @@ with tempfile.TemporaryDirectory(prefix="task183-two-phase-fixture-") as td:
             for name in fixture.RECOVERY_FIELDS}
     c2["requestId"]="6bcd8419254dc21c0b149eb09e68a7b6da66"
     c2["dispatchPermitted"]=False
+    c2["evidenceSha256"]="89950d3b8ac91aac612810325c6a219cb898a6fa41b234a477f0dbe32d85eb7b"
     normal=fixture.Signer("approval",key,{},task183_gate=None)
     denied("NO_GATE_APPROVAL_FAIL_CLOSED",lambda:normal.sign_approval({"claims":claims}))
     denied("NO_GATE_RECOVERY_FAIL_CLOSED",lambda:normal.sign_recovery_approval({"claims":c2}))
