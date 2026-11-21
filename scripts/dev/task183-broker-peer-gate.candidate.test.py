@@ -5,6 +5,8 @@ from pathlib import Path
 ROOT=Path(__file__).resolve().parent
 spec=importlib.util.spec_from_file_location("bridge",ROOT/"task183-two-phase-unix-bridge.candidate.py")
 b=importlib.util.module_from_spec(spec);spec.loader.exec_module(b)
+ps=importlib.util.spec_from_file_location("policy",ROOT/"task183-systemd-peer-policy.candidate.py")
+policy=importlib.util.module_from_spec(ps);ps.loader.exec_module(policy)
 n=0
 def check(label,result):
  global n
@@ -33,6 +35,15 @@ with tempfile.TemporaryDirectory(prefix="task183-two-phase-fixture-") as td:
   check("NO_RECEIPT_RESERVATION",b.phase.custody.audit(path=store,operational=False)["total"]==0)
  finally:broker.close()
  check("SOCKET_REMOVED",not socket_path.exists())
+ # Use the actual exact systemd peer policy, not a synthetic deny callback.
+ broker=b.FixtureBroker(socket_path=socket_path,store=store,authorize=owner,verify=verify,peer_verifier=policy.authenticated_peer)
+ broker.start()
+ try:
+  resp=b.client(socket_path,req)
+  check("ACTUAL_SYSTEMD_POLICY_REJECTS_ROOT_CALLER",resp.get("reason")=="PEER_CREDENTIAL_MISMATCH")
+  check("ACTUAL_POLICY_NEVER_REACHES_OWNER",calls["auth"]==0)
+  check("ACTUAL_POLICY_NEVER_RESERVES",b.phase.custody.audit(path=store,operational=False)["total"]==0)
+ finally:broker.close()
  try:
   b.FixtureBroker(socket_path=socket_path,store=store,authorize=owner,verify=verify,peer_verifier=True)
  except ValueError:check("NONCALLABLE_POLICY_REFUSED",True)
