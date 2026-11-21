@@ -53,6 +53,9 @@ with tempfile.TemporaryDirectory(prefix='task183-once-envelope-fixture-') as fol
  denied('REPLAY_WITH_CHANGED_EVIDENCE_DENIED',
   lambda:m.issue_once(store=path,approval_digest=digest,request_id=req,
     evidence_sha256='d'*64,signer_callback=sign,approval_verified=True))
+ denied('SAME_REQUEST_DIFFERENT_DIGEST_DENIED_BEFORE_SIGNING',
+  lambda:m.issue_once(store=path,approval_digest='e'*64,request_id=req,
+    evidence_sha256=proof,signer_callback=sign,approval_verified=True))
  passed('NO_SECOND_SIGNATURE_GENERATED',len(calls)==1)
  c=sqlite3.connect(path)
  passed('EXACTLY_ONE_PERSISTED_ENVELOPE',

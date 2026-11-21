@@ -58,6 +58,10 @@ def issue_once(*,store,approval_digest,request_id,evidence_sha256,
             return {'created':False,'approvalDigest':approval_digest,
                     'signature':old[2],'signatureSha256':old[3],
                     'issuerAuthorized':False,'dispatchPermitted':False}
+        same_request=db.execute('SELECT approval_digest FROM signature_envelopes WHERE request_id=?',
+                                (request_id,)).fetchone()
+        if same_request is not None and same_request[0]!=approval_digest:
+            fail('SAME_REQUEST_DIFFERENT_APPROVAL_DIGEST_DENIED')
         result=signer_callback()
         if (type(result) is not dict or set(result)!={'signature','verified'} or
             result['verified'] is not True or type(result['signature']) is not str
