@@ -14,7 +14,10 @@ RECOVERY_FIELDS=("version","environment","audience","companyId","hubTaskId",
     "recoveryAttemptNumber","requestId","evidenceSha256","originalCoreTaskId",
     "originalHubExecutionId","originalAttemptId","ownerSubject","nonce",
     "issuedAt","expiresAt","purpose","dispatchPermitted")
-RECOVERY_READER="/run/gpt02-task183-recovery-approval-reader/approval.sock"
+# Reuse existing restricted read-only approval-reader service/socket.
+# New route is deliberately absent until its independent Task183 decision
+# handler is reviewed; existing reader returns 404 and signer refuses.
+RECOVERY_READER="/run/gpt02-approval-reader/approval.sock"
 
 def recovery_signing_bytes(claims):
     return (RECOVERY_AUDIENCE+"\\n").encode()+canonical(claims,RECOVERY_FIELDS)
@@ -22,7 +25,8 @@ def recovery_signing_bytes(claims):
 def recovery_signed_owner_readback(claims,now):
     """Only trusted root-owned independent reader may assert authorization.
 
-    This socket does NOT exist by default, so actual signing stays NO-GO.
+    This existing socket does not expose a Task183 approval route, so
+    actual recovery signing stays NO-GO unless independently authorized.
     Never trust caller-supplied approval, approvals from Issue159, or the
     local human-ack/recovery-intent SQLite queue as an Owner signature.
     """
