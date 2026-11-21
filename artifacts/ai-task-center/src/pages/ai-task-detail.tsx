@@ -702,6 +702,54 @@ export default function AiTaskDetail() {
     onError:(err:Error)=>toast({title:"Konfirmasi review ditolak",
       description:err.message,variant:"destructive"}),
   });
+  // Explicit Google Super Admin consent to recovery review only. It is
+  // challenge-bound, single-use, and never an issuer/Owner Ed25519 grant.
+  const {data: task183RecoveryConsentStatus} = useQuery<{
+    recorded:boolean;state:string;requestId?:string;
+    signedOwnerApproval?:false;issuerAuthority?:false;
+    attemptIssued?:false;dispatchPermitted:false;
+  }>({
+    queryKey:["task183-recovery-consent-status",id],
+    queryFn:()=>apiFetch("/ai-tasks/183/gpt02-recovery-consent-status?companyId=default"),
+    enabled:currentUser?.role==="super_admin" && task?.id===183 &&
+      task183ReviewAck?.recorded===true,
+    retry:false,refetchInterval:30_000,refetchOnWindowFocus:true,
+  });
+  const task183RecoveryConsentMutation = useMutation({
+    mutationFn:async (evidenceSha256:string)=>{
+      const challenge=(await apiFetch(
+        "/ai-tasks/183/gpt02-recovery-consent-challenge?companyId=default",{
+          method:"POST",
+          headers:{"X-GPT02-Intent":"recovery-consent-challenge-only"},
+          body:JSON.stringify({startRecoveryConsent:true}),
+        })) as {
+          challengeId:string;nonce:string;evidenceSha256:string;
+          ownerApprovalGranted:false;dispatchPermitted:false;
+        };
+      if(challenge.evidenceSha256!==evidenceSha256 ||
+         challenge.ownerApprovalGranted!==false ||
+         challenge.dispatchPermitted!==false ||
+         typeof challenge.nonce!=="string" ||
+         typeof challenge.challengeId!=="string")
+        throw new Error("Bukti challenge berbeda; otorisasi tidak dilakukan.");
+      return apiFetch("/ai-tasks/183/gpt02-recovery-consent?companyId=default",{
+        method:"POST",
+        headers:{"X-GPT02-Intent":"recovery-consent-record-only"},
+        body:JSON.stringify({
+          challengeId:challenge.challengeId,
+          nonce:challenge.nonce,evidenceSha256,
+          authorizeRecoveryOnly:true,
+        }),
+      });
+    },
+    onSuccess:()=>{
+      toast({title:"Niat pemulihan Super Admin dicatat",
+        description:"Menunggu verifikasi issuer independen. Tidak ada job, command, atau dispatch baru."});
+      void queryClient.invalidateQueries({queryKey:["task183-recovery-consent-status",id]});
+    },
+    onError:(err:Error)=>toast({title:"Niat pemulihan ditolak",
+      description:err.message,variant:"destructive"}),
+  });
   const task183RecoveryReviewMutation = useMutation({
     mutationFn:()=>apiFetch("/ai-tasks/183/gpt02-recovery-review-request?companyId=default",{
       method:"POST",
@@ -1470,7 +1518,27 @@ export default function AiTaskDetail() {
                         <p>Tidak ada persetujuan Owner, nonce yang dikonsumsi,
                           command baru, atau izin dispatch.</p>
                         {task183ReviewAck?.recorded ? (
-                          <p role="status">Bukti telah dibaca oleh Super Admin — belum menjadi izin menjalankan GPT02.</p>
+                          <div className="space-y-2">
+                            <p role="status">Bukti telah dibaca oleh Super Admin — belum menjadi izin menjalankan GPT02.</p>
+                            {task183RecoveryConsentStatus?.recorded === true ? (
+                              <p role="status">Niat pemulihan Super Admin telah tercatat.
+                                Menunggu penerbitan izin oleh issuer independen; belum ada command atau dispatch.</p>
+                            ) : (
+                              <Button type="button" size="sm" variant="outline"
+                                disabled={task183RecoveryConsentMutation.isPending ||
+                                  task183RecoveryConsentStatus?.recorded!==false ||
+                                  !task183RecoveryEvidence?.evidenceSha256 ||
+                                  task183Postprep?.status!=="NO_GO_RESERVATION_EXPIRED"}
+                                onClick={()=>{
+                                  if (window.confirm("Setujui pencatatan niat pemulihan Task #183 dari sesi Super Admin Anda? Ini memakai nonce sekali pakai, tetapi BUKAN tanda tangan Owner Ed25519, tidak menerbitkan attempt/command, dan tidak menjalankan GPT02."))
+                                    task183RecoveryConsentMutation.mutate(task183RecoveryEvidence.evidenceSha256);
+                                }}>
+                                {task183RecoveryConsentMutation.isPending
+                                  ? "Memverifikasi nonce satu kali..."
+                                  : "Catat niat pemulihan Super Admin (tanpa eksekusi)"}
+                              </Button>
+                            )}
+                          </div>
                         ) : (
                           <Button type="button" size="sm" variant="outline"
                             disabled={task183ReviewAckMutation.isPending ||

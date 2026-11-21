@@ -322,3 +322,170 @@ def get_review_acknowledgement(actor,store_path=DB_PATH):
         if "no such table" in str(exc):return {"recorded":False,"status":"NOT_REVIEWED","ownerApprovalGranted":False}
         raise
     finally:db.close()
+
+# Reviewer's signed Google session is a human recovery *intent*, NOT an
+# Ed25519 owner/issuer signature. The independent issuer must not trust this
+# local queue as dispatch authorization or consume it as a command approval.
+RECOVERY_CONSENT_STATE="SUPERADMIN_RECOVERY_INTENT_PENDING_INDEPENDENT_ISSUER"
+CHALLENGE_TTL_MS=5*60*1000
+
+def _check_signed_recovery_actor(actor,now_ms):
+    if (not isinstance(actor,dict) or actor.get("role")!="super_admin"
+        or actor.get("companyId") not in (None,"default")
+        or not isinstance(actor.get("id"),str)
+        or not actor["id"].startswith("google_")
+        or actor.get("authSource")!="supabase_google_identity"
+        or type(actor.get("authVerifiedAt")) is not int
+        or actor["authVerifiedAt"]>now_ms+30000
+        or actor["authVerifiedAt"]<now_ms-8*86400*1000):
+        raise ValueError("SIGNED_SUPERADMIN_SESSION_REQUIRED")
+
+def _review_ack_ready(db,request_id,actor_id,evidence_sha):
+    row=db.execute("""SELECT r.requested_by,a.reviewer_id,a.evidence_sha256,a.decision
+        FROM reviews r JOIN evidence_acknowledgements a
+          ON a.request_id=r.request_id
+        WHERE r.request_id=?""",(request_id,)).fetchone()
+    if row!=(actor_id,actor_id,evidence_sha,"REVIEWED_ONLY_NO_AUTHORIZATION"):
+        raise ValueError("REVIEW_ACK_NOT_AUTHORITATIVE")
+    return True
+
+def _create_consent_tables(db):
+    db.execute("""CREATE TABLE IF NOT EXISTS recovery_consent_challenges(
+      challenge_id TEXT PRIMARY KEY,
+      request_id TEXT NOT NULL REFERENCES reviews(request_id),
+      actor_id TEXT NOT NULL,
+      evidence_sha256 TEXT NOT NULL,
+      nonce_hash TEXT NOT NULL UNIQUE,
+      created_at_ms INTEGER NOT NULL,
+      expires_at_ms INTEGER NOT NULL,
+      consumed_at_ms INTEGER,
+      CHECK(expires_at_ms-created_at_ms<=300000),
+      CHECK(consumed_at_ms IS NULL OR
+         (consumed_at_ms>=created_at_ms AND consumed_at_ms<=expires_at_ms))
+    )""")
+    db.execute("""CREATE TABLE IF NOT EXISTS recovery_consent_intents(
+      request_id TEXT PRIMARY KEY REFERENCES reviews(request_id),
+      challenge_id TEXT NOT NULL UNIQUE REFERENCES recovery_consent_challenges(challenge_id),
+      actor_id TEXT NOT NULL,
+      evidence_sha256 TEXT NOT NULL,
+      consented_at_ms INTEGER NOT NULL,
+      auth_source TEXT NOT NULL CHECK(auth_source='supabase_google_identity'),
+      state TEXT NOT NULL CHECK(state='SUPERADMIN_RECOVERY_INTENT_PENDING_INDEPENDENT_ISSUER'),
+      issuer_authority INTEGER NOT NULL DEFAULT 0 CHECK(issuer_authority=0),
+      signed_owner_approval INTEGER NOT NULL DEFAULT 0 CHECK(signed_owner_approval=0),
+      nonce_issuer_consumed INTEGER NOT NULL DEFAULT 0 CHECK(nonce_issuer_consumed=0),
+      attempt_issued INTEGER NOT NULL DEFAULT 0 CHECK(attempt_issued=0),
+      dispatch_permitted INTEGER NOT NULL DEFAULT 0 CHECK(dispatch_permitted=0)
+    )""")
+    db.execute("""CREATE TRIGGER IF NOT EXISTS recovery_consent_immutable_update
+      BEFORE UPDATE ON recovery_consent_intents
+      BEGIN SELECT RAISE(ABORT,'IMMUTABLE_RECOVERY_CONSENT'); END""")
+    db.execute("""CREATE TRIGGER IF NOT EXISTS recovery_consent_immutable_delete
+      BEFORE DELETE ON recovery_consent_intents
+      BEGIN SELECT RAISE(ABORT,'IMMUTABLE_RECOVERY_CONSENT'); END""")
+
+def issue_recovery_consent_challenge(*,actor,store_path=DB_PATH,actual_source=None,now_ms=None):
+    import secrets
+    now_ms=int(time.time()*1000) if now_ms is None else int(now_ms)
+    _check_signed_recovery_actor(actor,now_ms)
+    proof=review_evidence_packet(actor,store_path=store_path,actual_source=actual_source,now_ms=now_ms)
+    path=Path(store_path)
+    challenge=secrets.token_urlsafe(36)
+    digest=hashlib.sha256(challenge.encode()).hexdigest()
+    challenge_id=secrets.token_hex(16)
+    db=sqlite3.connect(str(path),timeout=5,isolation_level=None)
+    try:
+        db.execute("PRAGMA busy_timeout=5000")
+        _create_consent_tables(db)
+        db.execute("BEGIN IMMEDIATE")
+        request_id=proof["evidence"]["requestId"]
+        sha=proof["evidenceSha256"]
+        _review_ack_ready(db,request_id,actor["id"],sha)
+        already=db.execute("SELECT request_id FROM recovery_consent_intents WHERE request_id=?",(request_id,)).fetchone()
+        if already:raise ValueError("RECOVERY_INTENT_ALREADY_RECORDED")
+        db.execute("""INSERT INTO recovery_consent_challenges
+           (challenge_id,request_id,actor_id,evidence_sha256,nonce_hash,
+             created_at_ms,expires_at_ms)
+           VALUES(?,?,?,?,?,?,?)""",
+           (challenge_id,request_id,actor["id"],sha,digest,now_ms,now_ms+CHALLENGE_TTL_MS))
+        db.execute("COMMIT")
+        return {"challengeId":challenge_id,"nonce":challenge,"evidenceSha256":sha,
+           "expiresAtMs":now_ms+CHALLENGE_TTL_MS,
+           "purpose":"ONE_SHOT_RECOVERY_INTENT_ONLY",
+           "ownerApprovalGranted":False,"dispatchPermitted":False}
+    except:
+        if db.in_transaction:db.execute("ROLLBACK")
+        raise
+    finally:db.close()
+
+def consent_to_recovery_review(*,actor,challenge_id,nonce,evidence_sha256,
+                               store_path=DB_PATH,actual_source=None,now_ms=None):
+    now_ms=int(time.time()*1000) if now_ms is None else int(now_ms)
+    _check_signed_recovery_actor(actor,now_ms)
+    if (not isinstance(challenge_id,str) or not re.fullmatch(r"[0-9a-f]{32}",challenge_id)
+        or not isinstance(nonce,str) or not re.fullmatch(r"[A-Za-z0-9_-]{48}",nonce)
+        or not isinstance(evidence_sha256,str) or not re.fullmatch(r"[0-9a-f]{64}",evidence_sha256)):
+        raise ValueError("CONSENT_FIELDS_INVALID")
+    proof=review_evidence_packet(actor,store_path=store_path,actual_source=actual_source,now_ms=now_ms)
+    if evidence_sha256!=proof["evidenceSha256"]:
+        raise ValueError("CONSENT_EVIDENCE_MISMATCH")
+    db=sqlite3.connect(str(Path(store_path)),timeout=5,isolation_level=None)
+    try:
+        db.execute("PRAGMA busy_timeout=5000")
+        db.execute("BEGIN IMMEDIATE")
+        req=proof["evidence"]["requestId"]
+        _review_ack_ready(db,req,actor["id"],evidence_sha256)
+        challenge=db.execute("""SELECT request_id,actor_id,evidence_sha256,nonce_hash,
+            created_at_ms,expires_at_ms,consumed_at_ms
+            FROM recovery_consent_challenges WHERE challenge_id=?""",
+            (challenge_id,)).fetchone()
+        nonce_digest=hashlib.sha256(nonce.encode()).hexdigest()
+        if (challenge is None or challenge[0]!=req or challenge[1]!=actor["id"]
+            or challenge[2]!=evidence_sha256
+            or challenge[3]!=nonce_digest
+            or challenge[4]>now_ms or challenge[5]<=now_ms
+            or challenge[6] is not None):
+            raise ValueError("CONSENT_NONCE_EXPIRED_REUSED_OR_MISMATCHED")
+        if db.execute("SELECT 1 FROM recovery_consent_intents WHERE request_id=?",(req,)).fetchone():
+            raise ValueError("CONSENT_ALREADY_RECORDED")
+        update=db.execute("""UPDATE recovery_consent_challenges SET consumed_at_ms=?
+          WHERE challenge_id=? AND consumed_at_ms IS NULL AND expires_at_ms>?""",
+          (now_ms,challenge_id,now_ms))
+        if update.rowcount!=1:raise ValueError("CONSENT_NONCE_REPLAY")
+        db.execute("""INSERT INTO recovery_consent_intents
+          (request_id,challenge_id,actor_id,evidence_sha256,consented_at_ms,auth_source,state)
+          VALUES(?,?,?,?,?,?,?)""",
+          (req,challenge_id,actor["id"],evidence_sha256,now_ms,
+           "supabase_google_identity",RECOVERY_CONSENT_STATE))
+        db.execute("COMMIT")
+        return {"requestId":req,"state":RECOVERY_CONSENT_STATE,"recorded":True,
+          "signedOwnerApproval":False,"issuerAuthority":False,
+          "issuerNonceConsumed":False,"attemptIssued":False,
+          "dispatchPermitted":False}
+    except:
+        if db.in_transaction:db.execute("ROLLBACK")
+        raise
+    finally:db.close()
+
+def get_recovery_consent_state(actor,store_path=DB_PATH):
+    if not isinstance(actor,dict) or actor.get("role")!="super_admin":
+        raise ValueError("SUPERADMIN_REQUIRED")
+    path=Path(store_path)
+    if not path.is_file():return {"recorded":False,"state":"NOT_RECORDED","dispatchPermitted":False}
+    db=sqlite3.connect(f"file:{path}?mode=ro",uri=True,timeout=4)
+    try:
+        try:
+            rows=db.execute("""SELECT c.request_id,c.actor_id,c.state
+              FROM recovery_consent_intents c
+              JOIN reviews r ON r.request_id=c.request_id
+              WHERE r.company_id='default' AND r.hub_task_id=183""").fetchall()
+        except sqlite3.OperationalError as err:
+            if "no such table" in str(err):return {"recorded":False,"state":"NOT_RECORDED","dispatchPermitted":False}
+            raise
+        if not rows:return {"recorded":False,"state":"NOT_RECORDED","dispatchPermitted":False}
+        if len(rows)!=1 or rows[0][1]!=actor.get("id") or rows[0][2]!=RECOVERY_CONSENT_STATE:
+            raise ValueError("RECOVERY_CONSENT_NOT_OWNED")
+        return {"recorded":True,"requestId":rows[0][0],"state":RECOVERY_CONSENT_STATE,
+          "signedOwnerApproval":False,"issuerAuthority":False,
+          "attemptIssued":False,"dispatchPermitted":False}
+    finally:db.close()

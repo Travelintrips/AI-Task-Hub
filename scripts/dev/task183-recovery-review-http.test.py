@@ -45,6 +45,19 @@ class IntakeMock:
  def get_review_acknowledgement(self,actor):
   return {"recorded":False,"status":"NOT_REVIEWED",
     "ownerApprovalGranted":False,"dispatchPermitted":False}
+ def get_recovery_consent_state(self,actor):
+  return {"recorded":False,"state":"NOT_RECORDED","dispatchPermitted":False}
+ def issue_recovery_consent_challenge(self,*,actor):
+  return {"challengeId":"a"*32,"nonce":"b"*48,"evidenceSha256":"f"*64,
+    "purpose":"ONE_SHOT_RECOVERY_INTENT_ONLY",
+    "expiresAtMs":1234567890,"ownerApprovalGranted":False,"dispatchPermitted":False}
+ def consent_to_recovery_review(self,*,actor,challenge_id,nonce,evidence_sha256):
+  assert actor["role"]=="super_admin"
+  if challenge_id!="a"*32 or nonce!="b"*48 or evidence_sha256!="f"*64:
+    raise ValueError("BAD_NONCE")
+  return {"recorded":True,"state":"SUPERADMIN_RECOVERY_INTENT_PENDING_INDEPENDENT_ISSUER",
+    "signedOwnerApproval":False,"issuerAuthority":False,"attemptIssued":False,
+    "dispatchPermitted":False}
 
 server=http.server.HTTPServer(('127.0.0.1',0),broker.Handler)
 thread=threading.Thread(target=server.serve_forever,daemon=True)
@@ -99,6 +112,31 @@ try:
   ack_code,ack_data=call('POST',ack_path,ack_headers,ack_body)
   assert_status('ACK_POST_AUTHENTICATED_REVIEW_ONLY',ack_code,201)
   assert ack_data['ownerApprovalGranted'] is False and ack_data['dispatchPermitted'] is False
+  consent_status=broker.RECOVERY_CONSENT_STATUS_PATH
+  challenge_path=broker.RECOVERY_CONSENT_CHALLENGE_PATH
+  consent_path=broker.RECOVERY_CONSENT_PATH
+  assert_status('CONSENT_STATUS_NOAUTH',call('GET',consent_status)[0],401)
+  assert_status('CONSENT_STATUS_FORGED_JWT',call('GET',consent_status,{"Authorization":"Bearer AAA.BBB.CCC"})[0],403)
+  assert_status('CONSENT_STATUS_SIGNED',call('GET',consent_status,headers)[0],200)
+  chal_body=b'{"startRecoveryConsent":true}'
+  chal_headers={**headers,"X-GPT02-Intent":"recovery-consent-challenge-only"}
+  assert_status('CHALLENGE_NOAUTH',call('POST',challenge_path,{k:v for k,v in chal_headers.items() if k!='Authorization'},chal_body)[0],401)
+  assert_status('CHALLENGE_BAD_ORIGIN',call('POST',challenge_path,{**chal_headers,"Origin":"https://evil.example"},chal_body)[0],403)
+  assert_status('CHALLENGE_WRONG_INTENT',call('POST',challenge_path,{**chal_headers,"X-GPT02-Intent":"prepare-only"},chal_body)[0],400)
+  assert_status('CHALLENGE_WRONG_BODY',call('POST',challenge_path,chal_headers,b'{}')[0],400)
+  code,challenge=call('POST',challenge_path,chal_headers,chal_body)
+  assert_status('CHALLENGE_SIGNED',code,200)
+  assert challenge["ownerApprovalGranted"] is False and challenge["dispatchPermitted"] is False
+  consent_headers={**headers,"X-GPT02-Intent":"recovery-consent-record-only"}
+  consent_body=json.dumps({"challengeId":"a"*32,"nonce":"b"*48,"evidenceSha256":"f"*64,"authorizeRecoveryOnly":True},separators=(',',':')).encode()
+  assert_status('CONSENT_NOAUTH',call('POST',consent_path,{k:v for k,v in consent_headers.items() if k!='Authorization'},consent_body)[0],401)
+  assert_status('CONSENT_FORGED',call('POST',consent_path,{**consent_headers,"Authorization":"Bearer AAA.BBB.CCC"},consent_body)[0],409)
+  assert_status('CONSENT_WRONG_ORIGIN',call('POST',consent_path,{**consent_headers,"Origin":"https://evil.example"},consent_body)[0],403)
+  assert_status('CONSENT_WRONG_FIELDS',call('POST',consent_path,consent_headers,b'{"authorizeRecoveryOnly":true}')[0],400)
+  code,consent=call('POST',consent_path,consent_headers,consent_body)
+  assert_status('SIGNED_CONSENT_REVIEW_ONLY',code,201)
+  assert consent["issuerAuthority"] is False and consent["signedOwnerApproval"] is False and consent["dispatchPermitted"] is False
+
 
 
  print('BROKER_RECOVERY_REVIEW_HTTP=PASS')

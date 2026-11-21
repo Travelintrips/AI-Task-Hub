@@ -175,6 +175,10 @@ REVIEW_STATUS_PATH = "/api/ai-tasks/183/gpt02-recovery-review-status?companyId=d
 REVIEW_PACKET_PATH = "/api/ai-tasks/183/gpt02-recovery-review-evidence?companyId=default"
 REVIEW_ACK_PATH = "/api/ai-tasks/183/gpt02-recovery-review-ack?companyId=default"
 REVIEW_ACK_STATUS_PATH = "/api/ai-tasks/183/gpt02-recovery-review-ack-status?companyId=default"
+RECOVERY_CONSENT_CHALLENGE_PATH="/api/ai-tasks/183/gpt02-recovery-consent-challenge?companyId=default"
+RECOVERY_CONSENT_PATH="/api/ai-tasks/183/gpt02-recovery-consent?companyId=default"
+RECOVERY_CONSENT_STATUS_PATH="/api/ai-tasks/183/gpt02-recovery-consent-status?companyId=default"
+RECOVERY_CHALLENGE_BODY=b'{"startRecoveryConsent":true}'
 REVIEW_BODY = b'{"requestReview":true}'
 
 def load_review_intake():
@@ -199,6 +203,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Length",str(len(raw)))
         self.end_headers();self.wfile.write(raw)
     def do_GET(self):
+        if self.path==RECOVERY_CONSENT_STATUS_PATH:
+            auth=self.headers.get("Authorization","")
+            if not auth.startswith("Bearer "):
+                self.reply(401,{"error":"AUTHENTICATION_REQUIRED"});return
+            try:
+                actor=verify_jwt(auth[7:])
+                status=load_review_intake().get_recovery_consent_state(actor)
+                self.reply(200,{**status,"taskId":183,"readOnly":True})
+            except (ValueError,TypeError,UnicodeError,KeyError):
+                self.reply(403,{"error":"CONSENT_STATUS_NOT_AUTHORIZED","dispatchPermitted":False})
+            except Exception as ex:
+                print("RECOVERY_CONSENT_STATUS_FAILED",type(ex).__name__,flush=True)
+                self.reply(503,{"error":"CONSENT_STATUS_UNAVAILABLE","dispatchPermitted":False})
+            return
         if self.path==REVIEW_ACK_STATUS_PATH:
             raw=self.headers.get("Authorization","")
             if not raw.startswith("Bearer "):
@@ -282,6 +300,62 @@ class Handler(http.server.BaseHTTPRequestHandler):
             print("TASK183_STATUS_READ_FAILED",type(err).__name__,flush=True)
             self.reply(503,{"error":"POSTPREP_READINESS_UNAVAILABLE","dispatchPermitted":False})
     def do_POST(self):
+        if self.path in (RECOVERY_CONSENT_CHALLENGE_PATH,RECOVERY_CONSENT_PATH):
+            if (self.headers.get("Origin")!=ORIGIN
+                or self.headers.get("Host")!="dev-ai-task.cstlogistic.co.id"):
+                self.reply(403,{"error":"SAME_ORIGIN_REQUIRED"});return
+            intent=("recovery-consent-challenge-only" if
+                self.path==RECOVERY_CONSENT_CHALLENGE_PATH else
+                "recovery-consent-record-only")
+            if (self.headers.get("X-GPT02-Intent")!=intent or
+                self.headers.get("Content-Type","").split(";")[0].strip()!="application/json"):
+                self.reply(400,{"error":"CONSENT_EXPLICIT_INTENT_REQUIRED"});return
+            n=self.headers.get("Content-Length","")
+            if not n.isdigit() or not (2<=int(n)<=512):
+                self.reply(400,{"error":"CONSENT_BODY_SIZE_INVALID"});return
+            try:
+                body=json.loads(self.rfile.read(int(n)).decode("utf-8"))
+                if not isinstance(body,dict):
+                    raise ValueError("CONSENT_JSON_SHAPE")
+                if self.path==RECOVERY_CONSENT_CHALLENGE_PATH:
+                    if body!={"startRecoveryConsent":True}:
+                        raise ValueError("CHALLENGE_EXPLICIT_BODY_REQUIRED")
+                elif (set(body)!={"challengeId","nonce","evidenceSha256","authorizeRecoveryOnly"}
+                    or body["authorizeRecoveryOnly"] is not True
+                    or any(not isinstance(body[k],str) for k in
+                       ("challengeId","nonce","evidenceSha256"))):
+                    raise ValueError("CONSENT_EXPLICIT_BODY_REQUIRED")
+            except (ValueError,TypeError,UnicodeError):
+                self.reply(400,{"error":"CONSENT_BODY_INVALID"});return
+            auth=self.headers.get("Authorization","")
+            if not auth.startswith("Bearer "):
+                self.reply(401,{"error":"AUTHENTICATION_REQUIRED"});return
+            try:
+                actor=verify_jwt(auth[7:])
+                module=load_review_intake()
+                if self.path==RECOVERY_CONSENT_CHALLENGE_PATH:
+                    result=module.issue_recovery_consent_challenge(actor=actor)
+                    if result.get("ownerApprovalGranted") is not False or result.get("dispatchPermitted") is not False:
+                        raise RuntimeError("CHALLENGE_TRUST_VIOLATION")
+                    self.reply(200,result)
+                else:
+                    result=module.consent_to_recovery_review(actor=actor,
+                        challenge_id=body["challengeId"],nonce=body["nonce"],
+                        evidence_sha256=body["evidenceSha256"])
+                    if (result.get("signedOwnerApproval") is not False
+                        or result.get("issuerAuthority") is not False
+                        or result.get("dispatchPermitted") is not False
+                        or result.get("attemptIssued") is not False):
+                        raise RuntimeError("CONSENT_TRUST_VIOLATION")
+                    self.reply(201,result)
+            except (ValueError,TypeError,UnicodeError,KeyError):
+                self.reply(409,{"error":"RECOVERY_CONSENT_DENIED_OR_EXPIRED",
+                    "signedOwnerApproval":False,"issuerAuthority":False,"dispatchPermitted":False})
+            except Exception as ex:
+                print("RECOVERY_CONSENT_FAILED_CLOSED",type(ex).__name__,flush=True)
+                self.reply(503,{"error":"RECOVERY_CONSENT_UNAVAILABLE",
+                    "signedOwnerApproval":False,"issuerAuthority":False,"dispatchPermitted":False})
+            return
         if self.path==REVIEW_ACK_PATH:
             if (self.headers.get("Origin")!=ORIGIN or
                 self.headers.get("Host")!="dev-ai-task.cstlogistic.co.id"):
