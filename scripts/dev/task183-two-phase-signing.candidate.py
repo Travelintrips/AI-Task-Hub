@@ -17,7 +17,7 @@ HERE=Path(__file__).resolve().parent
 spec=importlib.util.spec_from_file_location("task183_custody",HERE/"task183-dormant-signature-custody.py")
 custody=importlib.util.module_from_spec(spec);spec.loader.exec_module(custody)
 HEX=re.compile(r"^[a-f0-9]{64}$")
-REQ=re.compile(r"^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$")
+REQ=re.compile(r"^(?:[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}|[a-f0-9]{36})$")
 SIGNATURE=re.compile(r"^[A-Za-z0-9_-]{86}$")
 
 def reject(reason):raise ValueError(reason)
