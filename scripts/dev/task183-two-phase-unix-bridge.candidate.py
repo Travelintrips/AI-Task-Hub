@@ -91,7 +91,7 @@ class Handler(socketserver.BaseRequestHandler):
             else:
                 owner_ok=service.authorize(role,digest,rid,evidence) is True
             domain_digest=hashlib.sha256((role+"\n"+digest).encode()).hexdigest()
-            engine=phase.TwoPhase(service.store)
+            engine=phase.TwoPhase(service.store,fixture_only=(getattr(service,"operational",False) is not True))
             answer=engine.reserve(
                 digest=domain_digest,request=rid,evidence=evidence,
                 independent_owner_readback=owner_ok)
@@ -143,6 +143,7 @@ class FixtureBroker:
             raise ValueError("FIXTURE_PARENT_NOT_0700_OWNER")
         self.server=Server(str(path),Handler,bind_and_activate=True)
         self.server.store=self.store
+        self.server.operational=False
         self.server.authorize=authorize
         self.server.verify=verify
         self.server.allowed_uid=self.allowed_uid
