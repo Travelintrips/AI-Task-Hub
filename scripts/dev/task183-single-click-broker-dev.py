@@ -179,6 +179,7 @@ RECOVERY_CONSENT_CHALLENGE_PATH="/api/ai-tasks/183/gpt02-recovery-consent-challe
 RECOVERY_CONSENT_PATH="/api/ai-tasks/183/gpt02-recovery-consent?companyId=default"
 RECOVERY_CONSENT_STATUS_PATH="/api/ai-tasks/183/gpt02-recovery-consent-status?companyId=default"
 OWNER_IDENTITY_STATUS_PATH="/api/ai-tasks/183/gpt02-owner-identity-readiness?companyId=default"
+OWNER_APPROVAL_PATH="/api/ai-tasks/183/gpt02-owner-approval?companyId=default"
 RECOVERY_CHALLENGE_BODY=b'{"startRecoveryConsent":true}'
 REVIEW_BODY = b'{"requestReview":true}'
 
@@ -327,6 +328,49 @@ class Handler(http.server.BaseHTTPRequestHandler):
             print("TASK183_STATUS_READ_FAILED",type(err).__name__,flush=True)
             self.reply(503,{"error":"POSTPREP_READINESS_UNAVAILABLE","dispatchPermitted":False})
     def do_POST(self):
+        if self.path==OWNER_APPROVAL_PATH:
+            # Final Owner decision is different from review ACK or recovery intent.
+            # Both the endpoint and the writer demand an explicit signed action.
+            if (self.headers.get("Origin")!=ORIGIN or
+                self.headers.get("Host")!="dev-ai-task.cstlogistic.co.id"):
+                self.reply(403,{"error":"SAME_ORIGIN_REQUIRED","dispatchPermitted":False});return
+            if self.headers.get("X-GPT02-Intent")!="approve-task183-recovery-attempt2-only":
+                self.reply(400,{"error":"EXPLICIT_OWNER_APPROVAL_INTENT_REQUIRED",
+                                "dispatchPermitted":False});return
+            length=self.headers.get("Content-Length","")
+            if length!=str(len(b'{"approveRecoveryAttempt2":true}')):
+                self.reply(400,{"error":"EXACT_OWNER_APPROVAL_BODY_REQUIRED",
+                                "dispatchPermitted":False});return
+            auth=self.headers.get("Authorization","")
+            if not isinstance(auth,str) or not auth.startswith("Bearer "):
+                self.reply(401,{"error":"AUTHENTICATION_REQUIRED",
+                                "dispatchPermitted":False});return
+            try:
+                adapter=checked_import(ROOT/"task183-owner-approval-http.candidate.py",
+                    "task183_owner_http")
+                writer=checked_import(ROOT/"task183-owner-approval-writer-dev.py",
+                    "task183_owner_writer")
+                response=adapter.authorize_request(
+                    path=self.path,headers={
+                        "Origin":self.headers.get("Origin"),
+                        "Host":self.headers.get("Host"),
+                        "X-GPT02-Intent":self.headers.get("X-GPT02-Intent"),
+                        "Content-Type":self.headers.get("Content-Type"),
+                        "Content-Length":length,
+                        "Authorization":auth},
+                    body=self.rfile.read(int(length)),
+                    verify_session=verify_jwt,
+                    load_review=load_review_intake,
+                    write_approval=writer.record)
+                self.reply(201,response)
+            except (ValueError,TypeError,UnicodeError,KeyError):
+                self.reply(409,{"error":"OWNER_APPROVAL_REJECTED_OR_NOT_READY",
+                                "dispatchPermitted":False})
+            except Exception as exc:
+                print("TASK183_OWNER_APPROVAL_FAIL_CLOSED",type(exc).__name__,flush=True)
+                self.reply(503,{"error":"OWNER_APPROVAL_UNAVAILABLE",
+                                "dispatchPermitted":False})
+            return
         if self.path in (RECOVERY_CONSENT_CHALLENGE_PATH,RECOVERY_CONSENT_PATH):
             if (self.headers.get("Origin")!=ORIGIN
                 or self.headers.get("Host")!="dev-ai-task.cstlogistic.co.id"):
