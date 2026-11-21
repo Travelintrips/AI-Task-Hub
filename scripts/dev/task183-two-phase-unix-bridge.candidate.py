@@ -11,6 +11,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import socket
 import socketserver
 import stat
@@ -25,6 +26,8 @@ MAX=4096
 CREDENTIAL=getattr(socket,"SO_PEERCRED",17)
 FIELDS={"role","approvalDigest","requestId","evidenceSha256"}
 ROLES={"approval","recovery-approval"}
+APPROVAL_ID=re.compile(r"^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$")
+RECOVERY_ID=re.compile(r"^[a-f0-9]{36}$")
 
 def frame(conn,obj):
     b=json.dumps(obj,separators=(",",":")).encode()
@@ -58,6 +61,9 @@ class Handler(socketserver.BaseRequestHandler):
                 raise ValueError("UNTRUSTED_REQUEST_SHAPE")
             role=request["role"]; digest=request["approvalDigest"]
             rid=request["requestId"]; evidence=request["evidenceSha256"]
+            expected=RECOVERY_ID if role=="recovery-approval" else APPROVAL_ID
+            if type(rid) is not str or not expected.fullmatch(rid):
+                raise ValueError("ROLE_SPECIFIC_REQUEST_ID_REQUIRED")
             # domain separation is fixed by the broker and cannot be caller-chosen
             domain_digest=hashlib.sha256((role+"\n"+digest).encode()).hexdigest()
             owner_ok=service.authorize(role,digest,rid,evidence) is True
