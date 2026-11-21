@@ -26,6 +26,8 @@ MAX=4096
 CREDENTIAL=getattr(socket,"SO_PEERCRED",17)
 FIELDS={"role","approvalDigest","requestId","evidenceSha256"}
 ROLES={"approval","recovery-approval"}
+RECOVERY_FIELDS={"version","environment","audience","companyId","hubTaskId","recoveryAttemptNumber","requestId","evidenceSha256","originalCoreTaskId","originalHubExecutionId","originalAttemptId","ownerSubject","nonce","issuedAt","expiresAt","purpose","dispatchPermitted"}
+RECOVERY_DOMAIN="GPT02_TASK183_RECOVERY_ISSUER_APPROVAL_V1"
 APPROVAL_ID=re.compile(r"^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$")
 RECOVERY_ID=re.compile(r"^[a-f0-9]{36}$")
 
@@ -57,7 +59,9 @@ class Handler(socketserver.BaseRequestHandler):
             return
         try:
             request=readframe(c)
-            if set(request)!=FIELDS or request["role"] not in ROLES:
+            if request.get("role") not in ROLES:
+                raise ValueError("UNTRUSTED_REQUEST_SHAPE")
+            if set(request)!=(FIELDS|{"claims"} if request["role"]=="recovery-approval" else FIELDS):
                 raise ValueError("UNTRUSTED_REQUEST_SHAPE")
             role=request["role"]; digest=request["approvalDigest"]
             rid=request["requestId"]; evidence=request["evidenceSha256"]
