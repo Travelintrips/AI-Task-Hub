@@ -4,6 +4,8 @@ on:
     branches:
       - fix/dev-task183-prep-readiness-ui-20261121
     paths:
+      - 'scripts/dev/task183-local-receipt-broker.candidate.py'
+      - 'scripts/dev/task183-local-receipt-broker.candidate.test.py'
       - 'scripts/dev/task183-root-sign-once-supervisor.candidate.py'
       - 'scripts/dev/task183-root-sign-once-supervisor.candidate.test.py'
       - 'scripts/dev/task183-dormant-signature-custody.py'
@@ -23,6 +25,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Syntax check
-        run: python3 -m py_compile scripts/dev/task183-root-sign-once-supervisor.candidate.py scripts/dev/task183-root-sign-once-supervisor.candidate.test.py
+        run: python3 -m py_compile scripts/dev/task183-root-sign-once-supervisor.candidate.py scripts/dev/task183-root-sign-once-supervisor.candidate.test.py scripts/dev/task183-local-receipt-broker.candidate.py scripts/dev/task183-local-receipt-broker.candidate.test.py
       - name: Synthetic concurrent crash and replay proof
         run: python3 scripts/dev/task183-root-sign-once-supervisor.candidate.test.py
+      - name: Synthetic Unix broker peer custody replay and restart proof
+        run: python3 scripts/dev/task183-local-receipt-broker.candidate.test.py
