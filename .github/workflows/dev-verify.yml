@@ -138,6 +138,8 @@ jobs:
         run: python3 scripts/dev/task183-recovery-consent.test.py
       - name: Verify Task183 independent issuer admission fails closed after valid Super Admin intent
         run: python3 scripts/dev/task183-recovery-issuer-preflight.test.py
+      - name: Verify Task183 attempt2 atomic Core Hub issuance in isolated PostgreSQL
+        run: bash scripts/dev/test-gpt02-task183-attempt2-issuer-isolated.sh
       - name: Verify idempotent Core coding task preparation without command dispatch
         run: |
           bash scripts/dev/test-gpt02-core-task-preparation-isolated.sh

@@ -74,3 +74,11 @@ Task #183 signed Google Super Admin intent exists and its five-minute challenge 
 The scoped scripts/dev/task183-recovery-issuer-preflight.py checks the root-owned append-only review, hash-bound read acknowledgment, Super Admin consent, consumed nonce, and original Hub/Core/attempt via an independent PostgreSQL READ ONLY reader. Issuer, attestor and preparer role lock states are also checked. Synthetic fixture tests cover missing ACK, missing consent, missing nonce consumption, altered Core, leaked preparer role, duplicate jobs and unapproved command/binding, all fail closed.
 
 Real live result: NO_GO_INDEPENDENT_SIGNED_OWNER_APPROVAL_MISSING. Google Super Admin intent is not command-bound signed Owner approval, has no issuer authority, does not unlock a role and cannot replay or create an attempt. This preflight writes no database rows, creates no services and is not an operational issuer. A separately authorized versioned issuer is required before any possible second attempt.
+
+## Offline versioned attempt 2 issuance transaction
+
+The new SQL candidate and shell QA script operate only on a disposable PostgreSQL 16 database named task183_attempt2_isolated, in Docker without network or published ports. They are NOT a deployed Supabase migration. Separate fixture verifier and issuer roles are scoped: neither the application nor the issuer may insert a signed approval receipt, and the issuer cannot write Core/Hub tables directly.
+
+A synthetic independently verified receipt is used to test an atomic issuer transaction. Missing or expired receipt, incorrect task/company, old attempt, or evidence hash are rejected. Two concurrent issuer calls create exactly one attempt 2 Core task (PENDING) and Hub job (prepared), with versioned idempotency keys and no worker/command/dispatch. Receipt consumption occurs in the same transaction. Attempts to replay or modify the immutable issued record are rejected. The original attempt remains untouched.
+
+CRITICAL: the synthetic receipt is NOT a genuine cryptographic approval. Operational integration must independently validate the real approval signer signature and persist the actual Super Admin approval before inserting any such receipt; a fixture verified_by string is not proof. CST-DEV continues NO-GO, the issuer remains NOLOGIN, and no real attempt 2 was created.
