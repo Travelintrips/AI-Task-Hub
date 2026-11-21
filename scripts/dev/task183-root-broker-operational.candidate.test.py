@@ -39,7 +39,7 @@ check("SOURCE_PINS_RECEIPT_STORE",'DB=Path("/var/lib/cst-dev-task183-recovery/si
 check("SOURCE_PINS_RUNTIME_SOCKET",'SOCKET=SOCKET_DIR/"broker.sock"' in src)
 check("SOURCE_REQUIRES_RELEASE_TOKEN",'CST_DEV_TASK183_BROKER_RELEASE_V1' in src)
 check("SOURCE_REQUIRES_ROOT",'ROOT_BROKER_CUSTODY_REQUIRED' in src)
-check("SOURCE_REQUIRES_ZERO_RECEIPTS",'TASK183_LIVE_CUSTODY_NOT_PRISTINE' in src)
+check("SOURCE_REQUIRES_IMMUTABLE_RECOVERY_AUDIT",'verify_custody_recovery(state)' in src and 'TASK183_CUSTODY_RECOVERY_COUNTS_INVALID' in src)
 check("SOURCE_ENFORCES_PEER_POLICY",'server.peer_verifier=modules["policy"].authenticated_peer' in src)
 check("SOURCE_READS_OWNER_INDEPENDENTLY",'make_recovery_authorizer(operational=True)' in src)
 check("SOURCE_VERIFIES_PINNED_PUBLIC_KEY",'make_verifier(operational=True)' in src)
