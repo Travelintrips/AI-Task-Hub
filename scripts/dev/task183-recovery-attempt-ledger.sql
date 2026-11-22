@@ -21,3 +21,20 @@ CREATE TABLE gpt02_stage.task183_recovery_attempts (
         REFERENCES gpt02_stage.core_preparations(company_id, hub_task_id)
 );
 REVOKE ALL ON gpt02_stage.task183_recovery_attempts FROM PUBLIC;
+ALTER TABLE gpt02_stage.task183_recovery_attempts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE gpt02_stage.task183_recovery_attempts FORCE ROW LEVEL SECURITY;
+-- Installation leaves the ledger dormant until the issuer transaction is deployed.
+DO $$
+DECLARE recipient name;
+BEGIN
+    FOR recipient IN
+        SELECT DISTINCT role.rolname
+        FROM pg_class AS t
+        CROSS JOIN LATERAL aclexplode(t.relacl) AS a
+        JOIN pg_roles AS role ON role.oid = a.grantee
+        WHERE t.oid = 'gpt02_stage.task183_recovery_attempts'::regclass
+          AND a.grantee <> t.relowner
+    LOOP
+        EXECUTE format('REVOKE ALL ON gpt02_stage.task183_recovery_attempts FROM %I', recipient);
+    END LOOP;
+END $$;
