@@ -13,6 +13,7 @@ import fcntl
 import grp
 import importlib.util
 import os
+import sqlite3
 from pathlib import Path
 import stat
 import subprocess
@@ -37,6 +38,39 @@ def systemctl(*args,check=True):
 def active(unit):
  return systemctl("show",unit,"--property=ActiveState","--value").stdout.strip()=="active"
 
+def one_shot_state_pristine():
+ # This activation is only for the first legitimate Owner approval.
+ # Any persisted decision/outbox or signing reservation requires independent
+ # recovery adjudication; never reopen a signing window automatically.
+ db=Path("/opt/ai-coding-standalone-dev/tasks.db")
+ st=db.lstat()
+ if (not stat.S_ISREG(st.st_mode) or db.is_symlink() or
+     st.st_uid!=0 or st.st_gid!=0 or stat.S_IMODE(st.st_mode)!=0o600):
+  deny("OWNER_DB_CUSTODY_INVALID")
+ conn=sqlite3.connect("file:"+str(db)+"?mode=ro",uri=True,timeout=3)
+ try:
+  conn.execute("PRAGMA query_only=ON")
+  for table in ("gpt02_task183_owner_recovery_decisions",
+                "gpt02_task183_owner_recovery_outbox"):
+   value=conn.execute("SELECT COUNT(*) FROM "+table+" WHERE task_id=183").fetchone()[0]
+   if value!=0:deny("OWNER_DECISION_ALREADY_RECORDED_NO_REOPEN")
+ finally:conn.close()
+ source=ROOT/"task183-dormant-signature-custody.py"
+ st=source.lstat()
+ if (not stat.S_ISREG(st.st_mode) or source.is_symlink() or
+     st.st_uid!=0 or st.st_gid!=0 or stat.S_IMODE(st.st_mode)!=0o400):
+  deny("CUSTODY_AUDITOR_SOURCE_UNTRUSTED")
+ spec=importlib.util.spec_from_file_location("task183_approval_custody",source)
+ m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+ state=m.audit(operational=True)
+ if (state.get("installed") is not True or
+     state.get("total")!=0 or state.get("unresolved")!=0 or
+     state.get("completed")!=0 or
+     state.get("issuerAuthorized") is not False or
+     state.get("dispatchPermitted") is not False):
+  deny("EXISTING_SIGNING_RECEIPT_NO_REOPEN")
+ return True
+
 def validate_release():
  if os.geteuid()!=0:deny("ROOT_RELEASE_OPERATOR_REQUIRED")
  if not RELEASE.is_file() or RELEASE.is_symlink():
@@ -48,6 +82,8 @@ def validate_release():
   deny("INDEPENDENT_RELEASE_TOKEN_INVALID")
  if not CUSTODY.is_file() or CUSTODY.is_symlink():
   deny("ROOT_RECEIPT_STORE_MISSING")
+ if one_shot_state_pristine() is not True:
+  deny("ONE_SHOT_STATE_NOT_PRISTINE")
  if not active(APP) or active(ISSUER):
   deny("DEV_SESSION_OR_ISSUER_STATE_UNSAFE")
  # This is a single deliberate release window. Never co-opt a signer
