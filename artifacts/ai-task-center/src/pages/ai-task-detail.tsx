@@ -778,6 +778,18 @@ export default function AiTaskDetail() {
   const ownerDecisionRecordedForRequest =
     task183OwnerDecisionMutation.isSuccess &&
     task183OwnerDecisionMutation.variables === (task183OwnerSigningReadiness?.successorRequestId ?? null);
+  const renewalRequestId = task183RecoveryReviewStatus?.renewalReview?.requestId;
+  const renewalRecorded = Boolean(renewalRequestId) && task183OwnerDecisionMutation.isSuccess &&
+    task183OwnerDecisionMutation.variables === renewalRequestId &&
+    task183OwnerDecisionMutation.data?.ownerDecisionStored === true;
+  const renewalReady = Boolean(renewalRequestId) &&
+    task183OwnerSigningReadiness?.successorRequestId === renewalRequestId &&
+    task183OwnerSigningReadiness?.ownerDecisionStatus === "successor_reserved" &&
+    task183OwnerSigningReadiness.signingReady && task183OwnerIdentity?.eligible &&
+    task183OwnerIdentity.googleSessionVerified && task183OwnerIdentity.enabledOperatorLinkVerified &&
+    task183RecoveryConsentStatus?.recorded && task183ReviewAck?.recorded &&
+    task183RecoveryEvidence?.readOnly && task183RecoveryEvidence.ownerApprovalGranted === false &&
+    task183Postprep?.status === "NO_GO_RESERVATION_EXPIRED" && !task183Postprep.reservationCurrent;
   const task183RecoveryConsentMutation = useMutation({
     mutationFn:async (evidenceSha256:string)=>{
       const challenge=(await apiFetch(
@@ -1505,6 +1517,21 @@ export default function AiTaskDetail() {
           </div>
         )}
         {currentUser?.role === "super_admin" && gpt02PicAudit?.auditPresent && (
+          task.id === 183 && renewalRequestId ? (
+            <section aria-label="Pemulihan Task 183" className="mt-3 rounded-lg border border-slate-200 bg-white p-3 space-y-2">
+              <h3 className="text-sm font-semibold">Pemulihan Task #183</h3>
+              <p role="status" className="text-sm text-slate-700">
+                {renewalRecorded ? "Keputusan Anda sudah tercatat untuk permintaan ini." :
+                  task183OwnerDecisionMutation.isPending ? "Mencatat persetujuan Anda…" :
+                  renewalReady ? "Persetujuan ini mengizinkan persiapan pemulihan Task #183." :
+                  "Sedang menyiapkan pemulihan. Belum perlu tindakan Anda."}
+              </p>
+              <Button type="button" size="sm" disabled={!renewalReady || renewalRecorded || task183OwnerDecisionMutation.isPending}
+                onClick={() => task183OwnerDecisionMutation.mutate(renewalRequestId)}>
+                Setujui pemulihan
+              </Button>
+            </section>
+          ) : (
           <section data-testid="gpt02-preparation-readiness"
             className="mt-3 rounded-lg border border-slate-200 bg-white p-3 space-y-2">
             <h3 className="text-xs font-semibold text-slate-900">Persiapan Core Task GPT02 — DEV saja</h3>
@@ -1567,11 +1594,6 @@ export default function AiTaskDetail() {
                     {task183RecoveryReviewStatus?.requested && (
                       <p role="status">Status permintaan: {task183RecoveryReviewStatus.status}.
                         Ini bukan approval.</p>
-                    )}
-                    {task183RecoveryReviewStatus?.renewalReview?.status==="PENDING_INDEPENDENT_OWNER_REVIEW" && (
-                      <p role="status">
-                        Permintaan pemulihan baru <code>{task183RecoveryReviewStatus.renewalReview.requestId}</code> sudah tercatat. Anda dapat memberi persetujuan sebagai Owner setelah layanan penandatanganan siap untuk ID ini.
-                      </p>
                     )}
                     {task183RecoveryEvidence?.readOnly === true &&
                       task183RecoveryEvidence.ownerApprovalGranted === false && (
@@ -1704,6 +1726,7 @@ export default function AiTaskDetail() {
               signed approval, nonce, binding dan issuer lease terverifikasi.
             </p>
           </section>
+          )
         )}
         {currentUser?.role === "super_admin" && (
           <section data-testid="gpt02-operator-readiness" aria-label="Kesiapan persetujuan operator GPT02"
