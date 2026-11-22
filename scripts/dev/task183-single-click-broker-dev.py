@@ -444,7 +444,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     verify_session=verify_task183_owner_session,
                     load_review=load_review_intake,
                     write_approval=writer.record)
-                self.reply(201,response)
+                # The signed-session POST is the ONLY trigger. After the
+                # writer atomically commits, invoke one detached signing
+                # handoff immediately inside the 120-second Owner window.
+                # On uncertain outcomes, return 202 for manual reconciliation:
+                # never retry the irreversible Owner decision/signature.
+                after=checked_import(ROOT/"task183-owner-after-decision.candidate.py",
+                    "task183_owner_after_decision")
+                result=after.run_handoff(response)
+                self.reply(201 if result["signedEvidenceVerified"] is True else 202,result)
             except (ValueError,TypeError,UnicodeError,KeyError):
                 self.reply(409,{"error":"OWNER_APPROVAL_REJECTED_OR_NOT_READY",
                                 "dispatchPermitted":False})
