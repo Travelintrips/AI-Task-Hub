@@ -42,7 +42,14 @@ normal=normal.replace('''                # The signed-session POST is the ONLY t
                 # handoff immediately inside the 120-second Owner window.
                 # On uncertain outcomes, return 202 for manual reconciliation:
                 # never retry the irreversible Owner decision/signature.
-                result=after.run_handoff(response)
+                try:
+                    result=after.run_handoff(response)
+                except Exception as exc:
+                    print("TASK183_OWNER_SIGNATURE_HANDOFF_FAILED",type(exc).__name__,flush=True)
+                    result={"taskId":183,"ownerDecisionStored":True,
+                            "signedEvidenceVerified":False,"manualReviewRequired":True,
+                            "issuerAuthorized":False,"dispatchPermitted":False,
+                            "releaseDecision":"NO_GO"}
                 self.reply(201 if result["signedEvidenceVerified"] is True else 202,result)''',
                 '''                self.reply(201,response)''')
 check("NEW_POST_OWNER_ONE_SHOT_HANDOFF_PRESENT",
@@ -77,4 +84,37 @@ except ValueError:check("SECOND_PATCH_REFUSED",True)
 else:check("SECOND_PATCH_REFUSED",False)
 compile(candidate,"patched-owner-broker","exec")
 check("SYNTAX_VALID",True)
+# Exercise the actual Owner POST branch with no live credentials or services.
+import io
+from types import SimpleNamespace
+branch=next(node for node in ast.walk(ast.parse(current))
+            if isinstance(node,ast.If) and ast.unparse(node.test)=="self.path == OWNER_APPROVAL_PATH")
+probe=ast.parse("def submit(self): pass")
+probe.body[0].body=branch.body
+calls={"writer":0,"signer":0}
+def committed(**_):
+ calls["writer"]+=1
+ return {"ownerDecisionStored":True}
+def failed_signer(_):
+ calls["signer"]+=1
+ raise RuntimeError("test handoff failure")
+modules={"task183_owner_http":SimpleNamespace(authorize_request=committed),
+         "task183_owner_writer":SimpleNamespace(record=None),
+         "task183_owner_after_decision":SimpleNamespace(run_handoff=failed_signer)}
+scope={"ORIGIN":"https://dev-ai-task.cstlogistic.co.id","ROOT":HERE,
+       "checked_import":lambda path,alias:modules[alias],
+       "verify_task183_owner_session":None,"load_review_intake":None}
+exec(compile(ast.fix_missing_locations(probe),"<isolated Owner POST>","exec"),scope)
+body=b'{"approveRecoveryAttempt2":true}'
+replies=[]
+scope["submit"](SimpleNamespace(path="/isolated",rfile=io.BytesIO(body),
+ headers={"Origin":scope["ORIGIN"],"Host":"dev-ai-task.cstlogistic.co.id",
+          "Content-Length":str(len(body)),"Authorization":"Bearer synthetic",
+          "X-GPT02-Intent":"approve-task183-recovery-attempt2-only"},
+ reply=lambda status,result:replies.append((status,result))))
+check("POST_COMMIT_EXCEPTION_RETURNS_MANUAL_REVIEW",replies==[(202,{
+ "taskId":183,"ownerDecisionStored":True,"signedEvidenceVerified":False,
+ "manualReviewRequired":True,"issuerAuthorized":False,"dispatchPermitted":False,
+ "releaseDecision":"NO_GO"})])
+check("POST_COMMIT_EXCEPTION_DOES_NOT_RETRY",calls=={"writer":1,"signer":1})
 print(f"RESULT={n}/{n} PASS")

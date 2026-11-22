@@ -64,6 +64,8 @@ on:
       - '.github/workflows/task183-root-supervisor-candidate.yml'
   pull_request:
     paths:
+      - 'scripts/dev/task183-single-click-broker-dev.py'
+      - 'scripts/dev/task183-wire-owner-approval-http.candidate.test.py'
       - 'scripts/dev/task183-owner-approval-http.candidate.py'
       - 'scripts/dev/task183-owner-approval-http.candidate.test.py'
       - 'scripts/dev/task183-root-sign-once-supervisor.candidate.py'
