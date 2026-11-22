@@ -86,7 +86,7 @@ jobs:
         run: python3 -m py_compile scripts/dev/task183-resolve-approved-claims.readonly.candidate.py scripts/dev/task183-writer-real-schema-isolated.test.py
       - name: Task183 one-shot post-decision signing integration (no real key)
         run: |
-          python3 scripts/dev/task183-owner-after-decision.candidate.test.py
+          sudo python3 scripts/dev/task183-owner-after-decision.candidate.test.py
           python3 -m py_compile scripts/dev/task183-owner-after-decision-http.fixture.test.py
       - name: Task183 signed-session Owner decision route contract
         run: |
