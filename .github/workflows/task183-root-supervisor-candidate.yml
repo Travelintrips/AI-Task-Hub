@@ -67,6 +67,8 @@ on:
       - '.github/workflows/task183-root-supervisor-candidate.yml'
   pull_request:
     paths:
+      - 'artifacts/ai-task-center/src/pages/ai-task-detail.tsx'
+      - 'scripts/dev/task183-owner-receipt-toast-gate.test.mjs'
       - 'scripts/dev/task183-owner-after-decision.candidate*.py'
       - 'scripts/dev/cst-task183-register-receipt@.service'
       - 'scripts/dev/task183-owner-window-activate.candidate*.py'
@@ -89,6 +91,8 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+      - name: Task183 Owner receipt status UI regression (isolated)
+        run: node --test scripts/dev/task183-owner-receipt-toast-gate.test.mjs
       - name: Verify successor reservation and issuer contract
         run: |
           python3 scripts/dev/task183_successor_reservation_test.py
