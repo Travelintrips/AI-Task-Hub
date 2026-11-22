@@ -1,7 +1,8 @@
 [Unit]
 Description=CST-DEV Task183 guarded Owner approval signing window (one controlled start, no approval)
 After=gpt02-issue159-operational-signer@approval.service cst-task183-root-broker.service
-Requires=gpt02-issue159-operational-signer@approval.service cst-task183-root-broker.service
+# No Requires: systemd starts dependencies BEFORE evaluating AssertPathExists.
+# This is strictly an audit-only gate, not a unit activator.
 AssertPathExists=/etc/gpt02-dev/task183-broker-release.approved
 AssertPathExists=/var/lib/cst-dev-task183-recovery/signature-custody.sqlite3
 AssertPathExists=/opt/ai-coding-standalone-dev/qa/task183-owner-window-readiness.candidate.py
