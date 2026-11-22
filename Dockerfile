@@ -27,6 +27,12 @@ WORKDIR /app
 RUN ln -s /app /workspace
 
 COPY --from=build --chown=node:node /runtime/ /app/
+ARG AI_TASK_DEV_BUILD_SHA
+RUN if [ -n "$AI_TASK_DEV_BUILD_SHA" ]; then \
+      printf '%s' "$AI_TASK_DEV_BUILD_SHA" | grep -Eq '^[a-f0-9]{40}$' \
+      && printf '%s\n' "$AI_TASK_DEV_BUILD_SHA" > /app/artifacts/api-server/dist/build-sha \
+      && chmod 0444 /app/artifacts/api-server/dist/build-sha; \
+    fi
 
 
 USER node
