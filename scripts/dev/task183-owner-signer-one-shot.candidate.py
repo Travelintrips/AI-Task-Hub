@@ -137,11 +137,13 @@ def verified_handoff(*,reconstruction,send,verify_signature,now_ms=None):
             "issuerAuthorized":False,"dispatchPermitted":False,
             "releaseDecision":"NO_GO"}
 
-def run(mode):
+def run(mode,request_id=None):
     if os.geteuid()!=0:reject("ROOT_ONLY_HANDOFF")
     resolver=guarded_import(SOURCE,"task183_claims_reader")
+    def reconstruct():
+        return resolver.reconstruct() if request_id is None else resolver.reconstruct(request_id=request_id)
     if mode=="preflight":
-        try:resolver.reconstruct()
+        try:reconstruct()
         except ValueError as e:
             print("TASK183_OWNER_DECISION_READBACK=NO_GO_"+str(e))
             print("SIGNER_CALLED=FALSE")
@@ -156,7 +158,7 @@ def run(mode):
         return verifier.verify(role="recovery-approval",digest=digest,
             request_id=claims["requestId"],evidence_sha256=claims["evidenceSha256"],
             claims=claims,signature=signed.get("signatureBase64url"),operational=True)
-    answer=verified_handoff(reconstruction=resolver.reconstruct,
+    answer=verified_handoff(reconstruction=reconstruct,
         send=lambda **kw:send_one(**kw,peer_check=policy.authenticated_peer),
         verify_signature=check_signature)
     print("TASK183_ONE_SHOT_HANDOFF="+("PASS" if answer["signedEvidenceVerified"] else "FAIL"))
@@ -169,7 +171,8 @@ def main():
     g=ap.add_mutually_exclusive_group()
     g.add_argument("--preflight",action="store_true")
     g.add_argument("--execute",action="store_true")
+    ap.add_argument("--request-id")
     args=ap.parse_args()
-    raise SystemExit(run("execute" if args.execute else "preflight"))
+    raise SystemExit(run("execute" if args.execute else "preflight",args.request_id))
 
 if __name__=="__main__":main()

@@ -49,7 +49,7 @@ def load_checked(name):
  spec=importlib.util.spec_from_file_location(name.replace("-","_").replace(".","_"),p)
  m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
  return m
-def reconstruct(*,operational=True,approval_path=None,review_packet=None,now_ms=None):
+def reconstruct(*,request_id=REQUEST,operational=True,approval_path=None,review_packet=None,now_ms=None):
  now=int(time.time()*1000) if now_ms is None else int(now_ms)
  if operational:
   if approval_path is not None or review_packet is not None or now_ms is not None:
@@ -73,7 +73,7 @@ def reconstruct(*,operational=True,approval_path=None,review_packet=None,now_ms=
    AND o.auth_user_id=d.auth_user_id AND o.role_at_decision=d.role_at_decision
    AND o.recorded_at_ms=d.recorded_at_ms AND o.expires_at_ms=d.expires_at_ms
  WHERE d.task_id=183 AND d.request_id=? AND d.evidence_sha256=?
- """,(REQUEST,EVIDENCE))
+ """,(request_id,EVIDENCE))
  if len(rows)!=1:fail("OWNER_DECISION_MISSING_OR_NOT_UNIQUE")
  row=rows[0]
  if (row["company_id"]!="default" or row["role_at_decision"]!="super_admin" or
@@ -94,7 +94,7 @@ def reconstruct(*,operational=True,approval_path=None,review_packet=None,now_ms=
   fail("REVIEW_ID_MISMATCH")
  claims={
   "version":1,"environment":"DEV","audience":DOMAIN,"companyId":"default",
-  "hubTaskId":183,"recoveryAttemptNumber":2,"requestId":REQUEST,"evidenceSha256":EVIDENCE,
+  "hubTaskId":183,"recoveryAttemptNumber":2,"requestId":request_id,"evidenceSha256":EVIDENCE,
   "originalCoreTaskId":ev.get("coreTaskId"),"originalHubExecutionId":ev.get("hubExecutionId"),
   "originalAttemptId":ev.get("originalAttemptId"),"ownerSubject":owner,
   "nonce":row["nonce"],"issuedAt":row["recorded_at_ms"],"expiresAt":row["expires_at_ms"],

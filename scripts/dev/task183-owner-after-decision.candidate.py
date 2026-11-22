@@ -8,6 +8,7 @@ the independently authorized release gate is absent.
 """
 from pathlib import Path
 import os
+import re
 import stat
 import subprocess
 
@@ -17,9 +18,10 @@ LIMIT=16
 
 class HandoffDenied(RuntimeError):pass
 
-def validate_writer_result(decision):
+def validate_writer_result(decision,expected_request=None):
     if (type(decision) is not dict or
-        decision.get("requestId")!=REQUEST or
+        decision.get("requestId")!=(REQUEST if expected_request is None else expected_request) or
+        (expected_request is not None and not re.fullmatch("[a-f0-9]{36}",expected_request)) or
         decision.get("recorded") is not True or
         decision.get("ownerDecisionStored") is not True or
         decision.get("cryptographicOwnerSignatureCreated") is not False or
@@ -29,8 +31,8 @@ def validate_writer_result(decision):
         decision.get("releaseDecision")!="NO_GO"):
         raise HandoffDenied("UNTRUSTED_COMMITTED_OWNER_DECISION")
 
-def run_handoff(decision,*,runner=None,path=HANDOFF):
-    validate_writer_result(decision)
+def run_handoff(decision,*,expected_request=None,runner=None,path=HANDOFF):
+    validate_writer_result(decision,expected_request)
     if os.geteuid()!=0:raise HandoffDenied("ROOT_SERVER_REQUIRED")
     p=Path(path)
     st=os.lstat(p)
@@ -39,7 +41,10 @@ def run_handoff(decision,*,runner=None,path=HANDOFF):
         raise HandoffDenied("ONE_SHOT_SCRIPT_SOURCE_UNTRUSTED")
     if runner is None:runner=subprocess.run
     try:
-        proc=runner(["/usr/bin/python3",str(p),"--execute"],
+        args=["/usr/bin/python3",str(p),"--execute"]
+        if expected_request is not None:
+            args.extend(["--request-id",expected_request])
+        proc=runner(args,
             capture_output=True,text=True,timeout=LIMIT,check=False)
     except (OSError,subprocess.SubprocessError):
         return {"taskId":183,"ownerDecisionStored":True,

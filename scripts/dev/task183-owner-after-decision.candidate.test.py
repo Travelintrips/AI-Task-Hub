@@ -36,6 +36,11 @@ with tempfile.TemporaryDirectory(prefix="task183-postdecision-fixture-") as td:
  ok("ONE_SHOT_SIGNING_PROOF_ACCEPTED",result["signedEvidenceVerified"] is True)
  ok("EXACTLY_ONE_SUBPROCESS_CALL",len(calls)==1 and calls[0][2]=="--execute")
  ok("NO_ISSUER_DISPATCH_AUTHORITY",not result["issuerAuthorized"] and not result["dispatchPermitted"])
+ successor="a"*36
+ new_decision={**decision,"requestId":successor}
+ rejected("STALE_CLICK_CANNOT_SELECT_SUCCESSOR",lambda:m.run_handoff(new_decision,expected_request=m.REQUEST,**kw))
+ m.run_handoff(new_decision,expected_request=successor,**kw)
+ ok("SUCCESSOR_PASSED_TO_ONE_SHOT",calls[-1][-2:]==["--request-id",successor])
  bad=lambda *a,**k:SimpleNamespace(returncode=2,stdout="")
  result=m.run_handoff(decision,runner=bad,path=script)
  ok("ONE_SHOT_DENIAL_REPORTED_WITHOUT_RETRY",result["manualReviewRequired"] is True and result["signedEvidenceVerified"] is False)
