@@ -82,19 +82,23 @@ class Tests(unittest.TestCase):
                          "pg_has_role(session_user, 'gpt02_task183_receipt_verifier', 'SET')"):
             self.assertIn(required,sql)
 
-    def test_no_database_insert_grant_denies_without_write(self):
+    def test_missing_column_insert_grant_denies_without_write(self):
         c,error=self.run_case(grant_ok=False)
         self.assertEqual(error,"VERIFIER_RECEIPT_INSERT_NOT_GRANTED")
         self.assertEqual(c.inserted,0)
         self.assertEqual(sum("SET LOCAL ROLE" in sql for sql,_ in c.calls),1)
 
-    def test_verifier_no_login_and_not_superuser(self):
+    def test_verifier_is_no_login_and_five_column_insert_grants_only(self):
         c,_=self.run_case(grant_ok=False)
         sql=c.calls[-1][0]
         self.assertIn("current_user = 'gpt02_task183_receipt_verifier'",sql)
         self.assertIn("NOT (rolcanlogin OR rolsuper OR rolbypassrls",sql)
         self.assertIn("has_schema_privilege",sql)
-        self.assertIn("has_table_privilege",sql)
+        self.assertIn("NOT has_table_privilege(",sql)
+        self.assertEqual(sql.count("has_column_privilege("),5)
+        for column in ("request_id","approval_sha256","predecessor_attempt_id",
+                       "signed_at","expires_at"):
+            self.assertIn("'"+column+"', 'INSERT'",sql)
 
     def test_true_permissions_register_exactly_once(self):
         c,error=self.run_case()
