@@ -454,7 +454,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 # handoff immediately inside the 120-second Owner window.
                 # On uncertain outcomes, return 202 for manual reconciliation:
                 # never retry the irreversible Owner decision/signature.
-                result=after.run_handoff(response)
+                try:
+                    result=after.run_handoff(response)
+                except Exception as exc:
+                    print("TASK183_OWNER_SIGNATURE_HANDOFF_FAILED",type(exc).__name__,flush=True)
+                    result={"taskId":183,"ownerDecisionStored":True,
+                            "signedEvidenceVerified":False,"manualReviewRequired":True,
+                            "issuerAuthorized":False,"dispatchPermitted":False,
+                            "releaseDecision":"NO_GO"}
                 self.reply(201 if result["signedEvidenceVerified"] is True else 202,result)
             except (ValueError,TypeError,UnicodeError,KeyError):
                 self.reply(409,{"error":"OWNER_APPROVAL_REJECTED_OR_NOT_READY",
