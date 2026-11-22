@@ -56,15 +56,31 @@ def record_receipt(request_id):
     claims = proof['claims']
     import psycopg
     with psycopg.connect(service='cst_dev_task183_receipt_verifier', connect_timeout=5) as db:
+        # An active, short-lived independent login is mandatory. Never use
+        # the application's ordinary PostgreSQL role or a privileged fallback.
         role = db.execute("""
             SELECT session_user = 'gpt02_task183_verifier_login'
-                AND NOT rolsuper AND NOT rolbypassrls AND NOT rolcreaterole
-                AND NOT rolcreatedb
-            FROM pg_roles WHERE rolname=session_user
+                AND current_user = 'gpt02_task183_verifier_login'
+                AND rolcanlogin AND rolconnlimit = 1
+                AND NOT (rolsuper OR rolbypassrls OR rolcreaterole OR rolcreatedb)
+                AND pg_has_role(session_user, 'gpt02_task183_receipt_verifier', 'SET')
+            FROM pg_roles WHERE rolname = session_user
         """).fetchone()
         if role != (True,):
             raise ValueError('DEDICATED_VERIFIER_LOGIN_REQUIRED')
         db.execute('SET LOCAL ROLE gpt02_task183_receipt_verifier')
+        # Receipt insertion is DENIED until a separately approved DBA
+        # provisioning step explicitly installs both column grants and RLS.
+        permissions = db.execute("""
+            SELECT current_user = 'gpt02_task183_receipt_verifier'
+                AND has_schema_privilege(current_user, 'gpt02_stage', 'USAGE')
+                AND has_table_privilege(
+                    current_user, 'gpt02_stage.task183_verified_recovery_receipts', 'INSERT')
+                AND NOT (rolcanlogin OR rolsuper OR rolbypassrls OR rolcreaterole OR rolcreatedb)
+            FROM pg_roles WHERE rolname = current_user
+        """).fetchone()
+        if permissions != (True,):
+            raise ValueError('VERIFIER_RECEIPT_INSERT_NOT_GRANTED')
         db.execute("""
             INSERT INTO gpt02_stage.task183_verified_recovery_receipts
                 (request_id, approval_sha256, predecessor_attempt_id, signed_at, expires_at)
