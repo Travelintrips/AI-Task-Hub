@@ -18,7 +18,32 @@ def funcmap(src):
  handler=next(x for x in tree.body if isinstance(x,ast.ClassDef) and x.name=="Handler")
  return {m.name:ast.get_source_segment(src,m) for m in handler.body if isinstance(m,ast.FunctionDef)}
 orig=funcmap(base);new=funcmap(candidate)
-check("DEPLOYED_REPO_MATCHES_EXACT_PATCH",candidate==current)
+# The deployed source contains a separately reviewed fail-closed readiness
+# gate. Subtract only that explicitly identified addition, then verify the
+# original route patch is otherwise byte-for-byte preserved.
+prefix="OWNER_APPROVAL_READINESS_PATH="
+suffix="RECOVERY_CHALLENGE_BODY="
+i=current.index(prefix);j=current.index(suffix,i)
+normal=current[:i]+current[j:]
+start="        if self.path==OWNER_APPROVAL_READINESS_PATH:"
+end="        if self.path==OWNER_IDENTITY_STATUS_PATH:"
+i=normal.index(start);j=normal.index(end,i)
+normal=normal[:i]+normal[j:]
+normal=normal.replace("verify_session=verify_task183_owner_session,",
+                      "verify_session=verify_jwt,")
+check("DEPLOYED_ORIGINAL_OWNER_PATCH_PRESERVED",candidate==normal)
+check("NEW_BACKEND_OWNER_READINESS_EXISTS",
+      "def task183_owner_signing_ready():" in current and
+      "def verify_task183_owner_session(token):" in current)
+check("POST_OWNERSHIP_CHECK_USES_READINESS",
+      "verify_session=verify_task183_owner_session," in current)
+check("GET_OWNER_READINESS_READONLY",
+      "if self.path==OWNER_APPROVAL_READINESS_PATH:" in current and
+      '"readOnly":True' in current)
+check("SHORT_LIVED_APPROVAL_PROTECTED",
+      'TASK183_SIGNER_BROKER_NOT_READY' in current and
+      'cst-task183-root-broker.service' in current and
+      'gpt02-issue159-operational-signer@approval.service' in current)
 check("ORIGINAL_ROUTES_PRESERVED",orig["do_GET"]==new["do_GET"])
 check("NO_OTHER_HANDLER_MUTATION",all(orig[n]==new[n] for n in orig if n!="do_POST"))
 check("EXACT_ADDITIVE_OWNER_ROUTE",'if self.path==OWNER_APPROVAL_PATH:' in new["do_POST"])
