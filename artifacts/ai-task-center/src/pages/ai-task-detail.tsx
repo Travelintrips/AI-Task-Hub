@@ -1524,7 +1524,11 @@ export default function AiTaskDetail() {
                 {renewalRecorded ? "Keputusan Anda sudah tercatat untuk permintaan ini." :
                   task183OwnerDecisionMutation.isPending ? "Mencatat persetujuan Anda…" :
                   renewalReady ? "Persetujuan ini mengizinkan persiapan pemulihan Task #183." :
-                  "Sedang menyiapkan pemulihan. Belum perlu tindakan Anda."}
+                  task183OwnerSigningReadiness?.ownerDecisionStatus === "renewal_review_pending" ?
+                    "Pemulihan tertahan. Layanan DEV belum menyediakan reservasi penandatanganan untuk permintaan ini." :
+                  task183OwnerSigningReadiness?.ownerDecisionStatus === "successor_reserved" ?
+                    "Reservasi sudah tersedia. Layanan DEV belum siap menerima persetujuan untuk permintaan ini." :
+                    "Kesiapan layanan DEV untuk permintaan ini belum terverifikasi."}
               </p>
               <Button type="button" size="sm" disabled={!renewalReady || renewalRecorded || task183OwnerDecisionMutation.isPending}
                 onClick={() => task183OwnerDecisionMutation.mutate(renewalRequestId)}>
