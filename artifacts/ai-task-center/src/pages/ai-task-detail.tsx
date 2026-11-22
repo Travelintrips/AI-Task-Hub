@@ -752,12 +752,19 @@ export default function AiTaskDetail() {
       body:JSON.stringify({approveRecoveryAttempt2:true}),
     }),
     onSuccess:(result:{ownerDecisionStored:boolean;signedEvidenceVerified:boolean;
-      manualReviewRequired:boolean;issuerAuthorized:false;dispatchPermitted:false})=>{
-      if(result.signedEvidenceVerified===true &&
-         result.ownerDecisionStored===true &&
-         result.issuerAuthorized===false && result.dispatchPermitted===false){
-        toast({title:"Bukti tanda tangan pemulihan Task #183 terverifikasi",
-          description:"Receipt telah disimpan. Issuer dan dispatch tetap OFF."});
+      receiptRegistered?:boolean;manualReviewRequired:boolean;
+      issuerAuthorized:false;dispatchPermitted:false})=>{
+      const signedAndSafe=result.signedEvidenceVerified===true &&
+        result.ownerDecisionStored===true &&
+        result.issuerAuthorized===false && result.dispatchPermitted===false;
+      if(signedAndSafe && result.receiptRegistered===true &&
+         result.manualReviewRequired===false){
+        toast({title:"Tanda tangan dan registrasi receipt Task #183 dikonfirmasi",
+          description:"Issuer dan dispatch tetap OFF; audit database tetap diperlukan sebelum pemulihan."});
+      }else if(signedAndSafe){
+        toast({title:"Tanda tangan terverifikasi, receipt belum dikonfirmasi",
+          description:"Jangan klik persetujuan ulang. Periksa status receipt dan audit database; registrasi gagal atau belum pasti.",
+          variant:"destructive"});
       }else{
         toast({title:"Keputusan Owner tercatat, tanda tangan perlu diperiksa",
           description:"Jangan tekan persetujuan ulang. Proses tidak diulang otomatis untuk mencegah tanda tangan ganda.",
