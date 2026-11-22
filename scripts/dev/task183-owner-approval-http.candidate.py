@@ -74,5 +74,6 @@ def authorize_request(*,path,headers,body,verify_session,load_review,write_appro
         result.get("releaseDecision")!="NO_GO"):
         raise ApprovalRejected("OWNER_WRITER_CONTRACT_INVALID")
     return {"taskId":183,"ownerDecisionStored":True,"requestId":result["requestId"],
-            "issuerAuthorized":False,"dispatchPermitted":False,
-            "releaseDecision":"NO_GO"}
+            "recorded":True,"cryptographicOwnerSignatureCreated":False,
+            "attemptIssued":False,"issuerAuthorized":False,
+            "dispatchPermitted":False,"releaseDecision":"NO_GO"}
