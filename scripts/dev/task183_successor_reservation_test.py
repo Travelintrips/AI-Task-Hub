@@ -38,7 +38,9 @@ class ReservationTest(unittest.TestCase):
         db.commit()
 
     def test_single_successor_preserves_history(self):
-        self.assertNotEqual(reserve(self.db, REQUEST, 200), REQUEST)
+        replacement = reserve(self.db, REQUEST, 200)
+        self.assertRegex(replacement, r"^[0-9a-f]{36}$")
+        self.assertNotEqual(replacement, REQUEST)
         with self.assertRaises(sqlite3.IntegrityError):
             reserve(self.db, REQUEST, 201)
         for table in ("gpt02_task183_owner_recovery_decisions",

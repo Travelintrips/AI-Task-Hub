@@ -4,6 +4,7 @@ on:
     branches:
       - fix/dev-task183-prep-readiness-ui-20261121
     paths:
+      - 'scripts/dev/task183_successor_reservation*.py'
       - 'scripts/dev/task183-stage-exact-recovery-signer.candidate.py'
       - 'scripts/dev/task183-stage-exact-recovery-signer.candidate.test.py'
       - 'scripts/dev/task183-operational-custody-negative-proof.py'
@@ -64,6 +65,7 @@ on:
       - '.github/workflows/task183-root-supervisor-candidate.yml'
   pull_request:
     paths:
+      - 'scripts/dev/task183_successor_reservation*.py'
       - 'scripts/dev/task183-single-click-broker-dev.py'
       - 'scripts/dev/task183-wire-owner-approval-http.candidate.test.py'
       - 'scripts/dev/task183-owner-approval-http.candidate.py'
@@ -80,6 +82,10 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+      - name: Verify successor reservation and issuer contract
+        run: |
+          python3 scripts/dev/task183_successor_reservation_test.py
+          node --test scripts/dev/gpt02-task183-recovery-issuer-approval-verifier.test.mjs
       - name: Syntax check
         run: python3 -m py_compile scripts/dev/task183-root-sign-once-supervisor.candidate.py scripts/dev/task183-root-sign-once-supervisor.candidate.test.py scripts/dev/task183-local-receipt-broker.candidate.py scripts/dev/task183-local-receipt-broker.candidate.test.py scripts/dev/task183-two-phase-signing.candidate.py scripts/dev/task183-two-phase-signing.candidate.test.py scripts/dev/task183-patch-existing-signer-two-phase.candidate.py scripts/dev/task183-patch-existing-signer-two-phase.candidate.test.py scripts/dev/task183-two-phase-unix-bridge.candidate.py scripts/dev/task183-two-phase-unix-bridge.candidate.test.py
       - name: Parse real DynamicUser full Unix E2E fixture (VPS execution required)

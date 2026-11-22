@@ -3,7 +3,7 @@
 The function takes BEGIN IMMEDIATE across the decision database and attached custody
 database. A reservation is not an approval, a signed claim or a dispatch.
 """
-import uuid
+import secrets
 
 SCHEMA = """
 CREATE TABLE task183_successor_requests (
@@ -62,7 +62,7 @@ def reserve(db, previous_request, now_ms):
         """, (previous_request, rows[0][2])).fetchall()
         if len(pending) != 1:
             raise ValueError("UNUSED_MATCHING_REVIEW_REQUIRED")
-        request_id = str(uuid.uuid4())
+        request_id = secrets.token_hex(18)
         if request_id == previous_request:
             raise ValueError("REQUEST_ID_COLLISION")
         db.execute("INSERT INTO task183_successor_requests VALUES (?, ?, ?)",
