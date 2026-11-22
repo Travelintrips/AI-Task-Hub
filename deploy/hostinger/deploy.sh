@@ -108,11 +108,16 @@ if [ "$TARGET" = "development" ] &&
   COMPOSE_FILES+=(-f "$TRUST_OVERRIDE")
 fi
 
+BUILD_ARGS=()
+if [ "$TARGET" = "development" ]; then
+  BUILD_ARGS+=(--build-arg "AI_TASK_DEV_BUILD_SHA=$AI_TASK_DEV_EXPECTED_SHA")
+fi
+
 echo "Building AI Task Hub image (bounded to 12 minutes)..."
 if ! timeout --foreground --kill-after=30s 12m docker compose \
   --env-file "$COMPOSE_ENV" \
   "${COMPOSE_FILES[@]}" \
-  build; then
+  build "${BUILD_ARGS[@]}"; then
   echo "Docker build failed or exceeded 12 minutes; keeping the current container untouched." >&2
   docker compose --env-file "$COMPOSE_ENV" "${COMPOSE_FILES[@]}" ps >&2 || true
   exit 1
@@ -223,6 +228,21 @@ try {
 GPT02_TRUST_VERIFY_JS
       then
         echo "GPT02 DEV public trust verification failed; deployment remains NO-GO." >&2
+        exit 1
+      fi
+    fi
+
+    if [ "$TARGET" = "development" ]; then
+      if ! docker exec "$CONTAINER_NAME" node -e '
+        fetch("http://127.0.0.1:8080/api/healthz", { signal: AbortSignal.timeout(5000) })
+          .then((res) => {
+            if (!res.ok || res.headers.get("x-cst-commit-sha") !== process.argv[1]) {
+              throw new Error("DEV_RUNTIME_SHA_MISMATCH");
+            }
+          })
+          .catch(() => { process.exitCode = 1; });
+      ' "$AI_TASK_DEV_EXPECTED_SHA"; then
+        echo "DEV_RUNTIME_SHA_VERIFICATION_FAILED" >&2
         exit 1
       fi
     fi
