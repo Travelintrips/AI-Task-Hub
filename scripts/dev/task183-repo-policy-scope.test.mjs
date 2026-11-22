@@ -66,7 +66,7 @@ test("systemd root-only credentials and no generic app sender path",()=>{
 });
 
 test("a policy clarification does not authorize a live signing or dispatch",()=>{
-  assert.match(scope,/Owner signature/);
+  assert.match(scope,/tanda tangan/i);
   assert.match(scope,/tidak layak di-merge\/deploy/);
   assert.match(agents,/tidak|NOT an application persistence fallback/);
 });
