@@ -1,16 +1,19 @@
 [Unit]
-Description=Apply the published CST-DEV Task 189 preparation package
-# The path unit limits event bursts. Withdrawals must still reach systemctl
-# even if the delivery unit has reached its own start limit.
-StartLimitIntervalSec=0
+Description=Install and deliver the published CST-DEV Task 189 package
 
 [Service]
 Type=oneshot
-# The publisher atomically renames a complete encrypted file into place.
-# Wait for the delivery service to finish starting or withdrawing it before
-# processing a subsequent change. Its own timeout also withdraws the file.
-ExecStart=/bin/sh -ec 'if [ -f /etc/credstore.encrypted/gpt02-task189-preparer ] && [ ! -L /etc/credstore.encrypted/gpt02-task189-preparer ]; then exec /usr/bin/systemctl restart gpt02-task189-delivery.service; else exec /usr/bin/systemctl stop gpt02-task189-delivery.service; fi'
+UMask=0077
+# Both paths are inside the same root-only credential store. The issuer
+# atomically renames a complete encrypted file to the incoming path.
+WorkingDirectory=/etc/credstore.encrypted
+ExecStart=/usr/bin/mv -T -- gpt02-task189-preparer.incoming .gpt02-task189-received
+ExecStart=/usr/bin/test -f .gpt02-task189-received
+ExecStart=/usr/bin/test ! -L .gpt02-task189-received
+ExecStart=/usr/bin/mv -T -- .gpt02-task189-received gpt02-task189-preparer
+ExecStart=/usr/bin/systemctl restart gpt02-task189-delivery.service
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
+ReadWritePaths=/etc/credstore.encrypted
 ProtectHome=yes

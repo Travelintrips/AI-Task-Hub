@@ -1,8 +1,10 @@
 [Unit]
-Description=Watch for publication or withdrawal of the CST-DEV Task 189 package
+Description=Receive a published preparation package for CST-DEV Task 189
 
 [Path]
-PathChanged=/etc/credstore.encrypted/gpt02-task189-preparer
+# A publication stays pending until the receiving service claims it. A new
+# publication during delivery therefore triggers another run.
+PathExists=/etc/credstore.encrypted/gpt02-task189-preparer.incoming
 
 [Install]
 WantedBy=paths.target
