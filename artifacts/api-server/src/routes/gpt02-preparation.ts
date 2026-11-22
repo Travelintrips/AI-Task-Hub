@@ -11,7 +11,7 @@ import {
 } from "../lib/gpt02-preparation-admission.mjs";
 import { createCoreTaskPreparer } from "../lib/gpt02-core-task-preparation.mjs";
 import { assessGpt02PreparerCatalog } from "../lib/gpt02-preparer-readiness.mjs";
-import { hasRecentVerifiedGpt02DevGoogleOperator } from "../lib/gpt02-google-auth-gate.mjs";
+import { hasRecentVerifiedGpt02DevGoogleOperator, preparationReadinessForOperator } from "../lib/gpt02-google-auth-gate.mjs";
 
 const router: IRouter = Router();
 
@@ -127,18 +127,18 @@ router.get("/ai-tasks/:id/gpt02-preparation-readiness", requireAuth,
         if(factory)await factory.close();
       }
     }
-    const canRequestPreparation=featureEnabled&&facts.preparation.eligible&&
-      catalog.catalogReady&&dedicatedConnectionVerified;
+    const serviceReason = !facts.preparation.eligible?facts.preparation.reason:
+        !catalog.catalogReady?catalog.reason:
+        !featureEnabled?"GPT02_CORE_PREPARATION_NOT_ENABLED":
+        !dedicatedConnectionVerified?connectionReason:
+          "READY_FOR_PREPARATION_ONLY";
+    const {reason, canRequestPreparation} = preparationReadinessForOperator(serviceReason, req.user);
     res.status(200).json({
       taskId,preparationEligible:facts.preparation.eligible,
       historicalRepairAvailable:facts.historicalRepair.eligible,
       featureEnabled,preparerRoleReady:catalog.catalogReady,
       dedicatedConnectionVerified,canRequestPreparation,
-      reason:!facts.preparation.eligible?facts.preparation.reason:
-        !catalog.catalogReady?catalog.reason:
-        !featureEnabled?"GPT02_CORE_PREPARATION_NOT_ENABLED":
-        !dedicatedConnectionVerified?connectionReason:
-          "READY_FOR_PREPARATION_ONLY",
+      reason,
       readOnly:true,commandDispatched:false,operatorApprovalGranted:false,
       dispatchPermitted:false,issuerGrantReady:false,
     });

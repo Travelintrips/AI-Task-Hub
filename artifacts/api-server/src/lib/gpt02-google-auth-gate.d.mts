@@ -12,3 +12,9 @@ export function hasRecentVerifiedGpt02DevGoogleOperator(
   env?: NodeJS.ProcessEnv,
   nowMs?: number
 ): boolean;
+export function preparationReadinessForOperator(
+  serviceReason: string,
+  user: Gpt02GoogleUserCandidate | null | undefined,
+  env?: NodeJS.ProcessEnv,
+  nowMs?: number
+): { reason: string; canRequestPreparation: boolean };

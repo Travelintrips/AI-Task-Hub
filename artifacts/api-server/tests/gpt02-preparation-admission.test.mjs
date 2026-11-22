@@ -156,8 +156,8 @@ test('DEV Super Admin preparation readiness GET returns evidence only and never 
     'requireAuth','req.user?.role!=="super_admin"','CST_DEV_COMPANY_SCOPE_REQUIRED',
     'readPreparationFacts(taskId,companyId','process.env.GPT02_CORE_PREPARATION_ENABLED',
     'historicalRepairAvailable:facts.historicalRepair.eligible',
-    'const canRequestPreparation=featureEnabled&&facts.preparation.eligible',
-    'catalog.catalogReady&&dedicatedConnectionVerified','factory.preparer.verifyReadiness()',
+    'preparationReadinessForOperator(serviceReason, req.user)',
+    '!catalog.catalogReady?catalog.reason:', '!dedicatedConnectionVerified?connectionReason:','factory.preparer.verifyReadiness()',
     'readOnly:true','operatorApprovalGranted:false','dispatchPermitted:false',
     'issuerGrantReady:false','commandDispatched:false',
   ]) assert.ok(getRoute.includes(value),value);
