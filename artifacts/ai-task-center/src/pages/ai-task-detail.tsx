@@ -868,10 +868,13 @@ export default function AiTaskDetail() {
       const path = `/ai-tasks/${task.id}`;
       await gpt02AssignPicMutation.mutateAsync(memberId);
       const readiness = await apiFetch(`${path}/gpt02-preparation-readiness${scope}`) as {
-        taskId:number; canRequestPreparation:boolean;
+        taskId:number; canRequestPreparation:boolean; reason:string;
       };
       if (readiness.taskId !== task.id || readiness.canRequestPreparation !== true) {
-        toast({title:"PIC tersimpan. Persiapan menunggu layanan DEV."});
+        const needsSignIn = readiness.taskId === task.id &&
+          readiness.reason === "GPT02_FRESH_GOOGLE_OPERATOR_REQUIRED";
+        toast({title:needsSignIn ? "PIC tersimpan. Masuk kembali dengan Google untuk menyiapkan task." :
+          "PIC tersimpan. Persiapan menunggu layanan DEV."});
         return;
       }
       await gpt02PrepareOnlyMutation.mutateAsync();
@@ -1632,6 +1635,8 @@ export default function AiTaskDetail() {
                   "Autentikasi TLS dan izin akun preparer belum terverifikasi. Persiapan tetap dikunci." :
                 gpt02PreparationReadiness.reason==="GPT02_CORE_PREPARATION_NOT_ENABLED" ?
                   "Instruksi sudah memenuhi pemeriksaan, tetapi layanan persiapan khusus DEV belum diaktifkan." :
+                gpt02PreparationReadiness.reason==="GPT02_FRESH_GOOGLE_OPERATOR_REQUIRED" ?
+                  "Layanan persiapan sudah siap. Masuk kembali dengan Google untuk menyiapkan task ini." :
                 gpt02PreparationReadiness.reason==="READY_FOR_PREPARATION_ONLY" ?
                   "Siap mengajukan persiapan saja; belum memiliki izin menjalankan worker." :
                   `Persiapan belum memenuhi syarat: ${gpt02PreparationReadiness.reason}`}

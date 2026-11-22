@@ -23,3 +23,12 @@ test("missing, failed and inconsistent readbacks cannot offer preparation", () =
   assert.equal(preparationAction(189, ready, fresh, true), "unavailable");
   assert.equal(preparationAction(189, ready, { googleProofFresh: true, requiresFreshGoogleLogin: true }, false), "unavailable");
 });
+
+test("a task-specific stale session from the preparation API offers sign-in only", () => {
+  const needsSignIn = { ...locked, reason: "GPT02_FRESH_GOOGLE_OPERATOR_REQUIRED" };
+  assert.equal(preparationAction(189, needsSignIn, undefined, false), "sign-in");
+  assert.equal(preparationAction(189, needsSignIn, expired, false), "sign-in");
+  assert.equal(preparationAction(190, needsSignIn, expired, false), "unavailable");
+  assert.equal(preparationAction(189, needsSignIn, expired, true), "unavailable");
+  assert.equal(preparationAction(189, { ...needsSignIn, canRequestPreparation: true }, fresh, false), "unavailable");
+});

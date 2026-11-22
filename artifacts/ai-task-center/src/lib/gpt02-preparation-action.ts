@@ -17,6 +17,9 @@ export function preparationAction(
 ) {
   if (readFailed || (readiness && readiness.taskId !== taskId)) return "unavailable";
   if (!readiness) return "checking";
+  if (readiness.reason === "GPT02_FRESH_GOOGLE_OPERATOR_REQUIRED") {
+    return readiness.canRequestPreparation ? "unavailable" : "sign-in";
+  }
   if (!readiness.canRequestPreparation) return "waiting";
   if (!session) return "checking";
   if (session.googleProofFresh && !session.requiresFreshGoogleLogin) return "prepare";
