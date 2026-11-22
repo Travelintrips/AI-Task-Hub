@@ -101,6 +101,22 @@ with tempfile.TemporaryDirectory(prefix='task183-real-writer-qa-') as tmp:
    try:c.execute(sql,('B'*48,) if action=='UPDATE' else ());c.commit()
    except sqlite3.DatabaseError:c.rollback();passed(action+'_'+table+'_IMMUTABLE',True)
    else:passed(action+'_'+table+'_IMMUTABLE',False)
+ from task183_successor_reservation import SCHEMA
+ c.executescript(SCHEMA)
+ replacement='f'*36
+ c.execute('INSERT INTO task183_successor_requests VALUES(?,?,?)',(result['decisionId'],replacement,NOW+120000))
+ c.commit()
+ def approve_replacement(request= replacement,explicit=True):
+  return writer.record(actor=actor,evidence=evidence,explicit_action=explicit,db_path=p,
+    operational=False,now_ms=NOW+120001,nonce='F'*48,successor_request=request)
+ denied('WRONG_SUCCESSOR_DENIED',lambda:approve_replacement('e'*36))
+ denied('FRESH_OWNER_ACTION_REQUIRED',lambda:approve_replacement(explicit=False))
+ fresh=approve_replacement()
+ proof=reader.read_decision({**lookup,'requestId':replacement,'claimsSha256':fresh['claimsSha256'],
+    'nonce':'F'*48,'observedAt':NOW+120001},db_path=str(p),operational=False,now=NOW+120001)
+ passed('SUCCESSOR_WRITE_READ_SAME_DIGEST',proof['ok'] and fresh['requestId']==replacement)
+ denied('SUCCESSOR_REPLAY_DENIED',approve_replacement)
+ passed('BOTH_OUTBOX_ROWS_RETAINED',c.execute('SELECT count(*) FROM gpt02_task183_owner_recovery_outbox').fetchone()==(2,))
  c.close()
 print('RESULT',N,'PASS')
 print('LIVE_TASK183_APPROVAL_DECISIONS_CREATED=FALSE')

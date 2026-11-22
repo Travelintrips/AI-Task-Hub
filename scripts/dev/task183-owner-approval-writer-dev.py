@@ -109,7 +109,7 @@ def _verify_original_authoritative_evidence(actor,evidence,now_ms):
  return True
 
 def record(*,actor,evidence,explicit_action,db_path=LIVE_DB,
-           operational=True,now_ms=None,nonce=None):
+           operational=True,now_ms=None,nonce=None,successor_request=None):
  """The explicit action must come only from authenticated UI POST server code.
 
  This module cannot validate a JWT itself. The invoking HTTP handler must
@@ -127,11 +127,27 @@ def record(*,actor,evidence,explicit_action,db_path=LIVE_DB,
   con.execute('PRAGMA busy_timeout=5000')
   con.execute('PRAGMA foreign_keys=ON')
   con.execute('BEGIN IMMEDIATE')
+  existing = 0
+  if successor_request is not None:
+   if not isinstance(successor_request,str) or not re.fullmatch('[a-f0-9]{36}',successor_request) or successor_request==REQUEST:
+    _deny('INVALID_SUCCESSOR_REQUEST')
+   reservations=con.execute('''SELECT s.request_id FROM task183_successor_requests s
+    JOIN gpt02_task183_owner_recovery_decisions d ON d.id=s.predecessor_id
+    WHERE d.task_id=183 AND d.company_id='default' AND d.request_id=?
+      AND d.evidence_sha256=? AND d.owner_subject=? AND d.auth_user_id=?
+      AND d.expires_at_ms<=s.created_at_ms AND s.created_at_ms<=?
+      AND d.nonce<>? AND (SELECT count(*) FROM task183_successor_requests)=1''' ,
+    (REQUEST,SHA,claims['ownerSubject'],actor['authSupabaseId'],now_ms,claims['nonce'])).fetchall()
+   if reservations!=[(successor_request,)]:
+    _deny('MATCHING_SUCCESSOR_RESERVATION_REQUIRED')
+   claims['requestId']=successor_request
+   digest=hashlib.sha256(_canonical(claims)).hexdigest()
+   existing=1
   for table in ('gpt02_task183_owner_recovery_decisions',
                 'gpt02_task183_owner_recovery_outbox'):
    if not con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",(table,)).fetchone():
     _deny('DORMANT_APPROVAL_SCHEMA_NOT_INSTALLED')
-   if con.execute('SELECT count(*) FROM '+table).fetchone()[0]:
+   if con.execute('SELECT count(*) FROM '+table).fetchone()[0]!=existing:
     _deny('EXISTING_APPROVAL_MUST_NOT_BE_REPLAYED')
   rows=con.execute("""
     SELECT l.auth_user_id,a.role,a.enabled,l.enabled
@@ -143,7 +159,7 @@ def record(*,actor,evidence,explicit_action,db_path=LIVE_DB,
   if len(rows)!=1 or rows[0]!=(actor['authSupabaseId'],'super_admin',1,1):
    _deny('OWNER_GOOGLE_OPERATOR_MAPPING_INVALID')
   decision_id=str(uuid.uuid4());outbox_id=str(uuid.uuid4())
-  cols=(183,REQUEST,'default',SHA,digest,claims['ownerSubject'],
+  cols=(183,claims['requestId'],'default',SHA,digest,claims['ownerSubject'],
         claims['nonce'],actor['authSupabaseId'],'super_admin',
         'supabase_admin_session',APPROVAL,now_ms,claims['expiresAt'])
   con.execute('INSERT INTO gpt02_task183_owner_recovery_decisions VALUES ('+
@@ -151,12 +167,12 @@ def record(*,actor,evidence,explicit_action,db_path=LIVE_DB,
   outbox=(decision_id,*cols[:10],cols[11],cols[12])
   con.execute('INSERT INTO gpt02_task183_owner_recovery_outbox VALUES ('+
       ','.join('?'*14)+')',(outbox_id,*outbox))
-  if con.execute("SELECT count(*) FROM gpt02_task183_owner_recovery_decisions").fetchone()[0]!=1:
+  if con.execute("SELECT count(*) FROM gpt02_task183_owner_recovery_decisions").fetchone()[0]!=existing+1:
    _deny('DECISION_CARDINALITY_FAILED')
-  if con.execute("SELECT count(*) FROM gpt02_task183_owner_recovery_outbox").fetchone()[0]!=1:
+  if con.execute("SELECT count(*) FROM gpt02_task183_owner_recovery_outbox").fetchone()[0]!=existing+1:
    _deny('OUTBOX_CARDINALITY_FAILED')
   con.execute('COMMIT')
-  return {'requestId':REQUEST,'decisionId':decision_id,
+  return {'requestId':claims['requestId'],'decisionId':decision_id,
     'claims':claims,'claimsSha256':digest,
     'recorded':True,'ownerDecisionStored':True,
     'cryptographicOwnerSignatureCreated':False,

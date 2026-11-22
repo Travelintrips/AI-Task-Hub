@@ -29,7 +29,12 @@ start="        if self.path==OWNER_APPROVAL_READINESS_PATH:"
 end="        if self.path==OWNER_IDENTITY_STATUS_PATH:"
 i=normal.index(start);j=normal.index(end,i)
 normal=normal[:i]+normal[j:]
-normal=normal.replace("verify_session=verify_task183_owner_session,",
+i=normal.index('            successor=self.headers.get("X-GPT02-Successor")')
+j=normal.index('            try:',i)
+guard_start=candidate.index('            if self.headers.get("X-GPT02-Successor") is not None:')
+guard_end=candidate.index('            try:',guard_start)
+normal=normal[:i]+candidate[guard_start:guard_end]+normal[j:]
+normal=normal.replace("verify_session=verified_session,",
                       "verify_session=verify_jwt,")
 normal=normal.replace('''                # Verify root-only one-shot source BEFORE committing the
                 # irreversible Owner decision. Never discover missing code
@@ -43,7 +48,7 @@ normal=normal.replace('''                # The signed-session POST is the ONLY t
                 # On uncertain outcomes, return 202 for manual reconciliation:
                 # never retry the irreversible Owner decision/signature.
                 try:
-                    result=after.run_handoff(response)
+                    result=after.run_handoff(response,expected_request=successor)
                 except Exception as exc:
                     print("TASK183_OWNER_SIGNATURE_HANDOFF_FAILED",type(exc).__name__,flush=True)
                     result={"taskId":183,"ownerDecisionStored":True,
@@ -53,7 +58,7 @@ normal=normal.replace('''                # The signed-session POST is the ONLY t
                 self.reply(201 if result["signedEvidenceVerified"] is True else 202,result)''',
                 '''                self.reply(201,response)''')
 check("NEW_POST_OWNER_ONE_SHOT_HANDOFF_PRESENT",
-      'result=after.run_handoff(response)' in current and
+      'result=after.run_handoff(response,expected_request=successor)' in current and
       'self.reply(201 if result["signedEvidenceVerified"] is True else 202,result)' in current)
 
 check("DEPLOYED_ORIGINAL_OWNER_PATCH_PRESERVED",candidate==normal)
@@ -61,7 +66,7 @@ check("NEW_BACKEND_OWNER_READINESS_EXISTS",
       "def task183_owner_signing_ready():" in current and
       "def verify_task183_owner_session(token):" in current)
 check("POST_OWNERSHIP_CHECK_USES_READINESS",
-      "verify_session=verify_task183_owner_session," in current)
+      "actor=verify_task183_owner_session(token)" in current)
 check("GET_OWNER_READINESS_READONLY",
       "if self.path==OWNER_APPROVAL_READINESS_PATH:" in current and
       '"readOnly":True' in current)
@@ -95,7 +100,7 @@ calls={"writer":0,"signer":0}
 def committed(**_):
  calls["writer"]+=1
  return {"ownerDecisionStored":True}
-def failed_signer(_):
+def failed_signer(_,expected_request=None):
  calls["signer"]+=1
  raise RuntimeError("test handoff failure")
 modules={"task183_owner_http":SimpleNamespace(authorize_request=committed),
@@ -117,4 +122,29 @@ check("POST_COMMIT_EXCEPTION_RETURNS_MANUAL_REVIEW",replies==[(202,{
  "manualReviewRequired":True,"issuerAuthorized":False,"dispatchPermitted":False,
  "releaseDecision":"NO_GO"})])
 check("POST_COMMIT_EXCEPTION_DOES_NOT_RETRY",calls=={"writer":1,"signer":1})
+scope["verify_task183_owner_session"]=lambda token: {"role":"super_admin"}
+reserved="a"*36
+scope["task183_owner_decision_status"]=lambda **kw: ("successor_reserved",reserved)
+def authenticated_adapter(**kw):
+ kw["verify_session"]("synthetic")
+ return committed()
+modules["task183_owner_http"].authorize_request=authenticated_adapter
+seen=[]
+def capture(response,expected_request):
+ seen.append(expected_request)
+ return {"signedEvidenceVerified":True}
+modules["task183_owner_after_decision"].run_handoff=capture
+def post(reference):
+ headers={"Origin":scope["ORIGIN"],"Host":"dev-ai-task.cstlogistic.co.id",
+          "Content-Length":str(len(body)),"Authorization":"Bearer synthetic",
+          "X-GPT02-Intent":"approve-task183-recovery-attempt2-only"}
+ if reference is not None:
+  headers["X-GPT02-Successor"]=reference
+ scope["submit"](SimpleNamespace(path="/isolated",rfile=io.BytesIO(body),headers=headers,
+      reply=lambda code,result:replies.append((code,result))))
+for reference in (None,"b"*36):
+ post(reference)
+ check("STALE_POST_BEFORE_WRITE",replies[-1][0]==409 and calls["writer"]==1 and not seen)
+post(reserved)
+check("EXACT_RESERVED_ID_REACHES_HANDOFF",replies[-1][0]==201 and seen==[reserved] and calls["writer"]==2)
 print(f"RESULT={n}/{n} PASS")

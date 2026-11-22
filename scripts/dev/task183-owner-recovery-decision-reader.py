@@ -29,7 +29,7 @@ def verify_lookup(x,now):
       'ownerSubject','nonce','observedAt'} and
       type(x['claimsSha256']) is str and SHA.fullmatch(x['claimsSha256']) and
       x['taskId']==183 and type(x['taskId']) is int and
-      x['requestId']==REQUEST and x['evidenceSha256']==EVIDENCE and
+      type(x['requestId']) is str and re.fullmatch(r'[a-f0-9]{36}',x['requestId']) and x['evidenceSha256']==EVIDENCE and
       type(x['ownerSubject']) is str and SUBJECT.fullmatch(x['ownerSubject']) and
       type(x['nonce']) is str and NONCE.fullmatch(x['nonce']) and
       type(x['observedAt']) is int and abs(now-x['observedAt'])<=5000)
@@ -50,6 +50,34 @@ def read_decision(lookup, *, db_path=DB, operational=True, now=None):
         connection=sqlite3.connect('file:'+db_path+'?mode=ro',uri=True,timeout=2)
         connection.row_factory=sqlite3.Row
         connection.execute('PRAGMA query_only=ON')
+        connection.execute('BEGIN')
+        request_id = lookup['requestId']
+        has_ledger = connection.execute(
+            "SELECT type FROM main.sqlite_master WHERE name='task183_successor_requests'"
+        ).fetchone()
+        predecessor = None
+        if has_ledger is not None:
+            if has_ledger[0] != 'table':
+                return denied('SUCCESSOR_LEDGER_INVALID')
+            reservations = connection.execute("""
+                SELECT s.request_id, d.request_id AS original_request,
+                       d.auth_user_id, d.owner_subject, d.nonce, s.created_at_ms,
+                       d.expires_at_ms, d.evidence_sha256
+                  FROM task183_successor_requests s
+                  LEFT JOIN gpt02_task183_owner_recovery_decisions d
+                    ON d.id = s.predecessor_id AND d.task_id = 183 AND d.company_id = 'default'
+            """).fetchall()
+            if reservations:
+                if len(reservations) != 1 or request_id == REQUEST:
+                    return denied('ORIGINAL_REQUEST_SUPERSEDED_OR_LEDGER_AMBIGUOUS')
+                predecessor = reservations[0]
+                if (predecessor['original_request'] != REQUEST or
+                    predecessor['request_id'] != request_id or
+                    predecessor['evidence_sha256'] != EVIDENCE or
+                    not predecessor['expires_at_ms'] <= predecessor['created_at_ms'] <= now):
+                    return denied('SUCCESSOR_LINEAGE_INVALID')
+        if request_id != REQUEST and predecessor is None:
+            return denied('SUCCESSOR_RESERVATION_REQUIRED')
         # Both decision and immutable outbox must exist IN SAME DB SNAPSHOT.
         # A signed-in Super Admin *intent* from another queue cannot match.
         rows=connection.execute("""
@@ -80,10 +108,17 @@ def read_decision(lookup, *, db_path=DB, operational=True, now=None):
            AND d.claims_sha256=? AND d.owner_subject=?
            AND d.nonce=?
            AND l.hub_operator_id=substr(d.owner_subject,7)
-        """, (183,REQUEST,EVIDENCE,lookup['claimsSha256'],
+        """, (183,request_id,EVIDENCE,lookup['claimsSha256'],
                 lookup['ownerSubject'],lookup['nonce'])).fetchall()
         if len(rows)!=1:return denied('PERSISTED_OWNER_DECISION_MISSING_OR_NOT_UNIQUE')
         r=rows[0]
+        if predecessor is not None and (
+            r['auth_user_id'] != predecessor['auth_user_id'] or
+            r['owner_subject'] != predecessor['owner_subject'] or
+            r['nonce'] == predecessor['nonce'] or
+            r['recorded_at_ms'] < predecessor['created_at_ms']
+        ):
+            return denied('FRESH_MATCHING_OWNER_DECISION_REQUIRED')
         if (r['decision']!='APPROVE_RECOVERY_ATTEMPT2_ONLY' or
             r['role_at_decision']!='super_admin' or
             r['auth_method']!='supabase_admin_session' or

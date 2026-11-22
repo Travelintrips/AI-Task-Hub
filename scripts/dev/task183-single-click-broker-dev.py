@@ -241,21 +241,54 @@ def task183_owner_signing_ready():
     except (OSError,ValueError,KeyError,subprocess.SubprocessError):
         return False
 
-def task183_owner_decision_status():
+def task183_owner_decision_status(*,include_request=False):
     uri="file:/opt/ai-coding-standalone-dev/tasks.db?mode=ro"
     db=sqlite3.connect(uri,uri=True,timeout=2)
     try:
-        rows=db.execute(
-            "SELECT expires_at_ms FROM gpt02_task183_owner_recovery_decisions "
-            "WHERE task_id=183 LIMIT 2"
-        ).fetchall()
+        status=read_task183_owner_decision_status(db,time.time_ns()//1_000_000)
+        if not include_request:
+            return status
+        successor=None
+        if status=="successor_reserved":
+            successor=db.execute("SELECT request_id FROM task183_successor_requests").fetchone()[0]
+        return status,successor
     finally:
         db.close()
-    if not rows:
-        return "not_recorded"
-    if len(rows)!=1 or type(rows[0][0]) is not int:
+
+
+def read_task183_owner_decision_status(db,now):
+    db.execute("BEGIN")
+    original="6bcd8419254dc21c0b149eb09e68a7b6da66"
+    rows=db.execute("SELECT id,request_id,expires_at_ms FROM gpt02_task183_owner_recovery_decisions "
+                    "WHERE task_id=183 AND company_id='default' LIMIT 3").fetchall()
+    ledger=db.execute("SELECT type FROM sqlite_master WHERE name='task183_successor_requests'").fetchone()
+    if ledger and ledger[0]!="table":
         return "unavailable"
-    return "expired" if rows[0][0]<=time.time_ns()//1_000_000 else "recorded"
+    reservations=db.execute("SELECT predecessor_id,request_id,created_at_ms "
+                            "FROM task183_successor_requests LIMIT 2").fetchall() if ledger else []
+    if not rows and not reservations:
+        return "not_recorded"
+    parents=[r for r in rows if r[1]==original]
+    if len(parents)!=1 or type(parents[0][2]) is not int:
+        return "unavailable"
+    parent=parents[0]
+    if not reservations:
+        if len(rows)!=1:
+            return "unavailable"
+        return "expired" if parent[2]<=now else "recorded"
+    if len(reservations)!=1:
+        return "unavailable"
+    previous,request,created=reservations[0]
+    if (previous!=parent[0] or not isinstance(request,str) or len(request)!=36
+        or any(c not in '0123456789abcdef' for c in request) or request==original
+        or type(created) is not int or not parent[2]<=created<=now):
+        return "unavailable"
+    if len(rows)==1:
+        return "successor_reserved"
+    children=[r for r in rows if r[1]==request]
+    if len(rows)!=2 or len(children)!=1 or type(children[0][2]) is not int:
+        return "unavailable"
+    return "expired" if children[0][2]<=now else "recorded"
 
 
 def verify_task183_owner_session(token):
@@ -298,11 +331,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if actor.get("role")!="super_admin":
                     raise ValueError("SUPER_ADMIN_REQUIRED")
                 try:
-                    decision_status=task183_owner_decision_status()
+                    decision_status,successor=task183_owner_decision_status(include_request=True)
                 except sqlite3.Error:
-                    decision_status="unavailable"
-                self.reply(200,{"taskId":183,"ownerDecisionStatus":decision_status,
-                    "signingReady":decision_status=="not_recorded" and task183_owner_signing_ready(),
+                    decision_status,successor="unavailable",None
+                self.reply(200,{"taskId":183,"ownerDecisionStatus":decision_status,"successorRequestId":successor,
+                    "signingReady":decision_status in ("not_recorded","successor_reserved") and task183_owner_signing_ready(),
                     "decisionDurationSeconds":120,"readOnly":True,
                     "issuerAuthorized":False,"dispatchPermitted":False,
                     "releaseDecision":"NO_GO"})
@@ -450,6 +483,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if not isinstance(auth,str) or not auth.startswith("Bearer "):
                 self.reply(401,{"error":"AUTHENTICATION_REQUIRED",
                                 "dispatchPermitted":False});return
+            successor=self.headers.get("X-GPT02-Successor")
+            def verified_session(token):
+                actor=verify_task183_owner_session(token)
+                status,reserved=task183_owner_decision_status(include_request=True)
+                if (status,reserved)!=("not_recorded",None) and (
+                    status!="successor_reserved" or not reserved or reserved!=successor):
+                    raise ValueError("STALE_OWNER_REQUEST")
+                if status=="not_recorded" and successor is not None:
+                    raise ValueError("UNRESERVED_SUCCESSOR")
+                return actor
             try:
                 adapter=checked_import(ROOT/"task183-owner-approval-http.candidate.py",
                     "task183_owner_http")
@@ -467,9 +510,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         "X-GPT02-Intent":self.headers.get("X-GPT02-Intent"),
                         "Content-Type":self.headers.get("Content-Type"),
                         "Content-Length":length,
-                        "Authorization":auth},
+                        "Authorization":auth,
+                        "X-GPT02-Successor":self.headers.get("X-GPT02-Successor")},
                     body=self.rfile.read(int(length)),
-                    verify_session=verify_task183_owner_session,
+                    verify_session=verified_session,
                     load_review=load_review_intake,
                     write_approval=writer.record)
                 # The signed-session POST is the ONLY trigger. After the
@@ -478,7 +522,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 # On uncertain outcomes, return 202 for manual reconciliation:
                 # never retry the irreversible Owner decision/signature.
                 try:
-                    result=after.run_handoff(response)
+                    result=after.run_handoff(response,expected_request=successor)
                 except Exception as exc:
                     print("TASK183_OWNER_SIGNATURE_HANDOFF_FAILED",type(exc).__name__,flush=True)
                     result={"taskId":183,"ownerDecisionStored":True,

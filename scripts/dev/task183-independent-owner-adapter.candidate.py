@@ -46,7 +46,7 @@ def authorize_recovery(*,claims,now_ms=None,db_path=None,operational=False):
         or claims["expiresAt"]<=now or claims["expiresAt"]>claims["issuedAt"]+300000):
         raise AuthorizationDenied("TASK183_CLAIM_EXPIRY_DENIED")
     m=_reader()
-    if (claims["requestId"]!=m.REQUEST or claims["evidenceSha256"]!=m.EVIDENCE):
+    if (claims["evidenceSha256"]!=m.EVIDENCE):
         raise AuthorizationDenied("TASK183_EXACT_REQUEST_OR_EVIDENCE_REQUIRED")
     payload=json.dumps({k:claims[k] for k in REQUIRED},ensure_ascii=False,separators=(",",":")).encode()
     digest=hashlib.sha256((DOMAIN+"\n").encode()+payload).hexdigest()

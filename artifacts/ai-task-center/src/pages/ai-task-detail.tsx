@@ -734,7 +734,8 @@ export default function AiTaskDetail() {
   // the real detached signer and trusted receipt broker are already ready.
   const {data: task183OwnerSigningReadiness} = useQuery<{
     taskId:number;signingReady:boolean;decisionDurationSeconds:number;
-    ownerDecisionStatus?: "not_recorded" | "recorded" | "expired" | "unavailable";
+    successorRequestId?: string | null;
+    ownerDecisionStatus?: "not_recorded" | "recorded" | "expired" | "successor_reserved" | "unavailable";
     issuerAuthorized:false;dispatchPermitted:false;readOnly:true;
   }>({
     queryKey:["task183-owner-approval-readiness",id],
@@ -744,9 +745,10 @@ export default function AiTaskDetail() {
     retry:false,refetchInterval:5_000,refetchOnWindowFocus:true,
   });
   const task183OwnerDecisionMutation = useMutation({
-    mutationFn:()=>apiFetch("/ai-tasks/183/gpt02-owner-approval?companyId=default",{
+    mutationFn:(successor:string | null)=>apiFetch("/ai-tasks/183/gpt02-owner-approval?companyId=default",{
       method:"POST",
-      headers:{"X-GPT02-Intent":"approve-task183-recovery-attempt2-only"},
+      headers:{"X-GPT02-Intent":"approve-task183-recovery-attempt2-only",
+        ...(successor ? {"X-GPT02-Successor":successor} : {})},
       body:JSON.stringify({approveRecoveryAttempt2:true}),
     }),
     onSuccess:(result:{ownerDecisionStored:boolean;signedEvidenceVerified:boolean;
@@ -1585,12 +1587,14 @@ export default function AiTaskDetail() {
                                       disabled={task183OwnerDecisionMutation.isPending ||
                                         task183OwnerDecisionMutation.isSuccess ||
                                         task183RecoveryConsentStatus?.recorded!==true ||
-                                        task183OwnerSigningReadiness?.ownerDecisionStatus!=="not_recorded" ||
+                                        (task183OwnerSigningReadiness?.ownerDecisionStatus!=="not_recorded" &&
+                                         !(task183OwnerSigningReadiness?.ownerDecisionStatus==="successor_reserved" &&
+                                           task183OwnerSigningReadiness.successorRequestId)) ||
                                         task183OwnerSigningReadiness?.signingReady!==true ||
                                         task183Postprep?.status!=="NO_GO_RESERVATION_EXPIRED"}
                                       onClick={()=>{
                                         if(window.confirm("Setujui satu keputusan Owner untuk recovery attempt #2 Task #183? Keputusan akan dicatat ke database DEV melalui sesi Super Admin Anda. Ini tidak menandatangani lewat signer, membuat command, atau mengizinkan dispatch."))
-                                          task183OwnerDecisionMutation.mutate();
+                                          task183OwnerDecisionMutation.mutate(task183OwnerSigningReadiness?.successorRequestId ?? null);
                                       }}>
                                       {task183OwnerDecisionMutation.isPending
                                         ? "Mencatat keputusan Owner..."
@@ -1598,6 +1602,9 @@ export default function AiTaskDetail() {
                                           ? "Keputusan Owner sudah tercatat"
                                           : "Setujui recovery attempt #2 (tanpa eksekusi)"}
                                     </Button>
+                                    {task183OwnerSigningReadiness?.ownerDecisionStatus==="successor_reserved" && (
+                                      <p role="status">Permintaan pengganti sudah tersedia. Persetujuan menunggu kesiapan jalur penandatanganan untuk permintaan ini.</p>
+                                    )}
                                     {task183OwnerSigningReadiness?.ownerDecisionStatus==="expired" && (
                                       <p role="status">Keputusan Owner sudah tercatat dan kedaluwarsa. Pemulihan memerlukan jalur keputusan pengganti.</p>
                                     )}
