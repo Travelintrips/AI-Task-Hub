@@ -18,6 +18,7 @@ import os
 import re
 import secrets
 import stat
+import sqlite3
 import subprocess
 import threading
 import time
@@ -240,6 +241,23 @@ def task183_owner_signing_ready():
     except (OSError,ValueError,KeyError,subprocess.SubprocessError):
         return False
 
+def task183_owner_decision_status():
+    uri="file:/opt/ai-coding-standalone-dev/tasks.db?mode=ro"
+    db=sqlite3.connect(uri,uri=True,timeout=2)
+    try:
+        rows=db.execute(
+            "SELECT expires_at_ms FROM gpt02_task183_owner_recovery_decisions "
+            "WHERE task_id=183 LIMIT 2"
+        ).fetchall()
+    finally:
+        db.close()
+    if not rows:
+        return "not_recorded"
+    if len(rows)!=1 or type(rows[0][0]) is not int:
+        return "unavailable"
+    return "expired" if rows[0][0]<=time.time_ns()//1_000_000 else "recorded"
+
+
 def verify_task183_owner_session(token):
     actor=verify_jwt(token)
     if not task183_owner_signing_ready():
@@ -279,7 +297,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 actor=verify_jwt(auth[7:])
                 if actor.get("role")!="super_admin":
                     raise ValueError("SUPER_ADMIN_REQUIRED")
-                self.reply(200,{"taskId":183,"signingReady":task183_owner_signing_ready(),
+                try:
+                    decision_status=task183_owner_decision_status()
+                except sqlite3.Error:
+                    decision_status="unavailable"
+                self.reply(200,{"taskId":183,"ownerDecisionStatus":decision_status,
+                    "signingReady":decision_status=="not_recorded" and task183_owner_signing_ready(),
                     "decisionDurationSeconds":120,"readOnly":True,
                     "issuerAuthorized":False,"dispatchPermitted":False,
                     "releaseDecision":"NO_GO"})

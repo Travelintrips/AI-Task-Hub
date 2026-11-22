@@ -24,7 +24,7 @@ orig=funcmap(base);new=funcmap(candidate)
 prefix="OWNER_APPROVAL_READINESS_PATH="
 suffix="RECOVERY_CHALLENGE_BODY="
 i=current.index(prefix);j=current.index(suffix,i)
-normal=current[:i]+current[j:]
+normal=(current[:i]+current[j:]).replace("import sqlite3\n","",1)
 start="        if self.path==OWNER_APPROVAL_READINESS_PATH:"
 end="        if self.path==OWNER_IDENTITY_STATUS_PATH:"
 i=normal.index(start);j=normal.index(end,i)
