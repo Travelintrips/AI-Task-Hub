@@ -24,6 +24,9 @@ on:
       - 'scripts/dev/task183-owner-signer-one-shot.candidate.test.py'
       - 'scripts/dev/task183-resolve-approved-claims.readonly.candidate.py'
       - 'scripts/dev/task183-writer-real-schema-isolated.test.py'
+      - 'scripts/dev/task183-owner-after-decision.candidate.py'
+      - 'scripts/dev/task183-owner-after-decision.candidate.test.py'
+      - 'scripts/dev/task183-owner-after-decision-http.fixture.test.py'
       - 'scripts/dev/task183-owner-approval-http.candidate.py'
       - 'scripts/dev/task183-owner-approval-http.candidate.test.py'
       - 'scripts/dev/task183-wire-owner-approval-http.candidate.py'
@@ -81,6 +84,10 @@ jobs:
         run: python3 -m py_compile scripts/dev/task183-systemd-peer-policy.candidate.py scripts/dev/task183-dynamic-user-peer-runtime.fixture.py scripts/dev/task183-integrated-live-no-go-probe.py scripts/dev/task183-operational-custody-negative-proof.py
       - name: Validate VPS-only real-schema writer-reader regression syntax
         run: python3 -m py_compile scripts/dev/task183-resolve-approved-claims.readonly.candidate.py scripts/dev/task183-writer-real-schema-isolated.test.py
+      - name: Task183 one-shot post-decision signing integration (no real key)
+        run: |
+          python3 scripts/dev/task183-owner-after-decision.candidate.test.py
+          python3 -m py_compile scripts/dev/task183-owner-after-decision-http.fixture.test.py
       - name: Task183 signed-session Owner decision route contract
         run: |
           python3 scripts/dev/task183-owner-approval-http.candidate.test.py
