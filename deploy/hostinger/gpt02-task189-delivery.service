@@ -1,0 +1,33 @@
+[Unit]
+Description=Deliver an independently issued GPT02 preparation credential for CST-DEV Task 189
+After=systemd-tmpfiles-setup.service
+
+[Service]
+Type=exec
+User=root
+Group=root
+UMask=0077
+LoadCredentialEncrypted=gpt02-task189-preparer:/etc/credstore.encrypted/gpt02-task189-preparer
+RuntimeDirectory=ai-task189-delivery
+RuntimeDirectoryMode=0700
+ExecStartPre=/usr/bin/python3 -I /usr/local/libexec/ai-task189-dev/deliver.py publish
+ExecStart=/usr/bin/sleep infinity
+ExecStopPost=/usr/bin/python3 -I /usr/local/libexec/ai-task189-dev/deliver.py withdraw
+# The API accepts preparer roles with at most ten minutes left. The database
+# enforces the actual (possibly shorter) window on every preparation.
+RuntimeMaxSec=10min
+TimeoutStopSec=10s
+Restart=no
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/run/ai-task-dev-scoped-preparation/task189
+InaccessiblePaths=-/run/docker.sock -/etc/credstore.encrypted -/etc/ai-task
+PrivateDevices=yes
+PrivateTmp=yes
+PrivateNetwork=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+CapabilityBoundingSet=CAP_CHOWN CAP_DAC_OVERRIDE
+SystemCallFilter=~@network-io @mount
