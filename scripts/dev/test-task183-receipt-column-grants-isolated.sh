@@ -16,11 +16,31 @@ docker run -d --name "$name" --network none --restart no \
 
 test -z "$(docker port "$name")"
 test "$(docker inspect "$name" -f '{{.HostConfig.NetworkMode}}')" = none
-for i in $(seq 1 50); do
-  if docker exec "$name" pg_isready -U postgres -d postgres >/dev/null 2>&1; then break; fi
-  sleep .2
+
+# The official PostgreSQL image briefly starts a temporary bootstrap server.
+# pg_isready can pass during that phase, immediately before the server restarts.
+# Wait for the entrypoint's final-start marker, then require live readiness.
+ready=false
+for i in $(seq 1 90); do
+  if docker logs "$name" 2>&1 | grep -Fq "PostgreSQL init process complete; ready for start up."; then
+    if docker exec "$name" pg_isready -U postgres -d postgres >/dev/null 2>&1; then
+      ready=true
+      break
+    fi
+  fi
+  if test "$(docker inspect "$name" -f '{{.State.Running}}')" != true; then
+    echo "ISOLATED_POSTGRES_EXITED_DURING_BOOTSTRAP" >&2
+    docker logs "$name" --tail 15 >&2
+    exit 2
+  fi
+  sleep .5
 done
-docker exec "$name" pg_isready -U postgres -d postgres >/dev/null
+if test "$ready" != true; then
+  echo "ISOLATED_POSTGRES_NOT_READY_AFTER_FINAL_START" >&2
+  docker logs "$name" --tail 15 >&2
+  exit 2
+fi
+echo "ISOLATED_POSTGRES_FINAL_START_READY_PASS"
 
 docker exec -i "$name" psql -Xv ON_ERROR_STOP=1 -U postgres -d postgres <<'SQL' >/dev/null
 CREATE SCHEMA gpt02_stage;
