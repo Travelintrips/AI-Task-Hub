@@ -31,5 +31,3 @@ UMask=0077
 StandardOutput=journal
 StandardError=journal
 
-[Install]
-WantedBy=multi-user.target
