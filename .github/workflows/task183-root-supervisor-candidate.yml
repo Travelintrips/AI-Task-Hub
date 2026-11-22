@@ -19,6 +19,8 @@ on:
       - 'scripts/dev/task183-broker-indirect-module-custody.test.py'
       - 'scripts/dev/task183-root-broker-systemd-sandbox-preflight.py'
       - 'scripts/dev/task183-live-release-readiness.readonly.py'
+      - 'scripts/dev/task183-owner-signer-one-shot.candidate.py'
+      - 'scripts/dev/task183-owner-signer-one-shot.candidate.test.py'
       - 'scripts/dev/task183-resolve-approved-claims.readonly.candidate.py'
       - 'scripts/dev/task183-writer-real-schema-isolated.test.py'
       - 'scripts/dev/task183-owner-approval-http.candidate.py'
@@ -105,6 +107,10 @@ jobs:
         run: python3 scripts/dev/task183-independent-owner-adapter.candidate.test.py
       - name: Reader-backed Unix broker synthetic E2E and live database read-only denial
         run: python3 scripts/dev/task183-reader-backed-broker-authorization.candidate.test.py
+      - name: One-shot Owner-to-signer handoff synthetic Unix and expiry
+        run: |
+          python3 -m py_compile scripts/dev/task183-owner-signer-one-shot.candidate.py
+          python3 scripts/dev/task183-owner-signer-one-shot.candidate.test.py
       - name: Signer-side Unix admission and no-sign replay proof
         run: python3 scripts/dev/task183-signer-unix-gate.candidate.test.py
       - name: Exact pinned signer source recovery-only preservation regression
