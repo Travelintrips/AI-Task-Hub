@@ -82,14 +82,18 @@ def activate():
  validate_release()
  controller=guarded_source()
  fd=os.open(LOCK,os.O_CREAT|os.O_RDWR|os.O_NOFOLLOW,0o600)
- signer_started=False
- broker_launched=False
+ lock_acquired=False
+ signer_start_attempted=False
+ broker_launch_attempted=False
  try:
   fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB)
+  lock_acquired=True
   validate_release()  # Recheck inside lock, still before first service start.
   # Existing detached signer service is not modified, only started as DEV.
+  # Mark attempted before dispatching systemd: a failing start command may
+  # still have partially activated the unit.
+  signer_start_attempted=True
   systemctl("start",SIGNER)
-  signer_started=True
   if not active(SIGNER):deny("DETACHED_SIGNER_NOT_READY")
   # RefuseManualStart=yes on the broker; systemd can only start it as
   # a dependency of the isolated transient one-shot activation job.
@@ -98,9 +102,10 @@ def activate():
        "-p","Requires="+BROKER,
        "-p","After="+BROKER,
        "/usr/bin/true"]
+  # systemd-run can return a failure/timeout AFTER its required unit started.
+  broker_launch_attempted=True
   result=subprocess.run(cmd,capture_output=True,text=True,timeout=22)
   if result.returncode!=0:deny("ROOT_BROKER_DEPENDENCY_START_FAILED")
-  broker_launched=True
   if not controller.check():deny("BROKER_SIGNER_RUNTIME_READINESS_FAILED")
   print("TASK183_SIGNING_WINDOW=READY_FOR_AUTHENTICATED_OWNER_ACTION")
   print("SIGNED_OWNER_DECISION_CREATED=FALSE")
@@ -110,13 +115,16 @@ def activate():
  except Exception:
   # Even RefuseManualStop=yes cannot block process SIGTERM. The broker's
   # registered signal handler removes its socket and exits cleanly.
-  if broker_launched or active(BROKER):
-   systemctl("kill","--signal=SIGTERM",BROKER,check=False)
-  if signer_started:
-   systemctl("stop",SIGNER,check=False)
+  # NEVER touch someone else's active signing window when LOCK_NB failed.
+  # Roll back only resources our lock-holding attempt could have started.
+  if lock_acquired:
+   if broker_launch_attempted and active(BROKER):
+    systemctl("kill","--signal=SIGTERM",BROKER,check=False)
+   if signer_start_attempted:
+    systemctl("stop",SIGNER,check=False)
   raise
  finally:
-  fcntl.flock(fd,fcntl.LOCK_UN)
+  if lock_acquired:fcntl.flock(fd,fcntl.LOCK_UN)
   os.close(fd)
 
 if __name__=="__main__":
