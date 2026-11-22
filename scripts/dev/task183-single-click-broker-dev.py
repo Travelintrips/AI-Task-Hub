@@ -335,7 +335,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 except sqlite3.Error:
                     decision_status,successor="unavailable",None
                 self.reply(200,{"taskId":183,"ownerDecisionStatus":decision_status,"successorRequestId":successor,
-                    "signingReady":decision_status=="not_recorded" and task183_owner_signing_ready(),
+                    "signingReady":decision_status in ("not_recorded","successor_reserved") and task183_owner_signing_ready(),
                     "decisionDurationSeconds":120,"readOnly":True,
                     "issuerAuthorized":False,"dispatchPermitted":False,
                     "releaseDecision":"NO_GO"})
@@ -483,9 +483,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if not isinstance(auth,str) or not auth.startswith("Bearer "):
                 self.reply(401,{"error":"AUTHENTICATION_REQUIRED",
                                 "dispatchPermitted":False});return
-            if self.headers.get("X-GPT02-Successor") is not None:
-                self.reply(409,{"error":"SUCCESSOR_SIGNING_PATH_NOT_READY","dispatchPermitted":False})
-                return
+            successor=self.headers.get("X-GPT02-Successor")
+            def verified_session(token):
+                actor=verify_task183_owner_session(token)
+                status,reserved=task183_owner_decision_status(include_request=True)
+                if (status,reserved)!=("not_recorded",None) and (
+                    status!="successor_reserved" or not reserved or reserved!=successor):
+                    raise ValueError("STALE_OWNER_REQUEST")
+                if status=="not_recorded" and successor is not None:
+                    raise ValueError("UNRESERVED_SUCCESSOR")
+                return actor
             try:
                 adapter=checked_import(ROOT/"task183-owner-approval-http.candidate.py",
                     "task183_owner_http")
@@ -506,7 +513,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         "Authorization":auth,
                         "X-GPT02-Successor":self.headers.get("X-GPT02-Successor")},
                     body=self.rfile.read(int(length)),
-                    verify_session=verify_task183_owner_session,
+                    verify_session=verified_session,
                     load_review=load_review_intake,
                     write_approval=writer.record)
                 # The signed-session POST is the ONLY trigger. After the
@@ -515,7 +522,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 # On uncertain outcomes, return 202 for manual reconciliation:
                 # never retry the irreversible Owner decision/signature.
                 try:
-                    result=after.run_handoff(response)
+                    result=after.run_handoff(response,expected_request=successor)
                 except Exception as exc:
                     print("TASK183_OWNER_SIGNATURE_HANDOFF_FAILED",type(exc).__name__,flush=True)
                     result={"taskId":183,"ownerDecisionStored":True,
