@@ -41,10 +41,10 @@ def check():
  if (not stat.S_ISSOCK(bp.st_mode) or BROKER.is_symlink() or bp.st_uid!=0
   or bp.st_gid!=gid or stat.S_IMODE(bp.st_mode)!=0o660):
   fail("ROOT_BROKER_SOCKET_CUSTODY_INVALID")
- sp=os.lstat(SIGNER)
- if (not stat.S_ISSOCK(sp.st_mode) or SIGNER.is_symlink() or sp.st_uid==0
-  or stat.S_IMODE(sp.st_mode)!=0o660):
-  fail("DETACHED_SIGNER_SOCKET_CUSTODY_INVALID")
+ # Do not traverse the detached signer's DynamicUser 0700 private
+ # directory here. This no-capabilities controller validates the unit's
+ # actual process/cgroup; the authenticated HTTP readiness endpoint owns
+ # the root-capable socket inode verification.
  pid_text=systemd_value(SIGNER_UNIT,"MainPID")
  if not pid_text.isdigit() or int(pid_text)<2:fail("SIGNER_UNIT_PID_INVALID")
  pid=int(pid_text)
@@ -53,7 +53,7 @@ def check():
  attrs=dict(line.split(":",1) for line in status.splitlines() if ":" in line)
  uids=attrs.get("Uid","").split()
  groups=attrs.get("Groups","").split()
- if (len(uids)<2 or int(uids[1])!=sp.st_uid
+ if (len(uids)<2 or int(uids[1])==0
      or str(gid) not in groups
      or not any(SIGNER_UNIT in row.split("/") for row in cgroup.splitlines())):
   fail("DYNAMIC_SIGNER_PROCESS_IDENTITY_INVALID")
