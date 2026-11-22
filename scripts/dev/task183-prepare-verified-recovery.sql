@@ -52,3 +52,17 @@ BEGIN
     RETURN attempt;
 END $$;
 REVOKE ALL ON FUNCTION gpt02_stage.prepare_task183_recovery(text) FROM PUBLIC;
+
+-- DEV may grant default privileges to API roles on newly created objects.
+DO $$
+DECLARE grantee_name name;
+BEGIN
+    FOR grantee_name IN SELECT DISTINCT r.rolname FROM pg_class c
+        CROSS JOIN LATERAL aclexplode(c.relacl) a JOIN pg_roles r ON r.oid=a.grantee
+        WHERE c.oid='gpt02_stage.task183_verified_recovery_receipts'::regclass AND r.oid<>c.relowner
+    LOOP EXECUTE format('REVOKE ALL ON gpt02_stage.task183_verified_recovery_receipts FROM %I',grantee_name); END LOOP;
+    FOR grantee_name IN SELECT DISTINCT r.rolname FROM pg_proc p
+        CROSS JOIN LATERAL aclexplode(p.proacl) a JOIN pg_roles r ON r.oid=a.grantee
+        WHERE p.oid='gpt02_stage.prepare_task183_recovery(text)'::regprocedure AND r.oid<>p.proowner
+    LOOP EXECUTE format('REVOKE ALL ON FUNCTION gpt02_stage.prepare_task183_recovery(text) FROM %I',grantee_name); END LOOP;
+END $$;
