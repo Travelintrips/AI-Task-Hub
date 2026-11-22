@@ -736,7 +736,7 @@ export default function AiTaskDetail() {
   const {data: task183OwnerSigningReadiness} = useQuery<{
     taskId:number;signingReady:boolean;decisionDurationSeconds:number;
     successorRequestId?: string | null;
-    ownerDecisionStatus?: "not_recorded" | "recorded" | "expired" | "successor_reserved" | "unavailable";
+    ownerDecisionStatus?: "not_recorded" | "recorded" | "expired" | "successor_reserved" | "renewal_review_pending" | "unavailable";
     issuerAuthorized:false;dispatchPermitted:false;readOnly:true;
   }>({
     queryKey:["task183-owner-approval-readiness",id],
