@@ -128,14 +128,21 @@ else:
  kw=dict(role="recovery-approval",claims=claims,approval_digest=digest,
  request_id=claims["requestId"],evidence_sha256=claims["evidenceSha256"],
  signing_bytes=raw,signer_callback=sign)
- result=gate.sign_once(**kw)
- assert isinstance(result,bytes) and len(result)==64 and calls[0]==1
- print("DYNAMIC_SIGNER_FIRST_SIGNATURE=PASS",flush=True)
- try:gate.sign_once(**kw)
- except RuntimeError:pass
- else:raise AssertionError("DUPLICATE_SIGNING_ALLOWED")
- assert calls[0]==1
- print("DYNAMIC_SIGNER_NO_SECOND_SIGNATURE=PASS",flush=True)
+ if mode=="replay":
+  try:gate.sign_once(**kw)
+  except RuntimeError:pass
+  else:raise AssertionError("SIGNER_RESTART_AUTOSIGNED")
+  assert calls[0]==0
+  print("SAME_UNIT_RESTART_NO_NEW_SIGNATURE=PASS",flush=True)
+ else:
+  result=gate.sign_once(**kw)
+  assert isinstance(result,bytes) and len(result)==64 and calls[0]==1
+  print("DYNAMIC_SIGNER_FIRST_SIGNATURE=PASS",flush=True)
+  try:gate.sign_once(**kw)
+  except RuntimeError:pass
+  else:raise AssertionError("DUPLICATE_SIGNING_ALLOWED")
+  assert calls[0]==1
+  print("DYNAMIC_SIGNER_NO_SECOND_SIGNATURE=PASS",flush=True)
 '''
    def launch(unit,mode):
     cmd=["systemd-run","--quiet","--wait","--collect","--unit="+unit,
@@ -156,9 +163,9 @@ else:
    check("NO_UNRESOLVED_AFTER_SUCCESS",audit["unresolved"]==0)
    check("NO_ISSUER_DISPATCH",not audit["issuerAuthorized"] and not audit["dispatchPermitted"])
    check("READER_ONLY_CALLED_FOR_VALID_SIGNER",reader_calls[0]==2)
-   good_replay=launch(GOOD.replace(".service","-replay.service"),"real")
-   # Another unit under the same group is rejected before calling the signer.
-   check("DIFFERENT_UNIT_REPLAY_IS_DENIED",good_replay.returncode!=0)
+   restarted=launch(GOOD,"replay")
+   check("SAME_SYSTEMD_UNIT_RESTART_SUCCEEDS",restarted.returncode==0)
+   check("RESTART_DID_NOT_RE_SIGN",reader_calls[0]==3)
    check("COMPLETED_RECEIPT_IMMUTABLE",custody.audit(path=store,operational=False)==audit)
    print("RESULT="+str(n)+"/"+str(n)+" PASS",flush=True)
    print("SIGNER_KEY=TEMPORARY_ED25519_ONLY",flush=True)
