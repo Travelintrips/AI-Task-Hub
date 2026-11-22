@@ -57,6 +57,32 @@ with tempfile.TemporaryDirectory(prefix='task183-owner-decision-fixture-') as tm
  check('OTHER_OWNER_DENIED',read({**lookup(),'ownerSubject':'owner:someone_else'})['ok'] is False)
  check('OTHER_TASK_DENIED',read({**lookup(),'taskId':184})['ok'] is False)
  check('BACKDATED_OBSERVATION_DENIED',read({**lookup(),'observedAt':NOW-6000})['ok'] is False)
+ successor = 'b'*36
+ fresh = {**lookup(), 'requestId':successor, 'nonce':'F'*48, 'claimsSha256':'c'*64}
+ check('UNRESERVED_REQUEST_DENIED',read(fresh)['ok'] is False)
+ from task183_successor_reservation import SCHEMA
+ db.executescript(SCHEMA)
+ db.execute('INSERT INTO task183_successor_requests VALUES(?,?,?)',('synthetic_decision',successor,NOW))
+ db.commit()
+ check('OLD_REQUEST_FENCED_EVEN_BEFORE_EXPIRY',read()['ok'] is False)
+ check('INVALID_SUCCESSION_TIME_DENIED',read(fresh)['ok'] is False)
+ with db:
+  for table in ('gpt02_task183_owner_recovery_decisions','gpt02_task183_owner_recovery_outbox'):
+   db.execute('UPDATE '+table+' SET expires_at_ms=?',(NOW,))
+ check('RESERVATION_ALONE_DENIED',read(fresh)['ok'] is False)
+ newcols=(183,successor,'default',m.EVIDENCE,'c'*64,owner,'F'*48,uid,'super_admin',
+          'supabase_admin_session','APPROVE_RECOVERY_ATTEMPT2_ONLY',NOW,NOW+120000)
+ with db:
+  db.execute('INSERT INTO gpt02_task183_owner_recovery_decisions VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',('fresh_decision',*newcols))
+  db.execute('INSERT INTO gpt02_task183_owner_recovery_outbox VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',
+             ('fresh_outbox','fresh_decision',*newcols[:10],*newcols[11:]))
+ check('FRESH_BOUND_DECISION_READ_ONLY',read(fresh)['persistedIndependentOwnerDecision'] is True)
+ # Restore the original fixture for the remaining legacy-reader cases.
+ db.execute('DROP TABLE task183_successor_requests')
+ with db:
+  for table in ('gpt02_task183_owner_recovery_decisions','gpt02_task183_owner_recovery_outbox'):
+   db.execute('DELETE FROM '+table+' WHERE request_id=?',(successor,))
+   db.execute('UPDATE '+table+' SET expires_at_ms=?',(NOW+100000,))
  db.execute("UPDATE gpt02_task183_owner_recovery_decisions SET decision='DENY' ")
  db.commit()
  check('OWNER_REJECTION_DENIED',read()['ok'] is False)
