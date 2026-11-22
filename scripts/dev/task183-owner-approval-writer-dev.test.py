@@ -117,6 +117,19 @@ with tempfile.TemporaryDirectory(prefix='task183-real-writer-qa-') as tmp:
  passed('SUCCESSOR_WRITE_READ_SAME_DIGEST',proof['ok'] and fresh['requestId']==replacement)
  denied('SUCCESSOR_REPLAY_DENIED',approve_replacement)
  passed('BOTH_OUTBOX_ROWS_RETAINED',c.execute('SELECT count(*) FROM gpt02_task183_owner_recovery_outbox').fetchone()==(2,))
+ renewed='b'*36
+ c.execute('INSERT INTO task183_successor_requests VALUES(?,?,?)',(fresh['decisionId'],renewed,NOW+240001))
+ c.commit()
+ denied('SUPERSEDED_APPROVAL_DENIED',approve_replacement)
+ def renew(nonce):
+  return writer.record(actor=actor,evidence=evidence,explicit_action=True,db_path=p,
+    operational=False,now_ms=NOW+240002,nonce=nonce,successor_request=renewed)
+ denied('ORIGINAL_NONCE_REUSE_DENIED',lambda:renew('A'*48))
+ final=renew('B'*48)
+ renewed_proof=reader.read_decision({**lookup,'requestId':renewed,'claimsSha256':final['claimsSha256'],
+    'nonce':'B'*48,'observedAt':NOW+240002},db_path=str(p),operational=False,now=NOW+240002)
+ passed('RENEWED_DECISION_INDEPENDENTLY_VERIFIED',renewed_proof['ok'])
+ denied('RENEWED_DECISION_REPLAY_DENIED',lambda:renew('C'*48))
  c.close()
 print('RESULT',N,'PASS')
 print('LIVE_TASK183_APPROVAL_DECISIONS_CREATED=FALSE')
