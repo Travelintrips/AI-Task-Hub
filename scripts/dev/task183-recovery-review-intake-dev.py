@@ -203,6 +203,21 @@ def reserve_renewal_review(db, original_request, expired_request, now_ms):
         raise
 
 
+def get_pending_renewal(actor,expired_request,store_path=DB_PATH):
+    """Return the review visible to this Super Admin for the exact expired successor."""
+    if actor.get("role")!="super_admin" or not actor.get("id") or actor.get("companyId") not in (None,"default"):
+        raise ValueError("SUPER_ADMIN_REQUIRED")
+    with sqlite3.connect(Path(store_path).as_uri()+"?mode=ro",uri=True,timeout=3) as db:
+        if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='renewal_reviews'").fetchone():
+            return None
+        row=db.execute("""SELECT n.request_id FROM renewal_reviews n
+            JOIN reviews r ON r.request_id=n.parent_request
+            WHERE r.hub_task_id=183 AND r.company_id='default' AND r.requested_by=?
+            AND n.expired_request=? AND n.status=?""",
+            (actor["id"],expired_request,REVIEW_STATUS)).fetchone()
+        return row[0] if row else None
+
+
 def get_status(actor,store_path=DB_PATH):
     if actor.get("role")!="super_admin":raise ValueError("SUPER_ADMIN_REQUIRED")
     loc=Path(store_path)
