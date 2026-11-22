@@ -649,6 +649,7 @@ export default function AiTaskDetail() {
   // independent Owner review; this NEVER approves or issues a command.
   const {data: task183RecoveryReviewStatus} = useQuery<{
     taskId?:number;requested:boolean;requestId?:string;status:string;
+    renewalReview?:{requestId:string;status:string};
     approvalGranted:false;dispatchPermitted:false;readOnly?:true;
   }>({
     queryKey:["task183-recovery-review-status",id],
@@ -1556,6 +1557,11 @@ export default function AiTaskDetail() {
                     {task183RecoveryReviewStatus?.requested && (
                       <p role="status">Status permintaan: {task183RecoveryReviewStatus.status}.
                         Ini bukan approval.</p>
+                    )}
+                    {task183RecoveryReviewStatus?.renewalReview?.status==="PENDING_INDEPENDENT_OWNER_REVIEW" && (
+                      <p role="status">
+                        Permintaan pemulihan baru <code>{task183RecoveryReviewStatus.renewalReview.requestId}</code> menunggu peninjauan independen.
+                      </p>
                     )}
                     {task183RecoveryEvidence?.readOnly === true &&
                       task183RecoveryEvidence.ownerApprovalGranted === false && (
