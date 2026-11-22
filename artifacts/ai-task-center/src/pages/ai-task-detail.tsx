@@ -730,6 +730,18 @@ export default function AiTaskDetail() {
     retry:false,refetchInterval:30_000,refetchOnWindowFocus:true,
   });
   // Separate final Owner decision: requires an explicit authenticated click.
+  // Approval is valid for 120 seconds. Never offer final approval until
+  // the real detached signer and trusted receipt broker are already ready.
+  const {data: task183OwnerSigningReadiness} = useQuery<{
+    taskId:number;signingReady:boolean;decisionDurationSeconds:number;
+    issuerAuthorized:false;dispatchPermitted:false;readOnly:true;
+  }>({
+    queryKey:["task183-owner-approval-readiness",id],
+    queryFn:()=>apiFetch("/ai-tasks/183/gpt02-owner-approval-readiness?companyId=default"),
+    enabled:currentUser?.role==="super_admin" && task?.id===183 &&
+      task183OwnerIdentity?.eligible===true,
+    retry:false,refetchInterval:5_000,refetchOnWindowFocus:true,
+  });
   const task183OwnerDecisionMutation = useMutation({
     mutationFn:()=>apiFetch("/ai-tasks/183/gpt02-owner-approval?companyId=default",{
       method:"POST",
@@ -1561,6 +1573,7 @@ export default function AiTaskDetail() {
                                       disabled={task183OwnerDecisionMutation.isPending ||
                                         task183OwnerDecisionMutation.isSuccess ||
                                         task183RecoveryConsentStatus?.recorded!==true ||
+                                        task183OwnerSigningReadiness?.signingReady!==true ||
                                         task183Postprep?.status!=="NO_GO_RESERVATION_EXPIRED"}
                                       onClick={()=>{
                                         if(window.confirm("Setujui satu keputusan Owner untuk recovery attempt #2 Task #183? Keputusan akan dicatat ke database DEV melalui sesi Super Admin Anda. Ini tidak menandatangani lewat signer, membuat command, atau mengizinkan dispatch."))
@@ -1572,6 +1585,14 @@ export default function AiTaskDetail() {
                                           ? "Keputusan Owner sudah tercatat"
                                           : "Setujui recovery attempt #2 (tanpa eksekusi)"}
                                     </Button>
+                                    {task183OwnerSigningReadiness?.signingReady!==true && (
+                                      <p role="status" data-testid="task183-signer-not-ready">
+                                        Persetujuan final dikunci sampai broker receipt dan
+                                        signer DEV aktif dan terverifikasi. Keputusan Owner
+                                        hanya berlaku 120 detik; jangan mencatat persetujuan
+                                        sebelum jalur penandatanganan siap.
+                                      </p>
+                                    )}
                                     <p>Issuer dan dispatch tetap terkunci sampai verifikasi terpisah.</p>
                                   </div>
                                 ) : task183OwnerIdentityError ? (
