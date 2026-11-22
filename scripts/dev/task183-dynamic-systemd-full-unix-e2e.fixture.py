@@ -114,6 +114,20 @@ if mode=="impostor":
   response=json.loads(conn.recv(n,socket.MSG_WAITALL))
   assert response=={"status":"DENIED","reason":"PEER_CREDENTIAL_MISMATCH"},response
  print("IMPOSTOR_DENIED_BEFORE_CLAIMS=PASS",flush=True)
+elif mode=="crash":
+ with socket.socket(socket.AF_UNIX) as conn:
+  conn.settimeout(3)
+  conn.connect(str(socket_path))
+  message=json.dumps({"role":"recovery-approval","approvalDigest":digest,
+      "requestId":claims["requestId"],"evidenceSha256":claims["evidenceSha256"],
+      "claims":claims},separators=(",",":")).encode()
+  conn.sendall(struct.pack("!I",len(message))+message)
+  h=conn.recv(4,socket.MSG_WAITALL)
+  length=struct.unpack("!I",h)[0]
+  reply=json.loads(conn.recv(length,socket.MSG_WAITALL))
+  assert reply=={"status":"RESERVED","signingPermitted":True},reply
+ # Intentionally disconnect before any key.sign operation.
+ print("DISCONNECTED_AFTER_DURABLE_RESERVATION=PASS",flush=True)
 else:
  p=Path("/opt/ai-coding-standalone-dev/task183_signer_unix_gate.py")
  spec=importlib.util.spec_from_file_location("gate",p)
@@ -167,6 +181,19 @@ else:
    check("SAME_SYSTEMD_UNIT_RESTART_SUCCEEDS",restarted.returncode==0)
    check("RESTART_DID_NOT_RE_SIGN",reader_calls[0]==3)
    check("COMPLETED_RECEIPT_IMMUTABLE",custody.audit(path=store,operational=False)==audit)
+   # Simulate an actual systemd signer process closing immediately after
+   # the broker durably reserves, before the first key.sign is reached.
+   crash_store=Path(td)/"crash-receipt.sqlite"
+   custody.install(path=crash_store,operational=False)
+   srv.store=crash_store
+   crash=launch(GOOD,"crash")
+   check("DYNAMIC_UNIT_DISCONNECT_AFTER_RESERVE",crash.returncode==0)
+   interrupted=custody.audit(path=crash_store,operational=False)
+   check("CRASH_RESERVATION_UNRESOLVED",interrupted["total"]==1 and interrupted["unresolved"]==1 and interrupted["completed"]==0)
+   restarted_crash=launch(GOOD,"replay")
+   check("DYNAMIC_UNIT_RESTART_AFTER_CRASH_DENIED",restarted_crash.returncode==0)
+   check("CRASH_DOES_NOT_RESIGN",custody.audit(path=crash_store,operational=False)==interrupted)
+   check("CRASH_REPLAY_OWNER_READ_ONLY",reader_calls[0]==5)
    print("RESULT="+str(n)+"/"+str(n)+" PASS",flush=True)
    print("SIGNER_KEY=TEMPORARY_ED25519_ONLY",flush=True)
    print("OPERATIONAL_SIGNER_STARTED=FALSE",flush=True)
