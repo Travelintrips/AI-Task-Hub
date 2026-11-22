@@ -133,8 +133,31 @@ expectDenied IMMUTABLE_PREPARED_LEDGER postgres 'UPDATE gpt02_stage.core_prepara
 # hosted runner does not contain the private DEV image and must not fetch it.
 NODE_IMAGE="${GPT02_CORE_LOCAL_NODE_IMAGE:-ai-task-hub:dev-lifecycle-held-20261109}"
 if docker image inspect "$NODE_IMAGE" >/dev/null 2>&1; then
- docker run --rm --network none --entrypoint node \
-  --mount "type=volume,src=$SOCKET,dst=/var/run/postgresql" \
+ # Use TLS on the isolated database's loopback interface. The PostgreSQL
+ # container has no external network and the certificate is disposable.
+ openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=preparer-fixture' \
+   -addext 'subjectAltName=DNS:preparer-fixture,IP:127.0.0.1' -keyout "$WORK/server.key" \
+   -out "$WORK/server.crt" >/dev/null 2>&1
+ docker cp "$WORK/server.key" "$NAME:/tmp/preparer-fixture.key"
+ docker cp "$WORK/server.crt" "$NAME:/tmp/preparer-fixture.crt"
+ docker exec "$NAME" sh -ec '
+   chown postgres:postgres /tmp/preparer-fixture.key
+   chmod 600 /tmp/preparer-fixture.key
+   sed -i "1i hostssl all gpt02_core_prep_login 127.0.0.1/32 scram-sha-256" "$PGDATA/pg_hba.conf"
+ '
+ psqlAs postgres >/dev/null <<'SQL'
+ALTER SYSTEM SET ssl_cert_file='/tmp/preparer-fixture.crt';
+ALTER SYSTEM SET ssl_key_file='/tmp/preparer-fixture.key';
+ALTER SYSTEM SET ssl=on;
+SELECT pg_reload_conf();
+SET password_encryption='scram-sha-256';
+DO $$ BEGIN
+ EXECUTE format('ALTER ROLE gpt02_core_prep_login CONNECTION LIMIT 1 PASSWORD %L VALID UNTIL %L',
+                'fixture-preparer-only', clock_timestamp() + interval '8 minutes');
+END $$;
+SQL
+ docker run --rm --network "container:$NAME" --entrypoint node \
+  --mount "type=bind,src=$WORK/server.crt,dst=/tmp/preparer-fixture.crt,readonly" \
   --mount "type=bind,src=$ROOT/artifacts/api-server/src/lib/gpt02-core-task-preparation.mjs,dst=/tmp/gpt02-core-task-preparation.mjs,readonly" \
   --mount "type=bind,src=$ROOT/scripts/dev/gpt02-core-preparation-module-smoke.mjs,dst=/tmp/gpt02-core-preparation-module-smoke.mjs,readonly" \
   -e GPT02_CORE_FIXTURE_ONLY=1 "$NODE_IMAGE" /tmp/gpt02-core-preparation-module-smoke.mjs

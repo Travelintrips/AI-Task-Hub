@@ -1,15 +1,19 @@
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {createRequire} from 'node:module';
 import {Gpt02CoreTaskPreparer} from '/tmp/gpt02-core-task-preparation.mjs';
 if(process.env.GPT02_CORE_FIXTURE_ONLY!=='1')throw Error('FIXTURE_FLAG_REQUIRED');
 const require=createRequire('/app/artifacts/api-server/package.json');
 const {Pool}=require('pg');
-const pool=new Pool({host:'/var/run/postgresql',database:'gpt02_core_preparation_isolated',user:'gpt02_core_prep_login',max:2,connectionTimeoutMillis:4000});
+const pool=new Pool({
+ host:'127.0.0.1',database:'gpt02_core_preparation_isolated',user:'gpt02_core_prep_login',
+ password:'fixture-preparer-only',max:1,connectionTimeoutMillis:4000,
+ ssl:{servername:'preparer-fixture',ca:readFileSync('/tmp/preparer-fixture.crt','utf8'),rejectUnauthorized:true}
+});
 const input={companyId:'default',hubTaskId:137,projectName:'GPT02 DEV coding lifecycle',repository:'Travelintrips/Core-AI-Foundation',branch:'develop',instruction:'PREPARE ONLY, never issue a command.'};
 try{
- const diagnosticPool={async connect(){let c;try{c=await pool.connect()}catch(e){console.log('ISOLATED_CONNECT_ERROR',e.code||e.name);throw e}
- return {async query(sql,params){try{return await c.query(sql,params)}catch(e){console.log('ISOLATED_QUERY_ERROR',e.code||e.name,typeof sql==='string'?sql.slice(0,65):'query');throw e}},release:discard=>c.release(discard)};}};
- const preparer=new Gpt02CoreTaskPreparer({pool:diagnosticPool});
+ const preparer=new Gpt02CoreTaskPreparer({pool});
+ assert.equal((await preparer.verifyReadiness()).verified,true);
  const r=await preparer.prepare(input);
  assert.equal(r.preparedNew,false);assert.equal(r.hubExecutionStatus,'prepared');assert.equal(r.commandIssued,false);
  assert.equal(r.dispatchPermitted,false);
