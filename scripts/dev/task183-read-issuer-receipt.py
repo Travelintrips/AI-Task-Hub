@@ -93,12 +93,23 @@ def record_receipt(request_id):
         """).fetchone()
         if permissions != (True,):
             raise ValueError('VERIFIER_RECEIPT_INSERT_NOT_GRANTED')
-        db.execute("""
+        # Repeat the approval-window test on the PostgreSQL server at the
+        # actual INSERT statement, not only before opening the SQL session.
+        # A 120-second decision may expire during TLS, login or role checks.
+        # INSERT...SELECT uses exactly the existing five column grants;
+        # RETURNING would require additional SELECT rights, so use rowcount.
+        inserted = db.execute("""
             INSERT INTO gpt02_stage.task183_verified_recovery_receipts
                 (request_id, approval_sha256, predecessor_attempt_id, signed_at, expires_at)
-            VALUES (%s, %s, %s, to_timestamp(%s::bigint/1000.0), to_timestamp(%s::bigint/1000.0))
+            SELECT %s, %s, %s,
+                   to_timestamp(%s::bigint/1000.0),
+                   to_timestamp(%s::bigint/1000.0)
+             WHERE to_timestamp(%s::bigint/1000.0) <= clock_timestamp()
+               AND clock_timestamp() < to_timestamp(%s::bigint/1000.0)
         """, (request_id, proof['digest'], claims['originalAttemptId'], proof['signedAt'],
-              claims['expiresAt']))
+              claims['expiresAt'], proof['signedAt'], claims['expiresAt']))
+        if inserted.rowcount != 1:
+            raise ValueError('OWNER_RECEIPT_EXPIRED_BEFORE_INSERT')
 
 
 if __name__ == '__main__':
