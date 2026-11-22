@@ -171,7 +171,16 @@ def activate():
   broker_launch_attempted=True
   result=subprocess.run(cmd,capture_output=True,text=True,timeout=22)
   if result.returncode!=0:deny("ROOT_BROKER_DEPENDENCY_START_FAILED")
-  if not controller.check():deny("BROKER_SIGNER_RUNTIME_READINESS_FAILED")
+  deadline=time.monotonic()+5
+  while True:
+   try:
+    ready=controller.check()
+   except FileNotFoundError:
+    if time.monotonic()>=deadline:raise
+    time.sleep(0.1)
+    continue
+   if not ready:deny("BROKER_SIGNER_RUNTIME_READINESS_FAILED")
+   break
   print("TASK183_SIGNING_WINDOW=READY_FOR_AUTHENTICATED_OWNER_ACTION")
   print("SIGNED_OWNER_DECISION_CREATED=FALSE")
   print("ISSUER_AUTHORIZED=FALSE")
