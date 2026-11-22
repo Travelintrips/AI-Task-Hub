@@ -36,6 +36,8 @@ on:
       - 'scripts/dev/task183-wire-owner-approval-http.candidate.test.py'
       - 'scripts/dev/task183-owner-window-readiness.candidate.py'
       - 'scripts/dev/task183-owner-window.candidate.service'
+      - 'scripts/dev/task183-live-release-readiness.readonly.py'
+      - 'scripts/dev/task183-live-release-readiness.readonly.test.py'
       - 'scripts/dev/task183-owner-window-activate.candidate.py'
       - 'scripts/dev/task183-owner-window-activate.candidate.test.py'
       - 'scripts/dev/task183-root-broker-operational.candidate.py'
@@ -142,6 +144,8 @@ jobs:
         run: |
           python3 -m py_compile scripts/dev/task183-owner-signer-one-shot.candidate.py
           python3 scripts/dev/task183-owner-signer-one-shot.candidate.test.py
+      - name: Classify historical Owner signature and expired unregistered receipt safely
+        run: python3 scripts/dev/task183-live-release-readiness.readonly.test.py
       - name: Task183 controlled release two-phase guarded activation regression
         run: |
           python3 -m py_compile scripts/dev/task183-owner-window-readiness.candidate.py scripts/dev/task183-owner-window-activate.candidate.py
