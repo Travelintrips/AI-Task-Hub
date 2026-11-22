@@ -775,6 +775,9 @@ export default function AiTaskDetail() {
     onError:(err:Error)=>toast({title:"Persetujuan Owner ditolak",
       description:err.message,variant:"destructive"}),
   });
+  const ownerDecisionRecordedForRequest =
+    task183OwnerDecisionMutation.isSuccess &&
+    task183OwnerDecisionMutation.variables === (task183OwnerSigningReadiness?.successorRequestId ?? null);
   const task183RecoveryConsentMutation = useMutation({
     mutationFn:async (evidenceSha256:string)=>{
       const challenge=(await apiFetch(
@@ -1567,7 +1570,7 @@ export default function AiTaskDetail() {
                     )}
                     {task183RecoveryReviewStatus?.renewalReview?.status==="PENDING_INDEPENDENT_OWNER_REVIEW" && (
                       <p role="status">
-                        Permintaan pemulihan baru <code>{task183RecoveryReviewStatus.renewalReview.requestId}</code> menunggu peninjauan independen.
+                        Permintaan pemulihan baru <code>{task183RecoveryReviewStatus.renewalReview.requestId}</code> sudah tercatat. Anda dapat memberi persetujuan sebagai Owner setelah layanan penandatanganan siap untuk ID ini.
                       </p>
                     )}
                     {task183RecoveryEvidence?.readOnly === true &&
@@ -1588,7 +1591,7 @@ export default function AiTaskDetail() {
                             {task183RecoveryConsentStatus?.recorded === true ? (
                               <div className="space-y-1">
                                 <p role="status">Niat pemulihan Super Admin telah tercatat.
-                                  Menunggu penerbitan izin oleh issuer independen; belum ada command atau dispatch.</p>
+                                  Layanan DEV sedang memeriksa kesiapan permintaan pemulihan.</p>
                                 {task183OwnerIdentity?.eligible===true &&
                                   task183OwnerIdentity.googleSessionVerified===true &&
                                   task183OwnerIdentity.enabledOperatorLinkVerified===true ? (
@@ -1598,7 +1601,7 @@ export default function AiTaskDetail() {
                                     <Button type="button" size="sm" variant="outline"
                                       data-testid="task183-explicit-owner-approval"
                                       disabled={task183OwnerDecisionMutation.isPending ||
-                                        task183OwnerDecisionMutation.isSuccess ||
+                                        ownerDecisionRecordedForRequest ||
                                         task183RecoveryConsentStatus?.recorded!==true ||
                                         (task183OwnerSigningReadiness?.ownerDecisionStatus!=="not_recorded" &&
                                          !(task183OwnerSigningReadiness?.ownerDecisionStatus==="successor_reserved" &&
@@ -1606,12 +1609,12 @@ export default function AiTaskDetail() {
                                         task183OwnerSigningReadiness?.signingReady!==true ||
                                         task183Postprep?.status!=="NO_GO_RESERVATION_EXPIRED"}
                                       onClick={()=>{
-                                        if(window.confirm("Setujui satu keputusan Owner untuk recovery attempt #2 Task #183? Keputusan akan dicatat ke database DEV melalui sesi Super Admin Anda. Ini tidak menandatangani lewat signer, membuat command, atau mengizinkan dispatch."))
+                                        if(window.confirm("Setujui satu keputusan Owner untuk recovery attempt #2 Task #183? Layanan DEV akan mencatat keputusan Anda dan meminta tanda tangan untuk persiapan pemulihan. Persetujuan ini hanya berlaku untuk permintaan yang ditampilkan."))
                                           task183OwnerDecisionMutation.mutate(task183OwnerSigningReadiness?.successorRequestId ?? null);
                                       }}>
                                       {task183OwnerDecisionMutation.isPending
                                         ? "Mencatat keputusan Owner..."
-                                        : task183OwnerDecisionMutation.isSuccess
+                                        : ownerDecisionRecordedForRequest
                                           ? "Keputusan Owner sudah tercatat"
                                           : "Setujui recovery attempt #2 (tanpa eksekusi)"}
                                     </Button>
