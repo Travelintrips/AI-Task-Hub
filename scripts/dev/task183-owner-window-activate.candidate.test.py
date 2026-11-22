@@ -4,7 +4,7 @@
 Mocks all systemd commands. Temporary root-only release token is a fixture
 and never installed under /etc/gpt02-dev; no real units are started.
 """
-import importlib.util, os, tempfile
+import importlib.util, os, tempfile,fcntl
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -90,6 +90,52 @@ with tempfile.TemporaryDirectory(prefix="task183-release-controller-fixture-") a
   check("BROKER_ROLLBACK_SIGNAL_SENT",("systemctl","kill","--signal=SIGTERM",m.BROKER) in calls)
   check("SIGNER_ROLLBACK_STOP_SENT",("systemctl","stop",m.SIGNER) in calls)
   check("ROLLBACK_LEAVES_BOTH_OFF",not state["signer"] and not state["broker"])
+  # Two contenders: one process already holds lock and owns a live signing
+  # window. The losing contender must NEVER SIGTERM/stop winner's resources.
+  state["signer"]=True;state["broker"]=True
+  previous=len(calls)
+  held=os.open(m.LOCK,os.O_CREAT|os.O_RDWR,0o600)
+  try:
+   fcntl.flock(held,fcntl.LOCK_EX|fcntl.LOCK_NB)
+   # Match the race: both callers validated while services were OFF,
+   # then the winner started them before the loser attempted the lock.
+   existing_validate=m.validate_release
+   m.validate_release=lambda:True
+   try:
+    try:m.activate()
+    except BlockingIOError:check("CONCURRENT_ACTIVATION_LOCK_DENIED",True)
+    else:check("CONCURRENT_ACTIVATION_LOCK_DENIED",False)
+   finally:m.validate_release=existing_validate
+   check("LOCK_LOSER_DOES_NOT_STOP_ACTIVE_SIGNER",state["signer"] is True)
+   check("LOCK_LOSER_DOES_NOT_KILL_ACTIVE_BROKER",state["broker"] is True)
+   check("LOCK_LOSER_ISSUES_ZERO_SYSTEMD_MUTATIONS",len(calls)==previous)
+  finally:
+   fcntl.flock(held,fcntl.LOCK_UN);os.close(held)
+  # Signer start can fail AFTER systemd spawned a process.
+  state["signer"]=False;state["broker"]=False
+  previous=len(calls)
+  def failing_signer_start(*args,**kwargs):
+   if args==("start",m.SIGNER):
+    calls.append(("systemctl",)+args)
+    state["signer"]=True
+    raise RuntimeError("SYSTEMCTL_TIMED_OUT_AFTER_START")
+   return fake_systemctl(*args,**kwargs)
+  m.systemctl=failing_signer_start
+  denied("PARTIALLY_STARTED_SIGNER_FAILURE_DENIED",m.activate)
+  check("PARTIAL_SIGNER_STARTED_THEN_ROLLED_BACK",not state["signer"])
+  check("PARTIAL_SIGNER_ROLLBACK_RECORDED",("systemctl","stop",m.SIGNER) in calls[previous:])
+  m.systemctl=fake_systemctl
+  # Likewise a transient broker dependency may start before systemd-run
+  # reports failure. The same lock holder must clean up both components.
+  def failing_broker_start(cmd,*args,**kwargs):
+   calls.append(("transient",)+tuple(cmd))
+   state["broker"]=True
+   return SimpleNamespace(returncode=1,stdout="",stderr="failed after start")
+  m.subprocess.run=failing_broker_start
+  previous=len(calls)
+  denied("PARTIALLY_STARTED_BROKER_FAILURE_DENIED",m.activate)
+  check("PARTIAL_BROKER_AND_SIGNER_ROLLED_BACK",not state["broker"] and not state["signer"])
+  check("BROKER_SIGTERM_ISSUED_BY_LOCK_OWNER",("systemctl","kill","--signal=SIGTERM",m.BROKER) in calls[previous:])
  finally:
   m.subprocess.run=original_run
   m.RELEASE=real_token
