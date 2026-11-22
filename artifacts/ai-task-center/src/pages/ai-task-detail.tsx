@@ -53,6 +53,7 @@ import {
 } from "@/components/ui/dialog";
 import { getStoredToken } from "@/lib/auth-api";
 import { useAuth } from "@/contexts/auth-context";
+import { preparationAction } from "@/lib/gpt02-preparation-action";
 import { evaluateGpt02ApprovalReadiness } from "@/lib/gpt02-approval-readiness";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -543,7 +544,7 @@ export default function AiTaskDetail() {
     refetchInterval: 30000,
   });
 
-  const { data: executionData, isFetching: executionFetching } = useQuery<ExecutionPayload>({
+  const { data: executionData, error: executionError, isFetching: executionFetching } = useQuery<ExecutionPayload>({
     queryKey: ["ai-task-execution", id],
     queryFn: () => apiFetch(`/ai-tasks/${id}/execution`),
     refetchInterval: (query) => {
@@ -847,12 +848,14 @@ export default function AiTaskDetail() {
         method:"POST",headers:{"X-GPT02-Intent":"prepare-only"},
         body:JSON.stringify({prepareOnly:true}),
       }),
-    onSuccess:()=>{
+    onSuccess:async ()=>{
       toast({title:"Core Task disiapkan — tanpa dispatch",
         description:"Reservasi persiapan tercatat; belum ada persetujuan issuer, worker atau ACK."});
-      void queryClient.invalidateQueries({queryKey:["ai-task-execution",id]});
-      void queryClient.invalidateQueries({queryKey:["gpt02-lineage",id]});
-      void queryClient.invalidateQueries({queryKey:["gpt02-preparation-readiness",id]});
+      await Promise.all([
+        queryClient.invalidateQueries({queryKey:["ai-task-execution",id]}),
+        queryClient.invalidateQueries({queryKey:["gpt02-lineage",id]}),
+        queryClient.invalidateQueries({queryKey:["gpt02-preparation-readiness",id]}),
+      ]);
     },
     onError:(err:Error)=>toast({
       title:"Persiapan GPT02 ditolak",description:err.message,variant:"destructive",
@@ -1284,6 +1287,16 @@ export default function AiTaskDetail() {
     );
   }
 
+  const compactPreparation = freshInternalGpt02 && currentUser?.role === "super_admin" &&
+    executionData?.execution === null && gpt02PicOptions?.taskId === task.id &&
+    gpt02PicOptions.assignmentReady && gpt02PicAudit?.taskId === task.id &&
+    gpt02PicAudit.auditMatchesCurrent && gpt02PicAudit.assignedMemberId != null &&
+    gpt02PicAudit.assignedMemberId === gpt02PicOptions.selectedMemberId;
+  const action = preparationAction(task.id, gpt02PreparationReadiness, googleSessionReadiness,
+    Boolean(executionError || gpt02PicError || gpt02PicAuditError || gpt02PreparationReadinessError ||
+      (gpt02PreparationReadiness?.canRequestPreparation && googleSessionReadinessError)));
+  const LifecycleDetails = compactPreparation ? "details" : "div";
+
   const missingDataKeys: string[] = (() => {
     try { return JSON.parse(task.missingData ?? "[]"); } catch { return []; }
   })();
@@ -1367,6 +1380,34 @@ export default function AiTaskDetail() {
       </div>
 
       <div id="penugasan-lifecycle" className="border border-blue-200 rounded-xl bg-white p-4 shadow-sm">
+        {compactPreparation && (
+          <section aria-label="Persiapan GPT02" className="space-y-2">
+            <h2 className="text-base font-semibold text-gray-900">Persiapan GPT02</h2>
+            <p className="text-sm text-slate-700">PIC terverifikasi · {gpt02PicAudit?.assignedTo || task.assignedTo}</p>
+            <p role="status" className="text-sm text-slate-700">
+              {gpt02PrepareOnlyMutation.isPending ? "Sedang menyiapkan task…" :
+                action === "checking" ? "Memeriksa kesiapan layanan DEV…" :
+                action === "unavailable" ? "Status persiapan belum dapat dibaca." :
+                action === "waiting" && gpt02PreparationReadiness?.reason === "GPT02_PREPARER_LOGIN_LOCKED" ?
+                  "Layanan DEV masih menunggu akses persiapan. Belum ada tindakan yang perlu Anda lakukan." :
+                action === "waiting" ? "Layanan DEV belum siap menyiapkan task ini. Belum ada tindakan yang perlu Anda lakukan." :
+                action === "sign-in" ? "Layanan siap. Masuk kembali untuk menyiapkan task dengan PIC yang sudah terdaftar." :
+                "Layanan siap. Anda bisa menyiapkan task untuk persetujuan eksekusi."}
+            </p>
+            {action === "sign-in" && <Button asChild size="sm"><a href="/api/auth/google/start">Masuk dengan Google</a></Button>}
+            {action === "prepare" && (
+              <Button type="button" size="sm" disabled={gpt02PrepareOnlyMutation.isPending || assignAndPrepare.isPending}
+                onClick={() => gpt02PrepareOnlyMutation.mutate()}>
+                Siapkan task
+              </Button>
+            )}
+          </section>
+        )}
+        <LifecycleDetails className={compactPreparation ? "mt-3 text-sm" : undefined}>
+          {compactPreparation && <summary className="cursor-pointer text-slate-600">Detail teknis dan penugasan</summary>}
+          {compactPreparation && gpt02PreparationReadiness?.taskId === task.id && (
+            <p className="my-2 text-xs text-slate-600">Status layanan DEV · <code>{gpt02PreparationReadiness.reason}</code></p>
+          )}
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-xs font-semibold uppercase tracking-wide text-blue-600">Intake → Penugasan → Lifecycle</p>
@@ -1484,7 +1525,7 @@ export default function AiTaskDetail() {
                     Job lama tetap FAILED dan penerbitan attempt baru tetap terkunci.
                   </p>
                 )}
-                {freshInternalGpt02 && googleSessionReadiness?.requiresFreshGoogleLogin && (
+                {freshInternalGpt02 && !compactPreparation && googleSessionReadiness?.requiresFreshGoogleLogin && (
                   <p role="status" className="mt-1 text-xs text-amber-800">Masuk kembali melalui Google sebagai Super Admin untuk menetapkan PIC.</p>
                 )}
                 {freshInternalGpt02 && assignAndPrepare.isError && (
@@ -1550,7 +1591,7 @@ export default function AiTaskDetail() {
             </Button>
           </div>
         )}
-        {currentUser?.role === "super_admin" && gpt02PicAudit?.auditPresent && (
+        {currentUser?.role === "super_admin" && !compactPreparation && gpt02PicAudit?.auditPresent && (
           task.id === 183 && renewalRequestId ? (
             <section aria-label="Pemulihan Task 183" className="mt-3 rounded-lg border border-slate-200 bg-white p-3 space-y-2">
               <h3 className="text-sm font-semibold">Pemulihan Task #183</h3>
@@ -2042,6 +2083,7 @@ export default function AiTaskDetail() {
               : "Belum ada execution. Run Worker hanya untuk alur non-GPT02 yang terotorisasi; jalur GPT02 harus memenuhi gate otorisasi dan bukti E2E sebelum dispatch."}
           </div>
         )}
+        </LifecycleDetails>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
