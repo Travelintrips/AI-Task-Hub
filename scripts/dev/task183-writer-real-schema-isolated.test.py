@@ -68,6 +68,19 @@ with tempfile.TemporaryDirectory(prefix="task183-real-schema-writer-") as td:
   resolved=adapter.authorize_recovery(claims=outcome["claims"],now_ms=now,db_path=db,operational=False)
   check("FULL_CANONICAL_CLAIMS_ACCEPTED_BY_REAL_OWNER_ADAPTER",
         resolved.get("decisionProvenanceVerified") is True and resolved.get("approvalDigest")==outcome["claimsSha256"])
+  resolver_path=ROOT/"task183-resolve-approved-claims.readonly.candidate.py"
+  resolver_spec=importlib.util.spec_from_file_location("claims_resolver",resolver_path)
+  resolver=importlib.util.module_from_spec(resolver_spec);resolver_spec.loader.exec_module(resolver)
+  review={"readOnly":True,"evidenceSha256":w.SHA,"evidence":{
+   "requestId":w.REQUEST,"coreTaskId":evidence["originalCoreTaskId"],
+   "hubExecutionId":evidence["originalHubExecutionId"],
+   "originalAttemptId":evidence["originalAttemptId"]}}
+  result=resolver.reconstruct(operational=False,approval_path=db,review_packet=review,now_ms=now)
+  check("READONLY_APPROVED_CLAIMS_RECONSTRUCTED",result["claims"]==outcome["claims"] and result["claimsSha256"]==outcome["claimsSha256"])
+  try:resolver.reconstruct(operational=False,approval_path=db,review_packet={**review,"evidenceSha256":"0"*64},now_ms=now)
+  except ValueError:check("MUTATED_REVIEW_EVIDENCE_REJECTED",True)
+  else:check("MUTATED_REVIEW_EVIDENCE_REJECTED",False)
+
   mutated={**outcome["claims"],"originalAttemptId":str(uuid.uuid4())}
   try:adapter.authorize_recovery(claims=mutated,now_ms=now,db_path=db,operational=False)
   except adapter.AuthorizationDenied:check("ALTERED_ORIGINAL_ATTEMPT_DENIED",True)
