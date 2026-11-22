@@ -180,6 +180,51 @@ RECOVERY_CONSENT_PATH="/api/ai-tasks/183/gpt02-recovery-consent?companyId=defaul
 RECOVERY_CONSENT_STATUS_PATH="/api/ai-tasks/183/gpt02-recovery-consent-status?companyId=default"
 OWNER_IDENTITY_STATUS_PATH="/api/ai-tasks/183/gpt02-owner-identity-readiness?companyId=default"
 OWNER_APPROVAL_PATH="/api/ai-tasks/183/gpt02-owner-approval?companyId=default"
+OWNER_APPROVAL_READINESS_PATH="/api/ai-tasks/183/gpt02-owner-approval-readiness?companyId=default"
+
+def task183_owner_signing_ready():
+    """Fail closed before allowing the time-limited Owner decision to be written.
+
+    A recorded Owner decision expires after 120 seconds and cannot be
+    recorded twice. Never accept approval unless the broker + detached
+    signer are ALREADY started through an independently reviewed release.
+    """
+    import grp as _grp
+    try:
+        state=lambda unit:subprocess.check_output(
+            ["systemctl","show",unit,"--property=ActiveState","--value"],timeout=3
+        ).decode().strip()
+        if (state("cst-task183-root-broker.service")!="active"
+            or state("gpt02-issue159-operational-signer@approval.service")!="active"
+            or state("gpt02-issue159-issuer-reader.service")=="active"):
+            return False
+        token=Path("/etc/gpt02-dev/task183-broker-release.approved")
+        tst=token.lstat()
+        if (not stat.S_ISREG(tst.st_mode) or token.is_symlink()
+            or tst.st_uid!=0 or tst.st_gid!=0
+            or stat.S_IMODE(tst.st_mode)!=0o400
+            or token.read_text().strip()!="CST_DEV_TASK183_BROKER_RELEASE_V1"):
+            return False
+        gid=_grp.getgrnam("gpt02-issue159-signers").gr_gid
+        for socket_path,root_owned in (
+            ("/run/cst-task183-root-broker/broker.sock",True),
+            ("/run/gpt02-issue159-operational-signer-approval/signer.sock",False),
+        ):
+            st=Path(socket_path).lstat()
+            if (not stat.S_ISSOCK(st.st_mode) or
+                stat.S_IMODE(st.st_mode)!=0o660 or st.st_gid!=gid or
+                (st.st_uid==0)!=root_owned):
+                return False
+        return True
+    except (OSError,ValueError,KeyError,subprocess.SubprocessError):
+        return False
+
+def verify_task183_owner_session(token):
+    actor=verify_jwt(token)
+    if not task183_owner_signing_ready():
+        raise ValueError("TASK183_SIGNER_BROKER_NOT_READY")
+    return actor
+
 RECOVERY_CHALLENGE_BODY=b'{"startRecoveryConsent":true}'
 REVIEW_BODY = b'{"requestReview":true}'
 
@@ -205,6 +250,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_header("Content-Length",str(len(raw)))
         self.end_headers();self.wfile.write(raw)
     def do_GET(self):
+        if self.path==OWNER_APPROVAL_READINESS_PATH:
+            auth=self.headers.get("Authorization","")
+            if not auth.startswith("Bearer "):
+                self.reply(401,{"error":"AUTHENTICATION_REQUIRED","signingReady":False});return
+            try:
+                actor=verify_jwt(auth[7:])
+                if actor.get("role")!="super_admin":
+                    raise ValueError("SUPER_ADMIN_REQUIRED")
+                self.reply(200,{"taskId":183,"signingReady":task183_owner_signing_ready(),
+                    "decisionDurationSeconds":120,"readOnly":True,
+                    "issuerAuthorized":False,"dispatchPermitted":False,
+                    "releaseDecision":"NO_GO"})
+            except (ValueError,TypeError,KeyError,UnicodeError):
+                self.reply(403,{"error":"SUPER_ADMIN_REQUIRED","signingReady":False,
+                                "dispatchPermitted":False})
+            return
         if self.path==OWNER_IDENTITY_STATUS_PATH:
             raw=self.headers.get("Authorization","")
             if not raw.startswith("Bearer "):
@@ -359,7 +420,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         "Content-Length":length,
                         "Authorization":auth},
                     body=self.rfile.read(int(length)),
-                    verify_session=verify_jwt,
+                    verify_session=verify_task183_owner_session,
                     load_review=load_review_intake,
                     write_approval=writer.record)
                 self.reply(201,response)
