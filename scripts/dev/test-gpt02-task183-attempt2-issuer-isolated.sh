@@ -28,6 +28,12 @@ sha="$(printf '%064d' 1)"
 fixture="$(node "$ROOT/scripts/dev/gpt02-task183-recovery-issuer-approval.fixture.mjs")"
 digest="$(node -e 'const x=JSON.parse(process.argv[1]);if(x.verifiedFixture!==true||x.realOwnerApproved!==false||x.issuerAuthorized!==false||x.signerDomain!=="GPT02_TASK183_RECOVERY_ISSUER_APPROVAL_V1"||!/^[a-f0-9]{64}$/.test(x.approvalDigest))process.exit(3);console.log(x.approvalDigest)' "$fixture")"
 fp="$(node -e 'const x=JSON.parse(process.argv[1]);if(!/^[a-f0-9]{64}$/.test(x.signerFingerprint))process.exit(3);console.log(x.signerFingerprint)' "$fixture")"
+read -r verified_owner verified_ms expires_ms < <(node -e '
+ const r=JSON.parse(process.argv[1]);
+ if (!/^owner:[A-Za-z0-9_-]+$/.test(r.ownerSubject) ||
+     !Number.isSafeInteger(r.verifiedAt) || !Number.isSafeInteger(r.expiresAt) ||
+     r.expiresAt <= r.verifiedAt) process.exit(3);
+ console.log(r.ownerSubject,r.verifiedAt,r.expiresAt)' "$fixture")
 echo PASS:SYNTHETIC_ED25519_RECEIPT_CRYPTOGRAPHICALLY_VERIFIED
 receipt='55555555-5555-4555-8555-555555555555'
 pg postgres -q -c "INSERT INTO isolated.old_preparations(company_id,hub_task_id,core_task_id,hub_execution_id,attempt_id,command_candidate_id,expires_at) VALUES('default',183,'$core','$hub','$old','$candidate',clock_timestamp()-interval '20 minutes')"
@@ -51,7 +57,9 @@ pg task183_recovery_verifier -q -c "INSERT INTO isolated.signed_owner_receipts(
 denied EXPIRED_SIGNED_OWNER_RECEIPT task183_recovery_issuer "$call" INDEPENDENT_SIGNED_OWNER_RECEIPT_REQUIRED
 pg postgres -q -c "DELETE FROM isolated.signed_owner_receipts WHERE id='$receipt'"
 echo PASS:EXPIRED_SYNTHETIC_RECEIPT_NOT_CONSUMED
-pg task183_recovery_verifier -q -c "INSERT INTO isolated.signed_owner_receipts(id,company_id,task_id,attempt_number,old_attempt_id,verified_original_evidence_sha256,signed_approval_digest,owner_subject,signer_public_fingerprint,signer_domain,verified_by,verified_at,expires_at) VALUES('$receipt','default',183,2,'$old','$sha','$digest','owner:synthetic-only','$fp','GPT02_TASK183_RECOVERY_ISSUER_APPROVAL_V1','independent_ed25519_owner_verifier',clock_timestamp(),clock_timestamp()+interval '4 minutes')"
+pg task183_recovery_verifier -q -c "INSERT INTO isolated.signed_owner_receipts(id,company_id,task_id,attempt_number,old_attempt_id,verified_original_evidence_sha256,signed_approval_digest,owner_subject,signer_public_fingerprint,signer_domain,verified_by,verified_at,expires_at) VALUES('$receipt','default',183,2,'$old','$sha','$digest','$verified_owner','$fp','GPT02_TASK183_RECOVERY_ISSUER_APPROVAL_V1','independent_ed25519_owner_verifier',to_timestamp($verified_ms/1000.0),to_timestamp($expires_ms/1000.0))"
+test "$(query postgres "SELECT count(*) FROM isolated.signed_owner_receipts WHERE id='$receipt' AND owner_subject='$verified_owner' AND expires_at=to_timestamp($expires_ms/1000.0)")" = 1
+echo PASS:SIGNED_OWNER_AND_EXPIRY_PRESERVED
 echo PASS:INDEPENDENT_VERIFIER_FIXTURE_RECEIPT_ONLY
 denied WRONG_OLD_ATTEMPT_DENIED task183_recovery_issuer "SELECT * FROM isolated.create_attempt2('default',183,'$core','$receipt','$sha')" ORIGINAL_PREPARATION_NOT_SAFE
 denied WRONG_OWNER_PROOF_DIGEST_DENIED task183_recovery_issuer "SELECT * FROM isolated.create_attempt2('default',183,'$old','$receipt','$digest')" INDEPENDENT_SIGNED_OWNER_RECEIPT_REQUIRED

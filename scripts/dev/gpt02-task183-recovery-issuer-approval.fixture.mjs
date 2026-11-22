@@ -36,6 +36,7 @@ if(!v.verified||v.issuerAuthorized!==false||v.ownerApprovalPersisted!==false||
  throw Error('ISOLATED_CRYPTOGRAPHIC_VERIFIER_DID_NOT_PASS');
 console.log(JSON.stringify({
  verifiedFixture:true,approvalDigest:v.approvalDigest,
+ ownerSubject:claims.ownerSubject,verifiedAt:now,expiresAt:claims.expiresAt,
  signerFingerprint:fp,receiptPurpose:'ATTEMPT2_PREPARE_ONLY',
  signerDomain:RECOVERY_ISSUER_APPROVAL_DOMAIN,
  realOwnerApproved:false,issuerAuthorized:false
