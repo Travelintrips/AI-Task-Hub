@@ -1,0 +1,15 @@
+[Unit]
+Description=Verify and register one CST-DEV Task 183 Owner receipt
+
+[Service]
+Type=oneshot
+Environment=PGSERVICEFILE=/etc/gpt02-dev/task183-verifier-pg-service.conf
+Environment=PGPASSFILE=%d/pgpass
+LoadCredentialEncrypted=pgpass:/etc/credstore.encrypted/task183-verifier-pgpass.cred
+ExecStart=/usr/bin/python3 -B /opt/ai-coding-standalone-dev/qa/task183-read-issuer-receipt.py %i --record
+TimeoutStartSec=20
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+UMask=0077
