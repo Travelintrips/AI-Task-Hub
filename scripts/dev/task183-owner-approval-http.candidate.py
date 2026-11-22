@@ -7,6 +7,7 @@ historical evidence are obtained ONLY from trusted callbacks. Neither are
 accepted from client JSON. No automatic approval or signer invocation.
 """
 import json
+import re
 
 PATH="/api/ai-tasks/183/gpt02-owner-approval?companyId=default"
 ORIGIN="https://dev-ai-task.cstlogistic.co.id"
@@ -64,9 +65,17 @@ def authorize_request(*,path,headers,body,verify_session,load_review,write_appro
         raise ApprovalRejected("INCOMPLETE_IMMUTABLE_EVIDENCE")
     # This is the ONLY possible write, triggered by a genuine authenticated
     # user POST. Writer revalidates Owner identity, original evidence and DB.
-    result=write_approval(actor=actor,evidence=expected,explicit_action=True)
+    successor=headers.get("X-GPT02-Successor")
+    options={}
+    if successor is not None:
+        if (not isinstance(successor,str) or not re.fullmatch("[0-9a-f]{36}",successor)
+            or successor==expected["requestId"]):
+            raise ApprovalRejected("INVALID_SUCCESSOR_REFERENCE")
+        options["successor_request"]=successor
+    result=write_approval(actor=actor,evidence=expected,explicit_action=True,**options)
     if (type(result) is not dict or result.get("recorded") is not True or
         result.get("ownerDecisionStored") is not True or
+        (successor is not None and result.get("requestId")!=successor) or
         result.get("cryptographicOwnerSignatureCreated") is not False or
         result.get("issuerAuthorized") is not False or
         result.get("attemptIssued") is not False or

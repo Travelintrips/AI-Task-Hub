@@ -88,5 +88,13 @@ handoff_spec.loader.exec_module(handoff)
 handoff.REQUEST=packet["evidence"]["requestId"]
 handoff.validate_writer_result(res)
 check("COMMITTED_RESPONSE_ACCEPTED_BY_REAL_HANDOFF_VALIDATOR",calls["write"]==before+1)
+successor="c"*36
+def successor_writer(**kwargs):
+ assert kwargs["successor_request"]==successor
+ return {**writer(**kwargs),"requestId":successor}
+bound=a.authorize_request(**{**base,"headers":different(**{"X-GPT02-Successor":successor}),
+                             "write_approval":successor_writer})
+check("EXPLICIT_POST_BOUND_TO_EXACT_SUCCESSOR",bound["requestId"]==successor)
+denied("MALFORMED_SUCCESSOR_DENIED",{"headers":different(**{"X-GPT02-Successor":"old"})})
 print("RESULT="+str(n)+"/"+str(n)+" PASS")
 print("REAL_OWNER_DECISION_WRITTEN=FALSE")
