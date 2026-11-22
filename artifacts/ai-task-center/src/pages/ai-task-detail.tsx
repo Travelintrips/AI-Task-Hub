@@ -748,8 +748,19 @@ export default function AiTaskDetail() {
       headers:{"X-GPT02-Intent":"approve-task183-recovery-attempt2-only"},
       body:JSON.stringify({approveRecoveryAttempt2:true}),
     }),
-    onSuccess:()=>toast({title:"Keputusan Owner Task #183 tercatat",
-      description:"Tidak ada tanda tangan signer, command, issuer, atau dispatch baru."}),
+    onSuccess:(result:{ownerDecisionStored:boolean;signedEvidenceVerified:boolean;
+      manualReviewRequired:boolean;issuerAuthorized:false;dispatchPermitted:false})=>{
+      if(result.signedEvidenceVerified===true &&
+         result.ownerDecisionStored===true &&
+         result.issuerAuthorized===false && result.dispatchPermitted===false){
+        toast({title:"Bukti tanda tangan pemulihan Task #183 terverifikasi",
+          description:"Receipt telah disimpan. Issuer dan dispatch tetap OFF."});
+      }else{
+        toast({title:"Keputusan Owner tercatat, tanda tangan perlu diperiksa",
+          description:"Jangan tekan persetujuan ulang. Proses tidak diulang otomatis untuk mencegah tanda tangan ganda.",
+          variant:"destructive"});
+      }
+    },
     onError:(err:Error)=>toast({title:"Persetujuan Owner ditolak",
       description:err.message,variant:"destructive"}),
   });
