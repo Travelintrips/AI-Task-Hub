@@ -31,6 +31,24 @@ i=normal.index(start);j=normal.index(end,i)
 normal=normal[:i]+normal[j:]
 normal=normal.replace("verify_session=verify_task183_owner_session,",
                       "verify_session=verify_jwt,")
+normal=normal.replace('''                # Verify root-only one-shot source BEFORE committing the
+                # irreversible Owner decision. Never discover missing code
+                # after the 120-second signed window has begun.
+                after=checked_import(ROOT/"task183-owner-after-decision.candidate.py",
+                    "task183_owner_after_decision")
+''','')
+normal=normal.replace('''                # The signed-session POST is the ONLY trigger. After the
+                # writer atomically commits, invoke one detached signing
+                # handoff immediately inside the 120-second Owner window.
+                # On uncertain outcomes, return 202 for manual reconciliation:
+                # never retry the irreversible Owner decision/signature.
+                result=after.run_handoff(response)
+                self.reply(201 if result["signedEvidenceVerified"] is True else 202,result)''',
+                '''                self.reply(201,response)''')
+check("NEW_POST_OWNER_ONE_SHOT_HANDOFF_PRESENT",
+      'result=after.run_handoff(response)' in current and
+      'self.reply(201 if result["signedEvidenceVerified"] is True else 202,result)' in current)
+
 check("DEPLOYED_ORIGINAL_OWNER_PATCH_PRESERVED",candidate==normal)
 check("NEW_BACKEND_OWNER_READINESS_EXISTS",
       "def task183_owner_signing_ready():" in current and
