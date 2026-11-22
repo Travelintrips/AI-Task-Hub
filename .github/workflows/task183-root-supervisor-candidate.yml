@@ -196,3 +196,10 @@ jobs:
           pnpm --filter @workspace/ai-task-center run typecheck
       - name: Build Task183 frontend without deployment
         run: pnpm --filter @workspace/ai-task-center run build
+      - name: Archive exact nonsecret frontend for isolated VPS preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: task183-frontend-dist-${{ github.run_id }}
+          path: artifacts/ai-task-center/dist/
+          if-no-files-found: error
+          retention-days: 2
