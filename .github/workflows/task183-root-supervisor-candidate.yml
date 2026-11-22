@@ -67,6 +67,7 @@ on:
       - '.github/workflows/task183-root-supervisor-candidate.yml'
   pull_request:
     paths:
+      - 'scripts/dev/task183-owner-window-activate.candidate*.py'
       - 'scripts/dev/task183_successor_reservation*.py'
       - 'scripts/dev/task183-owner-approval-writer-dev*.py'
       - 'scripts/dev/task183-owner-recovery-decision-reader*.py'
