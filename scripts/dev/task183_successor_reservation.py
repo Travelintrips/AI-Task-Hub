@@ -20,11 +20,11 @@ BEGIN SELECT RAISE(ABORT, 'IMMUTABLE_SUCCESSOR'); END;
 
 
 def reserve(db, previous_request, now_ms):
-    """Requires a dedicated idle connection with custody attached as custody."""
+    """Requires a dedicated idle connection with custody and review stores attached as custody and review."""
     db.execute("BEGIN IMMEDIATE")
     try:
         rows = db.execute("""
-            SELECT d.id, d.expires_at_ms
+            SELECT d.id, d.expires_at_ms, d.evidence_sha256
             FROM gpt02_task183_owner_recovery_decisions AS d
             JOIN gpt02_task183_owner_recovery_outbox AS o
               ON o.decision_id = d.id
@@ -42,6 +42,26 @@ def reserve(db, previous_request, now_ms):
             raise ValueError("EXPIRED_MATCHING_PREDECESSOR_REQUIRED")
         if db.execute("SELECT 1 FROM custody.signature_receipts LIMIT 1").fetchone():
             raise ValueError("SIGNER_RESERVATION_OR_RECEIPT_EXISTS")
+        pending = db.execute("""
+            SELECT r.request_id
+              FROM review.reviews AS r
+              JOIN review.recovery_consent_intents AS i ON i.request_id = r.request_id
+             WHERE r.company_id = 'default' AND r.hub_task_id = 183
+               AND r.request_id = ? AND i.actor_id = r.requested_by
+               AND i.evidence_sha256 = ?
+               AND r.status = 'PENDING_INDEPENDENT_OWNER_REVIEW'
+               AND i.state = 'SUPERADMIN_RECOVERY_INTENT_PENDING_INDEPENDENT_ISSUER'
+               AND r.owner_approval_granted = 0 AND r.issuer_grant = 0
+               AND r.dispatch_permitted = 0 AND i.signed_owner_approval = 0
+               AND i.issuer_authority = 0 AND i.nonce_issuer_consumed = 0
+               AND i.attempt_issued = 0 AND i.dispatch_permitted = 0
+               AND (SELECT count(*) FROM review.reviews
+                     WHERE company_id = 'default' AND hub_task_id = 183) = 1
+               AND (SELECT count(*) FROM review.recovery_consent_intents
+                     WHERE request_id = r.request_id) = 1
+        """, (previous_request, rows[0][2])).fetchall()
+        if len(pending) != 1:
+            raise ValueError("UNUSED_MATCHING_REVIEW_REQUIRED")
         request_id = str(uuid.uuid4())
         if request_id == previous_request:
             raise ValueError("REQUEST_ID_COLLISION")
