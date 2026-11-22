@@ -245,17 +245,44 @@ def task183_owner_decision_status():
     uri="file:/opt/ai-coding-standalone-dev/tasks.db?mode=ro"
     db=sqlite3.connect(uri,uri=True,timeout=2)
     try:
-        rows=db.execute(
-            "SELECT expires_at_ms FROM gpt02_task183_owner_recovery_decisions "
-            "WHERE task_id=183 LIMIT 2"
-        ).fetchall()
+        return read_task183_owner_decision_status(db,time.time_ns()//1_000_000)
     finally:
         db.close()
-    if not rows:
-        return "not_recorded"
-    if len(rows)!=1 or type(rows[0][0]) is not int:
+
+
+def read_task183_owner_decision_status(db,now):
+    db.execute("BEGIN")
+    original="6bcd8419254dc21c0b149eb09e68a7b6da66"
+    rows=db.execute("SELECT id,request_id,expires_at_ms FROM gpt02_task183_owner_recovery_decisions "
+                    "WHERE task_id=183 AND company_id='default' LIMIT 3").fetchall()
+    ledger=db.execute("SELECT type FROM sqlite_master WHERE name='task183_successor_requests'").fetchone()
+    if ledger and ledger[0]!="table":
         return "unavailable"
-    return "expired" if rows[0][0]<=time.time_ns()//1_000_000 else "recorded"
+    reservations=db.execute("SELECT predecessor_id,request_id,created_at_ms "
+                            "FROM task183_successor_requests LIMIT 2").fetchall() if ledger else []
+    if not rows and not reservations:
+        return "not_recorded"
+    parents=[r for r in rows if r[1]==original]
+    if len(parents)!=1 or type(parents[0][2]) is not int:
+        return "unavailable"
+    parent=parents[0]
+    if not reservations:
+        if len(rows)!=1:
+            return "unavailable"
+        return "expired" if parent[2]<=now else "recorded"
+    if len(reservations)!=1:
+        return "unavailable"
+    previous,request,created=reservations[0]
+    if (previous!=parent[0] or not isinstance(request,str) or len(request)!=36
+        or any(c not in '0123456789abcdef' for c in request) or request==original
+        or type(created) is not int or not parent[2]<=created<=now):
+        return "unavailable"
+    if len(rows)==1:
+        return "successor_reserved"
+    children=[r for r in rows if r[1]==request]
+    if len(rows)!=2 or len(children)!=1 or type(children[0][2]) is not int:
+        return "unavailable"
+    return "expired" if children[0][2]<=now else "recorded"
 
 
 def verify_task183_owner_session(token):

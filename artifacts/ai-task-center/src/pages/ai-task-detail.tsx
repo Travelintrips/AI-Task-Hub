@@ -734,7 +734,7 @@ export default function AiTaskDetail() {
   // the real detached signer and trusted receipt broker are already ready.
   const {data: task183OwnerSigningReadiness} = useQuery<{
     taskId:number;signingReady:boolean;decisionDurationSeconds:number;
-    ownerDecisionStatus?: "not_recorded" | "recorded" | "expired" | "unavailable";
+    ownerDecisionStatus?: "not_recorded" | "recorded" | "expired" | "successor_reserved" | "unavailable";
     issuerAuthorized:false;dispatchPermitted:false;readOnly:true;
   }>({
     queryKey:["task183-owner-approval-readiness",id],
@@ -1598,6 +1598,9 @@ export default function AiTaskDetail() {
                                           ? "Keputusan Owner sudah tercatat"
                                           : "Setujui recovery attempt #2 (tanpa eksekusi)"}
                                     </Button>
+                                    {task183OwnerSigningReadiness?.ownerDecisionStatus==="successor_reserved" && (
+                                      <p role="status">Permintaan pengganti sudah tersedia. Persetujuan menunggu kesiapan jalur penandatanganan untuk permintaan ini.</p>
+                                    )}
                                     {task183OwnerSigningReadiness?.ownerDecisionStatus==="expired" && (
                                       <p role="status">Keputusan Owner sudah tercatat dan kedaluwarsa. Pemulihan memerlukan jalur keputusan pengganti.</p>
                                     )}
