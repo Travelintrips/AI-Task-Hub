@@ -14,6 +14,8 @@ import grp
 import importlib.util
 import os
 import sqlite3
+import re
+import time
 from pathlib import Path
 import stat
 import subprocess
@@ -38,10 +40,31 @@ def systemctl(*args,check=True):
 def active(unit):
  return systemctl("show",unit,"--property=ActiveState","--value").stdout.strip()=="active"
 
-def one_shot_state_pristine():
- # This activation is only for the first legitimate Owner approval.
- # Any persisted decision/outbox or signing reservation requires independent
- # recovery adjudication; never reopen a signing window automatically.
+def verify_history(conn,successor,now):
+ conn.execute("BEGIN")
+ counts=[conn.execute("SELECT count(*) FROM "+table).fetchone()[0] for table in
+         ("gpt02_task183_owner_recovery_decisions","gpt02_task183_owner_recovery_outbox")]
+ ledger=conn.execute("SELECT type FROM sqlite_master WHERE name='task183_successor_requests'").fetchone()
+ if successor is None:
+  if counts!=[0,0] or (ledger and conn.execute("SELECT 1 FROM task183_successor_requests LIMIT 1").fetchone()):
+   deny("OWNER_DECISION_ALREADY_RECORDED_NO_REOPEN")
+  return
+ if counts!=[1,1] or ledger!=("table",):
+  deny("SUCCESSOR_HISTORY_MISMATCH")
+ rows=conn.execute("""
+ SELECT s.request_id FROM task183_successor_requests s
+ JOIN gpt02_task183_owner_recovery_decisions d ON d.id=s.predecessor_id
+ JOIN gpt02_task183_owner_recovery_outbox o ON o.decision_id=d.id
+ WHERE d.task_id=183 AND d.company_id='default' AND d.request_id=?
+ AND d.expires_at_ms<=s.created_at_ms AND s.created_at_ms<=?
+ AND o.claims_sha256=d.claims_sha256 AND o.request_id=d.request_id
+ AND o.nonce=d.nonce AND o.evidence_sha256=d.evidence_sha256
+ AND (SELECT count(*) FROM task183_successor_requests)=1
+ """,("6bcd8419254dc21c0b149eb09e68a7b6da66",now)).fetchall()
+ if rows!=[(successor,)]:
+  deny("SUCCESSOR_HISTORY_MISMATCH")
+
+def one_shot_state_pristine(successor=None):
  db=Path("/opt/ai-coding-standalone-dev/tasks.db")
  st=db.lstat()
  if (not stat.S_ISREG(st.st_mode) or db.is_symlink() or
@@ -50,10 +73,7 @@ def one_shot_state_pristine():
  conn=sqlite3.connect("file:"+str(db)+"?mode=ro",uri=True,timeout=3)
  try:
   conn.execute("PRAGMA query_only=ON")
-  for table in ("gpt02_task183_owner_recovery_decisions",
-                "gpt02_task183_owner_recovery_outbox"):
-   value=conn.execute("SELECT COUNT(*) FROM "+table+" WHERE task_id=183").fetchone()[0]
-   if value!=0:deny("OWNER_DECISION_ALREADY_RECORDED_NO_REOPEN")
+  verify_history(conn,successor,time.time_ns()//1_000_000)
  finally:conn.close()
  source=ROOT/"task183-dormant-signature-custody.py"
  st=source.lstat()
@@ -82,7 +102,16 @@ def validate_release():
   deny("INDEPENDENT_RELEASE_TOKEN_INVALID")
  if not CUSTODY.is_file() or CUSTODY.is_symlink():
   deny("ROOT_RECEIPT_STORE_MISSING")
- if one_shot_state_pristine() is not True:
+ successor_release=RELEASE.with_name("task183-successor-release.approved")
+ successor=None
+ if os.path.lexists(successor_release):
+  st=successor_release.lstat()
+  if not stat.S_ISREG(st.st_mode) or st.st_uid!=0 or st.st_gid!=0 or stat.S_IMODE(st.st_mode)!=0o400:
+   deny("SUCCESSOR_RELEASE_CUSTODY_INVALID")
+  successor=successor_release.read_text().strip()
+  if not re.fullmatch("[0-9a-f]{36}",successor):
+   deny("SUCCESSOR_RELEASE_REFERENCE_INVALID")
+ if one_shot_state_pristine(successor) is not True:
   deny("ONE_SHOT_STATE_NOT_PRISTINE")
  if not active(APP) or active(ISSUER):
   deny("DEV_SESSION_OR_ISSUER_STATE_UNSAFE")

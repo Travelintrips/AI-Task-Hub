@@ -41,7 +41,7 @@ with tempfile.TemporaryDirectory(prefix="task183-release-controller-fixture-") a
  m.CUSTODY=root/"fixture-receipts.sqlite"
  m.CUSTODY.write_text("fake but never read")
  m.LOCK=root/"activation.lock"
- m.one_shot_state_pristine=lambda:True
+ m.one_shot_state_pristine=lambda successor=None:True
  state={"signer":False,"broker":False,"issuer":False,"app":True}
  calls=[]
  def fake_systemctl(*args,**kwargs):
@@ -75,11 +75,11 @@ with tempfile.TemporaryDirectory(prefix="task183-release-controller-fixture-") a
  try:
   check("TOKEN_AUTHENTICATED_BEFORE_START",m.validate_release() is True)
   # A previously approved Task183 must never open another release window.
-  m.one_shot_state_pristine=lambda:False
+  m.one_shot_state_pristine=lambda successor=None:False
   before=len(calls)
   denied("NONPRISTINE_OWNER_OR_RECEIPT_DENIED",m.activate)
   check("NONPRISTINE_RELEASE_STARTED_NO_UNITS",len(calls)==before)
-  m.one_shot_state_pristine=lambda:True
+  m.one_shot_state_pristine=lambda successor=None:True
   result=m.activate()
   check("CONTROLLED_START_SUCCEEDED",result==0)
   start_calls=[c for c in calls if c[0]=="systemctl" and c[1]=="start"]
