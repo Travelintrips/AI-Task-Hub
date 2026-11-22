@@ -93,6 +93,42 @@ ROLLBACK;
 SQL
 echo "SCOPED_INSERT_WITH_ROLLBACK_PASS"
 
+# The real verifier INSERT includes server-side clock_timestamp() gating.
+# A receipt which expires during TLS/login/role checks must insert ZERO rows
+# without granting SELECT or using RETURNING, and never persist anything.
+expired_result=$(docker exec -i "$name" psql -XAtq -v ON_ERROR_STOP=1 -U postgres -d postgres <<'SQL'
+BEGIN;
+SET LOCAL ROLE gpt02_task183_receipt_verifier;
+INSERT INTO gpt02_stage.task183_verified_recovery_receipts
+ (request_id,approval_sha256,predecessor_attempt_id,signed_at,expires_at)
+SELECT 'expired',repeat('b',64),'8f5ab85a-8300-4118-a14c-5fc701ae5a7c',
+       clock_timestamp()-interval '90 seconds',clock_timestamp()-interval '30 seconds'
+ WHERE clock_timestamp() < clock_timestamp()-interval '30 seconds';
+RESET ROLE;
+SELECT COUNT(*) FROM gpt02_stage.task183_verified_recovery_receipts;
+ROLLBACK;
+SQL
+)
+test "$expired_result" = 0
+echo "SERVER_SIDE_EXPIRED_RECEIPT_ZERO_INSERT_PASS"
+
+fresh_result=$(docker exec -i "$name" psql -XAtq -v ON_ERROR_STOP=1 -U postgres -d postgres <<'SQL'
+BEGIN;
+SET LOCAL ROLE gpt02_task183_receipt_verifier;
+INSERT INTO gpt02_stage.task183_verified_recovery_receipts
+ (request_id,approval_sha256,predecessor_attempt_id,signed_at,expires_at)
+SELECT 'fresh',repeat('b',64),'8f5ab85a-8300-4118-a14c-5fc701ae5a7c',
+       clock_timestamp()-interval '10 seconds',clock_timestamp()+interval '60 seconds'
+ WHERE clock_timestamp() < clock_timestamp()+interval '60 seconds';
+RESET ROLE;
+SELECT COUNT(*) FROM gpt02_stage.task183_verified_recovery_receipts;
+ROLLBACK;
+SQL
+)
+test "$fresh_result" = 1
+echo "SERVER_SIDE_UNEXPIRED_RECEIPT_ONE_INSERT_ROLLBACK_PASS"
+
+
 # A forbidden extra column cannot be written, despite the five allowed columns.
 if docker exec -i "$name" psql -Xv ON_ERROR_STOP=1 -U postgres -d postgres <<'SQL' >/dev/null 2>&1
 BEGIN;
