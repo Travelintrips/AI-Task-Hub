@@ -62,6 +62,17 @@ with tempfile.TemporaryDirectory(prefix="task183-real-schema-writer-") as td:
   readback=rr.read_decision(lookup,db_path=str(db),operational=False,now=now)
   check("REAL_READER_ACCEPTS_REAL_WRITER_OUTPUT",
         readback.get("ok") is True and readback.get("persistedIndependentOwnerDecision") is True)
+  adapter_path=ROOT/"task183-independent-owner-adapter.candidate.py"
+  adapter_spec=importlib.util.spec_from_file_location("real_adapter",adapter_path)
+  adapter=importlib.util.module_from_spec(adapter_spec);adapter_spec.loader.exec_module(adapter)
+  resolved=adapter.authorize_recovery(claims=outcome["claims"],now_ms=now,db_path=db,operational=False)
+  check("FULL_CANONICAL_CLAIMS_ACCEPTED_BY_REAL_OWNER_ADAPTER",
+        resolved.get("decisionProvenanceVerified") is True and resolved.get("approvalDigest")==outcome["claimsSha256"])
+  mutated={**outcome["claims"],"originalAttemptId":str(uuid.uuid4())}
+  try:adapter.authorize_recovery(claims=mutated,now_ms=now,db_path=db,operational=False)
+  except adapter.AuthorizationDenied:check("ALTERED_ORIGINAL_ATTEMPT_DENIED",True)
+  else:check("ALTERED_ORIGINAL_ATTEMPT_DENIED",False)
+
 
   try:w.record(actor=actor,evidence=evidence,explicit_action=True,db_path=db,operational=False,now_ms=now,nonce="M"*48)
   except Exception:check("REPLAY_REJECTED",True)
