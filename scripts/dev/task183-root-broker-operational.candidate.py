@@ -82,7 +82,8 @@ def verify_custody_recovery(state):
     return {"total":counts[0],"unresolved":counts[1],"completed":counts[2]}
 
 def preflight():
-    if os.geteuid()!=0 or os.getegid()!=0:
+    if (os.geteuid()!=0 or
+        os.getegid()!=grp.getgrnam(SIGNER_GROUP).gr_gid):
         fail("ROOT_BROKER_CUSTODY_REQUIRED")
     if not SENTINEL.exists() or SENTINEL.is_symlink():
         fail("TASK183_RELEASE_SENTINEL_ABSENT")
@@ -109,16 +110,22 @@ def serve():
     st=os.lstat(SOCKET_DIR)
     if not stat.S_ISDIR(st.st_mode) or stat.S_ISLNK(st.st_mode):
         fail("BROKER_RUNTIME_DIRECTORY_INVALID")
-    if st.st_uid!=0 or stat.S_IMODE(st.st_mode)!=0o750:
+    if (st.st_uid!=0 or st.st_gid!=gid or
+        stat.S_IMODE(st.st_mode)!=0o750):
         fail("BROKER_RUNTIME_DIRECTORY_PERMISSIONS_INVALID")
-    os.chown(SOCKET_DIR,0,gid)
     if os.path.lexists(SOCKET):
         fail("BROKER_SOCKET_ALREADY_EXISTS")
     bridge=modules["bridge"]
     server=bridge.Server(str(SOCKET),bridge.Handler,bind_and_activate=True)
     try:
-        os.chown(SOCKET,0,gid)
+        # Group is inherited from systemd Group=signers, not granted via
+        # CAP_CHOWN (which is absent from CapabilityBoundingSet).
         os.chmod(SOCKET,0o660)
+        socket_stat=os.lstat(SOCKET)
+        if (socket_stat.st_uid!=0 or socket_stat.st_gid!=gid or
+            not stat.S_ISSOCK(socket_stat.st_mode) or
+            stat.S_IMODE(socket_stat.st_mode)!=0o660):
+            fail("BROKER_SOCKET_CUSTODY_INVALID")
         server.store=DB
         server.operational=True
         server.peer_verifier=modules["policy"].authenticated_peer
