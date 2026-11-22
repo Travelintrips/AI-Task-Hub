@@ -241,11 +241,17 @@ def task183_owner_signing_ready():
     except (OSError,ValueError,KeyError,subprocess.SubprocessError):
         return False
 
-def task183_owner_decision_status():
+def task183_owner_decision_status(*,include_request=False):
     uri="file:/opt/ai-coding-standalone-dev/tasks.db?mode=ro"
     db=sqlite3.connect(uri,uri=True,timeout=2)
     try:
-        return read_task183_owner_decision_status(db,time.time_ns()//1_000_000)
+        status=read_task183_owner_decision_status(db,time.time_ns()//1_000_000)
+        if not include_request:
+            return status
+        successor=None
+        if status=="successor_reserved":
+            successor=db.execute("SELECT request_id FROM task183_successor_requests").fetchone()[0]
+        return status,successor
     finally:
         db.close()
 
@@ -325,10 +331,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if actor.get("role")!="super_admin":
                     raise ValueError("SUPER_ADMIN_REQUIRED")
                 try:
-                    decision_status=task183_owner_decision_status()
+                    decision_status,successor=task183_owner_decision_status(include_request=True)
                 except sqlite3.Error:
-                    decision_status="unavailable"
-                self.reply(200,{"taskId":183,"ownerDecisionStatus":decision_status,
+                    decision_status,successor="unavailable",None
+                self.reply(200,{"taskId":183,"ownerDecisionStatus":decision_status,"successorRequestId":successor,
                     "signingReady":decision_status=="not_recorded" and task183_owner_signing_ready(),
                     "decisionDurationSeconds":120,"readOnly":True,
                     "issuerAuthorized":False,"dispatchPermitted":False,
