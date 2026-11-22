@@ -47,17 +47,44 @@ def read_receipt(request_id):
         raise ValueError('INVALID_OWNER_SIGNATURE')
     if not claims['issuedAt'] <= signed <= time.time_ns()//1000000 < claims['expiresAt']:
         raise ValueError('OWNER_RECEIPT_EXPIRED_OR_INVALID')
-    return {'claims':claims, 'digest':digest, 'signature':signature}
+    return {'claims':claims, 'digest':digest, 'signature':signature, 'signedAt':signed}
+
+
+def record_receipt(request_id):
+    """Register a verified receipt through the separately provisioned DEV service."""
+    proof = read_receipt(request_id)
+    claims = proof['claims']
+    import psycopg
+    with psycopg.connect(service='cst_dev_task183_receipt_verifier', connect_timeout=5) as db:
+        role = db.execute("""
+            SELECT session_user = 'gpt02_task183_verifier_login'
+                AND NOT rolsuper AND NOT rolbypassrls AND NOT rolcreaterole
+                AND NOT rolcreatedb
+            FROM pg_roles WHERE rolname=session_user
+        """).fetchone()
+        if role != (True,):
+            raise ValueError('DEDICATED_VERIFIER_LOGIN_REQUIRED')
+        db.execute('SET LOCAL ROLE gpt02_task183_receipt_verifier')
+        db.execute("""
+            INSERT INTO gpt02_stage.task183_verified_recovery_receipts
+                (request_id, approval_sha256, predecessor_attempt_id, signed_at, expires_at)
+            VALUES (%s, %s, %s, to_timestamp(%s::bigint/1000.0), to_timestamp(%s::bigint/1000.0))
+        """, (request_id, proof['digest'], claims['originalAttemptId'], proof['signedAt'],
+              claims['expiresAt']))
 
 
 if __name__ == '__main__':
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('request_id')
+    parser.add_argument('--record', action='store_true')
     args = parser.parse_args()
     try:
-        read_receipt(args.request_id)
+        if args.record:
+            record_receipt(args.request_id)
+        else:
+            read_receipt(args.request_id)
     except ValueError as error:
         print(json.dumps({'eligible':False, 'reason':str(error)}))
         raise SystemExit(2)
-    print(json.dumps({'eligible':True, 'issuerAuthorized':False}))
+    print(json.dumps({'eligible':True, 'receiptRecorded':args.record, 'issuerAuthorized':False}))
