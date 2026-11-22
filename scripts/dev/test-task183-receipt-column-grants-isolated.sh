@@ -8,7 +8,7 @@ cleanup() { docker rm -f "$name" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 
 docker run -d --name "$name" --network none --restart no \
-  --security-opt no-new-privileges --cap-drop ALL \
+  --security-opt no-new-privileges \
   --memory 350m --memory-swap 350m --pids-limit 80 \
   --tmpfs /var/lib/postgresql/data:rw,nosuid,nodev,size=220m \
   -e POSTGRES_PASSWORD=synthetic_only_not_a_real_database_password_183 \
