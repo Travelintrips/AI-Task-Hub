@@ -599,6 +599,8 @@ export default function AiTaskDetail() {
     enabled:currentUser?.role==="super_admin" && Boolean(task?.companyId),
     retry:false,
   });
+  const freshInternalGpt02 = task?.title.startsWith("[INTERNAL-E2E] GPT02 DEV") === true &&
+    task.status === "new_inquiry" && !executionData?.execution && Number(id) === task.id;
   const gpt02AssignPicMutation = useMutation({
     mutationFn: (memberId: number) => apiFetch(
       `/ai-tasks/${id}/gpt02-assign-pic?companyId=${encodeURIComponent(task?.companyId ?? "")}`,
@@ -856,6 +858,26 @@ export default function AiTaskDetail() {
       title:"Persiapan GPT02 ditolak",description:err.message,variant:"destructive",
     }),
   });
+  const assignAndPrepare = useMutation({
+    mutationFn: async (memberId:number) => {
+      if (!freshInternalGpt02 || !task?.companyId) throw new Error("Task DEV tidak tersedia.");
+      const scope = `?companyId=${encodeURIComponent(task.companyId)}`;
+      const path = `/ai-tasks/${task.id}`;
+      await gpt02AssignPicMutation.mutateAsync(memberId);
+      const readiness = await apiFetch(`${path}/gpt02-preparation-readiness${scope}`) as {
+        taskId:number; canRequestPreparation:boolean;
+      };
+      if (readiness.taskId !== task.id || readiness.canRequestPreparation !== true) {
+        toast({title:"PIC tersimpan. Persiapan menunggu layanan DEV."});
+        return;
+      }
+      await gpt02PrepareOnlyMutation.mutateAsync();
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({queryKey:["gpt02-preparation-readiness",id]});
+      void queryClient.invalidateQueries({queryKey:["ai-task-execution",id]});
+    },
+  });
   // A DEV-only audited correction for a known historical bridge placeholder.
   // This edits the existing task, never prepares/dispatches a GPT02 command.
   const gpt02RepairInstructionMutation = useMutation({
@@ -895,7 +917,7 @@ export default function AiTaskDetail() {
       queryKey:["gpt02-google-session-readiness",id],
       queryFn:()=>apiFetch("/auth/gpt02/operator-session-readiness"),
       enabled:currentUser?.role==="super_admin",
-      retry:false,staleTime:0,refetchOnWindowFocus:false,
+      retry:false,staleTime:0,refetchOnWindowFocus:true,refetchInterval:freshInternalGpt02 ? 30_000 : false,
     });
 
   const [reconciliationRequested, setReconciliationRequested] = useState(false);
@@ -1372,7 +1394,7 @@ export default function AiTaskDetail() {
               <RefreshCw className={`h-3.5 w-3.5 mr-1 ${executionFetching ? "animate-spin" : ""}`} />
               Sync
             </Button>
-            {!executionData?.execution && (
+            {!executionData?.execution && !freshInternalGpt02 && (
               <>
                 <Button
                   variant="outline"
@@ -1431,10 +1453,16 @@ export default function AiTaskDetail() {
                             " sebagai PIC pada review gagal ini? Hanya pencatatan dan audit PIC. Tidak ada persetujuan operator, restart, atau pengiriman command.")) {
                           gpt02RecoveryPicMutation.mutate({memberId,reviewId});
                         }
+                      } else if (freshInternalGpt02) {
+                        const member=gpt02PicOptions?.members.find(option => option.id === memberId);
+                        if (member && window.confirm(`Tetapkan ${member.name} sebagai PIC dan siapkan Task #${task.id} saat layanan siap? Persiapan ini tidak menjalankan GPT02.`)) {
+                          assignAndPrepare.mutate(memberId);
+                        }
                       } else gpt02AssignPicMutation.mutate(memberId);
                     }
                   }}
                   disabled={gpt02PicFetching || !!gpt02PicError || gpt02AssignPicMutation.isPending ||
+                    (freshInternalGpt02 && (assignAndPrepare.isPending || googleSessionReadiness?.googleProofFresh !== true)) ||
                     gpt02RecoveryPicMutation.isPending ||
                     (Boolean(executionData?.execution) &&
                       !(executionData?.execution?.status?.toLowerCase()==="failed" &&
@@ -1455,6 +1483,12 @@ export default function AiTaskDetail() {
                     Konfirmasi PIC untuk Human Review yang diterima. Ini hanya menautkan ID anggota dan audit;
                     Job lama tetap FAILED dan penerbitan attempt baru tetap terkunci.
                   </p>
+                )}
+                {freshInternalGpt02 && googleSessionReadiness?.requiresFreshGoogleLogin && (
+                  <p role="status" className="mt-1 text-xs text-amber-800">Masuk kembali melalui Google sebagai Super Admin untuk menetapkan PIC.</p>
+                )}
+                {freshInternalGpt02 && assignAndPrepare.isError && (
+                  <p role="alert" className="mt-1 text-xs text-red-700">{assignAndPrepare.error.message}</p>
                 )}
                 {gpt02PicError && <p role="alert" className="mt-1 text-xs text-red-700">Daftar PIC tidak tersedia. Periksa akses Super Admin DEV.</p>}
                 {gpt02PicOptions?.choicesTruncated && <p className="mt-1 text-xs text-amber-700">Daftar dibatasi 100 anggota; pilihan lain memerlukan pemeriksaan admin.</p>}
@@ -1716,7 +1750,8 @@ export default function AiTaskDetail() {
                 (task.id===183 && gpt02PreparationReadiness?.preparationEligible===true &&
                   gpt02PreparationReadiness?.featureEnabled===true &&
                   gpt02PreparationReadiness?.reason==="GPT02_PREPARER_LOGIN_LOCKED")) ||
-                gpt02PrepareOnlyMutation.isPending || gpt02PreparationReadinessFetching ||
+                gpt02PrepareOnlyMutation.isPending || assignAndPrepare.isPending || gpt02PreparationReadinessFetching ||
+                (freshInternalGpt02 && googleSessionReadiness?.googleProofFresh !== true) ||
                 Boolean(executionData?.execution)}
               onClick={() => {
                 if (window.confirm(`Siapkan hanya Core PENDING dan Hub prepared untuk Task #${task.id}? Tidak ada approval, worker atau command yang dikirim.`))
@@ -1732,7 +1767,7 @@ export default function AiTaskDetail() {
           </section>
           )
         )}
-        {currentUser?.role === "super_admin" && (
+        {currentUser?.role === "super_admin" && !freshInternalGpt02 && (
           <section data-testid="gpt02-operator-readiness" aria-label="Kesiapan persetujuan operator GPT02"
             className="mt-3 rounded-lg border border-slate-200 bg-white p-3 text-xs space-y-2">
             <div className="flex flex-wrap items-center justify-between gap-2">
