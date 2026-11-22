@@ -288,7 +288,7 @@ def read_task183_owner_decision_status(db,now):
     children=[r for r in rows if r[1]==request]
     if len(rows)!=2 or len(children)!=1 or type(children[0][2]) is not int:
         return "unavailable"
-    return "expired" if children[0][2]<=now else "recorded"
+    return "successor_recorded"
 
 
 def verify_task183_owner_session(token):
