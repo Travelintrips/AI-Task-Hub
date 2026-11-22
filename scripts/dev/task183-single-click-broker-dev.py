@@ -432,6 +432,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     "task183_owner_http")
                 writer=checked_import(ROOT/"task183-owner-approval-writer-dev.py",
                     "task183_owner_writer")
+                # Verify root-only one-shot source BEFORE committing the
+                # irreversible Owner decision. Never discover missing code
+                # after the 120-second signed window has begun.
+                after=checked_import(ROOT/"task183-owner-after-decision.candidate.py",
+                    "task183_owner_after_decision")
                 response=adapter.authorize_request(
                     path=self.path,headers={
                         "Origin":self.headers.get("Origin"),
@@ -449,8 +454,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 # handoff immediately inside the 120-second Owner window.
                 # On uncertain outcomes, return 202 for manual reconciliation:
                 # never retry the irreversible Owner decision/signature.
-                after=checked_import(ROOT/"task183-owner-after-decision.candidate.py",
-                    "task183_owner_after_decision")
                 result=after.run_handoff(response)
                 self.reply(201 if result["signedEvidenceVerified"] is True else 202,result)
             except (ValueError,TypeError,UnicodeError,KeyError):
