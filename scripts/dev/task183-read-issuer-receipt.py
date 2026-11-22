@@ -74,8 +74,20 @@ def record_receipt(request_id):
         permissions = db.execute("""
             SELECT current_user = 'gpt02_task183_receipt_verifier'
                 AND has_schema_privilege(current_user, 'gpt02_stage', 'USAGE')
-                AND has_table_privilege(
+                -- Only the five explicitly approved INSERT columns are
+                -- granted. Table-wide INSERT is intentionally forbidden.
+                AND NOT has_table_privilege(
                     current_user, 'gpt02_stage.task183_verified_recovery_receipts', 'INSERT')
+                AND has_column_privilege(
+                    current_user, 'gpt02_stage.task183_verified_recovery_receipts', 'request_id', 'INSERT')
+                AND has_column_privilege(
+                    current_user, 'gpt02_stage.task183_verified_recovery_receipts', 'approval_sha256', 'INSERT')
+                AND has_column_privilege(
+                    current_user, 'gpt02_stage.task183_verified_recovery_receipts', 'predecessor_attempt_id', 'INSERT')
+                AND has_column_privilege(
+                    current_user, 'gpt02_stage.task183_verified_recovery_receipts', 'signed_at', 'INSERT')
+                AND has_column_privilege(
+                    current_user, 'gpt02_stage.task183_verified_recovery_receipts', 'expires_at', 'INSERT')
                 AND NOT (rolcanlogin OR rolsuper OR rolbypassrls OR rolcreaterole OR rolcreatedb)
             FROM pg_roles WHERE rolname = current_user
         """).fetchone()
