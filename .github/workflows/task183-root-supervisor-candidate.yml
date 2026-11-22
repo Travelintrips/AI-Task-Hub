@@ -67,6 +67,9 @@ on:
       - '.github/workflows/task183-root-supervisor-candidate.yml'
   pull_request:
     paths:
+      - 'AGENTS.md'
+      - 'docs/dev/TASK183_RECEIPT_SCHEMA_AND_CUSTODY_SCOPE_20261122.md'
+      - 'scripts/dev/task183-repo-policy-scope.test.mjs'
       - 'scripts/dev/task183-read-issuer-receipt.py'
       - 'scripts/dev/task183-receipt-verifier-grant-gate.test.py'
       - 'scripts/dev/test-task183-receipt-column-grants-isolated.sh'
@@ -96,6 +99,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Task183 Owner receipt status UI regression (isolated)
         run: node --test scripts/dev/task183-owner-receipt-toast-gate.test.mjs
+      - name: Task183 GPT02-only repository policy boundary regression
+        run: node --test scripts/dev/task183-repo-policy-scope.test.mjs
       - name: Task183 verifier identity and scoped INSERT fail-closed regression
         run: python3 scripts/dev/task183-receipt-verifier-grant-gate.test.py
       - name: Task183 real PostgreSQL 17 column grants and forced RLS (synthetic only)
