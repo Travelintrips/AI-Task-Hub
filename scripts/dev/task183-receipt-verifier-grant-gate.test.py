@@ -24,15 +24,17 @@ PROOF = {
 }
 
 class Cursor:
-    def __init__(self, value):
+    def __init__(self, value, rowcount=-1):
         self.value = value
+        self.rowcount = rowcount
     def fetchone(self):
         return (self.value,)
 
 class Connection:
-    def __init__(self, login_ok=True, grant_ok=True):
+    def __init__(self, login_ok=True, grant_ok=True, inserted_rowcount=1):
         self.login_ok = login_ok
         self.grant_ok = grant_ok
+        self.inserted_rowcount = inserted_rowcount
         self.calls = []
     def __enter__(self):
         return self
@@ -44,6 +46,8 @@ class Connection:
             return Cursor(self.login_ok)
         if "FROM pg_roles WHERE rolname = current_user" in sql:
             return Cursor(self.grant_ok)
+        if "INSERT INTO gpt02_stage.task183_verified_recovery_receipts" in sql:
+            return Cursor(None,rowcount=self.inserted_rowcount)
         return Cursor(None)
     @property
     def inserted(self):
@@ -51,8 +55,8 @@ class Connection:
                    for sql,_ in self.calls)
 
 class Tests(unittest.TestCase):
-    def run_case(self,login_ok=True,grant_ok=True):
-        c=Connection(login_ok,grant_ok)
+    def run_case(self,login_ok=True,grant_ok=True,inserted_rowcount=1):
+        c=Connection(login_ok,grant_ok,inserted_rowcount)
         def connect(**kwargs):
             self.assertEqual(kwargs["service"],"cst_dev_task183_receipt_verifier")
             self.assertEqual(kwargs["connect_timeout"],5)
@@ -106,8 +110,23 @@ class Tests(unittest.TestCase):
         self.assertEqual(c.inserted,1)
         sql,params=c.calls[-1]
         self.assertEqual(params,(REQUEST,PROOF["digest"],PROOF["claims"]["originalAttemptId"],
+                                 PROOF["signedAt"],PROOF["claims"]["expiresAt"],
                                  PROOF["signedAt"],PROOF["claims"]["expiresAt"]))
         self.assertIn("INSERT INTO gpt02_stage.task183_verified_recovery_receipts",sql)
+        self.assertIn("clock_timestamp()",sql)
+        self.assertIn("WHERE to_timestamp",sql)
+        self.assertNotIn("RETURNING",sql)
+
+    def test_expired_at_insert_denied_without_extra_grants(self):
+        c,error=self.run_case(inserted_rowcount=0)
+        self.assertEqual(error,"OWNER_RECEIPT_EXPIRED_BEFORE_INSERT")
+        self.assertEqual(c.inserted,1)
+        self.assertEqual(sum("SET LOCAL ROLE" in q for q,_ in c.calls),1)
+
+    def test_unexpected_multirow_insert_denied(self):
+        c,error=self.run_case(inserted_rowcount=2)
+        self.assertEqual(error,"OWNER_RECEIPT_EXPIRED_BEFORE_INSERT")
+        self.assertEqual(c.inserted,1)
 
     def test_unverified_receipt_never_opens_database(self):
         called=[]
