@@ -161,6 +161,16 @@ SQL
   --mount "type=bind,src=$ROOT/artifacts/api-server/src/lib/gpt02-core-task-preparation.mjs,dst=/tmp/gpt02-core-task-preparation.mjs,readonly" \
   --mount "type=bind,src=$ROOT/scripts/dev/gpt02-core-preparation-module-smoke.mjs,dst=/tmp/gpt02-core-preparation-module-smoke.mjs,readonly" \
   -e GPT02_CORE_FIXTURE_ONLY=1 "$NODE_IMAGE" /tmp/gpt02-core-preparation-module-smoke.mjs
+ fresh_count="$(psqlAs postgres -c "
+   SELECT count(*) FROM gpt02_stage.core_preparations p
+   JOIN public.ai_execution_jobs j ON j.id=p.hub_execution_id AND j.task_id=p.hub_task_id AND j.company_id=p.company_id
+   JOIN ai_platform.ai_coding_tasks c ON c.id=p.core_task_id
+   WHERE p.hub_task_id=189 AND p.company_id='default' AND c.status='PENDING'
+     AND j.status='prepared' AND j.command_id IS NULL AND NOT j.final_ack_verified
+     AND NOT EXISTS (SELECT 1 FROM ai_platform.ai_coding_bridge_commands b WHERE b.task_id=c.id)
+     AND (SELECT count(*) FROM public.ai_execution_jobs e WHERE e.task_id=189 AND e.company_id='default')=1")"
+ [[ "$fresh_count" == 1 ]] || { echo FRESH_PREPARATION_READBACK_FAILED >&2; exit 1; }
+ echo 'PASS:FRESH_TASK_RETRY_ONE_LINKED_HUB_CORE_RESERVATION'
  # Real isolated committed Hub/Core rows can now be matched to separately
  # signed approval, Hub operator and Core operator evidence, still with no grant.
  docker run --rm --network none --entrypoint node \
@@ -174,4 +184,4 @@ else
  echo 'OPTIONAL_NODE_DATABASE_SOCKET_SMOKE_SKIPPED_NO_LOCAL_IMAGE; SQL_AND_NODE_UNIT_TESTS_REQUIRED'
 fi
 # No operational issuer/dispatch API nor grant gets created by this stage.
-echo 'GPT02_HUB_CORE_ATOMIC_PREPARATION_ISOLATED_PASS: THREE_MATCHED_PAIRS, ZERO_COMMANDS, NO_LIVE_CHANGES'
+echo 'GPT02_HUB_CORE_ATOMIC_PREPARATION_ISOLATED_PASS: MATCHED_PAIRS, ZERO_COMMANDS, NO_LIVE_CHANGES'

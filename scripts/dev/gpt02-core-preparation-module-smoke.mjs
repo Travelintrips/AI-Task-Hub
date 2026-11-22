@@ -14,6 +14,16 @@ const input={companyId:'default',hubTaskId:137,projectName:'GPT02 DEV coding lif
 try{
  const preparer=new Gpt02CoreTaskPreparer({pool});
  assert.equal((await preparer.verifyReadiness()).verified,true);
+ const fresh=new Gpt02CoreTaskPreparer({pool,taskId:189});
+ const replacement={...input,hubTaskId:189};
+ await assert.rejects(fresh.prepare(input),e=>e.code==='GPT02_PREPARER_TASK_SCOPE_MISMATCH');
+ const created=await fresh.prepare(replacement);
+ assert.equal(created.preparedNew,true);
+ assert.equal(created.commandIssued,false);
+ assert.equal(created.dispatchPermitted,false);
+ const replay=await fresh.prepare(replacement);
+ assert.deepEqual(replay,{...created,preparedNew:false});
+ console.log('SCOPED_FRESH_PREPARATION_PASS: one isolated reservation, retry preserved all IDs');
  const r=await preparer.prepare(input);
  assert.equal(r.preparedNew,false);assert.equal(r.hubExecutionStatus,'prepared');assert.equal(r.commandIssued,false);
  assert.equal(r.dispatchPermitted,false);
