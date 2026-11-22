@@ -206,15 +206,36 @@ def task183_owner_signing_ready():
             or token.read_text().strip()!="CST_DEV_TASK183_BROKER_RELEASE_V1"):
             return False
         gid=_grp.getgrnam("gpt02-issue159-signers").gr_gid
-        for socket_path,root_owned in (
-            ("/run/cst-task183-root-broker/broker.sock",True),
-            ("/run/gpt02-issue159-operational-signer-approval/signer.sock",False),
-        ):
-            st=Path(socket_path).lstat()
-            if (not stat.S_ISSOCK(st.st_mode) or
-                stat.S_IMODE(st.st_mode)!=0o660 or st.st_gid!=gid or
-                (st.st_uid==0)!=root_owned):
-                return False
+        broker_socket=Path("/run/cst-task183-root-broker/broker.sock").lstat()
+        if (not stat.S_ISSOCK(broker_socket.st_mode) or
+            broker_socket.st_uid!=0 or broker_socket.st_gid!=gid or
+            stat.S_IMODE(broker_socket.st_mode)!=0o660):
+            return False
+        signer_unit="gpt02-issue159-operational-signer@approval.service"
+        signer_path=Path("/run/gpt02-issue159-operational-signer-approval/signer.sock")
+        signer_socket=signer_path.lstat()
+        if (not stat.S_ISSOCK(signer_socket.st_mode) or
+            signer_socket.st_uid==0 or stat.S_IMODE(signer_socket.st_mode)!=0o660):
+            return False
+        # DynamicUser owns the socket with its PRIMARY dynamic group; the
+        # signer authorization group is SUPPLEMENTARY. Do not require st_gid
+        # to equal the signer supplementary group (proved on real systemd).
+        pid_raw=subprocess.check_output(
+            ["systemctl","show",signer_unit,"--property=MainPID","--value"],
+            timeout=3).decode().strip()
+        if not pid_raw.isdigit() or int(pid_raw)<=1:
+            return False
+        pid=int(pid_raw)
+        proc_status=Path(f"/proc/{pid}/status").read_text()
+        proc_cgroup=Path(f"/proc/{pid}/cgroup").read_text()
+        fields=dict(line.split(":",1) for line in proc_status.splitlines()
+                    if ":" in line)
+        uids=fields.get("Uid","").split()
+        groups=fields.get("Groups","").split()
+        if (len(uids)<2 or int(uids[1])!=signer_socket.st_uid
+            or str(gid) not in groups
+            or not any(signer_unit in line.split("/") for line in proc_cgroup.splitlines())):
+            return False
         return True
     except (OSError,ValueError,KeyError,subprocess.SubprocessError):
         return False
