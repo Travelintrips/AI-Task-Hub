@@ -1,0 +1,8 @@
+[Unit]
+Description=Watch for publication or withdrawal of the CST-DEV Task 189 package
+
+[Path]
+PathChanged=/etc/credstore.encrypted/gpt02-task189-preparer
+
+[Install]
+WantedBy=paths.target

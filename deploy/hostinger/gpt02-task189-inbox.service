@@ -1,0 +1,16 @@
+[Unit]
+Description=Apply the published CST-DEV Task 189 preparation package
+# The path unit limits event bursts. Withdrawals must still reach systemctl
+# even if the delivery unit has reached its own start limit.
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+# The publisher atomically renames a complete encrypted file into place.
+# Wait for the delivery service to finish starting or withdrawing it before
+# processing a subsequent change. Its own timeout also withdraws the file.
+ExecStart=/bin/sh -ec 'if [ -f /etc/credstore.encrypted/gpt02-task189-preparer ] && [ ! -L /etc/credstore.encrypted/gpt02-task189-preparer ]; then exec /usr/bin/systemctl restart gpt02-task189-delivery.service; else exec /usr/bin/systemctl stop gpt02-task189-delivery.service; fi'
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
