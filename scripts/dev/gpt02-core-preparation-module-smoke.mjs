@@ -11,11 +11,17 @@ const pool=new Pool({
  ssl:{servername:'preparer-fixture',ca:readFileSync('/tmp/preparer-fixture.crt','utf8'),rejectUnauthorized:true}
 });
 const input={companyId:'default',hubTaskId:137,projectName:'GPT02 DEV coding lifecycle',repository:'Travelintrips/Core-AI-Foundation',branch:'develop',instruction:'PREPARE ONLY, never issue a command.'};
-try{
+async function checkPreparation(){
  const preparer=new Gpt02CoreTaskPreparer({pool});
- assert.equal((await preparer.verifyReadiness()).verified,true);
  const fresh=new Gpt02CoreTaskPreparer({pool,taskId:189});
  const replacement={...input,hubTaskId:189};
+ if(process.argv[2]==='--overlong-login'){
+  await assert.rejects(fresh.verifyReadiness(),e=>e.code==='DEV_PREPARER_AUTHENTICATED_ROLE_NOT_SCOPED');
+  await assert.rejects(fresh.prepare(replacement),e=>e.code==='DEV_PREPARER_SHORT_LIVED_LOGIN_REQUIRED');
+  console.log('PASS:OVERLONG_LOGIN_DENIED_BY_READINESS_AND_PREPARATION');
+  return;
+ }
+ assert.equal((await preparer.verifyReadiness()).verified,true);
  await assert.rejects(fresh.prepare(input),e=>e.code==='GPT02_PREPARER_TASK_SCOPE_MISMATCH');
  const created=await fresh.prepare(replacement);
  assert.equal(created.preparedNew,true);
@@ -33,4 +39,5 @@ try{
  await assert.rejects(preparer.prepare({...input,instruction:'modified after preparation'}),e=>e.code==='CORE_PREPARATION_TRANSACTION_FAILED');
  await assert.rejects(preparer.prepare({...input,hubTaskId:136}),e=>e.code==='OUT_OF_SCOPE_PREPARATION');
  console.log('GPT02_CORE_PREPARATION_REAL_MODULE_ISOLATED_PASS: replay stable, no dispatch, no legacy task');
-}finally{await pool.end();}
+}
+try{await checkPreparation();}finally{await pool.end();}

@@ -9,6 +9,14 @@ const EXPECTED_DEV_REF='xssrfshdrtdfupgqwfdw';
 const PINNED_DIRECT_DEV_HOST=`db.${EXPECTED_DEV_REF}.supabase.co`;
 const PINNED_ROOT_FINGERPRINT='807025ad50d4ed219d2c9c7d299c004f824eb00cf7f65afef607d07b72e6cafa';
 const ROLE='gpt02_core_prep_login';
+// The active CST-DEV relock function checks this same three-minute maximum.
+const MAX_PREPARER_LOGIN_MINUTES=3;
+export function preparerLoginWindowIsValid(validUntil,now=Date.now()){
+ const expires=validUntil instanceof Date?validUntil.getTime():
+   typeof validUntil==='string'?Date.parse(validUntil):NaN;
+ return Number.isFinite(now)&&Number.isFinite(expires)&&
+   expires>now&&expires-now<=MAX_PREPARER_LOGIN_MINUTES*60_000;
+}
 const COMPANY='default';
 const PROJECT='GPT02 DEV coding lifecycle';
 const REPOSITORY='Travelintrips/Core-AI-Foundation';
@@ -197,12 +205,9 @@ export class Gpt02CoreTaskPreparer {
      NOT EXISTS(SELECT 1 FROM pg_auth_members m WHERE m.member=p.oid) AS no_membership,
      NOT has_database_privilege(current_user,current_database(),'CREATE') AS no_db_create
      FROM pg_roles p WHERE p.rolname=current_user`)).rows[0];
-   const until=r?.valid_until instanceof Date?r.valid_until.getTime():
-      typeof r?.valid_until==='string'?Date.parse(r.valid_until):NaN;
    if(r?.login!==ROLE||r?.session!==ROLE||r?.read_only!=='on'||
       r?.limited!==true||r?.no_membership!==true||r?.no_db_create!==true||
-      r?.connection_limit!==1||!Number.isFinite(until)||
-      until<=Date.now()||until-Date.now()>10*60_000)
+      r?.connection_limit!==1||!preparerLoginWindowIsValid(r?.valid_until))
      deny('DEV_PREPARER_AUTHENTICATED_ROLE_NOT_SCOPED');
    const direct=(await client.query(`SELECT
      COALESCE((SELECT has_table_privilege(current_user,c.oid,
@@ -257,7 +262,7 @@ export class Gpt02CoreTaskPreparer {
        r.rolcreatedb OR r.rolreplication OR r.rolinherit) AS limited,
      r.rolconnlimit AS connection_limit,
      (r.rolvaliduntil IS NOT NULL AND r.rolvaliduntil>clock_timestamp() AND
-       r.rolvaliduntil<=clock_timestamp()+INTERVAL '10 minutes') AS short_lived,
+       r.rolvaliduntil<=clock_timestamp()+INTERVAL '${MAX_PREPARER_LOGIN_MINUTES} minutes') AS short_lived,
      NOT EXISTS(SELECT 1 FROM pg_auth_members m WHERE m.member=r.oid) AS no_membership,
      NOT has_database_privilege(current_user,current_database(),'CREATE') AS no_db_create
      FROM pg_roles r WHERE r.rolname=current_user`)).rows[0];

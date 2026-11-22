@@ -1,3 +1,4 @@
+export declare function preparerLoginWindowIsValid(validUntil:unknown,now?:number):boolean;
 export type PreparedCoreTask = Readonly<{
   coreTaskId:string;commandCandidateId:string;attemptId:string;hubExecutionId:string;
   preparedNew:boolean;coreTaskStatus:"PENDING";hubExecutionStatus:"prepared";

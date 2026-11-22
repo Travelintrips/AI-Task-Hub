@@ -34,7 +34,7 @@ test('atomic Core PENDING task plus prepared Hub execution never dispatches',asy
  ]);
  assert.ok(h.statements.some(x=>x.sql==='BEGIN')&&h.statements.some(x=>x.sql==='COMMIT'));
  assert.ok(h.statements.some(x=>x.sql.includes("r.rolvaliduntil>clock_timestamp()")&&
-   x.sql.includes("INTERVAL '10 minutes'")&&
+   x.sql.includes("INTERVAL '3 minutes'")&&
    x.sql.includes('r.rolconnlimit AS connection_limit')));
  assert.ok(h.statements.some(x=>x.sql.includes('r.rolinherit')));
  assert.ok(h.statements.findIndex(x=>x.sql.includes('r.rolvaliduntil>clock_timestamp()'))<

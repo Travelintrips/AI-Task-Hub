@@ -13,8 +13,8 @@ RuntimeDirectoryMode=0700
 ExecStartPre=/usr/bin/python3 -I /usr/local/libexec/ai-task189-dev/deliver.py publish
 ExecStart=/usr/bin/sleep infinity
 ExecStopPost=/usr/bin/python3 -I /usr/local/libexec/ai-task189-dev/deliver.py withdraw
-# The API accepts preparer roles with at most ten minutes left. The database
-# enforces the actual (possibly shorter) window on every preparation.
+# This timeout cleans up the delivered file. The API and database separately
+# check the preparer login window, which is at most three minutes.
 RuntimeMaxSec=10min
 TimeoutStopSec=10s
 Restart=no

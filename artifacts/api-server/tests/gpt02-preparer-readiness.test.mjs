@@ -52,7 +52,8 @@ test('privileged roles and inherited access forbidden',()=>{
 test('unbounded TTL, replayed login session and excessive concurrency rejected',()=>{
  denied({validUntil:null},'GPT02_PREPARER_SHORT_LIVED_LOGIN_REQUIRED');
  denied({validUntil:new Date(now-1)},'GPT02_PREPARER_SHORT_LIVED_LOGIN_REQUIRED');
- denied({validUntil:new Date(now+11*60_000)},'GPT02_PREPARER_SHORT_LIVED_LOGIN_REQUIRED');
+ assert.equal(assess({...role,validUntil:new Date(now+180_000)},now).catalogReady,true);
+ denied({validUntil:new Date(now+180_001)},'GPT02_PREPARER_SHORT_LIVED_LOGIN_REQUIRED');
  denied({connectionLimit:2},'GPT02_PREPARER_CONNECTION_LIMIT_NOT_VERIFIED');
  denied({activeSessions:1},'GPT02_PREPARER_CONNECTION_LIMIT_NOT_VERIFIED');
 });

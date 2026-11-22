@@ -156,11 +156,21 @@ DO $$ BEGIN
                 'fixture-preparer-only', clock_timestamp() + interval '8 minutes');
 END $$;
 SQL
- docker run --rm --network "container:$NAME" --entrypoint node \
+ run_preparation_smoke(){
+  docker run --rm --network "container:$NAME" --entrypoint node \
   --mount "type=bind,src=$WORK/server.crt,dst=/tmp/preparer-fixture.crt,readonly" \
   --mount "type=bind,src=$ROOT/artifacts/api-server/src/lib/gpt02-core-task-preparation.mjs,dst=/tmp/gpt02-core-task-preparation.mjs,readonly" \
   --mount "type=bind,src=$ROOT/scripts/dev/gpt02-core-preparation-module-smoke.mjs,dst=/tmp/gpt02-core-preparation-module-smoke.mjs,readonly" \
-  -e GPT02_CORE_FIXTURE_ONLY=1 "$NODE_IMAGE" /tmp/gpt02-core-preparation-module-smoke.mjs
+  -e GPT02_CORE_FIXTURE_ONLY=1 "$NODE_IMAGE" /tmp/gpt02-core-preparation-module-smoke.mjs "$@"
+ }
+ run_preparation_smoke --overlong-login
+ psqlAs postgres >/dev/null <<'SQL'
+DO $$ BEGIN
+ EXECUTE format('ALTER ROLE gpt02_core_prep_login VALID UNTIL %L',
+                clock_timestamp() + interval '2 minutes');
+END $$;
+SQL
+ run_preparation_smoke
  fresh_count="$(psqlAs postgres -c "
    SELECT count(*) FROM gpt02_stage.core_preparations p
    JOIN public.ai_execution_jobs j ON j.id=p.hub_execution_id AND j.task_id=p.hub_task_id AND j.company_id=p.company_id
