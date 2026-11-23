@@ -16,4 +16,5 @@ jobs:
         run: |
           python3 -IB scripts/dev/task189-core-approval-route.test.py
           python3 -IB scripts/dev/task189-owner-approval-http.candidate.test.py
-          python3 -IB scripts/dev/task189-owner-after-decision.candidate.test.py
+          # This fixture verifies root ownership of a temporary file on the hosted runner.
+          sudo -n python3 -IB scripts/dev/task189-owner-after-decision.candidate.test.py
