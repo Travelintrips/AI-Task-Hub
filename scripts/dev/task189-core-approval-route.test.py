@@ -5,9 +5,10 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest import TestCase, main
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import runpy
 import sqlite3
+import struct
 import time
 
 HERE = Path(__file__).resolve().parent
@@ -89,6 +90,27 @@ class CoreRouteTest(TestCase):
                                   rfile=BytesIO(self.adapter['BODY']), send=lambda code, body: response.append((code, body)))
         self.module['serve_core_request'](request)
         return response[0]
+
+    def test_only_the_core_service_can_introspect_a_session(self):
+        self.module['hub_verifier'] = lambda: lambda token: self.actor
+        peer = Mock()
+        peer.getsockopt.return_value = struct.pack('3i', 4567, 0, 0)
+        headers = Message()
+        headers['Host'] = self.adapter['HOST']
+        headers['Authorization'] = 'Bearer ' + TOKEN
+        replies = []
+        request = SimpleNamespace(connection=peer, headers=headers, path=self.module['SESSION_PATH'],
+                                  reply=lambda status, body: replies.append((status, body)))
+        endpoint = self.module['Handler'].do_GET
+        with patch.object(Path, 'read_text', return_value='0::/system.slice/unrelated.service'):
+            endpoint(request)
+        self.assertEqual(replies.pop(), (404, {}))
+        with patch.object(Path, 'read_text', return_value='0::/system.slice/' + self.module['CORE_UNIT']):
+            endpoint(request)
+            self.assertEqual(replies.pop(), (200, self.actor))
+            headers['Authorization'] = 'Bearer duplicate'
+            endpoint(request)
+            self.assertEqual(replies.pop(), (401, {}))
 
     def test_closed_window_and_invalid_sessions_cannot_record(self):
         self.assertEqual(self.request(token=None)[0], 401)
