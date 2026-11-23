@@ -18,6 +18,8 @@ Penerima mencocokkan scope, ID, role dan waktu kedaluwarsa sebelum menyerahkan p
 
 Kandidat ini adalah sumber untuk rilis DEV yang ditinjau. Fungsi yang terpasang dan pemeriksa relock harus mengenali revisi yang sama sebelum penerbit membuka login. Ubah ikatan hanya ketika login terkunci, masa akses sudah berakhir, dan jumlah sesi preparer nol. Pasang definisi beserta ikatannya dalam satu transaksi pada fungsi lama dengan pemilik dan ACL yang sudah diverifikasi. Jika rilis dibatalkan, kembalikan definisi, metadata dan versi pemeriksa yang semula dalam keadaan login terkunci.
 
+Paket rilis memakai sumber pemeriksa dari [revisi auditor DEV](https://github.com/Travelintrips/AI-Task-Hub/blob/39cccf963f85810d8ac46f7296fccc0c905efd3a/scripts/dev/gpt02-task183-watchdog-reuse/gpt02-task183-reuse-existing-auditor.sql). [Pembuat SQL](../../scripts/dev/task189-release/render.py) menghasilkan satu pernyataan atomik dengan argumen `install` atau `rollback`. Pemeriksaan sebelum dan sesudah penggantian mencakup sidik fungsi persiapan, fungsi internal dan auditor, identitas pemilik, ACL, ikatan permintaan, serta penutupan login. Rollback hanya menerima pasangan yang sama dengan hasil pemasangan. Pengelola menjalankan migrasi melalui proyek Supabase CST-DEV yang dituju. Aktivasi login atau penerbitan izin persiapan merupakan tindakan terpisah.
+
 Pengujian PostgreSQL terisolasi menggunakan paket terenkripsi yang diterima VPS untuk login SCRAM. Persiapan pertama menghasilkan satu job, pengulangan menghasilkan ID yang sama, dan permintaan task lain ditolak oleh database. Eksekusi worker serta Final ACK diverifikasi terpisah pada task di CST-DEV.
 
 ## Sambungan penerbit melalui proxy (opsional)
