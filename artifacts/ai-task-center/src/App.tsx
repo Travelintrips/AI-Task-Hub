@@ -15,6 +15,7 @@ import AiTaskBoard from "@/pages/ai-task-board";
 import VpsStoragePage from "@/pages/vps-storage";
 import { isVpsStorageDevHost } from "@/lib/vps-storage-dev-host";
 import AiTaskDetail from "@/pages/ai-task-detail";
+import Gpt02OwnerApprovalPage from "@/pages/gpt02-owner-approval";
 import Messages from "@/pages/messages";
 import AiCoreChatPage from "@/pages/ai-core-chat";
 import Documents from "@/pages/documents";
@@ -128,6 +129,7 @@ function AppRouter() {
         <Route path="/ai-tasks" component={AiTaskBoard} />
         <Route path="/vps-storage">{() => isVpsStorageDevHost() ? <VpsStoragePage /> : <NotFound />}</Route>
         <Route path="/ai-tasks/:id" component={AiTaskDetail} />
+        <Route path="/gpt02-owner-approval" component={Gpt02OwnerApprovalPage} />
         <Route path="/ai-core-chat" component={AiCoreChatPage} />
         <Route path="/messages" component={Messages} />
         <Route path="/documents" component={Documents} />
