@@ -844,7 +844,7 @@ export default function AiTaskDetail() {
   });
   const recoveryScope = Number(id) === 189 && task?.companyId === "default" && currentUser?.role === "super_admin";
   const recoveryKey = ["gpt02-owner-recovery", id, currentUser?.id];
-  const recovery = useQuery<{ taskId: number; ready: boolean; recorded: boolean; canRequestReview: boolean; reviewRequested: boolean; evidenceSha256?: string; originalAttemptId?: string; originalExpiryMs?: number; intentRecorded?: boolean }>({
+  const recovery = useQuery<{ taskId: number; ready: boolean; recorded: boolean; canRequestReview: boolean; reviewRequested: boolean; evidenceSha256?: string; originalAttemptId?: string; originalExpiryMs?: number; intentRecorded?: boolean; releaseStatus?: "AWAITING_RELEASE" }>({
     queryKey: recoveryKey,
     queryFn: () => apiFetch("/ai-tasks/189/gpt02-owner-approval-readiness?companyId=default"),
     enabled: recoveryScope,
@@ -1453,6 +1453,8 @@ export default function AiTaskDetail() {
               <Button type="button" size="sm" disabled={approveRecovery.isPending}
                 onClick={() => approveRecovery.mutate()}>Setujui persiapan kedua #189 satu kali</Button> :
               <p role="status">{approveRecovery.isSuccess ? "Persetujuan Owner sudah tercatat." :
+                recovery.data?.intentRecorded && recovery.data.releaseStatus === "AWAITING_RELEASE" ?
+                  "Konfirmasi Anda sudah tercatat. Layanan penanda tangan menunggu izin rilis VPS DEV." :
                 recovery.data?.reviewRequested ? "Permintaan tinjauan tercatat. Persetujuan pemulihan masih tertunda." :
                 recovery.data?.canRequestReview ? "Persiapan pertama kedaluwarsa. Anda dapat meminta tinjauan untuk percobaan kedua." :
                 recovery.isLoading ? "Memeriksa kesiapan pemulihan…" : "Persetujuan pemulihan belum tersedia."}</p>}

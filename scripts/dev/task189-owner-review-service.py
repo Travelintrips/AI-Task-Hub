@@ -83,6 +83,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                       'canRequestReview':not status['requested'],'dispatchPermitted':False}
             if status['requested']:
                 packet = review['review_evidence_packet'](actor, actual_source=source)
+                if not Path('/etc/gpt02-dev/task189-broker-release.approved').exists():
+                    result['releaseStatus'] = 'AWAITING_RELEASE'
                 result.update(evidenceSha256=packet['evidenceSha256'],
                               originalAttemptId=source['attempt_id'], originalExpiryMs=int(source['expires_at_ms']),
                               intentRecorded=review['get_recovery_consent_state'](actor)['recorded'])
