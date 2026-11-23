@@ -4,7 +4,7 @@ Layanan VPS menyimpan satu ID permintaan untuk Task 189, tenant `default`, proye
 
 ## Sambungan penerbit
 
-Pengelola kredensial mendaftarkan sekali identitas layanan yang berwenang menerbitkan akses persiapan #189. Sambungan lokal memakai Unix socket `/run/cst-dev-task189-issuer/agent.sock`, mode 0600 milik root. Direktori induknya milik root dan hanya root yang boleh menulis. Identitas pengakses database tetap dikelola penerbit. Rahasia tidak dikirim melalui tiket atau variabel aplikasi.
+Pengelola kredensial mendaftarkan sekali identitas layanan yang berwenang menerbitkan akses persiapan #189. Sambungan lokal memakai Unix socket `/run/cst-dev-task189-issuer/agent.sock`, mode 0600 milik root. Untuk proxy systemd, atur `UMask=0177` dan periksa mode socket yang benar-benar terpasang. Direktori induknya milik root dan hanya root yang boleh menulis. Identitas pengakses database tetap dikelola penerbit. Rahasia tidak dikirim melalui tiket atau variabel aplikasi.
 
 Penerbit menerima HTTP GET pada `/v1/database/creds/gpt02-task189-preparer`. Kontrak ini kompatibel dengan Database Secrets API dan auto-auth proxy. Header `X-CST-Request-ID` membawa ID permintaan untuk audit. Pengelola harus mengikat identitas ke kebijakan khusus role ini, sumber database CST-DEV, masa akses paling lama 180 detik dan relock yang sudah terpasang. Scope harus ditegakkan oleh penerbit. API aplikasi juga memeriksa identitas dan masa login database ketika menyiapkan task.
 

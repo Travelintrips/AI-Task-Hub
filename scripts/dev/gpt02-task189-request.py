@@ -56,8 +56,14 @@ def connect_provider(path, owner):
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
         sock.settimeout(6)
-        sock.connect(str(path))
-        return sock
+        for delay in (0.2, 0.5, None):
+            try:
+                sock.connect(str(path))
+                return sock
+            except ConnectionRefusedError:
+                if delay is None:
+                    raise
+                time.sleep(delay)
     except BaseException:
         sock.close()
         raise
@@ -123,12 +129,18 @@ def publish_once(store, receipt, state_file, entry):
 
     # The inbox atomically moves our file across these three names. Read them in
     # forward order so a rename cannot hide a publication during crash recovery.
-    for candidate in (incoming, store / ".gpt02-task189-received", store / NAME):
+    accepted_paths = (incoming, store / ".gpt02-task189-received", store / NAME)
+    for candidate in accepted_paths:
         if matches(candidate):
             entry["status"] = "published"
             write_state(state_file, entry)
             receipt.unlink(missing_ok=True)
             return
+    if any(os.path.lexists(path) for path in accepted_paths):
+        entry["status"] = "reconciliation_required"
+        write_state(state_file, entry)
+        receipt.unlink(missing_ok=True)
+        return
     if time.time() >= entry["expiresAt"] or not matches(receipt):
         entry["status"] = "reconciliation_required"
         write_state(state_file, entry)

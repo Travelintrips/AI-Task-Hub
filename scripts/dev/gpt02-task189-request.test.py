@@ -157,6 +157,19 @@ class Tests(unittest.TestCase):
         self.assertEqual(self.run_request(), "published")
         self.assertFalse(incoming.exists())
 
+    def test_manual_grant_arriving_during_issuance_is_preserved(self):
+        self.run_request()
+        saved = b"new fixture ciphertext"
+        entry = {**self.record, "status": "publishing", "sha256": hashlib.sha256(saved).hexdigest(),
+                 "expiresAt": time.time() + 60}
+        issuer.write_state(self.state / "request.json", entry)
+        (self.state / "pending.enc").write_bytes(saved)
+        canonical = self.store / issuer.NAME
+        canonical.write_bytes(b"manual package")
+        self.assertEqual(self.run_request(), "reconciliation_required")
+        self.assertEqual(canonical.read_bytes(), b"manual package")
+        self.assertFalse((self.store / (issuer.NAME + ".incoming")).exists())
+
     def test_recovery_after_lease_expired(self):
         self.run_request()
         saved = b"opaque fixture ciphertext"
