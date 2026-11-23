@@ -842,6 +842,24 @@ export default function AiTaskDetail() {
     onError:(err:Error)=>toast({title:"Permintaan review ditolak",
       description:err.message,variant:"destructive"}),
   });
+  const recoveryScope = Number(id) === 189 && task?.companyId === "default" && currentUser?.role === "super_admin";
+  const recoveryKey = ["gpt02-owner-recovery", id, currentUser?.id];
+  const recovery = useQuery<{ taskId: number; ready: boolean; recorded: boolean }>({
+    queryKey: recoveryKey,
+    queryFn: () => apiFetch("/ai-tasks/189/gpt02-owner-approval-readiness?companyId=default"),
+    enabled: recoveryScope,
+    retry: false,
+  });
+  const approveRecovery = useMutation({
+    mutationFn: async () => {
+      const result = await apiFetch("/ai-tasks/189/gpt02-owner-approval?companyId=default", {
+        method: "POST", headers: { "X-GPT02-Intent": "approve-task189-recovery-attempt2-only" },
+        body: JSON.stringify({ approveRecoveryAttempt2: true }),
+      });
+      if (result?.taskId !== 189 || result?.ownerDecisionStored !== true) throw new Error("Keputusan belum terverifikasi.");
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: recoveryKey }),
+  });
   const gpt02PrepareOnlyMutation = useMutation({
     mutationFn:()=>apiFetch(
       `/ai-tasks/${id}/gpt02-prepare?companyId=${encodeURIComponent(task?.companyId ?? "")}`,{
@@ -1406,6 +1424,16 @@ export default function AiTaskDetail() {
             )}
           </section>
         )}
+        {recoveryScope && <section aria-label="Pemulihan Task #189" className="my-3 space-y-2">
+          <h2 className="text-base font-semibold">Pemulihan Task #189</h2>
+          {recovery.data?.taskId === 189 && recovery.data.recorded ? <p role="status">Persetujuan Owner sudah tercatat.</p> :
+            recovery.data?.taskId === 189 && recovery.data.ready && !approveRecovery.isSuccess ?
+              <Button type="button" size="sm" disabled={approveRecovery.isPending}
+                onClick={() => approveRecovery.mutate()}>Setujui persiapan kedua #189 satu kali</Button> :
+              <p role="status">{approveRecovery.isSuccess ? "Persetujuan Owner sudah tercatat." :
+                recovery.isLoading ? "Memeriksa kesiapan pemulihan…" : "Persetujuan pemulihan belum tersedia."}</p>}
+          {approveRecovery.isError && <p role="alert">Persetujuan belum dapat dikonfirmasi. Periksa kembali statusnya.</p>}
+        </section>}
         <LifecycleDetails className={compactPreparation ? "mt-3 text-sm" : undefined}>
           {compactPreparation && <summary className="cursor-pointer text-slate-600">Detail teknis dan penugasan</summary>}
           {compactPreparation && gpt02PreparationReadiness?.taskId === task.id && (
