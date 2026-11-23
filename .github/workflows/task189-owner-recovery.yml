@@ -1,0 +1,19 @@
+name: Task 189 DEV approval routes
+on:
+  pull_request:
+    paths:
+      - 'scripts/dev/*189*'
+      - '.github/workflows/task189-owner-recovery.yml'
+permissions:
+  contents: read
+jobs:
+  approval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify the authenticated route and one-time decision
+        run: |
+          python3 -IB scripts/dev/task189-core-approval-route.test.py
+          python3 -IB scripts/dev/task189-owner-approval-http.candidate.test.py
+          python3 -IB scripts/dev/task189-owner-after-decision.candidate.test.py

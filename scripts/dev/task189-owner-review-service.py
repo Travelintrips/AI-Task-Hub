@@ -1,4 +1,6 @@
 """Authenticated CST-DEV review intake for the expired Task 189 reservation."""
+from functools import lru_cache
+import http.client
 import http.server
 import json
 import os
@@ -6,7 +8,9 @@ import sqlite3
 from types import SimpleNamespace
 from pathlib import Path
 import runpy
+import socket
 import socketserver
+import struct
 import stat
 
 ROOT = Path('/opt/ai-coding-standalone-dev/qa')
@@ -21,7 +25,10 @@ def trusted(name):
         raise RuntimeError('untrusted review module')
     return runpy.run_path(str(path))
 
-verify = trusted('task183-single-click-broker-dev.py')['verify_jwt']
+@lru_cache(maxsize=1)
+def hub_verifier():
+    return trusted('task183-single-click-broker-dev.py')['verify_jwt']
+
 owner = trusted('task183-owner-identity-readiness.py')['eligible_owner']
 review = trusted('task189-recovery-review-intake-dev.py')
 
@@ -29,6 +36,66 @@ approval = trusted('task189-owner-approval-http.candidate.py')
 writer = trusted('task189-owner-approval-writer-dev.py')
 handoff = trusted('task189-owner-after-decision.candidate.py')
 window = trusted('task189-owner-window-readiness.candidate.py')
+
+SESSION_PATH = '/internal/task189/verified-owner'
+SESSION_FIELDS = ('id', 'role', 'companyId', 'email', 'authSource', 'authSupabaseId', 'authVerifiedAt')
+REVIEW_SOCKET = '/run/cst-task189-owner-review.sock'
+CORE_UNIT = 'ai-coding-standalone-dev-approval.service'
+
+
+def core_peer(connection):
+    pid, uid, _ = struct.unpack('3i', connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
+    if uid != 0 or pid <= 1:
+        return False
+    return ('0::/system.slice/' + CORE_UNIT) in Path(f'/proc/{pid}/cgroup').read_text().splitlines()
+
+
+class ReviewConnection(http.client.HTTPConnection):
+    def connect(self):
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock.settimeout(self.timeout)
+        try:
+            self.sock.connect(REVIEW_SOCKET)
+            _, uid, _ = struct.unpack('3i', self.sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
+            if uid != 0:
+                raise OSError('Unexpected review service owner')
+        except BaseException:
+            self.close()
+            raise
+
+
+def verify_via_hub(token):
+    # The established Hub verifier alone handles its session signing key.
+    if not token.isascii() or not 48 <= len(token) <= 4096 or any(c.isspace() for c in token):
+        raise ValueError('Invalid session')
+    connection = ReviewConnection(HOST, timeout=8)
+    try:
+        connection.request('GET', SESSION_PATH, headers={
+            'Host': HOST, 'Authorization': 'Bearer ' + token})
+        response = connection.getresponse()
+        if response.status in (401, 403):
+            raise ValueError('Owner session required')
+        if response.status != 200:
+            raise OSError('Hub session verification unavailable')
+        body = response.read(8193)
+        if len(body) > 8192:
+            raise OSError('Invalid Hub session response')
+        actor = json.loads(body)
+        if not isinstance(actor, dict) or set(actor) != set(SESSION_FIELDS):
+            raise OSError('Invalid Hub session response')
+        return actor
+    finally:
+        connection.close()
+
+
+def serve_core_request(request):
+    routes = {('GET', BASE + 'approval-readiness' + QUERY), ('POST', approval['PATH'])}
+    if (request.command, request.path) not in routes:
+        return request.send(404, {})
+    http_request = SimpleNamespace(path=request.path, headers=request.headers,
+                                   rfile=request.rfile, reply=request.send)
+    return Handler.handle_review(http_request, request.command == 'POST', verify_via_hub)
+
 
 def signing_window_ready():
     try:
@@ -61,20 +128,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
 
-    def handle_review(self, write):
+    def handle_review(self, write, verify_session=None):
         route = BASE + ('review-request' if write else 'approval-readiness') + QUERY
         final = write and self.path == approval['PATH']
         if (not final and self.path != route) or self.headers.get('Host') != HOST:
             return self.reply(404, {})
+        if len(self.headers.get_all('Authorization', [])) != 1:
+            return self.reply(401, {'error':'OWNER_SESSION_REQUIRED'})
         auth = self.headers.get('Authorization', '')
         if not auth.startswith('Bearer '):
             return self.reply(401, {'error':'OWNER_SESSION_REQUIRED'})
         try:
+            verify = verify_session if verify_session is not None else hub_verifier()
             actor = verify(auth[7:])
             if not owner(actor)['eligible']:
                 raise ValueError()
         except (ValueError, KeyError, TypeError):
             return self.reply(403, {'error':'OWNER_SESSION_REQUIRED'})
+        except (OSError, RuntimeError, http.client.HTTPException, sqlite3.Error):
+            return self.reply(503, {'error':'OWNER_VERIFICATION_UNAVAILABLE'})
         try:
             if final:
                 if self.headers.get('Transfer-Encoding') or self.headers.get('Content-Length') != str(len(approval['BODY'])):
@@ -135,9 +207,26 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self.reply(503, {'error':'REVIEW_EVIDENCE_UNAVAILABLE'})
 
     def do_GET(self):
+        if self.path == SESSION_PATH:
+            try:
+                if self.headers.get('Host') != HOST or not core_peer(self.connection):
+                    return self.reply(404, {})
+                auth = self.headers.get('Authorization', '')
+                if len(self.headers.get_all('Authorization', [])) != 1 or not auth.startswith('Bearer '):
+                    return self.reply(401, {})
+                actor = hub_verifier()(auth[7:])
+                if not owner(actor)['eligible']:
+                    return self.reply(403, {})
+                return self.reply(200, {key: actor[key] for key in SESSION_FIELDS})
+            except (ValueError, KeyError, TypeError):
+                return self.reply(403, {})
+            except (OSError, RuntimeError, sqlite3.Error):
+                return self.reply(503, {})
         self.handle_review(False)
 
     def do_POST(self):
+        if self.path == approval['PATH']:
+            return self.reply(404, {})
         self.handle_review(True)
 
 if __name__ == '__main__':
