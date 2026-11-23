@@ -36,6 +36,10 @@ WITH request_data AS MATERIALIZED (
             'GPT02 DEV prepare-only task 189 request 1bdbed20-ac8d-4e63-898e-6a94b729c018'
         AND encode(sha256(convert_to(f.prosrc,'UTF8')),'hex')='2d0461518f6992c1b404bc44f14c5556f172a1dace2f3bd37ffafe123285f0c3'
         AND has_function_privilege(r.oid,f.oid,'EXECUTE')
+        AND NOT EXISTS (
+          SELECT 1 FROM aclexplode(coalesce(f.proacl,acldefault('f',f.proowner))) a
+          WHERE a.grantee NOT IN (f.proowner,r.oid) OR (a.grantee=r.oid AND a.is_grantable)
+        )
         AND has_schema_privilege(r.oid,f.pronamespace,'USAGE')
         AND NOT has_schema_privilege(r.oid,f.pronamespace,'CREATE')
         AND NOT EXISTS (
@@ -43,6 +47,19 @@ WITH request_data AS MATERIALIZED (
           WHERE ns.nspname IN ('gpt02_stage','gpt02_private') AND other.oid<>f.oid
             AND has_function_privilege(r.oid,other.oid,'EXECUTE')
         )
+    )
+    AND NOT has_database_privilege(r.oid,current_database(),'CREATE')
+    AND NOT EXISTS (
+      SELECT 1
+      FROM (VALUES ('public','ai_tasks'),('public','team_members'),('public','audit_logs'),
+                   ('public','users'),('public','ai_execution_jobs'),('gpt02_stage','core_preparations'),
+                   ('ai_platform','ai_coding_tasks'),('ai_platform','ai_coding_runs'),
+                   ('ai_platform','ai_coding_bridge_commands')) expected(schema_name,table_name)
+      LEFT JOIN pg_namespace ns ON ns.nspname=expected.schema_name
+      LEFT JOIN pg_class rel ON rel.relnamespace=ns.oid AND rel.relname=expected.table_name
+      WHERE rel.oid IS NULL OR rel.relkind NOT IN ('r','p') OR NOT rel.relrowsecurity
+        OR has_table_privilege(r.oid,rel.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+        OR has_any_column_privilege(r.oid,rel.oid,'SELECT,INSERT,UPDATE,REFERENCES')
     )
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members m WHERE m.member = r.oid)
 )

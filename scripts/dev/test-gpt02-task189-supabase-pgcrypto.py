@@ -82,6 +82,10 @@ def main():
                 f"GRANT EXECUTE ON FUNCTION {signature} TO gpt02_core_prep_login;")
             assert not sql(query)
             sql(f"COMMENT ON FUNCTION {signature} IS 'GPT02 DEV prepare-only task 189 request {request_id}'")
+            # Catalog-only release check. Simulate an accidental column grant in
+            # the disposable database and roll it back before testing delivery.
+            assert not sql("BEGIN; GRANT SELECT(id) ON public.ai_tasks TO gpt02_core_prep_login; "
+                           + query + "\nROLLBACK;")
             ciphertext = sql(query)
             assert len(base64.b64decode(ciphertext, validate=True)) > 128
             result = native.run("receive", state, store, io.BytesIO(ciphertext.encode()))
