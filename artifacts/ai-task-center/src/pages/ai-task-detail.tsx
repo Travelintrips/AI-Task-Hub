@@ -844,7 +844,7 @@ export default function AiTaskDetail() {
   });
   const recoveryScope = Number(id) === 189 && task?.companyId === "default" && currentUser?.role === "super_admin";
   const recoveryKey = ["gpt02-owner-recovery", id, currentUser?.id];
-  const recovery = useQuery<{ taskId: number; ready: boolean; recorded: boolean; canRequestReview: boolean; reviewRequested: boolean }>({
+  const recovery = useQuery<{ taskId: number; ready: boolean; recorded: boolean; canRequestReview: boolean; reviewRequested: boolean; evidenceSha256?: string; originalAttemptId?: string; originalExpiryMs?: number; intentRecorded?: boolean }>({
     queryKey: recoveryKey,
     queryFn: () => apiFetch("/ai-tasks/189/gpt02-owner-approval-readiness?companyId=default"),
     enabled: recoveryScope,
@@ -855,6 +855,21 @@ export default function AiTaskDetail() {
       method: "POST", headers: { "X-GPT02-Intent": "review-task189" },
       body: JSON.stringify({ requestReview: true }),
     }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: recoveryKey }),
+  });
+  const confirmReview = useMutation({
+    mutationFn: async (digest: string) => {
+      const post = (intent: string, data: Record<string, string>) =>
+        apiFetch("/ai-tasks/189/gpt02-owner-review-request?companyId=default", {
+          method: "POST", headers: { "X-GPT02-Intent": intent }, body: JSON.stringify(data),
+        });
+      const challenge = await post("review-evidence-task189", { evidenceSha256: digest });
+      if (challenge.evidenceSha256 !== digest || !challenge.challengeId || !challenge.nonce)
+        throw new Error("Bukti tinjauan berubah.");
+      await post("confirm-intent-task189", {
+        evidenceSha256: digest, challengeId: challenge.challengeId, nonce: challenge.nonce,
+      });
+    },
     onSettled: () => queryClient.invalidateQueries({ queryKey: recoveryKey }),
   });
   const approveRecovery = useMutation({
@@ -1443,6 +1458,15 @@ export default function AiTaskDetail() {
                 recovery.isLoading ? "Memeriksa kesiapan pemulihan…" : "Persetujuan pemulihan belum tersedia."}</p>}
           {recovery.data?.taskId === 189 && recovery.data.canRequestReview &&
             <Button type="button" size="sm" disabled={requestOwnerReview.isPending} onClick={() => requestOwnerReview.mutate()}>Minta tinjauan pemulihan #189</Button>}
+          {recovery.data?.evidenceSha256 && recovery.data.originalExpiryMs && <div className="space-y-2 text-sm">
+            <p>Persiapan pertama berakhir pada {new Date(recovery.data.originalExpiryMs).toLocaleString("id-ID", {timeZone:"Asia/Jakarta"})} WIB. Belum ada perintah yang dikirim.</p>
+            {recovery.data.intentRecorded ? <p role="status">Konfirmasi tinjauan dan permintaan persiapan kedua tercatat.</p> :
+              <Button type="button" size="sm" disabled={confirmReview.isPending}
+                onClick={() => confirmReview.mutate(recovery.data!.evidenceSha256!)}>
+                Saya sudah meninjau dan meminta persiapan kedua #189
+              </Button>}
+            {confirmReview.isError && <p role="alert">Konfirmasi belum terverifikasi. Muat ulang untuk memeriksa status.</p>}
+          </div>}
           {requestOwnerReview.isError && <p role="alert">Permintaan tinjauan belum dapat dikonfirmasi.</p>}
           {approveRecovery.isError && <p role="alert">Persetujuan belum dapat dikonfirmasi. Periksa kembali statusnya.</p>}
         </section>}

@@ -49,20 +49,44 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except (ValueError, KeyError, TypeError):
             return self.reply(403, {'error':'OWNER_SESSION_REQUIRED'})
         try:
+            source = review['source_readback']()
+            review['validate_source'](source)
             if write:
-                body = b'{"requestReview":true}'
                 if (self.headers.get('Origin') != 'https://' + HOST or
-                    self.headers.get('X-GPT02-Intent') != 'review-task189' or
                     self.headers.get_content_type() != 'application/json' or
-                    self.headers.get('Content-Length') != str(len(body)) or
-                    self.headers.get('Transfer-Encoding') or self.rfile.read(len(body)) != body):
+                    self.headers.get('Transfer-Encoding')):
                     return self.reply(400, {'error':'INVALID_REVIEW_REQUEST'})
-                review['record_pending_request'](actor=actor, source=review['source_readback']())
+                length = int(self.headers.get('Content-Length', '0'))
+                if not 0 < length <= 1024:
+                    return self.reply(400, {'error':'INVALID_REVIEW_REQUEST'})
+                intent = self.headers.get('X-GPT02-Intent')
+                body = json.loads(self.rfile.read(length))
+                if intent == 'review-task189' and body == {'requestReview': True}:
+                    review['record_pending_request'](actor=actor, source=source)
+                elif intent in ('review-evidence-task189', 'confirm-intent-task189'):
+                    packet = review['review_evidence_packet'](actor, actual_source=source)
+                    digest = packet['evidenceSha256']
+                    if not isinstance(body, dict) or body.get('evidenceSha256') != digest:
+                        return self.reply(409, {'error':'EVIDENCE_CHANGED'})
+                    if intent == 'review-evidence-task189' and set(body) == {'evidenceSha256'}:
+                        review['attest_review_evidence'](actor=actor, evidence_sha256=digest, actual_source=source)
+                        challenge = review['issue_recovery_consent_challenge'](actor=actor, actual_source=source)
+                        return self.reply(200, challenge)
+                    if intent != 'confirm-intent-task189' or set(body) != {'evidenceSha256','challengeId','nonce'}:
+                        return self.reply(400, {'error':'INVALID_REVIEW_REQUEST'})
+                    review['consent_to_recovery_review'](actor=actor, challenge_id=body['challengeId'],
+                        nonce=body['nonce'], evidence_sha256=digest, actual_source=source)
+                else:
+                    return self.reply(400, {'error':'INVALID_REVIEW_REQUEST'})
             status = review['get_status'](actor)
-            source = review['validate_source'](review['source_readback']())
-            self.reply(200, {'taskId':189,'ready':False,'recorded':False,
-                             'reviewRequested':status['requested'],'canRequestReview':not status['requested'],
-                             'originalAttemptId':source['attempt_id'],'dispatchPermitted':False})
+            result = {'taskId':189,'ready':False,'recorded':False,'reviewRequested':status['requested'],
+                      'canRequestReview':not status['requested'],'dispatchPermitted':False}
+            if status['requested']:
+                packet = review['review_evidence_packet'](actor, actual_source=source)
+                result.update(evidenceSha256=packet['evidenceSha256'],
+                              originalAttemptId=source['attempt_id'], originalExpiryMs=int(source['expires_at_ms']),
+                              intentRecorded=review['get_recovery_consent_state'](actor)['recorded'])
+            self.reply(200, result)
         except (RuntimeError, ValueError, OSError, TimeoutError):
             self.reply(503, {'error':'REVIEW_EVIDENCE_UNAVAILABLE'})
 
