@@ -13,6 +13,7 @@ import Tasks from "@/pages/tasks";
 import TaskDetail from "@/pages/task-detail";
 import AiTaskBoard from "@/pages/ai-task-board";
 import AiTaskDetail from "@/pages/ai-task-detail";
+import Gpt02OwnerApprovalPage from "@/pages/gpt02-owner-approval";
 import Messages from "@/pages/messages";
 import Documents from "@/pages/documents";
 import Team from "@/pages/team";
@@ -181,6 +182,7 @@ function AppRouter() {
         <Route path="/company-onboarding" component={CompanyOnboardingFactoryPage} />
         <Route path="/holding-dashboard" component={HoldingDashboardPage} />
         <Route path="/ai-operations" component={AiOperationsPage} />
+        <Route path="/gpt02-owner-approval" component={Gpt02OwnerApprovalPage} />
         <Route path="/notification-receivers" component={NotificationReceiversPage} />
         <Route component={NotFound} />
       </Switch>
