@@ -40,7 +40,11 @@ interface OnboardingStatus {
 
 interface WhatsAppHealth {
   status: "healthy" | "partial" | "not_configured";
-  gateway: { fonnte: { configured: boolean; tokenMasked: string | null }; meta: { configured: boolean; phoneNumberId: string | null } };
+  gateway: {
+    fonnte: { configured: boolean; tokenMasked: string | null };
+    meta: { configured: boolean; phoneNumberId: string | null };
+    aiCoreDev?: { configured: boolean; operational: boolean; onlineWorkers: number };
+  };
   webhook: { configured: boolean; fonnte_url: string; meta_url: string };
   activity: { lastMessageAt: string | null; lastMessageSource: string | null; messages24h: number };
   issues: string[];
@@ -249,11 +253,18 @@ function StepWhatsApp({ onComplete }: { onComplete: () => void }) {
         <p className="text-sm text-muted-foreground mt-1">Pastikan gateway WhatsApp terhubung sebelum menerima pesan.</p>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
         {[
           { label: "Fonnte Gateway", ok: s?.gateway.fonnte.configured, val: s?.gateway.fonnte.tokenMasked ?? "Belum dikonfigurasi" },
           { label: "Meta WhatsApp API", ok: s?.gateway.meta.configured, val: s?.gateway.meta.phoneNumberId ?? "Belum dikonfigurasi" },
           { label: "Webhook Token", ok: s?.webhook.configured, val: s?.webhook.configured ? "Sudah diset" : "Belum diset" },
+          ...(s?.gateway.aiCoreDev ? [{
+            label: "Gateway AI Core DEV",
+            ok: s.gateway.aiCoreDev.operational,
+            val: s.gateway.aiCoreDev.operational
+              ? `Operasional (${s.gateway.aiCoreDev.onlineWorkers} worker)`
+              : "Belum terhubung",
+          }] : []),
         ].map((item) => (
           <div key={item.label} className={`border rounded-lg p-3 ${item.ok ? "bg-green-50 border-green-200" : "bg-amber-50 border-amber-200"}`}>
             <div className="flex items-center gap-2 mb-1">
@@ -287,6 +298,12 @@ function StepWhatsApp({ onComplete }: { onComplete: () => void }) {
           <p>Pesan masuk 24 jam terakhir: <strong>{s.activity.messages24h}</strong></p>
           {s.activity.lastMessageAt && <p>Terakhir: {new Date(s.activity.lastMessageAt).toLocaleString("id-ID")}</p>}
         </div>
+      )}
+
+      {s?.gateway.aiCoreDev?.operational && (
+        <p className="text-xs text-muted-foreground">
+          Gateway AI Core DEV sudah operasional. Ini tidak mengaktifkan WhatsApp PROD atau menggantikan konfigurasi Fonnte/Meta.
+        </p>
       )}
 
       {(s?.issues ?? []).length > 0 && (
