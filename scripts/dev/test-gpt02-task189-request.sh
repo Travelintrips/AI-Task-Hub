@@ -35,6 +35,9 @@ for unit in request.path request.service inbox.path inbox.service delivery.servi
       -e "s@RuntimeDirectory=ai-task189-delivery@RuntimeDirectory=$base-marker@" \
       "$repo/deploy/hostinger/gpt02-task189-$unit" > "$units/$base-$unit"
 done
+# Fresh CI machines may not yet have initialized the host encryption key.
+# The sandboxed requester may use that system key but cannot initialize it.
+systemd-creds setup >/dev/null
 systemctl daemon-reload
 systemctl start "$base-inbox.path" "$base-request.path"
 for _ in {1..100}; do [[ -s "$p/state/request.json" ]] && break; sleep 0.1; done
@@ -64,6 +67,14 @@ with UnixStreamServer(str(root/"broker"/"agent.sock"),Grant) as server: server.s
 PY
 broker_pid=$!
 for _ in {1..120}; do [[ -s "$p/target/task-preparer.json" ]] && break; sleep 0.1; done
+if [[ ! -s "$p/target/task-preparer.json" ]]; then
+  python3 - "$p/state/request.json" <<'PYINFO'
+import json,sys
+print("Request fixture state:",json.load(open(sys.argv[1]))["status"])
+PYINFO
+  systemctl show "$base-request.service" "$base-inbox.service" "$base-delivery.service" -p Id -p Result -p ExecMainStatus
+  exit 1
+fi
 test "$(stat -c '%a:%u:%g' "$p/target/task-preparer.json")" = 400:1000:1000
 python3 -IB - "$p" <<'PY'
 import json,sys
