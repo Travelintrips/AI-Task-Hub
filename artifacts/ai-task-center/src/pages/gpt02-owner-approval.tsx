@@ -106,9 +106,11 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
       ? "Sesi Google Super Admin perlu diperbarui. Keluar lalu masuk kembali dengan Google, kemudian siapkan challenge baru."
       : error.includes("OWNER_IDENTITY_NOT_ELIGIBLE") || error.includes("OWNER_LINK")
         ? "Akun ini belum cocok dengan tautan Owner GPT02 yang aktif. Tidak ada persetujuan yang dicatat."
-        : error.includes("VERIFIER_UNAVAILABLE")
-          ? "Pemeriksa identitas CST Hub sedang tidak tersedia. Coba lagi setelah layanan pulih."
-          : error;
+        : error.includes("OWNER_LINK_VERIFIER_RETIRED")
+          ? "Layanan verifikasi tautan Owner GPT02 sedang tidak aktif (410 Gone). Persetujuan belum dapat diterbitkan; jangan mencoba mengulanginya sampai jalur identitas dipulihkan."
+          : error.includes("VERIFIER_UNAVAILABLE")
+            ? "Pemeriksa identitas CST Hub sedang tidak tersedia. Coba lagi setelah layanan pulih."
+            : error;
     throw new Error(message);
   }
   return result as T;
