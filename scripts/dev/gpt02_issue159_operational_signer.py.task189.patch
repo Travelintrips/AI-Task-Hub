@@ -1,0 +1,116 @@
+--- a/gpt02_issue159_operational_signer.py
++++ b/gpt02_issue159_operational_signer.py
+@@ -30,8 +30,13 @@
+ # handler is reviewed; existing reader returns 404 and signer refuses.
+ RECOVERY_READER="/run/gpt02-approval-reader/approval.sock"
+ 
++def recovery_domain(claims):
++    task=claims.get("hubTaskId")
++    if type(task) is not int or task not in (183,189): deny("UNKNOWN_RECOVERY_TASK")
++    return RECOVERY_AUDIENCE if task==183 else "GPT02_TASK189_RECOVERY_ISSUER_APPROVAL_V1"
++
+ def recovery_signing_bytes(claims):
+-    return (RECOVERY_AUDIENCE+"\n").encode()+canonical(claims,RECOVERY_FIELDS)
++    return (recovery_domain(claims)+"\n").encode()+canonical(claims,RECOVERY_FIELDS)
+ 
+ def recovery_signed_owner_readback(claims,now):
+     """Only trusted root-owned independent reader may assert authorization.
+@@ -54,9 +59,15 @@
+             ("originalCoreTaskId","originalHubExecutionId","originalAttemptId")) or
+         len({claims[n] for n in ("originalCoreTaskId","originalHubExecutionId","originalAttemptId")})!=3):
+         deny("RECOVERY_ORIGINAL_EVIDENCE_SCOPE_DENIED")
++    task=claims["hubTaskId"]
++    domain=recovery_domain(claims)
++    if task==189 and (claims.get("originalAttemptId")!="bb13af4f-8085-40e8-aa9b-a7e95d6ed1fc" or
++            claims.get("originalHubExecutionId")!="816767f4-4264-4931-9a82-3d9496d3da3c" or
++            claims.get("originalCoreTaskId")!="aae1fb3b-1a1a-462f-8e65-ec3944f0fce0"):
++        deny("TASK189_PREDECESSOR_MISMATCH")
+     if (claims.get("version")!=1 or claims.get("environment")!="DEV" or
+-       claims.get("audience")!=RECOVERY_AUDIENCE or
+-       claims.get("companyId")!="default" or claims.get("hubTaskId")!=183 or
++       claims.get("audience")!=domain or
++       claims.get("companyId")!="default" or
+        claims.get("recoveryAttemptNumber")!=2 or
+        claims.get("purpose")!="PREPARE_ATTEMPT2_ONLY" or
+        claims.get("dispatchPermitted") is not False or
+@@ -64,8 +75,8 @@
+        not NONCE_RE.fullmatch(claims["nonce"]) or
+        type(claims.get("issuedAt")) is not int or
+        type(claims.get("expiresAt")) is not int or
+-       claims["issuedAt"]>now+5000 or claims["issuedAt"]<now-300000 or
+-       not now<claims["expiresAt"]<=claims["issuedAt"]+300000):
++       claims["issuedAt"]>now+(0 if task==189 else 5000) or claims["issuedAt"]<now-300000 or
++       not now<claims["expiresAt"]<=claims["issuedAt"]+(120000 if task==189 else 300000)):
+         deny("RECOVERY_APPROVAL_SCOPE_OR_WINDOW_DENIED")
+     digest=hashlib.sha256(recovery_signing_bytes(claims)).hexdigest()
+     parent=Path(RECOVERY_READER).parent
+@@ -81,7 +92,7 @@
+         or st.st_uid!=0 or st.st_gid!=reader_group or
+         stat.S_IMODE(st.st_mode)!=0o660):
+         deny("RECOVERY_OWNER_READER_CUSTODY_INVALID")
+-    payload={"claimsSha256":digest,"taskId":183,"requestId":claims["requestId"],
++    payload={"claimsSha256":digest,"taskId":task,"requestId":claims["requestId"],
+              "evidenceSha256":claims["evidenceSha256"],
+              "ownerSubject":claims["ownerSubject"],"nonce":claims["nonce"],
+              "observedAt":now}
+@@ -128,7 +139,7 @@
+         "signatureVerified","persistedIndependentOwnerDecision",
+         "issuerAuthorizationGranted","dispatchPermitted"} or
+         data["ok"] is not True or data["environment"]!="DEV" or
+-        data["source"]!="task183-independent-recovery-approval-reader" or
++        data["source"]!=f"task{task}-independent-recovery-approval-reader" or
+         data["readOnly"] is not True or data["releaseDecision"]!="NO_GO" or
+         data["claimsSha256"]!=digest or
+         data["requestId"]!=claims["requestId"] or
+@@ -287,12 +298,13 @@
+     if not all(checks) or not UUID_RE.fullmatch(str(link["linkId"])): deny("LINK_BINDING_INVALID")
+ 
+ class Signer:
+-    def __init__(self,role,key,public,task183_gate=None):
++    def __init__(self,role,key,public,task183_gate=None,task189_gate=None):
+         self.role=role; self.key=key; self.public=public
+         self.task183_gate=task183_gate
++        self.task189_gate=task189_gate
+ 
+     def _task183_sign_with_gate(self,role,claims,digest,request_id,payload):
+-        gate=self.task183_gate
++        gate=self.task189_gate if claims.get("hubTaskId")==189 else self.task183_gate
+         if gate is None or not callable(getattr(gate,"sign_once",None)):
+             deny("TASK183_DURABLE_GATE_REQUIRED")
+         # The signer keeps the private key. The broker must never be given it.
+@@ -322,7 +334,7 @@
+             "recovery-approval",claims,digest,claims["requestId"],
+             recovery_signing_bytes(claims))
+         return {"environment":"DEV","role":"approval",
+-            "audience":RECOVERY_AUDIENCE,"claims":claims,
++            "audience":recovery_domain(claims),"claims":claims,
+             "signatureBase64url":signature,"claimsSha256":digest,
+             "signedOwnerApprovalVerified":True,
+             "issuerAuthorizationGranted":False,
+@@ -412,11 +424,10 @@
+     if not stat.S_ISDIR(st.st_mode) or stat.S_IMODE(st.st_mode)!=0o700: deny("RUNTIME_DIRECTORY_INVALID")
+     if os.path.lexists(socket_path): os.unlink(socket_path)
+     # Task183 is recovery-only. No other existing signer role is modified.
+-    task183_gate=None
+-    if role=="approval":
++    def load_gate(filename):
+         import importlib.util as _task183_import
+         import stat as _task183_stat
+-        _task183_path=Path("/opt/ai-coding-standalone-dev/task183_signer_unix_gate.py")
++        _task183_path=Path("/opt/ai-coding-standalone-dev") / filename
+         _task183_st=os.lstat(_task183_path)
+         if (not _task183_stat.S_ISREG(_task183_st.st_mode) or
+             _task183_stat.S_ISLNK(_task183_st.st_mode) or
+@@ -427,8 +438,10 @@
+         _task183_spec=_task183_import.spec_from_file_location("task183_unix_gate",str(_task183_path))
+         _task183_mod=_task183_import.module_from_spec(_task183_spec)
+         _task183_spec.loader.exec_module(_task183_mod)
+-        task183_gate=_task183_mod.SignerGate()
+-    Handler.signer=Signer(role,key,public,task183_gate=task183_gate)
++        return _task183_mod.SignerGate()
++    task183_gate=load_gate("task183_signer_unix_gate.py") if role=="approval" else None
++    task189_gate=load_gate("task189_signer_unix_gate.py") if role=="approval" else None
++    Handler.signer=Signer(role,key,public,task183_gate=task183_gate,task189_gate=task189_gate)
+     srv=Server(socket_path,Handler); os.chmod(socket_path,0o660)
+     Path(parent/"readiness.json").write_text(json.dumps({"environment":"DEV","role":role,"fingerprintMatched":True,"operationalSignerReady":True,"authorizationGranted":False,"dispatchPermitted":False,"releaseDecision":"NO_GO"},sort_keys=True)+"\n")
+     stopped=False
