@@ -3,6 +3,8 @@ on:
   pull_request:
     paths:
       - 'scripts/dev/*189*'
+      - 'artifacts/api-server/src/lib/gpt02-execution-outcome.ts'
+      - 'artifacts/api-server/tests/gpt02-execution-outcome.test.mjs'
       - '.github/workflows/task189-owner-recovery.yml'
 permissions:
   contents: read
@@ -18,3 +20,19 @@ jobs:
           python3 -IB scripts/dev/task189-owner-approval-http.candidate.test.py
           # This fixture verifies root ownership of a temporary file on the hosted runner.
           sudo -n python3 -IB scripts/dev/task189-owner-after-decision.candidate.test.py
+  isolated-recovery:
+    name: Automated Task 189 recovery checks (synthetic)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Check crash recovery, single use and expiry without a live signer
+        run: |
+          python3 -IB scripts/dev/task189-two-phase-signing.candidate.test.py
+          python3 -IB scripts/dev/task189-two-phase-unix-bridge.candidate.test.py
+          node --test scripts/dev/gpt02-bounded-login-smoke-guards.test.mjs
+      - name: Check that completion requires the matching Final ACK
+        run: node --experimental-strip-types --test artifacts/api-server/tests/gpt02-execution-outcome.test.mjs
