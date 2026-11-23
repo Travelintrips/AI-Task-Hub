@@ -844,11 +844,18 @@ export default function AiTaskDetail() {
   });
   const recoveryScope = Number(id) === 189 && task?.companyId === "default" && currentUser?.role === "super_admin";
   const recoveryKey = ["gpt02-owner-recovery", id, currentUser?.id];
-  const recovery = useQuery<{ taskId: number; ready: boolean; recorded: boolean }>({
+  const recovery = useQuery<{ taskId: number; ready: boolean; recorded: boolean; canRequestReview: boolean; reviewRequested: boolean }>({
     queryKey: recoveryKey,
     queryFn: () => apiFetch("/ai-tasks/189/gpt02-owner-approval-readiness?companyId=default"),
     enabled: recoveryScope,
     retry: false,
+  });
+  const requestOwnerReview = useMutation({
+    mutationFn: () => apiFetch("/ai-tasks/189/gpt02-owner-review-request?companyId=default", {
+      method: "POST", headers: { "X-GPT02-Intent": "review-task189" },
+      body: JSON.stringify({ requestReview: true }),
+    }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: recoveryKey }),
   });
   const approveRecovery = useMutation({
     mutationFn: async () => {
@@ -1431,7 +1438,12 @@ export default function AiTaskDetail() {
               <Button type="button" size="sm" disabled={approveRecovery.isPending}
                 onClick={() => approveRecovery.mutate()}>Setujui persiapan kedua #189 satu kali</Button> :
               <p role="status">{approveRecovery.isSuccess ? "Persetujuan Owner sudah tercatat." :
+                recovery.data?.reviewRequested ? "Permintaan tinjauan tercatat. Persetujuan pemulihan masih tertunda." :
+                recovery.data?.canRequestReview ? "Persiapan pertama kedaluwarsa. Anda dapat meminta tinjauan untuk percobaan kedua." :
                 recovery.isLoading ? "Memeriksa kesiapan pemulihan…" : "Persetujuan pemulihan belum tersedia."}</p>}
+          {recovery.data?.taskId === 189 && recovery.data.canRequestReview &&
+            <Button type="button" size="sm" disabled={requestOwnerReview.isPending} onClick={() => requestOwnerReview.mutate()}>Minta tinjauan pemulihan #189</Button>}
+          {requestOwnerReview.isError && <p role="alert">Permintaan tinjauan belum dapat dikonfirmasi.</p>}
           {approveRecovery.isError && <p role="alert">Persetujuan belum dapat dikonfirmasi. Periksa kembali statusnya.</p>}
         </section>}
         <LifecycleDetails className={compactPreparation ? "mt-3 text-sm" : undefined}>
