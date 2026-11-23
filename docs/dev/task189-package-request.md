@@ -12,6 +12,14 @@ Setelah akses persiapan yang dibatasi untuk #189 diterbitkan di database, penerb
 
 Penerima mencocokkan scope, ID, role dan waktu kedaluwarsa sebelum menyerahkan paket kepada layanan pemasangan systemd yang sudah ada. Uji tantangan menggunakan aksi `verify` dan hanya menghasilkan SHA-256. Hasil uji ini membuktikan pengiriman enkripsi dari Supabase sampai VPS. Bukti eksekusi task tetap berasal dari job dan Final ACK.
 
+### Batas izin di fungsi persiapan
+
+[Kandidat fungsi persiapan](../../scripts/dev/gpt02-preparer-task-lease-wrapper.sql) memeriksa identitas login dan mengikat permintaan di database sebelum membaca task. Pemilik fungsi menyimpan ID task dan ID permintaan pada katalog fungsi. Login aplikasi hanya mendapat EXECUTE. Saat terikat ke #189, fungsi menolak task lain dan memeriksa masa berlaku login sesudah memperoleh kunci transaksi. Metadata kosong atau salah menghentikan persiapan. Mode lama yang dipilih pemilik tetap mendukung task sebelumnya.
+
+Kandidat ini adalah sumber untuk rilis DEV yang ditinjau. Fungsi yang terpasang dan pemeriksa relock harus mengenali revisi yang sama sebelum penerbit membuka login. Ubah ikatan hanya ketika login terkunci, masa akses sudah berakhir, dan jumlah sesi preparer nol. Pasang definisi beserta ikatannya dalam satu transaksi pada fungsi lama dengan pemilik dan ACL yang sudah diverifikasi. Jika rilis dibatalkan, kembalikan definisi, metadata dan versi pemeriksa yang semula dalam keadaan login terkunci.
+
+Pengujian PostgreSQL terisolasi menggunakan paket terenkripsi yang diterima VPS untuk login SCRAM. Persiapan pertama menghasilkan satu job, pengulangan menghasilkan ID yang sama, dan permintaan task lain ditolak oleh database. Eksekusi worker serta Final ACK diverifikasi terpisah pada task di CST-DEV.
+
 ## Sambungan penerbit melalui proxy (opsional)
 
 Pengelola kredensial mendaftarkan sekali identitas layanan yang berwenang menerbitkan akses persiapan #189. Sambungan lokal memakai Unix socket `/run/cst-dev-task189-issuer/agent.sock`, mode 0600 milik root. Untuk proxy systemd, atur `UMask=0177` dan periksa mode socket yang benar-benar terpasang. Direktori induknya milik root dan hanya root yang boleh menulis. Identitas pengakses database tetap dikelola penerbit. Rahasia tidak dikirim melalui tiket atau variabel aplikasi.

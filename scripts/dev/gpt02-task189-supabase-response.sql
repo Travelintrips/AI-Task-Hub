@@ -27,6 +27,23 @@ WITH request_data AS MATERIALIZED (
     AND r.rolvaliduntil > clock_timestamp()
     AND r.rolvaliduntil <= clock_timestamp() + interval '180 seconds'
     AND grant_record->'expiresAt' = to_jsonb(floor(extract(epoch FROM r.rolvaliduntil))::bigint)
+    AND EXISTS (
+      SELECT 1 FROM pg_catalog.pg_proc f
+      WHERE f.oid=to_regprocedure('gpt02_stage.prepare_core_task(text,integer,text,text,text,text)')
+        AND f.prosecdef AND pg_get_userbyid(f.proowner)='gpt02_core_prep_owner'
+        AND f.proconfig=ARRAY['search_path=pg_catalog']
+        AND pg_catalog.obj_description(f.oid,'pg_proc') =
+            'GPT02 DEV prepare-only task 189 request 1bdbed20-ac8d-4e63-898e-6a94b729c018'
+        AND encode(sha256(convert_to(f.prosrc,'UTF8')),'hex')='2d0461518f6992c1b404bc44f14c5556f172a1dace2f3bd37ffafe123285f0c3'
+        AND has_function_privilege(r.oid,f.oid,'EXECUTE')
+        AND has_schema_privilege(r.oid,f.pronamespace,'USAGE')
+        AND NOT has_schema_privilege(r.oid,f.pronamespace,'CREATE')
+        AND NOT EXISTS (
+          SELECT 1 FROM pg_proc other JOIN pg_namespace ns ON ns.oid=other.pronamespace
+          WHERE ns.nspname IN ('gpt02_stage','gpt02_private') AND other.oid<>f.oid
+            AND has_function_privilege(r.oid,other.oid,'EXECUTE')
+        )
+    )
     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_auth_members m WHERE m.member = r.oid)
 )
 SELECT replace(encode(extensions.pgp_pub_encrypt(jsonb_build_object(
