@@ -84,7 +84,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if not signing_window_ready():
                     return self.reply(503, {'error':'SIGNING_WINDOW_NOT_READY'})
                 decision = approval['authorize_request'](
-                    path=self.path, headers=dict(self.headers.items()),
+                    path=self.path, headers=self.headers,
                     body=self.rfile.read(len(approval['BODY'])), verify_session=verify,
                     load_review=lambda: SimpleNamespace(**review), write_approval=writer['record'])
                 proof = handoff['run_handoff'](decision, expected_request=writer['REQUEST'])

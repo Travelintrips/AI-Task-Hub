@@ -6,6 +6,8 @@ The caller supplies authenticated headers and raw request body, but actor and
 historical evidence are obtained ONLY from trusted callbacks. Neither are
 accepted from client JSON. No automatic approval or signer invocation.
 """
+from collections.abc import Mapping
+from email.message import Message
 import json
 import re
 
@@ -17,11 +19,30 @@ BODY=b'{"approveRecoveryAttempt2":true}'
 
 class ApprovalRejected(ValueError):pass
 
+def approval_headers(raw):
+    if not isinstance(raw, (Mapping, Message)):
+        raise ApprovalRejected("HTTP_REQUEST_SHAPE_DENIED")
+    names = ("Origin", "Host", "X-GPT02-Intent", "Content-Type",
+             "Content-Length", "Authorization", "X-GPT02-Successor")
+    canonical = {name.lower(): name for name in names}
+    result = {}
+    for key, value in raw.items():
+        if not isinstance(key, str):
+            raise ApprovalRejected("HTTP_REQUEST_SHAPE_DENIED")
+        name = canonical.get(key.lower())
+        if name is None:
+            continue
+        if name in result or not isinstance(value, str):
+            raise ApprovalRejected("AMBIGUOUS_APPROVAL_HEADER")
+        result[name] = value
+    return result
+
 def authorize_request(*,path,headers,body,verify_session,load_review,write_approval):
     if path!=PATH:
         raise ApprovalRejected("NOT_FOUND")
-    if not isinstance(headers,dict) or type(body) is not bytes:
+    if type(body) is not bytes:
         raise ApprovalRejected("HTTP_REQUEST_SHAPE_DENIED")
+    headers=approval_headers(headers)
     if (headers.get("Origin")!=ORIGIN or headers.get("Host")!=HOST):
         raise ApprovalRejected("SAME_ORIGIN_REQUIRED")
     if (headers.get("X-GPT02-Intent")!=INTENT):

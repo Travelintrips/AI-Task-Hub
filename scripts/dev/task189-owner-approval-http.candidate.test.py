@@ -81,6 +81,17 @@ packet["evidence"]["originalAttemptId"]="8f5ab85a-8300-4118-a14c-5fc701ae5a7c"
 denied("PREVIOUS_TASK_ATTEMPT_DENIED")
 packet["evidence"]["originalAttemptId"]=old
 denied("CALLER_SUCCESSOR_DENIED",{"headers":different(**{"X-GPT02-Successor":"a"*36})})
+from email.message import Message
+wire=Message()
+for k,v in headers.items():
+ wire[k.lower()]=v
+lowercase_result=a.authorize_request(**{**base,"headers":wire})
+check("LOWERCASE_HTTP_HEADERS_ACCEPTED",lowercase_result["ownerDecisionStored"] is True)
+wire["Authorization"]="Bearer valid"
+denied("DUPLICATE_AUTHORIZATION_DENIED",{"headers":wire})
+denied("MIXED_CASE_DUPLICATE_INTENT_DENIED",{
+ "headers":different(**{"x-gpt02-intent":a.INTENT})})
+denied("LOWERCASE_SUCCESSOR_DENIED",{"headers":different(**{"x-gpt02-successor":"a"*36})})
 before=calls["write"]
 res=a.authorize_request(**base)
 check("EXPLICIT_VERIFIED_SUPERADMIN_POST_REACHES_WRITER",calls["write"]==before+1)
