@@ -1,9 +1,12 @@
 """Exercise the exact rollout and rollback on a disposable, network-isolated PG17."""
 import os
 import subprocess
+import tempfile
 import uuid
+from pathlib import Path
 
 from render import BINDING, GUARD_NEW, GUARD_OLD, HERE, SCRIPTS, WRAPPER_NEW, WRAPPER_OLD, render
+from render import transition_supervisor
 
 WRAPPER = "gpt02_stage.prepare_core_task(text,integer,text,text,text,text)"
 HELPER = WRAPPER.replace("prepare_core_task(", "prepare_core_task_v1_internal(")
@@ -84,6 +87,40 @@ def main():
         policies_query = "SELECT * FROM pg_policies WHERE schemaname='public' AND tablename='ai_tasks' ORDER BY policyname"
         policies = sql(policies_query)
         install, rollback = render("install"), render("rollback")
+        final = HERE / "gpt02_issue159_relock_catalog_supervisor.mjs"
+
+        def supervise(module, expect):
+            subprocess.run(["node", HERE / "test_supervisor.mjs", module, container, expect], check=True)
+
+        with tempfile.TemporaryDirectory() as directory:
+            transition = Path(directory) / "transition.mjs"
+            transition.write_text(transition_supervisor())
+            supervise(final, "denied")
+            supervise(transition, "locked")
+            hosted(install)
+            supervise(transition, "locked")
+            supervise(final, "locked")
+            # A grant to any extra principal or an unreviewed function setting must fail before invocation.
+            sql(f"GRANT EXECUTE ON FUNCTION {AUDIT} TO qa_bootstrap")
+            supervise(final, "denied")
+            supervise(transition, "denied")
+            sql(f"REVOKE EXECUTE ON FUNCTION {AUDIT} FROM qa_bootstrap")
+            sql(f"ALTER FUNCTION {AUDIT} SET search_path TO public")
+            supervise(final, "denied")
+            sql(f"ALTER FUNCTION {AUDIT} SET search_path TO pg_catalog")
+            guard_ddl = sql(f"SELECT pg_get_functiondef('{AUDIT}'::regprocedure)")
+            changed = guard_ddl.replace("DECLARE", "DECLARE /* unexpected body */", 1)
+            assert changed != guard_ddl
+            sql(changed)
+            supervise(transition, "denied")
+            supervise(final, "denied")
+            sql(guard_ddl)
+            supervise(transition, "locked")
+            hosted(rollback)
+            supervise(transition, "locked")
+            supervise(final, "denied")
+            assert snapshot() == original
+            print("PASS: both supervisor versions, live catalog rejection and coordinated rollback", flush=True)
         # A failure after the first CREATE OR REPLACE must unwind the entire statement.
         broken = install.replace("      EXECUTE $task189_guard$", "      RAISE EXCEPTION 'QA_AFTER_WRAPPER';\n      EXECUTE $task189_guard$",1)
         hosted(broken, "QA_AFTER_WRAPPER")

@@ -43,7 +43,21 @@ def render(direction):
     return query
 
 
+def transition_supervisor():
+    # During an atomic DB cutover the timer can see either reviewed guard.
+    # The installed steady-state module has only the new pin and no runtime override.
+    source = (HERE / "gpt02_issue159_relock_catalog_supervisor.mjs").read_text()
+    strict = f"IN ('{GUARD_NEW}')"
+    if source.count(strict) != 1 or GUARD_OLD in source:
+        raise ValueError("unexpected steady-state supervisor source")
+    return source.replace(strict, f"IN ('{GUARD_OLD}', '{GUARD_NEW}')")
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("direction", choices=("install", "rollback"))
-    print(render(parser.parse_args().direction))
+    parser.add_argument("direction", choices=("install", "rollback", "transition-supervisor"))
+    direction = parser.parse_args().direction
+    if direction == "transition-supervisor":
+        print(transition_supervisor(), end="")
+    else:
+        print(render(direction))
