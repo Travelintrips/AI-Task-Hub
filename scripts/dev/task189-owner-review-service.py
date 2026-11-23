@@ -1,6 +1,9 @@
 """Authenticated CST-DEV review intake for the expired Task 189 reservation."""
 import http.server
 import json
+import os
+import sqlite3
+from types import SimpleNamespace
 from pathlib import Path
 import runpy
 import socketserver
@@ -22,6 +25,29 @@ verify = trusted('task183-single-click-broker-dev.py')['verify_jwt']
 owner = trusted('task183-owner-identity-readiness.py')['eligible_owner']
 review = trusted('task189-recovery-review-intake-dev.py')
 
+approval = trusted('task189-owner-approval-http.candidate.py')
+writer = trusted('task189-owner-approval-writer-dev.py')
+handoff = trusted('task189-owner-after-decision.candidate.py')
+window = trusted('task189-owner-window-readiness.candidate.py')
+
+def signing_window_ready():
+    try:
+        if not window['check']():
+            return False
+        db = writer['LIVE_DB']
+        return os.access(db, os.W_OK) and os.access(db.parent, os.W_OK)
+    except (RuntimeError, OSError):
+        return False
+
+def decision_recorded(actor):
+    with sqlite3.connect(writer['LIVE_DB'].as_uri()+'?mode=ro', uri=True) as db:
+        return db.execute("""
+          SELECT EXISTS (SELECT 1 FROM gpt02_task189_owner_recovery_decisions d
+          JOIN gpt02_task189_owner_recovery_outbox o ON o.decision_id=d.id
+          AND o.claims_sha256=d.claims_sha256
+          WHERE d.request_id=? AND d.auth_user_id=? AND d.owner_subject=?)""",
+          (writer['REQUEST'], actor['authSupabaseId'], 'owner:'+actor['id'])).fetchone()[0] == 1
+
 class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
@@ -37,7 +63,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
     def handle_review(self, write):
         route = BASE + ('review-request' if write else 'approval-readiness') + QUERY
-        if self.path != route or self.headers.get('Host') != HOST:
+        final = write and self.path == approval['PATH']
+        if (not final and self.path != route) or self.headers.get('Host') != HOST:
             return self.reply(404, {})
         auth = self.headers.get('Authorization', '')
         if not auth.startswith('Bearer '):
@@ -49,6 +76,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except (ValueError, KeyError, TypeError):
             return self.reply(403, {'error':'OWNER_SESSION_REQUIRED'})
         try:
+            if final:
+                if self.headers.get('Transfer-Encoding') or self.headers.get('Content-Length') != str(len(approval['BODY'])):
+                    return self.reply(400, {'error':'INVALID_APPROVAL_REQUEST'})
+                if decision_recorded(actor):
+                    return self.reply(409, {'error':'OWNER_DECISION_ALREADY_RECORDED'})
+                if not signing_window_ready():
+                    return self.reply(503, {'error':'SIGNING_WINDOW_NOT_READY'})
+                decision = approval['authorize_request'](
+                    path=self.path, headers=dict(self.headers.items()),
+                    body=self.rfile.read(len(approval['BODY'])), verify_session=verify,
+                    load_review=lambda: SimpleNamespace(**review), write_approval=writer['record'])
+                proof = handoff['run_handoff'](decision, expected_request=writer['REQUEST'])
+                return self.reply(200, {**decision, **proof})
             source = review['source_readback']()
             review['validate_source'](source)
             if write:
@@ -88,8 +128,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 result.update(evidenceSha256=packet['evidenceSha256'],
                               originalAttemptId=source['attempt_id'], originalExpiryMs=int(source['expires_at_ms']),
                               intentRecorded=review['get_recovery_consent_state'](actor)['recorded'])
+                result['recorded'] = decision_recorded(actor)
+                result['ready'] = result['intentRecorded'] and not result['recorded'] and signing_window_ready()
             self.reply(200, result)
-        except (RuntimeError, ValueError, OSError, TimeoutError):
+        except (RuntimeError, ValueError, OSError, sqlite3.Error, TimeoutError):
             self.reply(503, {'error':'REVIEW_EVIDENCE_UNAVAILABLE'})
 
     def do_GET(self):
