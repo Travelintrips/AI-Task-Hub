@@ -126,6 +126,8 @@ jobs:
           bash scripts/dev/test-gpt02-task-scoped-mount.sh
           sudo python3 -IB scripts/dev/gpt02-task189-delivery.test.py
           python3 -IB scripts/dev/gpt02-task189-request.test.py
+          python3 -IB scripts/dev/gpt02-task189-supabase.test.py
+          sudo python3 -IB scripts/dev/test-gpt02-task189-supabase-pgcrypto.py
           sudo bash scripts/dev/test-gpt02-task189-inbox.sh
           sudo bash scripts/dev/test-gpt02-task189-request.sh
           bash scripts/dev/test-gpt02-core-preparer-role-dormant-isolated.sh

@@ -189,6 +189,8 @@ def request(state=STATE, store=STORE, provider=SOCKET, *, owner=0, encrypt_packa
             entry["status"] = "existing_publication"
             write_state(state_file, entry)
             return entry["status"]
+        if entry.get("provider") == "supabase-direct":
+            return entry["status"]
         try:
             sock = connect_provider(provider, owner)
         except (FileNotFoundError, ConnectionRefusedError):
