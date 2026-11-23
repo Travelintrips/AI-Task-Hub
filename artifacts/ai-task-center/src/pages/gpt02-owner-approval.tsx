@@ -76,6 +76,21 @@ type Challenge = {
   dispatchPermitted: false;
 };
 
+type OwnerIdentityReadiness = {
+  eligible: true;
+  taskId: 183;
+  companyId: "default";
+  scope: "SUPERADMIN_OWNER_IDENTITY_READ_ONLY";
+  ownerSubject: string;
+  googleSessionVerified: true;
+  enabledOperatorLinkVerified: true;
+  approvalDecisionCreated: false;
+  cryptographicOwnerSignatureVerified: false;
+  issuerAuthorized: false;
+  dispatchPermitted: false;
+  readOnly: true;
+};
+
 type ApprovalReceipt = {
   recorded: true;
   ownerSessionCryptographicallyVerified: true;
@@ -205,6 +220,8 @@ export default function Gpt02OwnerApprovalPage() {
   const [receipt, setReceipt] = useState<ApprovalReceipt | null>(null);
   const [reviewed, setReviewed] = useState(false);
   const [preparing, setPreparing] = useState(false);
+  const [checkingIdentity, setCheckingIdentity] = useState(false);
+  const [identityReadiness, setIdentityReadiness] = useState<OwnerIdentityReadiness | null>(null);
   const [approving, setApproving] = useState(false);
   const [approvalOutcomeUnknown, setApprovalOutcomeUnknown] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -218,6 +235,43 @@ export default function Gpt02OwnerApprovalPage() {
 
   const expiresAtMs = useMemo(() => challenge ? new Date(challenge.expiresAt).getTime() : 0, [challenge]);
   const expired = challenge !== null && expiresAtMs <= nowMs;
+
+  const verifyOwnerIdentity = async () => {
+    if (checkingIdentity || preparing || approving || receipt) return;
+    setCheckingIdentity(true);
+    setIdentityReadiness(null);
+    setError(null);
+    try {
+      const token = getStoredToken();
+      if (!token) throw new Error("Sesi login tidak ditemukan. Masuk kembali dengan Google.");
+      const response = await fetch(`${BASE}/api/ai-tasks/183/gpt02-owner-identity-readiness?companyId=default`, {
+        method: "GET",
+        cache: "no-store",
+        credentials: "same-origin",
+        headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+      });
+      const body = await response.json().catch(() => ({})) as Partial<OwnerIdentityReadiness> & { error?: string };
+      if (!response.ok) {
+        if (response.status === 401) throw new Error("Sesi aplikasi tidak valid atau sudah berakhir. Keluar lalu masuk kembali menggunakan Google.");
+        if (response.status === 403) throw new Error("Sesi Google atau tautan Owner GPT02 tidak cocok. Tidak ada approval yang dibuat.");
+        if (response.status === 503) throw new Error("Pemeriksa identitas Owner sedang tidak tersedia. Tidak ada approval yang dibuat.");
+        throw new Error(body.error || `Verifikasi identitas gagal (HTTP ${response.status}).`);
+      }
+      const valid = body.eligible === true &&
+        body.taskId === 183 && body.companyId === "default" &&
+        body.scope === "SUPERADMIN_OWNER_IDENTITY_READ_ONLY" &&
+        typeof body.ownerSubject === "string" && body.ownerSubject.startsWith("owner:google_") &&
+        body.googleSessionVerified === true && body.enabledOperatorLinkVerified === true &&
+        body.approvalDecisionCreated === false && body.cryptographicOwnerSignatureVerified === false &&
+        body.issuerAuthorized === false && body.dispatchPermitted === false && body.readOnly === true;
+      if (!valid) throw new Error("Respons readiness Owner tidak sesuai kontrak. Tidak ada approval yang dibuat.");
+      setIdentityReadiness(body as OwnerIdentityReadiness);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Verifikasi sesi dan tautan Owner gagal.");
+    } finally {
+      setCheckingIdentity(false);
+    }
+  };
 
   const prepare = async () => {
     if (!APPROVAL_UI_ENABLED || receipt || (challenge && expiresAtMs > Date.now())) return;
@@ -309,7 +363,42 @@ export default function Gpt02OwnerApprovalPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">1. Siapkan manifest untuk ditinjau</CardTitle>
+          <CardTitle className="text-base">1. Verifikasi sesi Google dan tautan Owner</CardTitle>
+          <CardDescription>
+            Pemeriksaan ini hanya mengirim GET ke layanan identitas read-only. Tidak membuat challenge, approval, izin signing, atau dispatch. Bisa dijalankan walaupun fitur persetujuan masih OFF.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <p className="text-sm text-muted-foreground">Akun aktif: <strong>{user.email}</strong></p>
+            <Button variant="outline" onClick={verifyOwnerIdentity} disabled={checkingIdentity || preparing || approving || Boolean(receipt)}>
+              <ShieldCheck className={`h-4 w-4 ${checkingIdentity ? "animate-pulse" : ""}`} />
+              {checkingIdentity ? "Memverifikasi sesi dan tautan…" : "Verifikasi sesi & tautan Owner"}
+            </Button>
+          </div>
+          {identityReadiness && (
+            <Alert>
+              <CheckCircle2 className="h-4 w-4" />
+              <AlertTitle>Identitas Owner terverifikasi</AlertTitle>
+              <AlertDescription className="space-y-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                  <KeyValue label="Owner subject" value={identityReadiness.ownerSubject} />
+                  <KeyValue label="Scope" value={identityReadiness.scope} />
+                  <KeyValue label="Google session verified" value="true" />
+                  <KeyValue label="Owner operator link" value="active / matched" />
+                  <KeyValue label="Approval decision created" value="false" />
+                  <KeyValue label="Signing / dispatch" value="not permitted" />
+                </div>
+                <p className="text-xs font-medium">Ini hanya hasil pemeriksaan identitas. Tidak ada challenge atau persetujuan Owner yang dibuat.</p>
+              </AlertDescription>
+            </Alert>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">2. Siapkan manifest untuk ditinjau</CardTitle>
           <CardDescription>
             Server akan memverifikasi sesi Google yang masih baru dan tautan Owner aktif sebelum menerbitkan challenge. Jika sesi Google sudah kedaluwarsa, login Google kembali dahulu.
           </CardDescription>
@@ -347,7 +436,7 @@ export default function Gpt02OwnerApprovalPage() {
             <CardHeader>
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="space-y-1">
-                  <CardTitle className="text-base">2. Manifest yang harus ditinjau</CardTitle>
+                  <CardTitle className="text-base">3. Manifest yang harus ditinjau</CardTitle>
                   <CardDescription>Semua sasaran dan tindakan berikut terikat ke satu digest yang tidak dapat diubah.</CardDescription>
                 </div>
                 <Badge variant={receipt ? "default" : expired ? "destructive" : "secondary"}>
@@ -447,7 +536,7 @@ export default function Gpt02OwnerApprovalPage() {
           {!receipt ? (
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">3. Keputusan Owner</CardTitle>
+                <CardTitle className="text-base">4. Keputusan Owner</CardTitle>
                 <CardDescription>
                   Periksa ulang project, host, empat role, timer/service, operasi, dan semua syarat. Persetujuan hanya berlaku untuk digest di atas dan challenge ini.
                 </CardDescription>
