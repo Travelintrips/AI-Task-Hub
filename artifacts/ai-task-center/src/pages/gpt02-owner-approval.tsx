@@ -102,6 +102,13 @@ type ApprovalReceipt = {
   manifestSha256: string;
 };
 
+class OwnerApprovalHttpError extends Error {
+  constructor(readonly status: number, readonly code: string, message: string) {
+    super(message);
+    this.name = "OwnerApprovalHttpError";
+  }
+}
+
 async function postJson<T>(path: string, body: unknown): Promise<T> {
   const token = getStoredToken();
   if (!token) throw new Error("Sesi login tidak ditemukan. Masuk kembali dengan Google.");
@@ -126,7 +133,7 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
           : error.includes("VERIFIER_UNAVAILABLE")
             ? "Pemeriksa identitas CST Hub sedang tidak tersedia. Coba lagi setelah layanan pulih."
             : error;
-    throw new Error(message);
+    throw new OwnerApprovalHttpError(response.status, error, message);
   }
   return result as T;
 }
@@ -224,6 +231,7 @@ export default function Gpt02OwnerApprovalPage() {
   const [identityReadiness, setIdentityReadiness] = useState<OwnerIdentityReadiness | null>(null);
   const [approving, setApproving] = useState(false);
   const [approvalOutcomeUnknown, setApprovalOutcomeUnknown] = useState(false);
+  const [approvalRejected, setApprovalRejected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(Date.now());
 
@@ -304,6 +312,7 @@ export default function Gpt02OwnerApprovalPage() {
     setReceipt(null);
     setReviewed(false);
     setApprovalOutcomeUnknown(false);
+    setApprovalRejected(false);
     setChallenge(null);
     try {
       const next = await postJson<Challenge>("/prepare", {
@@ -339,8 +348,16 @@ export default function Gpt02OwnerApprovalPage() {
       setReceipt(result);
       setReviewed(false);
     } catch (cause) {
-      setApprovalOutcomeUnknown(true);
-      setError(`${cause instanceof Error ? cause.message : "Persetujuan Owner ditolak."} Jangan kirim ulang keputusan pada challenge ini. Tunggu sampai challenge kedaluwarsa, lalu siapkan challenge baru setelah memeriksa status persetujuan.`);
+      // A definitive 4xx response is not an unknown outcome. A timeout,
+      // network interruption, or server-side 5xx still needs ledger review.
+      const rejected = cause instanceof OwnerApprovalHttpError &&
+        [400, 401, 403, 404, 409, 410, 422].includes(cause.status);
+      setApprovalRejected(rejected);
+      setApprovalOutcomeUnknown(!rejected);
+      const message = cause instanceof Error ? cause.message : "Persetujuan Owner gagal.";
+      setError(rejected
+        ? `Server menolak persetujuan (HTTP ${cause.status}, ${cause.code}): ${message}. Tidak boleh klik ulang pada challenge ini. Perbarui sesi Google jika diperlukan, lalu siapkan challenge baru setelah kedaluwarsa.`
+        : `${message} Hasil belum dapat dipastikan. Jangan klik ulang challenge ini; periksa ledger terlebih dahulu.`);
     } finally {
       setApproving(false);
     }
@@ -566,6 +583,13 @@ export default function Gpt02OwnerApprovalPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
+                {approvalRejected && (
+                  <Alert variant="destructive">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertTitle>Server menolak persetujuan — tidak ada bukti keputusan tercatat</AlertTitle>
+                    <AlertDescription>Periksa pesan error di halaman. Jangan ulangi keputusan pada challenge yang sama; gunakan sesi Google baru dan challenge baru setelah challenge lama berakhir.</AlertDescription>
+                  </Alert>
+                )}
                 {approvalOutcomeUnknown && (
                   <Alert variant="destructive">
                     <AlertCircle className="h-4 w-4" />
@@ -586,9 +610,9 @@ export default function Gpt02OwnerApprovalPage() {
                     Saya telah membaca seluruh manifest di atas dan secara eksplisit menyetujui hanya tindakan yang tertera untuk GPT02 CST-DEV, project <strong>xssrfshdrtdfupgqwfdw</strong>, host <strong>srv1792369</strong>, dengan digest yang ditampilkan.
                   </label>
                 </div>
-                <Button className="w-full sm:w-auto" onClick={approve} disabled={!reviewed || expired || approving || approvalOutcomeUnknown || Boolean(receipt)}>
+                <Button className="w-full sm:w-auto" onClick={approve} disabled={!reviewed || expired || approving || approvalRejected || approvalOutcomeUnknown || Boolean(receipt)}>
                   <ShieldCheck className="h-4 w-4" />
-                  {approving ? "Memverifikasi sesi & mencatat keputusan…" : approvalOutcomeUnknown ? "Menunggu pemeriksaan ledger" : "APPROVE manifest GPT02 ini"}
+                  {approving ? "Memverifikasi sesi & mencatat keputusan…" : approvalOutcomeUnknown ? "Menunggu pemeriksaan ledger" : approvalRejected ? "Ditolak — siapkan challenge baru" : "APPROVE manifest GPT02 ini"}
                 </Button>
                 <p className="text-xs text-muted-foreground">
                   Sesi Google harus masih baru. Bila pemeriksaan sesi atau tautan Owner gagal, server menolak keputusan dan tidak mencatat approval.
