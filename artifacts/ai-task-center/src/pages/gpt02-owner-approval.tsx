@@ -244,6 +244,30 @@ export default function Gpt02OwnerApprovalPage() {
     try {
       const token = getStoredToken();
       if (!token) throw new Error("Sesi login tidak ditemukan. Masuk kembali dengan Google.");
+      // Check the signed Google session first. A stale session must not be
+      // reported as a broken Owner link. Both requests are strictly GET-only.
+      const sessionResponse = await fetch(`${BASE}/api/auth/gpt02/operator-session-readiness`, {
+        method: "GET",
+        cache: "no-store",
+        credentials: "same-origin",
+        headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+      });
+      if (sessionResponse.status === 401) {
+        throw new Error("Sesi aplikasi sudah berakhir. Masuk kembali dengan Google.");
+      }
+      if (!sessionResponse.ok) {
+        throw new Error(`Pemeriksaan sesi Google belum berhasil (HTTP ${sessionResponse.status}). Tidak ada approval dibuat.`);
+      }
+      const session = await sessionResponse.json().catch(() => ({})) as {
+        googleProofFresh?: boolean; googleProofStatus?: string;
+        requiresFreshGoogleLogin?: boolean; proofSource?: string; readOnly?: boolean;
+      };
+      if (session.googleProofFresh !== true ||
+          session.googleProofStatus !== "SIGNED_SESSION_GOOGLE_PROOF_FRESH" ||
+          session.requiresFreshGoogleLogin !== false ||
+          session.proofSource !== "signed_app_session" || session.readOnly !== true) {
+        throw new Error("Bukti Google pada sesi ini tidak lagi baru. Masuk kembali dengan Google sebelum memeriksa tautan Owner.");
+      }
       const response = await fetch(`${BASE}/api/ai-tasks/183/gpt02-owner-identity-readiness?companyId=default`, {
         method: "GET",
         cache: "no-store",
