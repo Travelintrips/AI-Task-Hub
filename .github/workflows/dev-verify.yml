@@ -144,6 +144,7 @@ jobs:
           bash -n scripts/dev/test-gpt02-preparer-guarded-migration-isolated.sh
           bash scripts/dev/test-gpt02-preparer-guarded-migration-isolated.sh
           node --test scripts/dev/gpt02-preparer-dedicated-login-readonly.test.mjs
+          node --test scripts/dev/gpt02-preparer-credential-file-handoff.test.mjs
       - name: Reject mismatched future Core preparation and signed Hub/Core proof
         run: |
           node --test artifacts/api-server/tests/gpt02-prepared-link.test.mjs artifacts/api-server/tests/gpt02-issuer-lease-evidence.test.mjs artifacts/api-server/tests/gpt02-prepared-nonce-consumer.test.mjs artifacts/api-server/tests/gpt02-dev-trust-store.test.mjs artifacts/api-server/tests/gpt02-dev-trust-manifest.test.mjs
