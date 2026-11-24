@@ -136,6 +136,18 @@ jobs:
           node --test artifacts/api-server/tests/gpt02-preparer-readiness.test.mjs
           node --test artifacts/api-server/tests/gpt02-preparer-connection-readonly.test.mjs
           node --test scripts/dev/gpt02-reader-retry-readonly-contract.test.mjs
+      - name: Verify Task183 independent bounded relock and file custody (offline only)
+        run: |
+          node --test artifacts/api-server/tests/gpt02-preparer-custody-source.test.mjs scripts/dev/gpt02-task183-relock-once.test.mjs
+          bash scripts/dev/test-gpt02-task183-relock-isolated.sh
+      - name: Verify exact Kasbon-preserving Task183 custody guard (offline synthetic)
+        run: node --test scripts/dev/gpt02-task183-preserved-bundle-custody-contract.test.mjs
+      - name: Verify CST-DEV application DB credential staging is atomic (offline only)
+        run: |
+          python3 -m py_compile scripts/dev/cst-dev-app-db-recovery-root-interactive.py scripts/dev/test-cst-dev-app-db-recovery-offline.py
+          python3 scripts/dev/test-cst-dev-app-db-recovery-offline.py
+      - name: Verify existing Issue159 watchdog reuse for Task183 (OFF by default, no deploy)
+        run: node --test scripts/dev/gpt02-task183-watchdog-reuse/task183-addon.test.mjs
       - name: Validate persisted-task instruction bound to dedicated GPT02 Core preparer (no dispatch)
         run: |
           node --test scripts/dev/gpt02-preparer-instruction-bound-wrapper.contract.test.mjs

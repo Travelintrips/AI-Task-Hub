@@ -223,6 +223,7 @@ router.post("/auth/google", async (req: Request, res: Response): Promise<void> =
       const authMethods = decoded && typeof decoded === "object" ? decoded.amr : undefined;
       const verifiedGoogleOAuthAt = recentGoogleOAuthEvidenceAt(
         authMethods, authUser.identities, linkedProviders,
+        Date.now(), authUser.last_sign_in_at,
       );
 
       const token = signToken({

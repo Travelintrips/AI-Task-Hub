@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import {
   getStoredToken, getStoredUser, storeAuth, clearAuth, initAuthTokenGetter,
   apiLogin, apiGoogleLogin, apiGetMe, type AuthUser,
@@ -12,6 +12,8 @@ interface AuthContextValue {
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
   refreshUser: () => Promise<void>;
+  googleLoginError: string | null;
+  clearGoogleLoginError: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -20,6 +22,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser]       = useState<AuthUser | null>(getStoredUser);
   const [token, setToken]     = useState<string | null>(getStoredToken);
   const [isLoading, setLoading] = useState(true);
+  const [googleLoginError, setGoogleLoginError] = useState<string | null>(null);
+  const oauthResponse = useRef<{ accessToken: string | null; error: string | null; code: string | null } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -27,24 +31,60 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const bootstrapAuth = async () => {
       initAuthTokenGetter();
 
-      const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
-      const supabaseAccessToken = hash.get("access_token");
+      if (!oauthResponse.current) {
+        const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+        const query = new URLSearchParams(window.location.search);
+        oauthResponse.current = {
+          accessToken: hash.get("access_token"),
+          error: hash.get("error") ?? query.get("error"),
+          code: query.get("code"),
+        };
+        if (oauthResponse.current.accessToken || oauthResponse.current.error || oauthResponse.current.code) {
+          // Remove tokens and OAuth codes from the address bar, but retain them
+          // in a component ref across effect re-entry.
+          window.history.replaceState(null, "", window.location.pathname);
+        }
+      }
 
-      if (supabaseAccessToken) {
+      const oauth = oauthResponse.current;
+      if (oauth?.accessToken) {
         try {
-          const { token: t, user: u } = await apiGoogleLogin(supabaseAccessToken);
+          const { token: t, user: u } = await apiGoogleLogin(oauth.accessToken);
           if (cancelled) return;
           storeAuth(t, u);
           setToken(t);
           setUser(u);
-        } catch {
+          setGoogleLoginError(null);
+        } catch (err: unknown) {
           if (cancelled) return;
           clearAuth();
           setToken(null);
           setUser(null);
+          const reason = err instanceof Error ? err.message : "";
+          setGoogleLoginError(
+            /not registered|unambiguous|canonical google/i.test(reason)
+              ? "Akun Google sudah terverifikasi, tetapi tidak cocok dengan profil Admin DEV."
+              : /invalid supabase session|verified google account/i.test(reason)
+              ? "Sesi Google tidak dapat diverifikasi oleh AI Task Center. Ulangi login Google."
+              : "Sesi Google belum berhasil diteruskan ke AI Task Center. Coba kembali melalui tombol Google."
+          );
         } finally {
-          window.history.replaceState(null, "", window.location.pathname + window.location.search);
           if (!cancelled) setLoading(false);
+        }
+        return;
+      }
+
+      if (oauth?.error || oauth?.code) {
+        if (!cancelled) {
+          clearAuth();
+          setToken(null);
+          setUser(null);
+          setGoogleLoginError(
+            oauth.error
+              ? "Google membatalkan atau menolak proses masuk. Silakan ulangi melalui tombol Masuk dengan Google."
+              : "Google mengembalikan kode login yang tidak didukung. Gunakan kembali tombol Masuk dengan Google."
+          );
+          setLoading(false);
         }
         return;
       }
@@ -80,6 +120,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(u);
   }, []);
 
+  const clearGoogleLoginError = useCallback(() => setGoogleLoginError(null), []);
+
   const logout = useCallback(() => {
     clearAuth();
     setToken(null);
@@ -99,7 +141,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     <AuthContext.Provider value={{
       user, token, isLoading,
       isAuthenticated: !!token && !!user,
-      login, logout, refreshUser,
+      login, logout, refreshUser, googleLoginError, clearGoogleLoginError,
     }}>
       {children}
     </AuthContext.Provider>

@@ -1,0 +1,23 @@
+# CST-DEV Task183 preparer custody only; no production rollout.
+# Must be explicitly combined with the reviewed DEV compose file.
+# This overlay never authorizes preparation or dispatch by itself.
+services:
+  app:
+    user: "1000:1000"
+    environment:
+      NODE_ENV: development
+      APP_ENV: development
+      GPT02_CORE_PREP_CREDENTIAL_SOURCE: docker-readonly
+      GPT02_CORE_PREPARATION_ENABLED: "false"
+      GPT02_CORE_PREP_DEV_PROJECT_REF: xssrfshdrtdfupgqwfdw
+      GPT02_HUB_DEV_PROJECT_REF: xssrfshdrtdfupgqwfdw
+      GPT02_PROD_PROJECT_REF: nzdweipzckfszczzqtuw
+      GPT02_CORE_PREP_DEV_POOLER_HOST: aws-1-ap-southeast-2.pooler.supabase.com
+    volumes:
+      # Host parent directory must be root-private in tmpfs. Bind only the
+      # child owned by UID/GID 1000, directory 0500, two files 0400.
+      # The helper also verifies the kernel mountpoint is read-only.
+      - type: bind
+        source: ${GPT02_PREPARER_CUSTODY_DIR_HOST:?explicit_private_host_directory_required}
+        target: /run/credentials/gpt02-core-preparer.service
+        read_only: true
