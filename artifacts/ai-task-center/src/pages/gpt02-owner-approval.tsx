@@ -6,6 +6,7 @@ import {
   getOriginalOwnerLedgerErrorMessage, ORIGINAL_OWNER_CHALLENGE_ID, OWNER_LEDGER_ORIGIN,
   readOriginalOwnerLedger,
 } from "@/lib/gpt02-original-owner-ledger";
+import { verifyForeignChallengeDenied } from "@/lib/gpt02-foreign-challenge-probe";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -241,6 +242,8 @@ export default function Gpt02OwnerApprovalPage() {
   const [readingLedger, setReadingLedger] = useState(false);
   const [ledgerReceipt, setLedgerReceipt] = useState<Awaited<ReturnType<typeof readOriginalOwnerLedger>> | null>(null);
   const [ledgerError, setLedgerError] = useState<string | null>(null);
+  const [foreignChallengeResult, setForeignChallengeResult] = useState<"PASS" | "BLOCKED" | null>(null);
+  const [testingForeignChallenge, setTestingForeignChallenge] = useState(false);
   const ledgerReadGeneration = useRef(0);
 
   useEffect(() => {
@@ -248,6 +251,7 @@ export default function Gpt02OwnerApprovalPage() {
     setLedgerReceipt(null);
     setLedgerError(null);
     setReadingLedger(false);
+    setForeignChallengeResult(null);
     return () => { ledgerReadGeneration.current += 1; };
   }, [isAuthenticated, user?.id, user?.role]);
 
@@ -268,6 +272,25 @@ export default function Gpt02OwnerApprovalPage() {
       if (ledgerReadGeneration.current === generation) setLedgerError(getOriginalOwnerLedgerErrorMessage(cause));
     } finally {
       if (ledgerReadGeneration.current === generation) setReadingLedger(false);
+    }
+  };
+
+  const testForeignChallenge = async () => {
+    if (testingForeignChallenge || readingLedger || checkingIdentity || preparing || approving ||
+        !isAuthenticated || !user) return;
+    setTestingForeignChallenge(true);
+    setForeignChallengeResult(null);
+    try {
+      const outcome = await verifyForeignChallengeDenied({
+        origin: window.location.origin,
+        role: user.role,
+        getToken: getStoredToken,
+      });
+      setForeignChallengeResult(outcome === "DENIED_404" ? "PASS" : "BLOCKED");
+    } catch {
+      setForeignChallengeResult("BLOCKED");
+    } finally {
+      setTestingForeignChallenge(false);
     }
   };
 
@@ -489,6 +512,24 @@ export default function Gpt02OwnerApprovalPage() {
             <RefreshCw className={`h-4 w-4 ${readingLedger ? "animate-spin" : ""}`} />
             {readingLedger ? "Membaca keputusan asli…" : "Baca keputusan challenge asli"}
           </Button>
+          <div className="space-y-2">
+            <Button
+              variant="outline"
+              onClick={testForeignChallenge}
+              disabled={testingForeignChallenge || readingLedger || checkingIdentity || preparing || approving ||
+                !isAuthenticated || window.location.origin !== OWNER_LEDGER_ORIGIN}
+            >
+              <ShieldCheck className="h-4 w-4" />
+              {testingForeignChallenge ? "Memeriksa isolasi challenge…" : "Uji penolakan challenge lain"}
+            </Button>
+            {foreignChallengeResult && (
+              <p className="text-sm" role="status">
+                {foreignChallengeResult === "PASS"
+                  ? "PASS: challenge UUID lain ditolak (HTTP 404). Tidak ada keputusan baru dibuat."
+                  : "BELUM PASS: penolakan challenge lain belum dapat dibuktikan. Jangan anggap ledger tersedia."}
+              </p>
+            )}
+          </div>
           {ledgerError && (
             <Alert variant="destructive">
               <AlertCircle className="h-4 w-4" />
