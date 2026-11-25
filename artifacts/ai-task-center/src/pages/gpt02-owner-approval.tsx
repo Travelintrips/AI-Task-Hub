@@ -1,7 +1,11 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AlertCircle, CheckCircle2, Clock3, Fingerprint, LockKeyhole, RefreshCw, ShieldCheck } from "lucide-react";
 import { useAuth } from "@/contexts/auth-context";
 import { getStoredToken } from "@/lib/auth-api";
+import {
+  getOriginalOwnerLedgerErrorMessage, ORIGINAL_OWNER_CHALLENGE_ID, OWNER_LEDGER_ORIGIN,
+  readOriginalOwnerLedger,
+} from "@/lib/gpt02-original-owner-ledger";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -102,6 +106,13 @@ type ApprovalReceipt = {
   manifestSha256: string;
 };
 
+class OwnerApprovalHttpError extends Error {
+  constructor(readonly status: number, readonly code: string, message: string) {
+    super(message);
+    this.name = "OwnerApprovalHttpError";
+  }
+}
+
 async function postJson<T>(path: string, body: unknown): Promise<T> {
   const token = getStoredToken();
   if (!token) throw new Error("Sesi login tidak ditemukan. Masuk kembali dengan Google.");
@@ -126,7 +137,7 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
           : error.includes("VERIFIER_UNAVAILABLE")
             ? "Pemeriksa identitas CST Hub sedang tidak tersedia. Coba lagi setelah layanan pulih."
             : error;
-    throw new Error(message);
+    throw new OwnerApprovalHttpError(response.status, error, message);
   }
   return result as T;
 }
@@ -224,8 +235,41 @@ export default function Gpt02OwnerApprovalPage() {
   const [identityReadiness, setIdentityReadiness] = useState<OwnerIdentityReadiness | null>(null);
   const [approving, setApproving] = useState(false);
   const [approvalOutcomeUnknown, setApprovalOutcomeUnknown] = useState(false);
+  const [approvalRejected, setApprovalRejected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState(Date.now());
+  const [readingLedger, setReadingLedger] = useState(false);
+  const [ledgerReceipt, setLedgerReceipt] = useState<Awaited<ReturnType<typeof readOriginalOwnerLedger>> | null>(null);
+  const [ledgerError, setLedgerError] = useState<string | null>(null);
+  const ledgerReadGeneration = useRef(0);
+
+  useEffect(() => {
+    ledgerReadGeneration.current += 1;
+    setLedgerReceipt(null);
+    setLedgerError(null);
+    setReadingLedger(false);
+    return () => { ledgerReadGeneration.current += 1; };
+  }, [isAuthenticated, user?.id, user?.role]);
+
+  const readOriginalLedger = async () => {
+    if (readingLedger || checkingIdentity || preparing || approving || !isAuthenticated || !user) return;
+    const generation = ++ledgerReadGeneration.current;
+    setReadingLedger(true);
+    setLedgerReceipt(null);
+    setLedgerError(null);
+    try {
+      const result = await readOriginalOwnerLedger({
+        origin: window.location.origin,
+        role: user.role,
+        getToken: getStoredToken,
+      });
+      if (ledgerReadGeneration.current === generation) setLedgerReceipt(result);
+    } catch (cause) {
+      if (ledgerReadGeneration.current === generation) setLedgerError(getOriginalOwnerLedgerErrorMessage(cause));
+    } finally {
+      if (ledgerReadGeneration.current === generation) setReadingLedger(false);
+    }
+  };
 
   useEffect(() => {
     if (!challenge || receipt) return;
@@ -244,6 +288,30 @@ export default function Gpt02OwnerApprovalPage() {
     try {
       const token = getStoredToken();
       if (!token) throw new Error("Sesi login tidak ditemukan. Masuk kembali dengan Google.");
+      // Check the signed Google session first. A stale session must not be
+      // reported as a broken Owner link. Both requests are strictly GET-only.
+      const sessionResponse = await fetch(`${BASE}/api/auth/gpt02/operator-session-readiness`, {
+        method: "GET",
+        cache: "no-store",
+        credentials: "same-origin",
+        headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
+      });
+      if (sessionResponse.status === 401) {
+        throw new Error("Sesi aplikasi sudah berakhir. Masuk kembali dengan Google.");
+      }
+      if (!sessionResponse.ok) {
+        throw new Error(`Pemeriksaan sesi Google belum berhasil (HTTP ${sessionResponse.status}). Tidak ada approval dibuat.`);
+      }
+      const session = await sessionResponse.json().catch(() => ({})) as {
+        googleProofFresh?: boolean; googleProofStatus?: string;
+        requiresFreshGoogleLogin?: boolean; proofSource?: string; readOnly?: boolean;
+      };
+      if (session.googleProofFresh !== true ||
+          session.googleProofStatus !== "SIGNED_SESSION_GOOGLE_PROOF_FRESH" ||
+          session.requiresFreshGoogleLogin !== false ||
+          session.proofSource !== "signed_app_session" || session.readOnly !== true) {
+        throw new Error("Bukti Google pada sesi ini tidak lagi baru. Masuk kembali dengan Google sebelum memeriksa tautan Owner.");
+      }
       const response = await fetch(`${BASE}/api/ai-tasks/183/gpt02-owner-identity-readiness?companyId=default`, {
         method: "GET",
         cache: "no-store",
@@ -280,6 +348,7 @@ export default function Gpt02OwnerApprovalPage() {
     setReceipt(null);
     setReviewed(false);
     setApprovalOutcomeUnknown(false);
+    setApprovalRejected(false);
     setChallenge(null);
     try {
       const next = await postJson<Challenge>("/prepare", {
@@ -315,8 +384,16 @@ export default function Gpt02OwnerApprovalPage() {
       setReceipt(result);
       setReviewed(false);
     } catch (cause) {
-      setApprovalOutcomeUnknown(true);
-      setError(`${cause instanceof Error ? cause.message : "Persetujuan Owner ditolak."} Jangan kirim ulang keputusan pada challenge ini. Tunggu sampai challenge kedaluwarsa, lalu siapkan challenge baru setelah memeriksa status persetujuan.`);
+      // A definitive 4xx response is not an unknown outcome. A timeout,
+      // network interruption, or server-side 5xx still needs ledger review.
+      const rejected = cause instanceof OwnerApprovalHttpError &&
+        [400, 401, 403, 404, 409, 410, 422].includes(cause.status);
+      setApprovalRejected(rejected);
+      setApprovalOutcomeUnknown(!rejected);
+      const message = cause instanceof Error ? cause.message : "Persetujuan Owner gagal.";
+      setError(rejected
+        ? `Server menolak persetujuan (HTTP ${cause.status}, ${cause.code}): ${message}. Tidak boleh klik ulang pada challenge ini. Perbarui sesi Google jika diperlukan, lalu siapkan challenge baru setelah kedaluwarsa.`
+        : `${message} Hasil belum dapat dipastikan. Jangan klik ulang challenge ini; periksa ledger terlebih dahulu.`);
     } finally {
       setApproving(false);
     }
@@ -390,6 +467,55 @@ export default function Gpt02OwnerApprovalPage() {
                   <KeyValue label="Signing / dispatch" value="not permitted" />
                 </div>
                 <p className="text-xs font-medium">Ini hanya hasil pemeriksaan identitas. Tidak ada challenge atau persetujuan Owner yang dibuat.</p>
+              </AlertDescription>
+            </Alert>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card data-testid="gpt02-original-owner-ledger">
+        <CardHeader>
+          <CardTitle className="text-base">Baca keputusan challenge asli</CardTitle>
+          <CardDescription>
+            Periksa keputusan yang sudah tercatat untuk challenge {ORIGINAL_OWNER_CHALLENGE_ID}. Pemeriksaan ini hanya membaca ledger dan tetap tersedia saat fitur persetujuan baru OFF.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Button
+            variant="outline"
+            onClick={readOriginalLedger}
+            disabled={readingLedger || checkingIdentity || preparing || approving || window.location.origin !== OWNER_LEDGER_ORIGIN}
+          >
+            <RefreshCw className={`h-4 w-4 ${readingLedger ? "animate-spin" : ""}`} />
+            {readingLedger ? "Membaca keputusan asli…" : "Baca keputusan challenge asli"}
+          </Button>
+          {ledgerError && (
+            <Alert variant="destructive">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>Keputusan asli belum terverifikasi</AlertTitle>
+              <AlertDescription>{ledgerError}</AlertDescription>
+            </Alert>
+          )}
+          {ledgerReceipt && (
+            <Alert>
+              <CheckCircle2 className="h-4 w-4" />
+              <AlertTitle>Keputusan challenge asli terbaca</AlertTitle>
+              <AlertDescription className="space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                  <KeyValue label="Challenge ID" value={ledgerReceipt.challengeId} />
+                  <KeyValue label="Scope" value={ledgerReceipt.scope} />
+                  <KeyValue label="Status / keputusan" value={`${ledgerReceipt.status} / ${ledgerReceipt.decision}`} />
+                  <KeyValue label="Waktu keputusan" value={formatDate(ledgerReceipt.decidedAt)} />
+                  <KeyValue label="SHA-256 manifest" value={ledgerReceipt.manifestSha256} />
+                  <KeyValue label="Baca-saja" value="true" />
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant="secondary">Release: {ledgerReceipt.releaseDecision}</Badge>
+                  <Badge variant="secondary">Execution: OFF</Badge>
+                  <Badge variant="secondary">Signer: OFF</Badge>
+                  <Badge variant="secondary">Dispatch: OFF</Badge>
+                </div>
+                <p className="text-xs">Receipt ini membuktikan keputusan historis. Pemeriksaan ini tidak membuat persetujuan baru atau menjalankan relock.</p>
               </AlertDescription>
             </Alert>
           )}
@@ -542,6 +668,13 @@ export default function Gpt02OwnerApprovalPage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
+                {approvalRejected && (
+                  <Alert variant="destructive">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertTitle>Server menolak persetujuan — tidak ada bukti keputusan tercatat</AlertTitle>
+                    <AlertDescription>Periksa pesan error di halaman. Jangan ulangi keputusan pada challenge yang sama; gunakan sesi Google baru dan challenge baru setelah challenge lama berakhir.</AlertDescription>
+                  </Alert>
+                )}
                 {approvalOutcomeUnknown && (
                   <Alert variant="destructive">
                     <AlertCircle className="h-4 w-4" />
@@ -562,9 +695,9 @@ export default function Gpt02OwnerApprovalPage() {
                     Saya telah membaca seluruh manifest di atas dan secara eksplisit menyetujui hanya tindakan yang tertera untuk GPT02 CST-DEV, project <strong>xssrfshdrtdfupgqwfdw</strong>, host <strong>srv1792369</strong>, dengan digest yang ditampilkan.
                   </label>
                 </div>
-                <Button className="w-full sm:w-auto" onClick={approve} disabled={!reviewed || expired || approving || approvalOutcomeUnknown || Boolean(receipt)}>
+                <Button className="w-full sm:w-auto" onClick={approve} disabled={!reviewed || expired || approving || approvalRejected || approvalOutcomeUnknown || Boolean(receipt)}>
                   <ShieldCheck className="h-4 w-4" />
-                  {approving ? "Memverifikasi sesi & mencatat keputusan…" : approvalOutcomeUnknown ? "Menunggu pemeriksaan ledger" : "APPROVE manifest GPT02 ini"}
+                  {approving ? "Memverifikasi sesi & mencatat keputusan…" : approvalOutcomeUnknown ? "Menunggu pemeriksaan ledger" : approvalRejected ? "Ditolak — siapkan challenge baru" : "APPROVE manifest GPT02 ini"}
                 </Button>
                 <p className="text-xs text-muted-foreground">
                   Sesi Google harus masih baru. Bila pemeriksaan sesi atau tautan Owner gagal, server menolak keputusan dan tidak mencatat approval.
