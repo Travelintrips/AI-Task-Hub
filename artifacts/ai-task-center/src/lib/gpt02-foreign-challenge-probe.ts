@@ -28,7 +28,7 @@ export async function verifyForeignChallengeDenied(
     });
     // Only 404 is acceptable. No response body is ever read or persisted.
     if (response.status !== 404 ||
-        !/^application\\/json(?:;|$)/i.test(response.headers.get("content-type") ?? "") ||
+        !/^application\/json(?:;|$)/i.test(response.headers.get("content-type") ?? "") ||
         !(response.headers.get("cache-control") ?? "").includes("no-store")) {
       throw new Error("GPT02_NEGATIVE_TEST_NOT_PROVEN");
     }
