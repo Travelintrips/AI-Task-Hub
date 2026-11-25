@@ -170,10 +170,15 @@ router.get("/system/onboarding-status", requireAuth, async (req: Request, res: R
     const teamCount = safeCount(teamResult);
 
     // Customers with phone
+    let customerQueryFailed = false;
     const custResult = await db.execute(sql`
       SELECT COUNT(*) AS total, COUNT(CASE WHEN whatsapp IS NOT NULL THEN 1 END) AS with_wa
       FROM customers WHERE company_id = ${companyId}
-    `).catch(() => ({ rows: [{ total: 0, with_wa: 0 }] }));
+    `).catch(() => {
+      customerQueryFailed = true;
+      logger.warn({ code: "ONBOARDING_CUSTOMER_QUERY_FAILED" }, "Customer onboarding count unavailable");
+      return { rows: [{ total: 0, with_wa: 0 }] };
+    });
     const custRow = safeRows(custResult)[0] ?? {};
 
     // Fleet units
@@ -192,7 +197,7 @@ router.get("/system/onboarding-status", requireAuth, async (req: Request, res: R
       company_profile: { done: profilePct === 100, pct: profilePct, fields: profileFields },
       whatsapp: { done: waPct === 100, pct: waPct, fonnteConfigured: fonnteOk, metaConfigured: metaOk },
       team: { done: teamCount >= 1, count: teamCount },
-      customers: { done: parseInt(String(custRow.total ?? "0"), 10) >= 1, total: parseInt(String(custRow.total ?? "0"), 10), withPhone: parseInt(String(custRow.with_wa ?? "0"), 10) },
+      customers: { status: customerQueryFailed ? "unavailable" : "ok", done: !customerQueryFailed && parseInt(String(custRow.total ?? "0"), 10) >= 1, total: parseInt(String(custRow.total ?? "0"), 10), withPhone: parseInt(String(custRow.with_wa ?? "0"), 10) },
       fleet: { done: fleetCount >= 1, count: fleetCount },
       knowledge_base: { done: intentCount >= 10, intentCount },
       first_task: { done: taskCount >= 1, taskCount },
