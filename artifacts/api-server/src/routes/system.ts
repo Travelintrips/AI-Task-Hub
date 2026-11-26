@@ -19,8 +19,15 @@ const router: IRouter = Router();
 // Only the default CST-DEV tenant may use the dedicated AI Core DEV gateway
 // as a WhatsApp setup signal. This probe is GET-only; never sends a message.
 async function readDevGatewayStatus(companyId: string) {
+  // The Hostinger legacy DEV compose runtime does not set APP_ENV. For
+  // this read-only health probe only, require both exact server-side CST-DEV
+  // identities, and reject every explicitly non-DEV APP_ENV. Do not set
+  // APP_ENV globally or enable any GPT02, inventory, or sender capability.
   if (process.env.NODE_ENV !== "development" ||
-      process.env.APP_ENV !== "development" ||
+      (process.env.APP_ENV !== undefined &&
+        process.env.APP_ENV !== "development") ||
+      process.env.PUBLIC_APP_BASE_URL !== "https://dev-ai-task.cstlogistic.co.id" ||
+      process.env.SUPABASE_URL_DEV !== "https://xssrfshdrtdfupgqwfdw.supabase.co" ||
       companyId !== "default") return null;
 
   if (!jobWaConfig().ready) {
