@@ -61,6 +61,28 @@ try {
   assert.equal(bridge.matchServiceSecret("short", "short"), false);
   assert.equal(bridge.matchServiceSecret(undefined, "anything"), false);
   const route = await readFile(path.join(artifactDir, "src/routes/job-bridge.ts"), "utf8");
+  // Detail enrichment must be isolated to the existing admin GET and expose only safe categories.
+  const detail = route.split('router.get("/bridge/admin/jobs/:id/events", ...adminOnly')[1]
+    .split("attachBridgeCleanupRoutes(router)")[0];
+  assert.ok(detail.includes('process.env.NODE_ENV === "development"'));
+  assert.ok(detail.includes('process.env.APP_ENV === undefined || process.env.APP_ENV === "development"'));
+  assert.ok(detail.includes("https://dev-ai-task.cstlogistic.co.id"));
+  assert.ok(detail.includes("https://xssrfshdrtdfupgqwfdw.supabase.co"));
+  assert.ok(detail.includes('result.rows.some(row => row.kind === "WORKER_FAILED")'));
+  assert.ok(detail.includes("WHERE j.id=$1 AND j.source='AI_CORE' AND j.status='FAILED' AND c.status='FAILED'"));
+  assert.ok(detail.includes("WHERE command_id=c.id AND kind='FAILED'"));
+  assert.ok(detail.includes("ORDER BY created_at DESC, id DESC LIMIT 1"));
+  assert.ok(detail.includes("NAVIGATION_UNKNOWN_NO_RETRY"));
+  assert.ok(detail.includes("RATE_LIMITED_RECONCILIATION_REQUIRED"));
+  assert.ok(detail.includes("OTHER_RECORDED_REASON"));
+  assert.ok(detail.includes("NOT_RECORDED"));
+  assert.ok(detail.includes("reasonCategory: row.reason_category"));
+  assert.ok(detail.includes("res.json({ events: result.rows, failureDiagnostic })"));
+  assert.ok(!/\\b(?:INSERT INTO|UPDATE ai_|DELETE FROM|FOR UPDATE)\\b/.test(detail));
+  assert.ok(!detail.includes("r.message"));
+  assert.ok(!detail.includes("reason: row"));
+  assert.ok(!detail.includes("metadata: row"));
+  assert.ok(!detail.includes("checkpoint_json"));
   const migrationPath = path.join(projectDir, "supabase/migrations/20261013154257_ai_task_unified_job_registry.sql");
   const schema = await readFile(migrationPath, "utf8");
   assert.ok(route.includes("requireReceipt"), "ACK requires separate receiver credential");
