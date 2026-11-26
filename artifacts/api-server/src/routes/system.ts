@@ -201,10 +201,6 @@ router.get("/system/onboarding-status", requireAuth, async (req: Request, res: R
     const teamCount = safeCount(teamResult);
 
     // Customers with phone
-    const custResult = await db.execute(sql`
-      SELECT COUNT(*) AS total, COUNT(CASE WHEN whatsapp IS NOT NULL THEN 1 END) AS with_wa
-      FROM customers WHERE company_id::text = ${companyId}
-    `).catch(() => ({ rows: [{ total: 0, with_wa: 0 }] }));
     // DEV shared Customers uses numeric company IDs. Never guess a mapping
     // for the legacy "default" tenant or accept a client-supplied company ID.
     const sessionCompany = req.user?.companyId;
