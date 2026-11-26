@@ -461,7 +461,58 @@ router.get("/bridge/admin/jobs/:id/events", ...adminOnly, async (req: Request, r
       `SELECT event_id,kind,sender,payload,received_at FROM ${schema}.job_events
        WHERE job_id=$1 ORDER BY received_at DESC LIMIT 100`, [id],
     );
-    res.json({ events: result.rows });
+
+    // CST-DEV only. Enrich a selected failed bridge-command with bounded
+    // diagnostics from its own canonical source. Do not expose response text,
+    // metadata, attestation, credentials or command instructions; no writes.
+    let failureDiagnostic = null;
+    if (process.env.NODE_ENV === "development" &&
+        (process.env.APP_ENV === undefined || process.env.APP_ENV === "development") &&
+        process.env.PUBLIC_APP_BASE_URL === "https://dev-ai-task.cstlogistic.co.id" &&
+        process.env.SUPABASE_URL_DEV === "https://xssrfshdrtdfupgqwfdw.supabase.co" &&
+        result.rows.some(row => row.kind === "WORKER_FAILED")) {
+      try {
+        const diagnostics = await pool.query(
+          `SELECT
+            CASE
+              WHEN r.id IS NULL THEN 'NO_FAILED_RESPONSE'
+              WHEN r.metadata_json->>'reason' = 'CDP_STAGE_NAVIGATION_UNKNOWN_NO_RETRY' THEN 'NAVIGATION_UNKNOWN_NO_RETRY'
+              WHEN r.metadata_json->>'reason' = 'NATIVE_CAPTURE_RATE_LIMITED_RECONCILIATION_REQUIRED' THEN 'RATE_LIMITED_RECONCILIATION_REQUIRED'
+              WHEN coalesce(r.metadata_json->>'reason','') ~* '(rate.?limit|too many requests|429)' THEN 'RATE_LIMITED'
+              WHEN coalesce(r.metadata_json->>'reason','') ~* '(attest|challenge|signature|proof|verif)' THEN 'VERIFICATION_FAILED'
+              WHEN coalesce(r.metadata_json->>'reason','') ~* '(timeout|timed out|deadline)' THEN 'TIMEOUT'
+              WHEN coalesce(r.metadata_json->>'reason','') ~* '(browser|cdp|navigation|tab|playwright)' THEN 'BROWSER_UNCONFIRMED'
+              WHEN coalesce(r.metadata_json->>'reason','') ~* '(auth|login|session|permission)' THEN 'AUTH_OR_SESSION'
+              WHEN nullif(btrim(r.metadata_json->>'reason'),'') IS NULL THEN 'NOT_RECORDED'
+              ELSE 'OTHER_RECORDED_REASON'
+            END AS reason_category,
+            coalesce(c.metadata_json->>'deliveryCode' = 'UNKNOWN_UNVERIFIED', false) AS delivery_unverified,
+            coalesce(c.metadata_json->>'e2eCode' = 'UNKNOWN_UNVERIFIED', false) AS e2e_unverified
+          FROM ai_task_bridge.jobs j
+          JOIN ai_platform.ai_coding_bridge_commands c ON c.id = CASE
+            WHEN j.external_id ~ '^bridge-command:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+            THEN split_part(j.external_id, ':', 2)::uuid ELSE NULL END
+          LEFT JOIN LATERAL (
+            SELECT id, metadata_json FROM ai_platform.ai_coding_bridge_responses
+            WHERE command_id=c.id AND kind='FAILED'
+            ORDER BY created_at DESC, id DESC LIMIT 1
+          ) r ON true
+          WHERE j.id=$1 AND j.source='AI_CORE' AND j.status='FAILED' AND c.status='FAILED'
+          LIMIT 1`, [id],
+        );
+        const row = diagnostics.rows[0];
+        if (row) failureDiagnostic = {
+          source: "canonical_bridge_response",
+          reasonCategory: row.reason_category,
+          deliveryUnverified: row.delivery_unverified === true,
+          e2eUnverified: row.e2e_unverified === true,
+        };
+      } catch (error) {
+        // Optional diagnostic never makes the existing event history unavailable.
+        console.warn("AI Task bridge failure diagnostic unavailable", error instanceof Error ? error.name : "unknown");
+      }
+    }
+    res.json({ events: result.rows, failureDiagnostic });
   } catch (error) { queryError(res, error); }
 });
 
