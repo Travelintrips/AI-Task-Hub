@@ -3,6 +3,7 @@
  * pg_roles/pg_authid data is resolved server-side; never accept client flags.
  * This is not a grant, a Super Admin approval or a worker authorization.
  */
+import {preparerLoginWindowIsValid} from './gpt02-core-task-preparation.mjs';
 const blocked=(reason)=>Object.freeze({catalogReady:false,reason,dispatchPermitted:false});
 export function assessGpt02PreparerCatalog(role,now=Date.now()){
   if(role===null||typeof role!=='object'||Array.isArray(role))
@@ -18,12 +19,16 @@ export function assessGpt02PreparerCatalog(role,now=Date.now()){
     return blocked('GPT02_PREPARER_LOGIN_LOCKED');
   if(role.passwordVerifierReady!==true)
     return blocked('GPT02_PREPARER_PASSWORD_VERIFIER_MISSING');
-  if(role.connectionLimit!==1||role.activeSessions!==0)
+  // Supavisor keeps the same backend socket idle after a verified read-only
+  // TLS probe. It is not a second running preparer operation. Preserve the
+  // connlimit=1 boundary and reject ANY non-idle or foreign idle backend.
+  // Missing census columns always fail closed, rather than defaulting to 0.
+  if(role.connectionLimit!==1||role.activeSessions!==0||
+     !Number.isSafeInteger(role.knownPooledIdleSessions)||
+     role.knownPooledIdleSessions<0||role.knownPooledIdleSessions>1||
+     role.unexpectedIdleSessions!==0)
     return blocked('GPT02_PREPARER_CONNECTION_LIMIT_NOT_VERIFIED');
-  const expires=role.validUntil instanceof Date?role.validUntil.getTime():
-    typeof role.validUntil==='string'?Date.parse(role.validUntil):NaN;
-  if(!Number.isFinite(now)||!Number.isFinite(expires)||
-     expires<=now||expires-now>10*60_000)
+  if(!preparerLoginWindowIsValid(role.validUntil,now))
     return blocked('GPT02_PREPARER_SHORT_LIVED_LOGIN_REQUIRED');
   return Object.freeze({catalogReady:true,reason:'PREPARER_ACCOUNT_SCOPED_NOT_YET_AUTHENTICATED',
     dispatchPermitted:false});

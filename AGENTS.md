@@ -1,5 +1,9 @@
 # AI Task Center
 
+## CST DEV development SOP
+
+Read the [CST Global Development SOP](https://github.com/Travelintrips/Core-AI-Foundation/blob/develop/CST-GLOBAL-DEVELOPMENT-SOP.md) before classifying a DEV job. Record the SOP version and source commit with the AI Task application commit, job checkpoint, and verification evidence. Use the existing AI Task DEV Verify workflow and record live runtime evidence separately. Use scoped DEV QA data and keep existing signer, issuer, writer, dispatch, and owner approval boundaries in force.
+
 ## User Preferences
 - Gunakan bahasa Indonesia dalam semua respons kepada pengguna.
 

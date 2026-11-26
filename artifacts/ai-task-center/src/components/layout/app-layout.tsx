@@ -131,6 +131,9 @@ export function AppLayout({ children }: { children: ReactNode }) {
     ...(user?.role === "super_admin" || user?.role === "company_admin" || user?.role === "owner" || user?.role === "supervisor"
       ? [{ name: "AI Operations", href: "/ai-operations", icon: Cpu }]
       : []),
+    ...(user?.role === "super_admin"
+      ? [{ name: "GPT02 Owner Approval", href: "/gpt02-owner-approval", icon: ShieldCheck }]
+      : []),
   ];
 
   return (

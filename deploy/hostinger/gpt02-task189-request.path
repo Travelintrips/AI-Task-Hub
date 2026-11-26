@@ -1,0 +1,9 @@
+[Unit]
+Description=Resume the Task 189 package request when its enrolled issuer appears
+Wants=gpt02-task189-request.service
+
+[Path]
+PathChanged=/run/cst-dev-task189-issuer/agent.sock
+
+[Install]
+WantedBy=paths.target
