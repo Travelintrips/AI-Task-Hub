@@ -46,6 +46,7 @@ import type {
   UploadUrlRequest,
   UploadUrlResponse,
   VerifyWhatsAppWebhookParams,
+  VpsStorageInventory,
   WebhookPayload,
   WhatsAppMessage,
   WhatsAppReply,
@@ -62,6 +63,83 @@ type AwaitedInput<T> = PromiseLike<T> | T;
 
 
 type SecondParameter<T extends (...args: never) => unknown> = Parameters<T>[1];
+
+
+
+export const getGetVpsStorageInventoryUrl = () => {
+
+
+
+
+  return `/api/system/vps-storage`
+}
+
+/**
+ * @summary DEV-only Super Admin read-only VPS image inventory
+ */
+export const getVpsStorageInventory = async ( options?: RequestInit): Promise<VpsStorageInventory> => {
+
+  return customFetch<VpsStorageInventory>(getGetVpsStorageInventoryUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetVpsStorageInventoryQueryKey = () => {
+    return [
+    `/api/system/vps-storage`
+    ] as const;
+    }
+
+
+export const getGetVpsStorageInventoryQueryOptions = <TData = Awaited<ReturnType<typeof getVpsStorageInventory>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getVpsStorageInventory>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetVpsStorageInventoryQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getVpsStorageInventory>>> = ({ signal }) => getVpsStorageInventory({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getVpsStorageInventory>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetVpsStorageInventoryQueryResult = NonNullable<Awaited<ReturnType<typeof getVpsStorageInventory>>>
+export type GetVpsStorageInventoryQueryError = ErrorType<void>
+
+
+/**
+ * @summary DEV-only Super Admin read-only VPS image inventory
+ */
+
+export function useGetVpsStorageInventory<TData = Awaited<ReturnType<typeof getVpsStorageInventory>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getVpsStorageInventory>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetVpsStorageInventoryQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
 
 
 

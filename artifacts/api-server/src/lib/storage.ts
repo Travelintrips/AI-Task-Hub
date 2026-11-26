@@ -26,6 +26,11 @@ export async function ensureExportImportBucket(): Promise<void> {
     const { data: buckets } = await supabase.storage.listBuckets();
     const exists = buckets?.some((b) => b.name === EXPORTIMPORT_BUCKET);
     if (!exists) {
+      // An isolated DEV candidate must inspect existing buckets without creating any.
+      if (process.env.DISABLE_STORAGE_BUCKET_AUTO_CREATE === "true") {
+        logger.warn({ bucket: EXPORTIMPORT_BUCKET }, "storage: bucket absent; creation disabled for isolated candidate");
+        return;
+      }
       const { error } = await supabase.storage.createBucket(EXPORTIMPORT_BUCKET, {
         public: true,
         fileSizeLimit: 10 * 1024 * 1024, // 10MB

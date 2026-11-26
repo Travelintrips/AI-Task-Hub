@@ -1,12 +1,15 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { eq, ne, desc, and, ilike, or, isNull, gte, lte, inArray, SQL } from "drizzle-orm";
+import { INTERNAL_E2E_PREFIX, isSilentInternalE2eJob } from "../lib/dev-internal-e2e";
+import { eq, ne, desc, and, ilike, or, isNull, gte, lte, inArray, SQL, sql } from "drizzle-orm";
 import {
   db,
   aiTasksTable,
   taskCommentsTable,
   auditLogsTable,
+  documentAuditsTable,
   teamMembersTable,
   whatsappMessagesTable,
+  taskTimelineTable,
   getAiTaskStatusVariants,
   normalizeAiTaskStatus,
   type AiTaskStatus,
@@ -149,6 +152,13 @@ router.post("/ai-tasks", requireAuth, async (req: Request, res: Response): Promi
       return;
     }
 
+    // Reserved test marker: only super admins in an explicitly enabled DEV runtime.
+    if (title.trim().startsWith(INTERNAL_E2E_PREFIX) &&
+        (!isSilentInternalE2eJob(title.trim()) || req.user?.role !== "super_admin")) {
+      res.status(403).json({ error: "INTERNAL_E2E_DEV_SUPER_ADMIN_ONLY" });
+      return;
+    }
+
     const normalizedStatus = status ? normalizeAiTaskStatus(status) : "new_inquiry";
     if (!normalizedStatus) {
       res.status(400).json({ error: `Status tidak valid: ${status}` });
@@ -201,7 +211,7 @@ router.post("/ai-tasks", requireAuth, async (req: Request, res: Response): Promi
 
     emitSseEvent("new_task", { taskId: created.id, taskNumber, companyId }, companyId);
 
-    notifyTaskCreated({
+    if (!isSilentInternalE2eJob(created.title)) notifyTaskCreated({
       taskId:       created.id,
       taskNumber,
       title:        created.title,
@@ -262,8 +272,15 @@ router.patch("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): 
       updates.status = parsedStatus;
     }
     if (priority       !== undefined) updates.priority       = priority       as string;
+    // Never let the legacy name-only assignment silently overwrite a verified
+    // GPT02 member ID. The UPDATE predicate also handles concurrent PIC assignment.
+    const changingPicName = assignedTo !== undefined && assignedTo !== current.assignedTo;
+    if (changingPicName && current.assignedToId != null) {
+      res.status(409).json({error:"VERIFIED_PIC_REQUIRES_ID_ASSIGNMENT"}); return;
+    }
     if (assignedTo     !== undefined) updates.assignedTo     = assignedTo     as string | null;
     if (assignedRole   !== undefined) updates.assignedRole   = assignedRole   as string | null;
+    if (assignedDivision !== undefined) updates.assignedDivision = assignedDivision as string | null;
     if (adminNotes     !== undefined) updates.adminNotes     = adminNotes     as string | null;
     if (requiredAction !== undefined) updates.requiredAction = requiredAction as string | null;
     if (driverName     !== undefined) updates.driverName     = driverName     as string | null;
@@ -275,8 +292,12 @@ router.patch("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): 
     const [updated] = await db
       .update(aiTasksTable)
       .set(updates)
-      .where(and(...conditions))
+      .where(and(...conditions,
+        ...(changingPicName ? [sql`${aiTasksTable.assignedToId} IS NULL`] : [])))
       .returning();
+    if (!updated) {
+      res.status(409).json({error:"VERIFIED_PIC_REQUIRES_ID_ASSIGNMENT"}); return;
+    }
 
     // ── Activity log ─────────────────────────────────────────────────────────
     const changes: string[] = [];
@@ -295,7 +316,7 @@ router.patch("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): 
     }
 
     // ── Sinkron balik ke Supabase logistic_orders (fire-and-forget) ──────────
-    if (normalizedStatus && normalizedStatus !== normalizeAiTaskStatus(current.status) && current.taskNumber) {
+    if (!isSilentInternalE2eJob(current.title) && normalizedStatus && normalizedStatus !== normalizeAiTaskStatus(current.status) && current.taskNumber) {
       pushStatusToSupabase(current.taskNumber, current.status, normalizedStatus)
         .catch((err) => logger.error({ err }, "pushStatusToSupabase gagal"));
     }
@@ -351,7 +372,8 @@ router.patch("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): 
       const [member] = await db
         .select()
         .from(teamMembersTable)
-        .where(eq(teamMembersTable.name, assignedTo as string))
+        .where(and(eq(teamMembersTable.name, assignedTo as string),
+          eq(teamMembersTable.companyId, eventCompanyId)))
         .limit(1);
 
       if (!member) {
@@ -371,12 +393,27 @@ router.patch("/ai-tasks/:id", requireAuth, async (req: Request, res: Response): 
   }
 });
 
+// Tenant-aware parent existence guard for child resources (comments/messages).
+// This check must happen before touching task-linked rows: child tables may not
+// carry company_id, and a globally unique task ID alone is not authorization.
+async function accessibleTaskId(req: Request, taskId: number): Promise<boolean> {
+  const companyId = getCompanyId(req);
+  const conditions: SQL[] = [eq(aiTasksTable.id, taskId)];
+  if (companyId) conditions.push(eq(aiTasksTable.companyId, companyId));
+  const [task] = await db.select({ id: aiTasksTable.id })
+    .from(aiTasksTable).where(and(...conditions)).limit(1);
+  return Boolean(task);
+}
+
 // ─── POST /ai-tasks/:id/comments ───────────────────────────────────────────────
 
 router.post("/ai-tasks/:id/comments", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const taskId = Number(req.params.id);
-    if (Number.isNaN(taskId)) { res.status(400).json({ error: "Invalid id" }); return; }
+    if (!Number.isSafeInteger(taskId) || taskId <= 0) { res.status(400).json({ error: "Invalid id" }); return; }
+    if (!(await accessibleTaskId(req, taskId))) {
+      res.status(404).json({ error: "AI task not found" }); return;
+    }
 
     const { comment, senderName } = req.body as { comment: string; senderName?: string };
     if (!comment?.trim()) { res.status(400).json({ error: "comment diperlukan" }); return; }
@@ -401,7 +438,10 @@ router.post("/ai-tasks/:id/comments", requireAuth, async (req: Request, res: Res
 router.get("/ai-tasks/:id/messages", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
     const id = Number(req.params.id as string);
-    if (Number.isNaN(id)) { res.status(400).json({ error: "Invalid id" }); return; }
+    if (!Number.isSafeInteger(id) || id <= 0) { res.status(400).json({ error: "Invalid id" }); return; }
+    if (!(await accessibleTaskId(req, id))) {
+      res.status(404).json({ error: "AI task not found" }); return;
+    }
 
     const rows = await db
       .select()
@@ -437,11 +477,73 @@ router.post("/ai-tasks/:id/attachments", requireAuth, (_req, res) =>
   res.status(501).json({ error: "Upload belum tersedia" }));
 router.delete("/ai-tasks/:id/attachments/:attachmentId", requireAuth, (_req, res) =>
   res.status(501).json({ error: "Hapus belum tersedia" }));
-router.get("/ai-tasks/:id/audit",  requireAuth, (_req, res) =>
-  res.status(404).json({ error: "Tidak ada audit" }));
+// The task detail polls this endpoint. "No document audit yet" is a normal
+// empty state, not an HTTP error; preserve authentication and company scope.
+router.get("/ai-tasks/:id/audit", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    res.status(400).json({ error: "Invalid task id" }); return;
+  }
+  try {
+    const companyId = getCompanyId(req);
+    const scope = [eq(aiTasksTable.id, id)];
+    if (companyId) scope.push(eq(aiTasksTable.companyId, companyId));
+    const [task] = await db.select({ id: aiTasksTable.id })
+      .from(aiTasksTable).where(and(...scope)).limit(1);
+    if (!task) { res.status(404).json({ error: "AI task not found" }); return; }
+
+    const [audit] = await db.select().from(documentAuditsTable)
+      .where(eq(documentAuditsTable.taskId, id))
+      .orderBy(desc(documentAuditsTable.createdAt)).limit(1);
+    if (!audit) { res.status(200).json(null); return; }
+    res.json({ ...audit,
+      createdAt: audit.createdAt.toISOString(),
+      updatedAt: audit.updatedAt.toISOString(),
+    });
+  } catch (err) {
+    logger.error({ err, taskId: id }, "GET /ai-tasks/:id/audit failed");
+    res.status(500).json({ error: "Failed to load task audit" });
+  }
+});
 router.post("/ai-tasks/:id/audit", requireAuth, (_req, res) =>
   res.status(501).json({ error: "Audit belum tersedia" }));
-router.get("/ai-tasks/:id/timeline",  requireAuth, (_req, res) => res.json([]));
+// Timeline is read from the same task-scoped store used by logTimeline and
+// the customer mini-task portal. Do not disclose cross-company task history.
+router.get("/ai-tasks/:id/timeline", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id < 1) {
+    res.status(400).json({ error: "Invalid task id" });
+    return;
+  }
+  try {
+    const companyId = getCompanyId(req);
+    const conditions: SQL[] = [eq(aiTasksTable.id, id)];
+    if (companyId) conditions.push(eq(aiTasksTable.companyId, companyId));
+    const [task] = await db
+      .select({ id: aiTasksTable.id })
+      .from(aiTasksTable)
+      .where(and(...conditions))
+      .limit(1);
+    if (!task) {
+      res.status(404).json({ error: "AI task not found" });
+      return;
+    }
+    const timeline = await db
+      .select()
+      .from(taskTimelineTable)
+      .where(eq(taskTimelineTable.taskId, id))
+      .orderBy(desc(taskTimelineTable.createdAt), desc(taskTimelineTable.id))
+      .limit(200);
+    res.setHeader("Cache-Control", "no-store");
+    res.json(timeline.map((event) => ({
+      ...event,
+      createdAt: event.createdAt.toISOString(),
+    })));
+  } catch (err) {
+    logger.error({ err, taskId: id }, "GET /ai-tasks/:id/timeline failed");
+    res.status(500).json({ error: "Failed to load task timeline" });
+  }
+});
 router.post("/ai-tasks/:id/generate-token", requireAuth, (_req, res) =>
   res.status(501).json({ error: "Token belum tersedia" }));
 

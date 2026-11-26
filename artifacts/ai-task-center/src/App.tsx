@@ -7,11 +7,15 @@ import NotFound from "@/pages/not-found";
 import { AppLayout } from "@/components/layout/app-layout";
 import { AuthProvider, useAuth } from "@/contexts/auth-context";
 
-import Dashboard from "@/pages/dashboard";
+import LegacyDashboard from "@/pages/dashboard";
+import UnifiedDashboard from "@/pages/unified-dashboard";
 import Tasks from "@/pages/tasks";
 import TaskDetail from "@/pages/task-detail";
 import AiTaskBoard from "@/pages/ai-task-board";
+import VpsStoragePage from "@/pages/vps-storage";
+import { isVpsStorageDevHost } from "@/lib/vps-storage-dev-host";
 import AiTaskDetail from "@/pages/ai-task-detail";
+import Gpt02OwnerApprovalPage from "@/pages/gpt02-owner-approval";
 import Messages from "@/pages/messages";
 import AiCoreChatPage from "@/pages/ai-core-chat";
 import Documents from "@/pages/documents";
@@ -38,6 +42,7 @@ import KnowledgeBasePage from "@/pages/knowledge-base";
 import GovernancePage from "@/pages/governance";
 import TrainingPage from "@/pages/training";
 import AiObservabilityPage from "@/pages/ai-observability";
+import BridgeJobsPage from "@/pages/bridge-jobs";
 import UnifiedExecutionTimelinePage from "@/pages/unified-execution-timeline";
 import CreativeAiPage from "@/pages/creative-ai";
 import CustomerMemoryPage from "@/pages/customer-memory";
@@ -117,11 +122,14 @@ function AppRouter() {
   return (
     <AppLayout>
       <Switch>
-        <Route path="/" component={Dashboard} />
+        <Route path="/" component={UnifiedDashboard} />
+        <Route path="/dashboard/legacy" component={LegacyDashboard} />
         <Route path="/tasks">{() => { window.location.replace("/ai-tasks"); return null; }}</Route>
         <Route path="/tasks/:id">{(params) => { window.location.replace(`/ai-tasks/${params.id}`); return null; }}</Route>
         <Route path="/ai-tasks" component={AiTaskBoard} />
+        <Route path="/vps-storage">{() => isVpsStorageDevHost() ? <VpsStoragePage /> : <NotFound />}</Route>
         <Route path="/ai-tasks/:id" component={AiTaskDetail} />
+        <Route path="/gpt02-owner-approval" component={Gpt02OwnerApprovalPage} />
         <Route path="/ai-core-chat" component={AiCoreChatPage} />
         <Route path="/messages" component={Messages} />
         <Route path="/documents" component={Documents} />
@@ -144,6 +152,7 @@ function AppRouter() {
         <Route path="/governance" component={GovernancePage} />
         <Route path="/training" component={TrainingPage} />
         <Route path="/ai-observability" component={AiObservabilityPage} />
+        <Route path="/bridge-jobs" component={BridgeJobsPage} />
         <Route path="/execution-timeline" component={UnifiedExecutionTimelinePage} />
         <Route path="/creative-ai" component={CreativeAiPage} />
         <Route path="/creative-ai/:taskId" component={CreativeAiPage} />

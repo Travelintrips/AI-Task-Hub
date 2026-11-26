@@ -28,8 +28,31 @@ tags:
     description: Customer context management
   - name: notifications
     description: Admin in-app notifications
+  - name: system
+    description: Authenticated read-only system diagnostics
 
 paths:
+  /system/vps-storage:
+    get:
+      operationId: getVpsStorageInventory
+      tags: [system]
+      summary: DEV-only Super Admin read-only VPS image inventory
+      responses:
+        "200":
+          description: Bounded inventory containing no raw credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VpsStorageInventory"
+        "401":
+          description: Authentication required
+        "403":
+          description: Super Admin required
+        "404":
+          description: Not available outside DEV
+        "503":
+          description: Feature disabled or no valid inventory file
+
   /healthz:
     get:
       operationId: healthCheck
@@ -660,6 +683,49 @@ paths:
 
 components:
   schemas:
+    VpsStorageItem:
+      type: object
+      required: [id, name, sizeDisplay, created, protected, reason]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        sizeDisplay:
+          type: string
+        created:
+          type: string
+        protected:
+          type: boolean
+        reason:
+          type: string
+
+    VpsStorageCategory:
+      type: object
+      required: [id, title, items]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/VpsStorageItem"
+
+    VpsStorageInventory:
+      type: object
+      required: [generatedAt, readOnly, categories]
+      properties:
+        generatedAt:
+          type: string
+        readOnly:
+          type: boolean
+        categories:
+          type: array
+          items:
+            $ref: "#/components/schemas/VpsStorageCategory"
+
     HealthStatus:
       type: object
       required: [status]

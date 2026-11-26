@@ -28,6 +28,10 @@ export async function ensureBucket(): Promise<void> {
   const { data: buckets } = await supabase.storage.listBuckets();
   const exists = buckets?.some((b) => b.name === DOCUMENT_BUCKET);
   if (!exists) {
+    if (process.env.DISABLE_STORAGE_BUCKET_AUTO_CREATE === "true") {
+      logger.warn({ bucket: DOCUMENT_BUCKET }, "Supabase bucket absent; creation disabled for isolated candidate");
+      return;
+    }
     const { error } = await supabase.storage.createBucket(DOCUMENT_BUCKET, { public: true });
     if (error) {
       logger.error({ error }, "Failed to create Supabase bucket");
@@ -51,6 +55,9 @@ export async function ensurePaymentProofBucket(): Promise<void> {
 
   const exists = buckets?.some((bucket) => bucket.name === PAYMENT_PROOF_BUCKET);
   if (!exists) {
+    if (process.env.DISABLE_STORAGE_BUCKET_AUTO_CREATE === "true") {
+      throw new Error(`Bucket ${PAYMENT_PROOF_BUCKET} missing; automatic creation disabled`);
+    }
     const { error } = await supabase.storage.createBucket(PAYMENT_PROOF_BUCKET, {
       public: false,
       fileSizeLimit: 10 * 1024 * 1024,

@@ -44,30 +44,23 @@ export default function Login() {
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-lg">Masuk</CardTitle>
-            <CardDescription>{isDevPasswordless ? "Gunakan email yang terdaftar" : "Gunakan email dan password yang terdaftar"}</CardDescription>
+            <CardDescription>{isDevPasswordless ? "Masuk dengan Google atau email yang terdaftar" : "Gunakan email dan password yang terdaftar"}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
-            {!isDevPasswordless && (
-              <>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              className="w-full"
-                              disabled={loading}
-                              onClick={() => window.location.assign("/api/auth/google/start")}
-                            >
-                              Masuk dengan Google
-                            </Button>
-                
-                            <div className="flex items-center gap-3">
-                              <div className="h-px flex-1 bg-border" />
-                              <span className="text-xs text-muted-foreground">atau</span>
-                              <div className="h-px flex-1 bg-border" />
-                            </div>
-                
-                
-              </>
-            )}
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              disabled={loading}
+              onClick={() => window.location.assign("/api/auth/google/start")}
+            >
+              Masuk dengan Google
+            </Button>
+            <div className="flex items-center gap-3">
+              <div className="h-px flex-1 bg-border" />
+              <span className="text-xs text-muted-foreground">atau</span>
+              <div className="h-px flex-1 bg-border" />
+            </div>
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
@@ -106,7 +99,7 @@ export default function Login() {
                                   </button>
                                 </div>
                               </div>
-                
+
               )}
               <Button type="submit" className="w-full" disabled={loading}>
                 {loading ? "Memproses..." : "Masuk"}
@@ -116,7 +109,7 @@ export default function Login() {
         </Card>
 
         <div className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">
-          {isDevPasswordless ? "DEV: cukup masukkan email yang sudah terdaftar dan aktif." : "Gunakan akun Google perusahaan atau email/password yang sudah terdaftar."}
+          {isDevPasswordless ? "DEV: masuk dengan Google atau gunakan email aktif tanpa password." : "Gunakan akun Google perusahaan atau email/password yang sudah terdaftar."}
         </div>
         <p className="text-center text-xs text-muted-foreground">
           Belum ada akun admin?{" "}

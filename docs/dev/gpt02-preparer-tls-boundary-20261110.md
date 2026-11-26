@@ -1,0 +1,9 @@
+# GPT02 CST-DEV — dedicated preparer TLS and project identity hardening
+
+The dormant `gpt02_core_prep_login` is still NOLOGIN. **This change does not enable it or dispatch any command.** Before any dedicated connection can be created, the existing candidate `corePreparationPoolConfig` must prove the exact CST-DEV project `xssrfshdrtdfupgqwfdw`, a distinct non-PROD project ref, session-mode pooler port 5432, dedicated `gpt02_core_prep_login.<ref>` username, and a single parsed X.509 CA certificate whose fingerprint matches the pinned Supabase Root 2021 SHA-256 `807025ad50d4ed219d2c9c7d299c004f824eb00cf7f65afef607d07b72e6cafa`.
+
+The old source accepted any text containing a PEM BEGIN marker. This permitted a falsely trusted CA when controlled configuration was accidentally changed, and an arbitrary matching project/hub pair was not explicitly pinned to CST-DEV. The new source rejects invalid or appended PEM blocks, mismatched roots, incorrect or missing PROD references, non-CST-DEV projects, wrong username, port, host, and TLS-disabled settings before constructing a pool. A pinned CA does not replace the normal TLS hostname verification; `rejectUnauthorized` remains true. No secrets are logged.
+
+Unit tests use only the repository's public Supabase root fixture and synthetic DSNs. They cover valid pinned configuration, unrelated signed certificates or malformed PEM, extra root injection, wrong project and PROD, pooler port downgrade, host spoofing and lack of pool creation on failures. Real authenticated PostgreSQL access remains **unproven** because the preparer role is NOLOGIN, the actual `prepare_core_task` is not installed, the owner has no Hub/Core parent DML, and Super Admin signed operator consent, nonce and issuer lease are missing. Full lifecycle remains NO-GO.
+
+Scope: PR #156 source/CI only; no hosted DEV migration, worker route, TASK135/136, PROD or command changes.

@@ -1,5 +1,8 @@
 import { Router, type IRouter } from "express";
 import healthRouter from "./health";
+import vpsStorageRouter from "./vps-storage";
+import jobBridgeRouter from "./job-bridge";
+
 import tasksRouter from "./tasks";
 import teamRouter from "./team";
 import messagesRouter from "./messages";
@@ -74,6 +77,7 @@ import sportCenterRouter from "./sport-center";
 import publicSportCenterRouter from "./public-sport-center";
 import freightRouter from "./freight";
 import executionsRouter from "./executions";
+import gpt02PreparationRouter from "./gpt02-preparation";
 import unifiedExecutionTimelineRouter from "./unified-execution-timeline";
 import eventsRouter from "./events";
 import { extractUser } from "../middleware/auth";
@@ -89,6 +93,9 @@ router.use(authRouter);
 
 // Application routes
 router.use(healthRouter);
+router.use(vpsStorageRouter);
+router.use(jobBridgeRouter);
+
 router.use(tasksRouter);
 router.use(teamRouter);
 router.use(messagesRouter);
@@ -100,6 +107,7 @@ router.use(whatsappRouter);
 router.use(taskStorageRouter);
 router.use(aiTasksRouter);
 router.use(executionsRouter);
+router.use(gpt02PreparationRouter);
 router.use(unifiedExecutionTimelineRouter);
 router.use(eventsRouter);
 router.use(storageRouter);

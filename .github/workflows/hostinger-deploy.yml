@@ -34,8 +34,14 @@ jobs:
           cache: pnpm
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      - name: Validate production audit shell
+        run: bash -n deploy/hostinger/verify-ai-task-ledger-prod.sh
       - name: Typecheck
         run: pnpm run typecheck
+      - name: Short-link routing regression tests
+        run: pnpm --filter @workspace/api-server test:short-links
+      - name: Unified job bridge tests
+        run: pnpm --filter @workspace/api-server test:job-bridge
 
   deploy-production:
     needs: verify
@@ -79,7 +85,7 @@ jobs:
           test -n "$SUPABASE_URL"
           test -n "$SUPABASE_ANON_KEY"
           test -n "$SUPABASE_SERVICE_ROLE_KEY"
-          REMOTE_ROOT="${APP_ROOT:-\$HOME/apps/ai-task/production}"
+          REMOTE_ROOT="${APP_ROOT:-/root/apps/ai-task/production}"
           {
             printf '%s\n' "${SUPABASE_DATABASE_URL:-}"
             printf '%s\n' "${SUPABASE_URL:-}"
@@ -129,6 +135,7 @@ jobs:
           from pathlib import Path
 
           env_path = Path('/etc/ai-task/production.env')
+          expected_project_id = 'nzdweipzckfszczzqtuw'
           updates = {
               key: os.environ.get(key, '').strip()
               for key in (
@@ -140,13 +147,21 @@ jobs:
               )
               if os.environ.get(key, '').strip()
           }
+          updates.update({
+              'NODE_ENV': 'production',
+              'RUN_STARTUP_MIGRATIONS': 'false',
+              'AI_TASK_DEV_SOURCE_RECONCILE_ENABLED': 'false',
+              'AI_TASK_PROD_SOURCE_RECONCILE_ENABLED': 'true',
+              'AI_TASK_PROD_RECONCILE_SCHEMA_READY': 'true',
+              'AI_TASK_PROD_EXPECTED_PROJECT_ID': expected_project_id,
+          })
 
           lines = env_path.read_text().splitlines()
           seen = set()
           output = []
           for line in lines:
               if '=' in line:
-                  key = line.split('=', 1)[0]
+                  key = line.split('=', 1)[0].strip()
                   if key in updates:
                       output.append(f'{key}={updates[key]}')
                       seen.add(key)
@@ -155,14 +170,44 @@ jobs:
           for key, value in updates.items():
               if key not in seen:
                   output.append(f'{key}={value}')
-          env_path.write_text('\n'.join(output) + '\n')
+          env_path.write_text('\n'.join(output).rstrip() + '\n')
+
+          values = {}
+          for raw in env_path.read_text().splitlines():
+              line = raw.strip()
+              if not line or line.startswith('#') or '=' not in line:
+                  continue
+              key, value = line.split('=', 1)
+              values[key.strip()] = value.strip().strip('"').strip("'")
+
+          checks = {
+              'node_env': values.get('NODE_ENV') == 'production',
+              'startup_migrations_off': values.get('RUN_STARTUP_MIGRATIONS') == 'false',
+              'dev_reconciler_off': values.get('AI_TASK_DEV_SOURCE_RECONCILE_ENABLED') != 'true',
+              'prod_reconciler_on': values.get('AI_TASK_PROD_SOURCE_RECONCILE_ENABLED') == 'true',
+              'schema_ready': values.get('AI_TASK_PROD_RECONCILE_SCHEMA_READY') == 'true',
+              'expected_project': values.get('AI_TASK_PROD_EXPECTED_PROJECT_ID') == expected_project_id,
+              'database_match': expected_project_id in values.get('SUPABASE_DATABASE_URL', ''),
+              'no_dev_database': not any(values.get(key) for key in (
+                  'SUPABASE_DATABASE_URL_DEV',
+                  'SUPABASE_DEV_DATABASE_URL',
+                  'SUPABASE_PROD_DATABASE_URL',
+              )),
+          }
+          for key, passed in checks.items():
+              print(f'AI_TASK_PROD_INTERLOCK_{key.upper()}={passed}')
+          if not all(checks.values()):
+              raise SystemExit('AI Task production reconciliation interlock validation failed')
           PY
           chmod 0600 /etc/ai-task/production.env
-          echo "Production runtime secrets synchronized."
+          echo "Production runtime secrets and reconciliation interlocks synchronized."
 
           AI_TASK_APP_ROOT="$APP_ROOT" bash deploy/hostinger/deploy.sh production
 
-          cat >/etc/nginx/sites-available/ai-task.cstlogistic.co.id <<'NGINX'
+          # Preserve the existing TLS-enabled virtual host on subsequent deploys.
+          # Certbot manages SSL directives in this file after first issuance.
+          if [ ! -f /etc/nginx/sites-available/ai-task.cstlogistic.co.id ]; then
+            cat >/etc/nginx/sites-available/ai-task.cstlogistic.co.id <<'NGINX'
           server {
               listen 80;
               listen [::]:80;
@@ -186,6 +231,7 @@ jobs:
               }
           }
           NGINX
+          fi
           ln -sfn /etc/nginx/sites-available/ai-task.cstlogistic.co.id /etc/nginx/sites-enabled/ai-task.cstlogistic.co.id
           nginx -t
           systemctl reload nginx
@@ -198,6 +244,14 @@ jobs:
             timeout 180s certbot --nginx -d ai-task.cstlogistic.co.id --non-interactive --agree-tos --register-unsafely-without-email --redirect
           fi
           curl -fsS http://127.0.0.1:18080/api/healthz >/dev/null
+          # Fail deployment if the public HTTPS vhost was lost or the API route
+          # is shadowed by the 10-character payment-proof token fallback.
+          curl -fsS --max-time 15 https://ai-task.cstlogistic.co.id/api/readyz | grep -q '"status":"ready"'
+          audit_status="$(curl -sS --max-time 15 -o /dev/null -w '%{http_code}' https://ai-task.cstlogistic.co.id/api/audit-logs)"
+          test "$audit_status" = "401"
+          AI_TASK_LEDGER_AUDIT_FAIL_ON_STALE=false \
+            AI_TASK_LEDGER_AUDIT_STALE_MINUTES=20 \
+            bash "$APP_ROOT/deploy/hostinger/verify-ai-task-ledger-prod.sh"
           REMOTE
           } | ssh -i ~/.ssh/id_hostinger -p "$PORT" \
             -o StrictHostKeyChecking=accept-new \
@@ -208,11 +262,37 @@ jobs:
             -o ServerAliveCountMax=30 \
             -o TCPKeepAlive=yes \
             "$USERNAME@$HOST" 'IFS= read -r SUPABASE_DATABASE_URL; IFS= read -r SUPABASE_URL; IFS= read -r SUPABASE_ANON_KEY; IFS= read -r SUPABASE_SERVICE_ROLE_KEY; IFS= read -r OPENAI_API_KEY; IFS= read -r APP_ROOT; export SUPABASE_DATABASE_URL SUPABASE_URL SUPABASE_ANON_KEY SUPABASE_SERVICE_ROLE_KEY OPENAI_API_KEY APP_ROOT; bash -s'
-  deploy-development:
-    needs: verify
+  dev-ci-release-gate:
+    name: Require exact-SHA full DEV Verify before Hostinger deployment
     if: >-
       (github.event_name == 'workflow_dispatch' && inputs.target == 'development') ||
       (github.event_name == 'push' && github.ref_name == 'develop' && vars.HOSTINGER_AUTO_DEPLOY == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Verify fail-closed DEV release gate regressions
+        run: |
+          node --test scripts/dev/verify-hostinger-dev-ci-run.test.mjs
+          bash scripts/dev/test-hostinger-dev-sha-pin-isolated.sh
+      - name: Require exact develop SHA full AI Task DEV Verify SUCCESS
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/dev/verify-hostinger-dev-ci-run.mjs
+
+  deploy-development:
+    needs: [verify, dev-ci-release-gate]
+    if: >-
+      needs.verify.result == 'success' &&
+      needs.dev-ci-release-gate.result == 'success' &&
+      ((github.event_name == 'workflow_dispatch' && inputs.target == 'development') ||
+       (github.event_name == 'push' && github.ref_name == 'develop' && vars.HOSTINGER_AUTO_DEPLOY == 'true'))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: development
@@ -238,10 +318,12 @@ jobs:
           PORT: '22'
           USERNAME: root
           APP_ROOT: ${{ vars.HOSTINGER_APP_ROOT }}
+          EXPECTED_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           test -n "$USERNAME"
-          REMOTE_ROOT="${APP_ROOT:-\$HOME/apps/ai-task/development}"
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::Invalid expected DEV release SHA"; exit 1; }
+          REMOTE_ROOT="${APP_ROOT:-/root/apps/ai-task/development}"
           ssh -i ~/.ssh/id_hostinger -p "$PORT" \
             -o StrictHostKeyChecking=accept-new \
             -o UserKnownHostsFile=~/.ssh/known_hosts \
@@ -258,7 +340,14 @@ jobs:
                git clone --branch develop --single-branch https://github.com/Travelintrips/AI-Task-Hub.git \"\$APP_ROOT\"; \
              fi; \
              cd \"\$APP_ROOT\"; \
+             DEV_DIRTY_WORKTREE=\"\$(git status --porcelain=v1 --untracked-files=all)\"; \
+             if [ -n \"\$DEV_DIRTY_WORKTREE\" ]; then \
+               echo 'DEV_RELEASE_DIRTY_WORKTREE_BLOCKED'; \
+               exit 1; \
+             fi; \
              git fetch origin develop; \
+             test \"\$(git rev-parse origin/develop)\" = \"$EXPECTED_SHA\" || { echo 'DEV_RELEASE_SHA_CHANGED'; exit 1; }; \
              git checkout -B develop origin/develop; \
-             git reset --hard origin/develop; \
-             AI_TASK_APP_ROOT=\"\$APP_ROOT\" bash deploy/hostinger/deploy.sh development"
+             git reset --hard \"$EXPECTED_SHA\"; \
+             test \"\$(git rev-parse HEAD)\" = \"$EXPECTED_SHA\" || { echo 'DEV_RELEASE_HEAD_MISMATCH'; exit 1; }; \
+             AI_TASK_DEV_EXPECTED_SHA=\"$EXPECTED_SHA\" AI_TASK_APP_ROOT=\"\$APP_ROOT\" bash deploy/hostinger/deploy.sh development"
