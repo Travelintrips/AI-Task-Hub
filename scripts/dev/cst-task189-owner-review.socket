@@ -1,0 +1,9 @@
+[Unit]
+Description=CST DEV Task 189 Owner review socket
+[Socket]
+ListenStream=/run/cst-task189-owner-review.sock
+SocketMode=0660
+SocketUser=root
+SocketGroup=www-data
+[Install]
+WantedBy=sockets.target

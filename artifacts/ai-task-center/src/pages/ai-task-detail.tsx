@@ -842,6 +842,58 @@ export default function AiTaskDetail() {
     onError:(err:Error)=>toast({title:"Permintaan review ditolak",
       description:err.message,variant:"destructive"}),
   });
+  const recoveryScope = Number(id) === 189 && task?.companyId === "default" && currentUser?.role === "super_admin";
+  const recoveryKey = ["gpt02-owner-recovery", id, currentUser?.id];
+  const recovery = useQuery<{ taskId: number; ready: boolean; recorded: boolean; canRequestReview: boolean; reviewRequested: boolean; evidenceSha256?: string; originalAttemptId?: string; originalExpiryMs?: number; intentRecorded?: boolean; releaseStatus?: "AWAITING_RELEASE" }>({
+    queryKey: recoveryKey,
+    queryFn: () => apiFetch("/ai-tasks/189/gpt02-owner-approval-readiness?companyId=default", { cache: "no-store" }),
+    enabled: recoveryScope,
+    retry: false,
+    refetchInterval: (query) => {
+      const status = query.state.data;
+      return status?.taskId === 189 && status.intentRecorded && !status.recorded ? 5000 : false;
+    },
+  });
+  const requestOwnerReview = useMutation({
+    mutationFn: () => apiFetch("/ai-tasks/189/gpt02-owner-review-request?companyId=default", {
+      method: "POST", headers: { "X-GPT02-Intent": "review-task189" },
+      body: JSON.stringify({ requestReview: true }),
+    }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: recoveryKey }),
+  });
+  const confirmReview = useMutation({
+    mutationFn: async (digest: string) => {
+      const post = (intent: string, data: Record<string, string>) =>
+        apiFetch("/ai-tasks/189/gpt02-owner-review-request?companyId=default", {
+          method: "POST", headers: { "X-GPT02-Intent": intent }, body: JSON.stringify(data),
+        });
+      const challenge = await post("review-evidence-task189", { evidenceSha256: digest });
+      if (challenge.evidenceSha256 !== digest || !challenge.challengeId || !challenge.nonce)
+        throw new Error("Bukti tinjauan berubah.");
+      await post("confirm-intent-task189", {
+        evidenceSha256: digest, challengeId: challenge.challengeId, nonce: challenge.nonce,
+      });
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: recoveryKey }),
+  });
+  const approveRecovery = useMutation({
+    mutationFn: async () => {
+      const latest = await recovery.refetch({ throwOnError: true });
+      if (latest.data?.taskId === 189 && latest.data.recorded) return;
+      if (latest.data?.taskId !== 189 || latest.data.ready !== true)
+        throw new Error("Persetujuan sedang menunggu kesiapan layanan DEV.");
+      const result = await apiFetch("/ai-tasks/189/gpt02-owner-approval?companyId=default", {
+        method: "POST", headers: { "X-GPT02-Intent": "approve-task189-recovery-attempt2-only" },
+        body: JSON.stringify({ approveRecoveryAttempt2: true }),
+      });
+      if (result?.taskId !== 189 || result?.ownerDecisionStored !== true) throw new Error("Keputusan belum terverifikasi.");
+    },
+    onSettled: () => Promise.all([
+      queryClient.invalidateQueries({ queryKey: recoveryKey }),
+      queryClient.invalidateQueries({ queryKey: ["ai-task-execution", id] }),
+      queryClient.invalidateQueries({ queryKey: ["gpt02-lineage", id] }),
+    ]),
+  });
   const gpt02PrepareOnlyMutation = useMutation({
     mutationFn:()=>apiFetch(
       `/ai-tasks/${id}/gpt02-prepare?companyId=${encodeURIComponent(task?.companyId ?? "")}`,{
@@ -1383,7 +1435,7 @@ export default function AiTaskDetail() {
       </div>
 
       <div id="penugasan-lifecycle" className="border border-blue-200 rounded-xl bg-white p-4 shadow-sm">
-        {compactPreparation && (
+        {compactPreparation && !recoveryScope && (
           <section aria-label="Persiapan GPT02" className="space-y-2">
             <h2 className="text-base font-semibold text-gray-900">Persiapan GPT02</h2>
             <p className="text-sm text-slate-700">PIC terverifikasi · {gpt02PicAudit?.assignedTo || task.assignedTo}</p>
@@ -1406,6 +1458,37 @@ export default function AiTaskDetail() {
             )}
           </section>
         )}
+        {recoveryScope && <section aria-label="Pemulihan Task #189" className="my-3 space-y-2">
+          <h2 className="text-base font-semibold">Pemulihan Task #189</h2>
+          {approveRecovery.isSuccess || (recovery.data?.taskId === 189 && recovery.data.recorded) ?
+            <p role="status">Persetujuan Owner sudah tercatat.</p> :
+            recovery.isError ? <p role="status">Kesiapan layanan DEV belum bisa diperiksa.</p> :
+            recovery.data?.taskId === 189 && recovery.data.ready ?
+              <Button type="button" size="sm" disabled={approveRecovery.isPending}
+                onClick={() => approveRecovery.mutate()}>
+                {approveRecovery.isPending ? "Memeriksa dan menyimpan…" : "Setujui sekali"}
+              </Button> :
+              <p role="status">{recovery.data?.intentRecorded ?
+                "Menunggu layanan DEV. Belum ada tindakan yang diperlukan." :
+                recovery.data?.reviewRequested ? "Tinjau bukti persiapan kedua sebelum mengonfirmasi." :
+                recovery.data?.canRequestReview ? "Persiapan pertama kedaluwarsa. Tinjauan percobaan kedua tersedia." :
+                recovery.isLoading ? "Memeriksa kesiapan pemulihan…" : "Persetujuan pemulihan belum tersedia."}</p>}
+          {!recovery.isError && recovery.data?.taskId === 189 && recovery.data.canRequestReview &&
+            <Button type="button" size="sm" disabled={requestOwnerReview.isPending} onClick={() => requestOwnerReview.mutate()}>Minta tinjauan pemulihan #189</Button>}
+          {!recovery.isError && recovery.data?.taskId === 189 && recovery.data.evidenceSha256 &&
+            recovery.data.originalExpiryMs && !recovery.data.intentRecorded && !recovery.data.recorded &&
+            <div className="space-y-2 text-sm">
+            <p>Persiapan pertama berakhir pada {new Date(recovery.data.originalExpiryMs).toLocaleString("id-ID", {timeZone:"Asia/Jakarta"})} WIB.</p>
+            <Button type="button" size="sm" disabled={confirmReview.isPending}
+              onClick={() => confirmReview.mutate(recovery.data!.evidenceSha256!)}>
+              Saya sudah meninjau dan meminta persiapan kedua #189
+            </Button>
+            {confirmReview.isError && <p role="alert">Konfirmasi belum terverifikasi. Muat ulang untuk memeriksa status.</p>}
+          </div>}
+          {requestOwnerReview.isError && <p role="alert">Permintaan tinjauan belum dapat dikonfirmasi.</p>}
+          {approveRecovery.isError && !recovery.data?.recorded &&
+            <p role="alert">Persetujuan belum terverifikasi. Halaman akan memeriksa ulang statusnya.</p>}
+        </section>}
         <LifecycleDetails className={compactPreparation ? "mt-3 text-sm" : undefined}>
           {compactPreparation && <summary className="cursor-pointer text-slate-600">Detail teknis dan penugasan</summary>}
           {compactPreparation && gpt02PreparationReadiness?.taskId === task.id && (
