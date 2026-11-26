@@ -1,0 +1,54 @@
+[Unit]
+Description=GPT02 Issue159 DEV operational detached signer (%i)
+After=gpt02-issue159-reader.service gpt02-issue159-issuer-reader.service gpt02-issue159-approval-reader.service
+Requires=gpt02-issue159-reader.service gpt02-issue159-issuer-reader.service gpt02-issue159-approval-reader.service
+ConditionPathExists=/run/gpt02-reader/reader.sock
+ConditionPathExists=/run/gpt02-issuer-reader/reader.sock
+ConditionPathExists=/run/gpt02-approval-reader/approval.sock
+ConditionPathExists=/etc/credstore.encrypted/gpt02-issue159-%i-private-key.pkcs8
+ConditionPathExists=/etc/gpt02-dev/trust-fingerprints.json
+
+[Service]
+Type=simple
+DynamicUser=yes
+Environment=GPT02_ISSUE159_OPERATIONAL_SIGNING_ENABLED=true
+LoadCredentialEncrypted=private-key.pkcs8:/etc/credstore.encrypted/gpt02-issue159-%i-private-key.pkcs8
+LoadCredential=manifest.json:/etc/gpt02-dev/trust-fingerprints.json
+LoadCredential=approval-public.pem:/etc/gpt02-dev/public/approval-public.pem
+LoadCredential=hub-identity-public.pem:/etc/gpt02-dev/public/hub-identity-public.pem
+LoadCredential=core-identity-public.pem:/etc/gpt02-dev/public/core-identity-public.pem
+LoadCredential=issuer-public.pem:/etc/gpt02-dev/public/issuer-public.pem
+ExecStart=/usr/bin/python3 /opt/ai-coding-standalone-dev/gpt02_issue159_operational_signer.py --role %i --socket /run/gpt02-issue159-operational-signer-%i/signer.sock
+RuntimeDirectory=gpt02-issue159-operational-signer-%i
+RuntimeDirectoryMode=0700
+SupplementaryGroups=gpt02-issue159-signers
+BindReadOnlyPaths=/run/gpt02-reader
+BindReadOnlyPaths=/run/gpt02-issuer-reader
+BindReadOnlyPaths=/run/gpt02-approval-reader
+UMask=0077
+NoNewPrivileges=yes
+PrivateNetwork=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+ProtectProc=invisible
+ProcSubset=pid
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictAddressFamilies=AF_UNIX
+SystemCallArchitectures=native
+Restart=on-failure
+RestartSec=2s
+
+[Install]
+WantedBy=multi-user.target

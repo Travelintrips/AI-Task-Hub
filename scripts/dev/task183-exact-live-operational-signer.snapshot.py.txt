@@ -1,0 +1,420 @@
+#!/usr/bin/env python3
+"""DEV-only GPT02 Issue159 operational detached signer.
+
+Each role has independent systemd credential custody. The signer reads only
+private Unix-socket evidence adapters; it never connects to PostgreSQL, creates
+tasks/commands, consumes nonces, reserves fences, dispatches, or touches PROD.
+"""
+from __future__ import annotations
+
+import argparse, base64, grp, hashlib, json, os, signal, socket, socketserver, stat, time, uuid
+from pathlib import Path
+from typing import Any
+
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
+
+ROLES=("approval","hub","core","issuer")
+APPROVAL_FIELDS=("v","environment","audience","taskId","commandId","attemptId","nonce","operatorNamespace","superAdminId","companyId","issuedAt","expiresAt")
+LINK_FIELDS=("v","environment","audience","linkId","companyId","hubTaskId","hubExecutionId","coreTaskId","coreCommandId","attemptId","attemptNumber","assigneeId","accountableOwnerId","hubOperatorNamespace","hubOperatorId","hubRole","hubActive","coreOperatorNamespace","coreOperatorUserId","coreRole","coreActive","corePasswordChanged","workerId","approvalDigest","nonce","issuedAt","expiresAt")
+ISSUER_FIELDS=("v","environment","audience","companyId","hubTaskId","hubExecutionId","coreTaskId","commandId","attemptId","workerId","receiptId","linkId","fenceId","approvalDigest","nonceDigest","issuerRole","leaseEpoch","issuedAt","expiresAt")
+WORKER="openclaw-dell-chatgpt-wake-dev"
+
+RECOVERY_AUDIENCE="GPT02_TASK183_RECOVERY_ISSUER_APPROVAL_V1"
+RECOVERY_FIELDS=("version","environment","audience","companyId","hubTaskId",
+    "recoveryAttemptNumber","requestId","evidenceSha256","originalCoreTaskId",
+    "originalHubExecutionId","originalAttemptId","ownerSubject","nonce",
+    "issuedAt","expiresAt","purpose","dispatchPermitted")
+# Reuse existing restricted read-only approval-reader service/socket.
+# New route is deliberately absent until its independent Task183 decision
+# handler is reviewed; existing reader returns 404 and signer refuses.
+RECOVERY_READER="/run/gpt02-approval-reader/approval.sock"
+
+def recovery_signing_bytes(claims):
+    return (RECOVERY_AUDIENCE+"\n").encode()+canonical(claims,RECOVERY_FIELDS)
+
+def recovery_signed_owner_readback(claims,now):
+    """Only trusted root-owned independent reader may assert authorization.
+
+    This existing socket does not expose a Task183 approval route, so
+    actual recovery signing stays NO-GO unless independently authorized.
+    Never trust caller-supplied approval, approvals from Issue159, or the
+    local human-ack/recovery-intent SQLite queue as an Owner signature.
+    """
+    import struct
+    # Match existing approval-reader custody: root-owned socket and parent,
+    # group access restricted to the already existing signer group.
+    reader_group=grp.getgrnam("gpt02-issue159-signers").gr_gid
+    if not exact(claims,RECOVERY_FIELDS):deny("RECOVERY_CLAIM_SHAPE_INVALID")
+    import re
+    if (not isinstance(claims.get("requestId"),str) or not re.fullmatch(r"[a-f0-9]{36}",claims["requestId"]) or
+        not isinstance(claims.get("evidenceSha256"),str) or not re.fullmatch(r"[a-f0-9]{64}",claims["evidenceSha256"]) or
+        not isinstance(claims.get("ownerSubject"),str) or not re.fullmatch(r"owner:[A-Za-z0-9_-]{4,120}",claims["ownerSubject"]) or
+        any(not isinstance(claims.get(n),str) or not UUID_RE.fullmatch(claims[n]) for n in
+            ("originalCoreTaskId","originalHubExecutionId","originalAttemptId")) or
+        len({claims[n] for n in ("originalCoreTaskId","originalHubExecutionId","originalAttemptId")})!=3):
+        deny("RECOVERY_ORIGINAL_EVIDENCE_SCOPE_DENIED")
+    if (claims.get("version")!=1 or claims.get("environment")!="DEV" or
+       claims.get("audience")!=RECOVERY_AUDIENCE or
+       claims.get("companyId")!="default" or claims.get("hubTaskId")!=183 or
+       claims.get("recoveryAttemptNumber")!=2 or
+       claims.get("purpose")!="PREPARE_ATTEMPT2_ONLY" or
+       claims.get("dispatchPermitted") is not False or
+       not isinstance(claims.get("nonce"),str) or
+       not NONCE_RE.fullmatch(claims["nonce"]) or
+       type(claims.get("issuedAt")) is not int or
+       type(claims.get("expiresAt")) is not int or
+       claims["issuedAt"]>now+5000 or claims["issuedAt"]<now-300000 or
+       not now<claims["expiresAt"]<=claims["issuedAt"]+300000):
+        deny("RECOVERY_APPROVAL_SCOPE_OR_WINDOW_DENIED")
+    digest=hashlib.sha256(recovery_signing_bytes(claims)).hexdigest()
+    parent=Path(RECOVERY_READER).parent
+    try:
+        pst=os.lstat(parent)
+        st=os.lstat(RECOVERY_READER)
+    except OSError:
+        deny("INDEPENDENT_RECOVERY_OWNER_APPROVAL_READER_MISSING")
+    if (not stat.S_ISDIR(pst.st_mode) or stat.S_ISLNK(pst.st_mode)
+        or pst.st_uid!=0 or pst.st_gid!=reader_group or
+        stat.S_IMODE(pst.st_mode)!=0o750
+        or not stat.S_ISSOCK(st.st_mode) or stat.S_ISLNK(st.st_mode)
+        or st.st_uid!=0 or st.st_gid!=reader_group or
+        stat.S_IMODE(st.st_mode)!=0o660):
+        deny("RECOVERY_OWNER_READER_CUSTODY_INVALID")
+    payload={"claimsSha256":digest,"taskId":183,"requestId":claims["requestId"],
+             "evidenceSha256":claims["evidenceSha256"],
+             "ownerSubject":claims["ownerSubject"],"nonce":claims["nonce"],
+             "observedAt":now}
+    body=json.dumps(payload,separators=(",",":")).encode()
+    msg=(b"POST /verify-owner-recovery-approval HTTP/1.1\r\n"
+      b"Host: localhost\r\nContent-Type: application/json\r\n"
+      b"Content-Length: "+str(len(body)).encode()+
+      b"\r\nConnection: close\r\n\r\n"+body)
+    with socket.socket(socket.AF_UNIX,socket.SOCK_STREAM) as client:
+        client.settimeout(3)
+        client.connect(RECOVERY_READER)
+        if not hasattr(socket,"SO_PEERCRED"):deny("SO_PEERCRED_REQUIRED")
+        _pid,uid,_gid=struct.unpack("3i",client.getsockopt(
+            socket.SOL_SOCKET,socket.SO_PEERCRED,12))
+        if uid!=0:deny("UNTRUSTED_RECOVERY_READER_PEER")
+        client.sendall(msg)
+        response=b""
+        while True:
+            chunk=client.recv(2048)
+            if not chunk:break
+            response+=chunk
+            if len(response)>8192:deny("RECOVERY_READBACK_TOO_LARGE")
+    head,sep,reply=response.partition(b"\r\n\r\n")
+    if not sep or head.split(b"\r\n",1)[0]!=b"HTTP/1.1 200 OK":
+        deny("RECOVERY_APPROVAL_READBACK_UNAVAILABLE")
+    headers={}
+    for line in head.split(b"\r\n")[1:]:
+        key,sep2,value=line.partition(b":")
+        name=key.strip().lower()
+        if not sep2 or name in headers:deny("RECOVERY_RESPONSE_HEADERS_INVALID")
+        headers[name]=value.strip()
+    length=headers.get(b"content-length",b"")
+    if (headers.get(b"content-type")!=b"application/json" or
+        b"transfer-encoding" in headers or not length.isdigit() or
+        int(length)!=len(reply)):
+        deny("RECOVERY_RESPONSE_FRAMING_INVALID")
+    try:
+        data=json.loads(reply)
+    except (ValueError,UnicodeError):
+        deny("RECOVERY_APPROVAL_READBACK_INVALID")
+    if (type(data) is not dict or set(data)!={
+        "ok","environment","source","readOnly","releaseDecision",
+        "claimsSha256","requestId","ownerSubject","evidenceSha256",
+        "signatureVerified","persistedIndependentOwnerDecision",
+        "issuerAuthorizationGranted","dispatchPermitted"} or
+        data["ok"] is not True or data["environment"]!="DEV" or
+        data["source"]!="task183-independent-recovery-approval-reader" or
+        data["readOnly"] is not True or data["releaseDecision"]!="NO_GO" or
+        data["claimsSha256"]!=digest or
+        data["requestId"]!=claims["requestId"] or
+        data["ownerSubject"]!=claims["ownerSubject"] or
+        data["evidenceSha256"]!=claims["evidenceSha256"] or
+        data["signatureVerified"] is not False or
+        data["persistedIndependentOwnerDecision"] is not True or
+        data["issuerAuthorizationGranted"] is not False or
+        data["dispatchPermitted"] is not False):
+        deny("PERSISTED_INDEPENDENT_SIGNED_OWNER_DECISION_REQUIRED")
+    return digest
+
+APPROVAL_READER="/run/gpt02-approval-reader/approval.sock"
+HUB_CORE_READER="/run/gpt02-reader/reader.sock"
+ISSUER_READER="/run/gpt02-issuer-reader/reader.sock"
+MAX_BODY=24576
+UUID_RE=__import__("re").compile(r"^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$")
+SUBJECT_RE=__import__("re").compile(r"^[A-Za-z0-9][A-Za-z0-9_.:@-]{0,127}$")
+NONCE_RE=__import__("re").compile(r"^[A-Za-z0-9_-]{32,128}$")
+
+def deny(code:str):
+    raise RuntimeError(code)
+
+def exact(value:Any,fields:tuple[str,...])->bool:
+    return isinstance(value,dict) and set(value)==set(fields)
+
+def canonical(value:dict,fields:tuple[str,...])->bytes:
+    if not exact(value,fields): deny("CLAIMS_FIELDS_INVALID")
+    return json.dumps({k:value[k] for k in fields},ensure_ascii=False,separators=(",",":")).encode()
+
+def signing_bytes(role:str,claims:dict)->bytes:
+    if role=="approval": return canonical(claims,APPROVAL_FIELDS)
+    if role in ("hub","core"):
+        return f"GPT02_OPERATOR_LINK_V1:{role}\n".encode()+canonical(claims,LINK_FIELDS)
+    if role=="issuer":
+        return b"GPT02_ISSUER_LEASE_EVIDENCE_V1\n"+canonical(claims,ISSUER_FIELDS)
+    deny("SIGNER_ROLE_INVALID")
+
+def _read_private_key(role:str,credential_dir:str):
+    if role not in ROLES: deny("SIGNER_ROLE_INVALID")
+    if os.environ.get("GPT02_ISSUE159_OPERATIONAL_SIGNING_ENABLED","false")!="true":
+        deny("OPERATIONAL_SIGNING_NOT_ENABLED")
+    root=Path(credential_dir)
+    key_path=root/"private-key.pkcs8"; manifest_path=root/"manifest.json"
+    if not key_path.is_file() or not manifest_path.is_file(): deny("SYSTEMD_CREDENTIALS_REQUIRED")
+    raw=key_path.read_bytes()
+    try: key=serialization.load_der_private_key(raw,password=None)
+    finally: raw=b""
+    if not isinstance(key,Ed25519PrivateKey): deny("ED25519_PRIVATE_KEY_REQUIRED")
+    manifest=json.loads(manifest_path.read_text())
+    if not isinstance(manifest,dict) or set(manifest)!=set(ROLES): deny("MANIFEST_INVALID")
+    der=key.public_key().public_bytes(serialization.Encoding.DER,serialization.PublicFormat.SubjectPublicKeyInfo)
+    fp=hashlib.sha256(der).hexdigest()
+    if manifest.get(role)!=fp: deny("PRIVATE_PUBLIC_FINGERPRINT_MISMATCH")
+    public={}
+    names={"approval":"approval-public.pem","hub":"hub-identity-public.pem","core":"core-identity-public.pem","issuer":"issuer-public.pem"}
+    fps=set()
+    for r,name in names.items():
+        p=root/name
+        if not p.is_file(): deny("PUBLIC_ROOT_REQUIRED")
+        k=serialization.load_pem_public_key(p.read_bytes())
+        if not isinstance(k,Ed25519PublicKey): deny("ED25519_PUBLIC_ROOT_REQUIRED")
+        d=k.public_bytes(serialization.Encoding.DER,serialization.PublicFormat.SubjectPublicKeyInfo)
+        f=hashlib.sha256(d).hexdigest()
+        if manifest.get(r)!=f: deny("PUBLIC_ROOT_FINGERPRINT_MISMATCH")
+        fps.add(f); public[r]=k
+    if len(fps)!=4: deny("FOUR_INDEPENDENT_ROOTS_REQUIRED")
+    return key,public,fp
+
+def _assert_socket(path:str):
+    signer_gid=grp.getgrnam("gpt02-issue159-signers").gr_gid
+    parent_path=str(Path(path).parent)
+    parent_entry=os.lstat(parent_path)
+    parent=os.stat(parent_path) if stat.S_ISLNK(parent_entry.st_mode) else parent_entry
+    st=os.lstat(path)
+    if (not stat.S_ISDIR(parent.st_mode) or parent.gid!=signer_gid
+            or stat.S_IMODE(parent.st_mode)!=0o750
+            or stat.S_ISLNK(st.st_mode) or not stat.S_ISSOCK(st.st_mode)
+            or st.gid!=signer_gid or stat.S_IMODE(st.st_mode)!=0o660):
+        deny("TRUSTED_SOCKET_SECURITY_INVALID")
+
+def _unix_json(path:str,route:str,payload:dict,timeout=10):
+    _assert_socket(path)
+    body=json.dumps(payload,separators=(",",":")).encode()
+    if len(body)>MAX_BODY: deny("TRUSTED_REQUEST_TOO_LARGE")
+    req=(f"POST {route} HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {len(body)}\r\nConnection: close\r\n\r\n".encode()+body)
+    s=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM); s.settimeout(timeout)
+    try:
+        s.connect(path); s.sendall(req); chunks=[]; total=0
+        while True:
+            part=s.recv(4096)
+            if not part: break
+            total+=len(part)
+            if total>65536: deny("TRUSTED_RESPONSE_TOO_LARGE")
+            chunks.append(part)
+    finally: s.close()
+    raw=b"".join(chunks); head,sep,b=raw.partition(b"\r\n\r\n")
+    if not sep: deny("TRUSTED_HTTP_INVALID")
+    status=int(head.split(b" ",2)[1]); data=json.loads(b.decode())
+    return status,data
+
+def _validate_approval(c:dict,now:int):
+    canonical(c,APPROVAL_FIELDS)
+    if c["v"]!=2 or c["environment"]!="DEV" or c["audience"]!="GPT02_NEW_TASK_SINGLE_COMMAND_APPROVAL" or c["companyId"]!="default" or c["operatorNamespace"]!="ai-task-hub.public.users": deny("APPROVAL_SCOPE_INVALID")
+    if type(c["taskId"]) is not int or c["taskId"]<=139: deny("FRESH_TASK_REQUIRED")
+    if not isinstance(c["commandId"],str) or not UUID_RE.fullmatch(c["commandId"]) or not isinstance(c["attemptId"],str) or not UUID_RE.fullmatch(c["attemptId"]) or c["commandId"]==c["attemptId"]: deny("APPROVAL_IDS_INVALID")
+    if not isinstance(c["superAdminId"],str) or not SUBJECT_RE.fullmatch(c["superAdminId"]) or c["superAdminId"]=="dev_approval_token": deny("APPROVAL_ACTOR_INVALID")
+    if not isinstance(c["nonce"],str) or not NONCE_RE.fullmatch(c["nonce"]): deny("APPROVAL_NONCE_INVALID")
+    if type(c["issuedAt"]) is not int or type(c["expiresAt"]) is not int or c["issuedAt"]>now+5000 or c["expiresAt"]<=now or c["expiresAt"]<=c["issuedAt"] or c["expiresAt"]-c["issuedAt"]>300000: deny("APPROVAL_TIME_INVALID")
+
+def _verify_signature(role:str,claims:dict,sig:str,key:Ed25519PublicKey):
+    if not isinstance(sig,str): deny("SIGNATURE_INVALID")
+    try: raw=base64.urlsafe_b64decode(sig+"==")
+    except Exception: deny("SIGNATURE_INVALID")
+    if len(raw)!=64 or base64.urlsafe_b64encode(raw).decode().rstrip("=")!=sig: deny("SIGNATURE_INVALID")
+    try: key.verify(raw,signing_bytes(role,claims))
+    except Exception: deny("SIGNATURE_INVALID")
+
+def _approval_readback(claims:dict,now:int):
+    digest=hashlib.sha256(canonical(claims,APPROVAL_FIELDS)).hexdigest()
+    lookup={"claimsSha256":digest,"taskId":claims["taskId"],"commandId":claims["commandId"],"attemptId":claims["attemptId"],"companyId":claims["companyId"],"superAdminId":claims["superAdminId"]}
+    status,res=_unix_json(APPROVAL_READER,"/approval-intent",{"lookup":lookup,"observedAt":now})
+    result=res.get("result") if isinstance(res,dict) else None
+    decision=result.get("decision") if isinstance(result,dict) else None
+    if status!=200 or res.get("ok") is not True or res.get("approvalReadOnly") is not True or res.get("decisionCreated") is not False or res.get("releaseDecision")!="NO_GO" or not isinstance(result,dict) or result.get("persistedTrustedReadProven") is not True or result.get("approvalBindingMatched") is not True or result.get("adminApprovalMatched") is not True or not isinstance(decision,dict) or decision.get("claimsSha256")!=digest or decision.get("actorId")!=claims["superAdminId"] or decision.get("decision")!="APPROVE" or decision.get("roleAtDecision")!="super_admin" or decision.get("authMethod") not in ("supabase_admin_session","supabase_aal2"):
+        deny("PERSISTED_ADMIN_APPROVAL_REQUIRED")
+    return digest,decision
+
+def _presign(claims:dict):
+    query={"companyId":claims["companyId"],"hubTaskId":claims["taskId"],"commandCandidateId":claims["commandId"],"attemptId":claims["attemptId"]}
+    status,res=_unix_json(HUB_CORE_READER,"/pre-sign-facts",query)
+    facts=res.get("facts") if isinstance(res,dict) else None
+    if status!=200 or res.get("ok") is not True or res.get("environment")!="DEV" or res.get("releaseDecision")!="NO_GO" or not isinstance(facts,dict):
+        deny("PRESIGN_FACTS_REQUIRED")
+    p=facts.get("prepared"); core=facts.get("core"); hub=facts.get("hubOperator"); proof=facts.get("trustedReadProof")
+    if not all(isinstance(x,dict) for x in (p,core,hub,proof)): deny("PRESIGN_FACTS_INVALID")
+    if p.get("hubTaskId")!=claims["taskId"] or p.get("commandCandidateId")!=claims["commandId"] or p.get("attemptId")!=claims["attemptId"] or p.get("operatorSubject")!=claims["superAdminId"] or p.get("companyId")!="default": deny("PRESIGN_BINDING_MISMATCH")
+    if hub.get("subject")!=claims["superAdminId"] or hub.get("role")!="super_admin" or hub.get("active") is not True: deny("PRESIGN_HUB_INVALID")
+    if core.get("taskId")!=p.get("coreTaskId") or core.get("status")!="PENDING" or core.get("commandCount")!=0 or core.get("runCount")!=0 or core.get("workerId")!=WORKER or core.get("operatorRole") not in ("owner","admin") or core.get("operatorActive") is not True or core.get("passwordChanged") is not True: deny("PRESIGN_CORE_INVALID")
+    if proof.get("source")!="gpt02-issue159-presign-reader" or proof.get("readOnly") is not True or proof.get("dispatchPermitted") is not False or proof.get("releaseDecision")!="NO_GO": deny("PRESIGN_PROOF_INVALID")
+    return facts
+
+def _link_expected(link:dict,claims:dict,facts:dict,approval_digest:str,now:int):
+    canonical(link,LINK_FIELDS)
+    p=facts["prepared"]; core=facts["core"]; hub=facts["hubOperator"]
+    checks=[
+        link["v"]==1,link["environment"]=="DEV",link["audience"]=="GPT02_DUAL_ACCOUNT_COMMAND_LINK",
+        link["companyId"]=="default",link["hubTaskId"]==claims["taskId"],link["hubExecutionId"]==p["hubExecutionId"],
+        link["coreTaskId"]==p["coreTaskId"],link["coreCommandId"]==claims["commandId"],link["attemptId"]==claims["attemptId"],
+        link["attemptNumber"]==1,link["assigneeId"]==p["memberId"],link["accountableOwnerId"]==hub["accountableOwnerId"],
+        link["hubOperatorNamespace"]=="ai-task-hub.public.users",link["hubOperatorId"]==claims["superAdminId"],link["hubRole"]=="super_admin",link["hubActive"] is True,
+        link["coreOperatorNamespace"]=="ai-core.ai_platform.internal_users",link["coreOperatorUserId"]==core["operatorUserId"],link["coreRole"]==core["operatorRole"],link["coreActive"] is True,link["corePasswordChanged"] is True,
+        link["workerId"]==WORKER,link["approvalDigest"]==approval_digest,link["nonce"]==claims["nonce"],
+        type(link["issuedAt"]) is int,type(link["expiresAt"]) is int,link["issuedAt"]>=claims["issuedAt"],link["expiresAt"]<=claims["expiresAt"],link["expiresAt"]<=p["expiresAt"],link["expiresAt"]>now,link["expiresAt"]-link["issuedAt"]<=120000
+    ]
+    if not all(checks) or not UUID_RE.fullmatch(str(link["linkId"])): deny("LINK_BINDING_INVALID")
+
+class Signer:
+    def __init__(self,role,key,public):
+        self.role=role; self.key=key; self.public=public
+    def sign_approval(self,data):
+        if self.role!="approval" or not exact(data,("claims",)): deny("ROUTE_ROLE_MISMATCH")
+        c=data["claims"]; now=int(time.time()*1000); _validate_approval(c,now); digest,_=_approval_readback(c,now); _presign(c)
+        sig=base64.urlsafe_b64encode(self.key.sign(signing_bytes("approval",c))).decode().rstrip("=")
+        return {"environment":"DEV","role":"approval","claims":c,"signatureBase64url":sig,"claimsSha256":digest,"signingEvidenceVerified":True,"authorizationGranted":False,"dispatchPermitted":False,"releaseDecision":"NO_GO"}
+
+    def sign_recovery_approval(self,data):
+        if self.role!="approval" or not exact(data,("claims",)):
+            deny("RECOVERY_SIGNER_ROLE_MISMATCH")
+        claims=data["claims"]
+        now=int(time.time()*1000)
+        digest=recovery_signed_owner_readback(claims,now)
+        # Only the existing detached, separately credentialed approval
+        # signer signs, after independent root-owned readback approval.
+        signature=base64.urlsafe_b64encode(
+            self.key.sign(recovery_signing_bytes(claims))).decode().rstrip("=")
+        return {"environment":"DEV","role":"approval",
+            "audience":RECOVERY_AUDIENCE,"claims":claims,
+            "signatureBase64url":signature,"claimsSha256":digest,
+            "signedOwnerApprovalVerified":True,
+            "issuerAuthorizationGranted":False,
+            "attemptIssued":False,"dispatchPermitted":False,
+            "releaseDecision":"NO_GO"}
+    def sign_hub(self,data):
+        if self.role!="hub" or not exact(data,("approval",)): deny("ROUTE_ROLE_MISMATCH")
+        a=data["approval"]
+        if not exact(a,("claims","signatureBase64url")): deny("APPROVAL_ENVELOPE_INVALID")
+        c=a["claims"]; now=int(time.time()*1000); _validate_approval(c,now); _verify_signature("approval",c,a["signatureBase64url"],self.public["approval"]); digest,_=_approval_readback(c,now); facts=_presign(c)
+        issued=max(now,c["issuedAt"]); expires=min(c["expiresAt"],facts["prepared"]["expiresAt"],issued+120000)
+        if expires<=issued: deny("LINK_WINDOW_EXPIRED")
+        link={"v":1,"environment":"DEV","audience":"GPT02_DUAL_ACCOUNT_COMMAND_LINK","linkId":str(uuid.uuid4()),"companyId":"default","hubTaskId":c["taskId"],"hubExecutionId":facts["prepared"]["hubExecutionId"],"coreTaskId":facts["prepared"]["coreTaskId"],"coreCommandId":c["commandId"],"attemptId":c["attemptId"],"attemptNumber":1,"assigneeId":facts["prepared"]["memberId"],"accountableOwnerId":facts["hubOperator"]["accountableOwnerId"],"hubOperatorNamespace":"ai-task-hub.public.users","hubOperatorId":c["superAdminId"],"hubRole":"super_admin","hubActive":True,"coreOperatorNamespace":"ai-core.ai_platform.internal_users","coreOperatorUserId":facts["core"]["operatorUserId"],"coreRole":facts["core"]["operatorRole"],"coreActive":True,"corePasswordChanged":True,"workerId":WORKER,"approvalDigest":digest,"nonce":c["nonce"],"issuedAt":issued,"expiresAt":expires}
+        _link_expected(link,c,facts,digest,now)
+        sig=base64.urlsafe_b64encode(self.key.sign(signing_bytes("hub",link))).decode().rstrip("=")
+        return {"environment":"DEV","role":"hub","claims":link,"hubSignatureBase64url":sig,"linkDigest":hashlib.sha256(canonical(link,LINK_FIELDS)).hexdigest(),"authorizationGranted":False,"dispatchPermitted":False,"releaseDecision":"NO_GO"}
+    def sign_core(self,data):
+        if self.role!="core" or not exact(data,("approval","operatorLink")): deny("ROUTE_ROLE_MISMATCH")
+        a=data["approval"]; o=data["operatorLink"]
+        if not exact(a,("claims","signatureBase64url")) or not exact(o,("claims","hubSignatureBase64url")): deny("ENVELOPE_INVALID")
+        c=a["claims"]; link=o["claims"]; now=int(time.time()*1000); _validate_approval(c,now); _verify_signature("approval",c,a["signatureBase64url"],self.public["approval"]); _verify_signature("hub",link,o["hubSignatureBase64url"],self.public["hub"]); digest,_=_approval_readback(c,now); facts=_presign(c); _link_expected(link,c,facts,digest,now)
+        sig=base64.urlsafe_b64encode(self.key.sign(signing_bytes("core",link))).decode().rstrip("=")
+        return {"environment":"DEV","role":"core","claims":link,"coreSignatureBase64url":sig,"linkDigest":hashlib.sha256(canonical(link,LINK_FIELDS)).hexdigest(),"authorizationGranted":False,"dispatchPermitted":False,"releaseDecision":"NO_GO"}
+    def sign_issuer(self,data):
+        if self.role!="issuer" or not exact(data,("claims",)): deny("ROUTE_ROLE_MISMATCH")
+        c=data["claims"]; now=int(time.time()*1000); canonical(c,ISSUER_FIELDS)
+        if c.get("v")!=1 or c.get("environment")!="DEV" or c.get("audience")!="GPT02_ISSUER_LEASE_EVIDENCE_V1" or c.get("companyId")!="default" or c.get("workerId")!=WORKER or c.get("issuerRole")!="dev_gpt02_issuer_evidence" or c.get("leaseEpoch")!=1: deny("ISSUER_SCOPE_INVALID")
+        if type(c.get("issuedAt")) is not int or type(c.get("expiresAt")) is not int or c["issuedAt"]>now+1000 or c["expiresAt"]<=now or c["expiresAt"]-c["issuedAt"]>15000: deny("ISSUER_TIME_INVALID")
+        status,res=_unix_json(ISSUER_READER,"/issuer-evidence",{"claims":c,"observedAt":now})
+        result=res.get("result") if isinstance(res,dict) else None
+        if status!=200 or res.get("ok") is not True or res.get("releaseDecision")!="NO_GO" or not isinstance(result,dict) or result.get("persistedTrustedReadProven") is not True or result.get("issuerLedgerMatched") is not True or result.get("readOnlySessionVerified") is not True:
+            deny("PERSISTED_ISSUER_LINEAGE_REQUIRED")
+        sig=base64.urlsafe_b64encode(self.key.sign(signing_bytes("issuer",c))).decode().rstrip("=")
+        return {"environment":"DEV","role":"issuer","claims":c,"signatureBase64url":sig,"issuerLineageVerified":True,"authorizationGranted":False,"dispatchPermitted":False,"releaseDecision":"NO_GO"}
+
+def response(status:int,obj:dict)->bytes:
+    body=json.dumps(obj,separators=(",",":")).encode()
+    reason={200:"OK",400:"Bad Request",403:"Forbidden",404:"Not Found",413:"Payload Too Large",503:"Service Unavailable"}.get(status,"Error")
+    return (f"HTTP/1.1 {status} {reason}\r\nContent-Type: application/json\r\nCache-Control: no-store\r\nConnection: close\r\nContent-Length: {len(body)}\r\n\r\n".encode()+body)
+
+def read_request(conn):
+    conn.settimeout(3); raw=b""
+    while b"\r\n\r\n" not in raw:
+        p=conn.recv(1024)
+        if not p: deny("REQUEST_INCOMPLETE")
+        raw+=p
+        if len(raw)>4096: deny("REQUEST_HEADER_TOO_LARGE")
+    head,_,body=raw.partition(b"\r\n\r\n"); first=head.split(b"\r\n",1)[0]
+    routes={b"POST /sign-approval HTTP/1.1":"approval",b"POST /sign-hub HTTP/1.1":"hub",b"POST /sign-core HTTP/1.1":"core",b"POST /sign-issuer HTTP/1.1":"issuer",b"POST /sign-recovery-approval HTTP/1.1":"recovery-approval"}
+    if first not in routes: raise LookupError()
+    headers={}
+    for line in head.split(b"\r\n")[1:]:
+        k,sep,v=line.partition(b":")
+        if not sep: deny("HEADER_INVALID")
+        headers[k.strip().lower()]=v.strip()
+    if headers.get(b"content-type")!=b"application/json" or not headers.get(b"content-length",b"").isdigit(): deny("HEADER_INVALID")
+    n=int(headers[b"content-length"])
+    if n<=0 or n>MAX_BODY: deny("REQUEST_SIZE_INVALID")
+    while len(body)<n:
+        p=conn.recv(min(4096,n-len(body)))
+        if not p: deny("REQUEST_BODY_INCOMPLETE")
+        body+=p
+    return routes[first],json.loads(body.decode())
+
+class Handler(socketserver.StreamRequestHandler):
+    signer:Signer|None=None
+    def handle(self):
+        try:
+            route,data=read_request(self.request)
+            if not self.signer or (route!=self.signer.role and not (route=="recovery-approval" and self.signer.role=="approval")): deny("ROUTE_ROLE_MISMATCH")
+            method={"approval":self.signer.sign_approval,"hub":self.signer.sign_hub,"core":self.signer.sign_core,"issuer":self.signer.sign_issuer,"recovery-approval":self.signer.sign_recovery_approval}[route]
+            self.wfile.write(response(200,method(data)))
+        except LookupError: self.wfile.write(response(404,{"ok":False,"reason":"NOT_FOUND","releaseDecision":"NO_GO"}))
+        except Exception as e:
+            code=str(e) if __import__("re").fullmatch(r"[A-Z0-9_:-]{1,100}",str(e)) else "SIGNING_FAILED_CLOSED"
+            self.wfile.write(response(403 if code in ("PERSISTED_ADMIN_APPROVAL_REQUIRED","PERSISTED_ISSUER_LINEAGE_REQUIRED") else 400,{"ok":False,"reason":code,"authorizationGranted":False,"dispatchPermitted":False,"releaseDecision":"NO_GO"}))
+
+class Server(socketserver.UnixStreamServer):
+    allow_reuse_address=False; daemon_threads=True
+
+def serve(role:str,socket_path:str):
+    creds=os.environ.get("CREDENTIALS_DIRECTORY","")
+    if not creds: deny("SYSTEMD_CREDENTIALS_REQUIRED")
+    key,public,fp=_read_private_key(role,creds)
+    parent=Path(socket_path).parent
+    st=os.lstat(parent)
+    if not stat.S_ISDIR(st.st_mode) or stat.S_IMODE(st.st_mode)!=0o700: deny("RUNTIME_DIRECTORY_INVALID")
+    if os.path.lexists(socket_path): os.unlink(socket_path)
+    Handler.signer=Signer(role,key,public)
+    srv=Server(socket_path,Handler); os.chmod(socket_path,0o660)
+    Path(parent/"readiness.json").write_text(json.dumps({"environment":"DEV","role":role,"fingerprintMatched":True,"operationalSignerReady":True,"authorizationGranted":False,"dispatchPermitted":False,"releaseDecision":"NO_GO"},sort_keys=True)+"\n")
+    stopped=False
+    def stop(*_):
+        nonlocal stopped; stopped=True
+    signal.signal(signal.SIGTERM,stop); signal.signal(signal.SIGINT,stop); srv.timeout=.5
+    try:
+        while not stopped: srv.handle_request()
+    finally:
+        srv.server_close()
+        try: os.unlink(socket_path)
+        except FileNotFoundError: pass
+
+def main():
+    p=argparse.ArgumentParser(); p.add_argument("--role",required=True,choices=ROLES); p.add_argument("--socket",required=True); a=p.parse_args()
+    serve(a.role,a.socket)
+
+if __name__=="__main__":
+    try: main()
+    except Exception as e:
+        code=str(e) if __import__("re").fullmatch(r"[A-Z0-9_:-]{1,100}",str(e)) else "SIGNER_START_FAILED_CLOSED"
+        print(code,file=__import__("sys").stderr); raise SystemExit(2)

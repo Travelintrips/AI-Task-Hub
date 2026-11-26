@@ -1,0 +1,160 @@
+name: Task183 isolated root signer supervisor candidate
+on:
+  push:
+    branches:
+      - fix/dev-task183-prep-readiness-ui-20261121
+    paths:
+      - 'scripts/dev/task183_successor_reservation*.py'
+      - 'scripts/dev/task183-owner-approval-writer-dev*.py'
+      - 'scripts/dev/task183-owner-recovery-decision-reader*.py'
+      - 'scripts/dev/task183-stage-exact-recovery-signer.candidate.py'
+      - 'scripts/dev/task183-stage-exact-recovery-signer.candidate.test.py'
+      - 'scripts/dev/task183-operational-custody-negative-proof.py'
+      - 'scripts/dev/task183-signer-unix-gate.candidate.py'
+      - 'scripts/dev/task183-signer-unix-gate.candidate.test.py'
+      - 'scripts/dev/task183-integrated-live-no-go-probe.py'
+      - 'scripts/dev/task183-pinned-approval-verifier.candidate.py'
+      - 'scripts/dev/task183-pinned-approval-verifier.candidate.test.py'
+      - 'scripts/dev/task183-pinned-approval-verifier.offline.test.py'
+      - 'scripts/dev/task183-pinned-broker-verifier.candidate.py'
+      - 'scripts/dev/task183-pinned-broker-verifier.candidate.test.py'
+      - 'scripts/dev/task183-root-broker-restart-readiness.candidate.test.py'
+      - 'scripts/dev/task183-broker-indirect-module-custody.test.py'
+      - 'scripts/dev/task183-root-broker-systemd-sandbox-preflight.py'
+      - 'scripts/dev/task183-live-release-readiness.readonly.py'
+      - 'scripts/dev/task183-dynamic-systemd-full-unix-e2e.fixture.py'
+      - 'scripts/dev/task183-owner-signer-one-shot.candidate.py'
+      - 'scripts/dev/task183-owner-signer-one-shot.candidate.test.py'
+      - 'scripts/dev/task183-resolve-approved-claims.readonly.candidate.py'
+      - 'scripts/dev/task183-writer-real-schema-isolated.test.py'
+      - 'scripts/dev/task183-owner-after-decision.candidate.py'
+      - 'scripts/dev/task183-owner-after-decision.candidate.test.py'
+      - 'scripts/dev/task183-owner-after-decision-http.fixture.test.py'
+      - 'scripts/dev/task183-owner-approval-http.candidate.py'
+      - 'scripts/dev/task183-owner-approval-http.candidate.test.py'
+      - 'scripts/dev/task183-wire-owner-approval-http.candidate.py'
+      - 'scripts/dev/task183-wire-owner-approval-http.candidate.test.py'
+      - 'scripts/dev/task183-owner-window-readiness.candidate.py'
+      - 'scripts/dev/task183-owner-window.candidate.service'
+      - 'scripts/dev/task183-live-release-readiness.readonly.py'
+      - 'scripts/dev/task183-live-release-readiness.readonly.test.py'
+      - 'scripts/dev/task183-owner-window-activate.candidate.py'
+      - 'scripts/dev/task183-owner-window-activate.candidate.test.py'
+      - 'scripts/dev/task183-root-broker-operational.candidate.py'
+      - 'scripts/dev/task183-root-broker-operational.candidate.service'
+      - 'scripts/dev/task183-root-broker-operational.candidate.test.py'
+      - 'scripts/dev/task183-dormant-broker-launcher.py'
+      - 'scripts/dev/task183-dormant-root-broker.candidate.service'
+      - 'scripts/dev/task183-dormant-broker-unit.candidate.test.py'
+      - 'scripts/dev/task183-broker-peer-gate.candidate.test.py'
+      - 'scripts/dev/task183-systemd-peer-policy.candidate.py'
+      - 'scripts/dev/task183-dynamic-user-peer-runtime.fixture.py'
+      - 'scripts/dev/task183-reader-backed-broker-authorization.candidate.py'
+      - 'scripts/dev/task183-reader-backed-broker-authorization.candidate.test.py'
+      - 'scripts/dev/task183-independent-owner-adapter.candidate.py'
+      - 'scripts/dev/task183-independent-owner-adapter.candidate.test.py'
+      - 'scripts/dev/task183-owner-recovery-decision-reader.py'
+      - 'scripts/dev/task183-two-phase-unix-bridge.candidate.py'
+      - 'scripts/dev/task183-two-phase-unix-bridge.candidate.test.py'
+      - 'scripts/dev/task183-patch-existing-signer-two-phase.candidate.py'
+      - 'scripts/dev/task183-patch-existing-signer-two-phase.candidate.test.py'
+      - 'scripts/dev/task183-exact-live-operational-signer.snapshot.py.txt'
+      - 'scripts/dev/task183-two-phase-signing.candidate.py'
+      - 'scripts/dev/task183-two-phase-signing.candidate.test.py'
+      - 'scripts/dev/task183-local-receipt-broker.candidate.py'
+      - 'scripts/dev/task183-local-receipt-broker.candidate.test.py'
+      - 'scripts/dev/task183-root-sign-once-supervisor.candidate.py'
+      - 'scripts/dev/task183-root-sign-once-supervisor.candidate.test.py'
+      - 'scripts/dev/task183-dormant-signature-custody.py'
+      - '.github/workflows/task183-root-supervisor-candidate.yml'
+  pull_request:
+    paths:
+      - 'scripts/dev/task183-owner-window-activate.candidate*.py'
+      - 'scripts/dev/task183_successor_reservation*.py'
+      - 'scripts/dev/task183-owner-approval-writer-dev*.py'
+      - 'scripts/dev/task183-owner-recovery-decision-reader*.py'
+      - 'scripts/dev/task183-single-click-broker-dev.py'
+      - 'scripts/dev/task183-wire-owner-approval-http.candidate.test.py'
+      - 'scripts/dev/task183-owner-approval-http.candidate.py'
+      - 'scripts/dev/task183-owner-approval-http.candidate.test.py'
+      - 'scripts/dev/task183-root-sign-once-supervisor.candidate.py'
+      - 'scripts/dev/task183-root-sign-once-supervisor.candidate.test.py'
+      - 'scripts/dev/task183-dormant-signature-custody.py'
+      - '.github/workflows/task183-root-supervisor-candidate.yml'
+permissions:
+  contents: read
+jobs:
+  isolated-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify successor reservation and issuer contract
+        run: |
+          python3 scripts/dev/task183_successor_reservation_test.py
+          python3 scripts/dev/task183-owner-approval-writer-dev.test.py
+          python3 scripts/dev/task183-owner-recovery-decision-reader.test.py
+          node --test scripts/dev/gpt02-task183-recovery-issuer-approval-verifier.test.mjs
+      - name: Syntax check
+        run: python3 -m py_compile scripts/dev/task183-root-sign-once-supervisor.candidate.py scripts/dev/task183-root-sign-once-supervisor.candidate.test.py scripts/dev/task183-local-receipt-broker.candidate.py scripts/dev/task183-local-receipt-broker.candidate.test.py scripts/dev/task183-two-phase-signing.candidate.py scripts/dev/task183-two-phase-signing.candidate.test.py scripts/dev/task183-patch-existing-signer-two-phase.candidate.py scripts/dev/task183-patch-existing-signer-two-phase.candidate.test.py scripts/dev/task183-two-phase-unix-bridge.candidate.py scripts/dev/task183-two-phase-unix-bridge.candidate.test.py
+      - name: Parse real DynamicUser full Unix E2E fixture (VPS execution required)
+        run: python3 -m py_compile scripts/dev/task183-dynamic-systemd-full-unix-e2e.fixture.py
+      - name: Validate real-systemd peer and integrated live negative probe source (VPS execution required)
+        run: python3 -m py_compile scripts/dev/task183-systemd-peer-policy.candidate.py scripts/dev/task183-dynamic-user-peer-runtime.fixture.py scripts/dev/task183-integrated-live-no-go-probe.py scripts/dev/task183-operational-custody-negative-proof.py
+      - name: Validate VPS-only real-schema writer-reader regression syntax
+        run: python3 -m py_compile scripts/dev/task183-resolve-approved-claims.readonly.candidate.py scripts/dev/task183-writer-real-schema-isolated.test.py
+      - name: Task183 one-shot post-decision signing integration (no real key)
+        run: |
+          sudo python3 scripts/dev/task183-owner-after-decision.candidate.test.py
+          python3 -m py_compile scripts/dev/task183-owner-after-decision-http.fixture.test.py
+      - name: Task183 signed-session Owner decision route contract
+        run: |
+          python3 scripts/dev/task183-owner-approval-http.candidate.test.py
+          python3 scripts/dev/task183-wire-owner-approval-http.candidate.test.py
+      - name: Dormant systemd broker unit security contract
+        run: python3 scripts/dev/task183-dormant-broker-unit.candidate.test.py
+      - name: Validate live-only systemd proof scripts are parseable
+        run: python3 -m py_compile scripts/dev/task183-root-broker-systemd-sandbox-preflight.py scripts/dev/task183-live-release-readiness.readonly.py
+      - name: Validate guarded operational broker candidate without service activation
+        run: |
+          python3 -m py_compile scripts/dev/task183-root-broker-operational.candidate.py
+          python3 scripts/dev/task183-root-broker-operational.candidate.test.py
+          python3 scripts/dev/task183-root-broker-restart-readiness.candidate.test.py
+          sudo python3 scripts/dev/task183-broker-indirect-module-custody.test.py
+          # Real systemd-analyze verify is run on CST-DEV VPS where the existing approval-reader unit is installed.
+      - name: Synthetic concurrent crash and replay proof
+        run: python3 scripts/dev/task183-root-sign-once-supervisor.candidate.test.py
+      - name: Synthetic Unix broker peer custody replay and restart proof
+        run: python3 scripts/dev/task183-local-receipt-broker.candidate.test.py
+      - name: Two-phase signer reserve and commit crash proof
+        run: python3 scripts/dev/task183-two-phase-signing.candidate.test.py
+      - name: Install isolated Ed25519 test dependency
+        run: python3 -m pip install --user cryptography
+      - name: Gate actual approval and recovery signer methods using ephemeral key
+        run: python3 scripts/dev/task183-patch-existing-signer-two-phase.candidate.test.py
+      - name: Two-phase Unix broker process identity and restart proof
+        run: python3 scripts/dev/task183-two-phase-unix-bridge.candidate.test.py
+      - name: Block untrusted peers before Owner reader or receipt reservation
+        run: python3 scripts/dev/task183-broker-peer-gate.candidate.test.py
+      - name: Validate independent Owner decision provenance with the existing reader
+        run: python3 scripts/dev/task183-independent-owner-adapter.candidate.test.py
+      - name: Reader-backed Unix broker synthetic E2E and live database read-only denial
+        run: python3 scripts/dev/task183-reader-backed-broker-authorization.candidate.test.py
+      - name: One-shot Owner-to-signer handoff synthetic Unix and expiry
+        run: |
+          python3 -m py_compile scripts/dev/task183-owner-signer-one-shot.candidate.py
+          python3 scripts/dev/task183-owner-signer-one-shot.candidate.test.py
+      - name: Classify historical Owner signature and expired unregistered receipt safely
+        run: python3 scripts/dev/task183-live-release-readiness.readonly.test.py
+      - name: Task183 controlled release two-phase guarded activation regression
+        run: |
+          python3 -m py_compile scripts/dev/task183-owner-window-readiness.candidate.py scripts/dev/task183-owner-window-activate.candidate.py
+          sudo python3 scripts/dev/task183-owner-window-activate.candidate.test.py
+      - name: Signer-side Unix admission and no-sign replay proof
+        run: python3 scripts/dev/task183-signer-unix-gate.candidate.test.py
+      - name: Exact pinned signer source recovery-only preservation regression
+        run: python3 scripts/dev/task183-stage-exact-recovery-signer.candidate.test.py
+      - name: Ed25519 trust manifest fingerprint and Unix broker signature binding
+        run: |
+          python3 scripts/dev/task183-pinned-approval-verifier.offline.test.py
+          python3 scripts/dev/task183-pinned-broker-verifier.candidate.test.py
