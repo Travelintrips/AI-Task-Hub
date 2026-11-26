@@ -42,8 +42,10 @@ jobs:
         run: node --test scripts/dev/vps-storage-readonly.test.mjs
       - name: Verify VPS Storage requires recent Google identity and active Super Admin
         run: node --experimental-strip-types --test scripts/dev/vps-storage-google-session-contract.test.mjs
-      - name: Verify DEV Google login is visible while passwordless email stays available
+      - name: Verify DEV Google login remains and email-only UI fails closed
         run: node --test scripts/dev/vps-storage-google-login-entrypoint.test.mjs
+      - name: Verify DEV Google OAuth refuses ambiguous or inactive profiles
+        run: node --experimental-strip-types --test scripts/dev/dev-google-unambiguous-profile.test.mjs
       - name: Verify VPS identity uses a dedicated least-privilege DEV reader
         run: node --experimental-strip-types --test scripts/dev/vps-identity-reader-contract.test.mjs
       - name: Verify VPS identity reader RLS on disposable PostgreSQL 16
@@ -52,6 +54,10 @@ jobs:
         run: timeout --kill-after=10s 240s bash scripts/dev/test-vps-identity-reader-node-pg16.sh
       - name: Verify blue-green DEV cannot start duplicate WA/Core background workers
         run: node --test scripts/dev/ai-task-background-worker-cutover-gate.test.mjs
+      - name: Verify DEV cutover configuration parity and single WA worker handoff
+        run: node --test scripts/dev/ai-task-dev-cutover-config-gate.test.mjs
+      - name: Verify DEV onboarding reflects operational AI Core Gateway without PROD readiness
+        run: node --test scripts/dev/onboarding-dev-gateway-contract.test.mjs
       - name: Verify DEV and PROD startup reject fallback session secrets
         run: node --test scripts/dev/ai-task-session-secret-cutover-gate.test.mjs
       - name: Verify isolated DEV never auto-creates Storage buckets
@@ -98,7 +104,7 @@ jobs:
         run: node --test artifacts/api-server/tests/ai-task-child-tenant-scope.test.mjs
       - name: GPT02 new authorized DEV test must stay non-dispatching until signed gates
         run: node --test scripts/dev/gpt02-new-test-admission-readonly.test.cjs
-      - name: Preserve DEV passwordless dashboard and isolate GPT02 admission
+      - name: Deny unverified DEV email-only JWT and isolate GPT02 admission
         run: node --test scripts/dev/gpt02-dev-admin-login-hardening.test.cjs
       - name: Verify Google-backed GPT02 operator preflight cannot authorize commands
         run: node --test scripts/dev/gpt02-operator-identity-preflight.test.cjs
@@ -122,6 +128,54 @@ jobs:
         run: |
           node scripts/dev/test-gpt02-worker-fallback-contract.mjs
           bash -n scripts/dev/test-gpt02-lifecycle-start-isolated.sh
+      - name: Verify expired Task183 versioned recovery review is inert and immutable
+        run: bash scripts/dev/test-gpt02-expired-reservation-v2-candidate.sh
+      - name: Verify Task183 Ed25519 recovery review identity without granting authorization
+        run: node --test scripts/dev/gpt02-task183-recovery-signature-gate.test.mjs
+      - name: Verify Task183 Super Admin recovery review request is append-only and non-authorizing
+        run: python3 scripts/dev/task183-recovery-review-intake-dev.test.py
+      - name: Verify Task183 human review acknowledgement is hash-bound and non-authorizing
+        run: python3 scripts/dev/task183-recovery-review-ack.test.py
+      - name: Verify Task183 Super Admin one-click recovery intent nonce and replay fences
+        run: python3 scripts/dev/task183-recovery-consent.test.py
+      - name: Verify Task183 independent issuer admission fails closed after valid Super Admin intent
+        run: python3 scripts/dev/task183-recovery-issuer-preflight.test.py
+      - name: Verify Task183 recovery issuer-approval Ed25519 claims and pinned signer domain
+        run: node --test scripts/dev/gpt02-task183-recovery-issuer-approval-verifier.test.mjs
+      - name: Verify existing signer recovery-domain surgical patch remains fail-closed
+        run: |
+          # Ephemeral CI runner only: reproduce the real root-owned Unix
+          # socket and existing supplementary signer-group custody model.
+          sudo groupadd -f gpt02-issue159-signers
+          sudo -E python3 scripts/dev/task183-patch-existing-operational-signer-candidate.test.py
+      - name: Verify Task183 independent Owner recovery decision reader never infers a signature
+        run: python3 scripts/dev/task183-owner-recovery-decision-reader.test.py
+      - name: Verify existing approval reader Task183 route preserves Issue159 and stays NO-GO
+        run: python3 scripts/dev/task183-patch-existing-approval-reader-candidate.test.py
+      - name: Verify Task183 signed Google owner identity matches existing approval operator read-only
+        run: python3 scripts/dev/task183-owner-identity-readiness.test.py
+      - name: Verify Task183 explicit synthetic Owner decision and immutable outbox are atomic
+        run: python3 scripts/dev/task183-owner-recovery-decision-writer.fixture.test.py
+      - name: Verify Task183 real DEV Owner approval writer refuses implicit decisions and repeats
+        run: python3 scripts/dev/task183-owner-approval-writer-dev.test.py
+      - name: Verify Task183 end-to-end signed Owner fixture through existing reader signer and independent Ed25519 verifier
+        run: |
+          sudo groupadd -f gpt02-issue159-signers
+          sudo -E python3 scripts/dev/task183-signed-owner-to-verifier-e2e.test.py
+      - name: Verify Task183 approval signature one-shot atomic envelope and replay fence
+        run: python3 scripts/dev/task183-one-shot-signature-envelope.fixture.test.py
+      - name: Verify Task183 crash-safe signer reservation survives restart without signing twice
+        run: python3 scripts/dev/task183-durable-sign-once.fixture.test.py
+      - name: Verify dormant root-owned Task183 signature custody schema and immutable state
+        run: python3 scripts/dev/task183-dormant-signature-custody.test.py
+      - name: Verify approval-only signer dependency override candidate without changing active unit
+        run: python3 scripts/dev/task183-approval-only-systemd-override.candidate.test.py
+      - name: Verify scoped existing approval instance unit removes issuer dependency without relaxing sandbox
+        run: python3 scripts/dev/task183-generate-approval-instance-unit.test.py
+      - name: Verify dormant Task183 approval schema preserves old records and prevents implicit approval
+        run: python3 scripts/dev/task183-install-dormant-owner-approval-schema.test.py
+      - name: Verify Task183 attempt2 atomic Core Hub issuance in isolated PostgreSQL
+        run: bash scripts/dev/test-gpt02-task183-attempt2-issuer-isolated.sh
       - name: Verify idempotent Core coding task preparation without command dispatch
         run: |
           bash scripts/dev/test-gpt02-core-task-preparation-isolated.sh
@@ -139,6 +193,18 @@ jobs:
           bash scripts/dev/test-gpt02-dormant-preparer-function-pg17.sh
           bash scripts/dev/test-gpt02-preparer-scram-auth-isolated.sh
           node --test scripts/dev/gpt02-private-preparation-staging-inactive.test.mjs scripts/dev/gpt02-dormant-preparer-function.contract.test.mjs
+      - name: Prepared execution UI explains independent review without granting dispatch
+        run: node --test scripts/dev/gpt02-prepared-reservation-ui-guidance.test.mjs
+      - name: Existing GPT02 prepared reservation reconciles read-only without replay
+        run: node --test artifacts/api-server/tests/gpt02-prepared-reservation-review.test.mjs
+      - name: Immutable Task171 technical recovery disposition needs verified archive
+        run: node --test artifacts/api-server/tests/gpt02-immutable-recovery-decision.test.mjs
+      - name: Existing GPT02 privileged DEV writes reject legacy email-only JWT
+        run: node --test artifacts/api-server/tests/gpt02-google-auth-gate.test.mjs
+      - name: Existing GPT02 app Google session readiness is nonauthorizing
+        run: node --test artifacts/api-server/tests/gpt02-google-session-readiness.test.mjs
+      - name: Distinguish missing and expired Google JWT provenance without granting GPT02 authority
+        run: node --test artifacts/api-server/tests/gpt02-google-session-status.test.mjs
       - name: Verify dedicated Core preparation connector and fail-closed identity
         run: |
           node --test artifacts/api-server/tests/gpt02-core-task-preparation.test.mjs
@@ -195,5 +261,7 @@ jobs:
         run: pnpm run typecheck
       - name: Build
         run: pnpm run build
+      - name: Verify PR196 integrated DEV runtime with synthetic credentials (no live DB)
+        run: node --test scripts/dev/ai-task-pr196-synthetic-runtime-smoke.test.mjs
       - name: Verify Pino worker image portability
         run: pnpm --filter @workspace/api-server run test:build-portability

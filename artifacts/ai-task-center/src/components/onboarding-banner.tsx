@@ -44,20 +44,30 @@ export function OnboardingBanner() {
   const pct: number = data?.overallPct ?? 100;
   if (pct >= 80) return null;
 
+  const incompleteLabels: Record<string, string> = {
+    whatsapp: "WhatsApp (Fonnte/Meta atau Gateway DEV)",
+    customers: "pelanggan yang sudah terkait perusahaan",
+    fleet: "armada aktif",
+  };
   const incomplete = Object.entries(data?.steps ?? {})
-    .filter(([, s]) => !(s as { done: boolean }).done)
-    .map(([k]) => k.replace(/_/g, " "));
+    .filter(([, step]) => !(step as { done: boolean }).done)
+    .map(([key]) => incompleteLabels[key] ?? key.replace(/_/g, " "));
 
   return (
     <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 flex items-start gap-3 mb-4">
       <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium text-amber-900">
-          Setup belum lengkap ({pct}%) — selesaikan onboarding agar semua fitur aktif.
+          Checklist onboarding ({pct}%) — beberapa langkah perusahaan masih belum lengkap.
         </p>
         {incomplete.length > 0 && (
           <p className="text-xs text-amber-700 mt-0.5">
             Belum selesai: {incomplete.join(", ")}
+          </p>
+        )}
+        {data?.steps?.whatsapp?.operationalChannel === "ai_core_dev" && (
+          <p className="text-xs text-amber-700 mt-0.5">
+            Gateway AI Core DEV operasional; status ini tidak berarti WhatsApp PROD sudah aktif.
           </p>
         )}
       </div>

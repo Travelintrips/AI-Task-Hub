@@ -1,0 +1,36 @@
+[Unit]
+Description=CST-DEV Task183 dormant root receipt broker (NO-GO until reviewed release)
+After=gpt02-issue159-approval-reader.service
+Requires=gpt02-issue159-approval-reader.service
+ConditionPathExists=/run/gpt02-approval-reader/approval.sock
+ConditionPathExists=/var/lib/cst-dev-task183-recovery/signature-custody.sqlite3
+# Exact release sentinel deliberately absent until separately approved.
+ConditionPathExists=/etc/gpt02-dev/task183-broker-release.approved
+RefuseManualStart=yes
+RefuseManualStop=yes
+
+[Service]
+Type=exec
+User=root
+Group=root
+ExecStart=/usr/bin/python3 /opt/ai-coding-standalone-dev/qa/task183-dormant-broker-launcher.py
+NoNewPrivileges=yes
+PrivateNetwork=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictSUIDSGID=yes
+LockPersonality=yes
+RestrictAddressFamilies=AF_UNIX
+SystemCallArchitectures=native
+UMask=0077
+Restart=no
+
+[Install]
+WantedBy=multi-user.target
