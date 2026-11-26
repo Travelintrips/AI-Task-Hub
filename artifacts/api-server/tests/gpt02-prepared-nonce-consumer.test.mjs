@@ -63,7 +63,13 @@ function fixture(taskId=137){
 
 const facts=x=>({
  prepared:x.prepared,job:x.job,core:x.core,hubOperator:x.hubOperator,
+ hubAssignment:{action:'gpt02_pic_assigned',entityId:String(x.prepared.hubTaskId),
+  actorId:x.hubOperator.subject,actorRole:'super_admin',actorActive:true},
  observedAt:now-100,
+ trustedReadProof:{source:'gpt02-issue159-reader',environment:'DEV',
+  hubRole:'gpt02_hub_evidence_reader',coreRole:'gpt02_core_evidence_reader',
+  separateBackends:true,clientTlsVerified:true,readOnly:true,
+  dispatchPermitted:false,signingPermitted:false},
  storedEvidence:{
   approval:{claims:x.proof.approval.claims,
     signatureBase64url:x.proof.approval.signatureBase64url,
@@ -117,6 +123,8 @@ for(const [label,patch] of [
  ['existing worker command',x=>({...x,core:{...x.core,commandCount:1}})],
  ['stale signed source',x=>({...x,observedAt:now-3000})],
  ['future timestamp',x=>({...x,observedAt:now+100})],
+ ['reader proof without TLS',x=>({...x,trustedReadProof:{...x.trustedReadProof,clientTlsVerified:false}})],
+ ['reader proof can dispatch',x=>({...x,trustedReadProof:{...x.trustedReadProof,dispatchPermitted:true}})],
  ['absent signed facts',()=>({})]
 ])test('deny '+label+' BEFORE issuing restricted nonce consumption',async()=>{
  const x=fixture(),{consumer,calls}=setup(x,patch);
@@ -287,5 +295,5 @@ test('operational DEV without fixed root-owned manifest refuses admission before
  const out=spawnSync(process.execPath,['--input-type=module','-e',subprocess],
   {encoding:'utf8',env:{...process.env,NODE_ENV:'development',APP_ENV:'development'},timeout:5000});
  assert.equal(out.status,0,out.stderr);
- assert.equal(out.stdout,'TRUST_MANIFEST_DIRECTORY_NOT_FOUND used=false');
+ assert.match(out.stdout,/^(TRUST_MANIFEST_DIRECTORY_NOT_FOUND|TRUST_STORE_DIRECTORY_(?:NOT_FOUND|UNSAFE)) used=false$/);
 });
