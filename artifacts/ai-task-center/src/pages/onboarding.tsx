@@ -31,8 +31,8 @@ interface OnboardingStatus {
     company_profile: { done: boolean; pct: number; fields: Record<string, boolean> };
     whatsapp: { done: boolean; pct: number; fonnteConfigured: boolean; metaConfigured: boolean };
     team: { done: boolean; count: number };
-    customers: { done: boolean; total: number; withPhone: number };
-    fleet: { done: boolean; count: number };
+    customers: { done: boolean; total: number; withPhone: number; status?: string; unverifiedCount?: number };
+    fleet: { done: boolean; count: number; status?: string; source?: string };
     knowledge_base: { done: boolean; intentCount: number };
     first_task: { done: boolean; taskCount: number };
   };
@@ -52,7 +52,6 @@ interface WhatsAppHealth {
 
 interface TeamMember { id: number; name: string; role: string; division: string | null; phone: string | null }
 interface Vendor { id: number; name: string; serviceType: string | null; documentCount?: number }
-interface FleetUnit { id: number; licensePlate: string; vehicleType: string | null; make: string | null; isActive: boolean }
 
 interface AiTestResult {
   simulation: boolean;
@@ -470,6 +469,11 @@ function StepCustomer({ onComplete }: { onComplete: () => void }) {
         ))}
       </div>
 
+      {status?.steps.customers.status === "awaiting_verified_customer" && (
+        <div className="border rounded-lg p-3 text-sm text-muted-foreground">
+          {status.steps.customers.unverifiedCount ?? 0} data terikat perusahaan masih menunggu verifikasi pelanggan riil. Data uji tidak meluluskan checklist.
+        </div>
+      )}
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
         <p className="text-sm font-medium text-blue-800">Kelola Customer di CRM</p>
         <p className="text-xs text-blue-700 mt-1">Gunakan halaman CRM untuk menambah atau mengimpor customer. Nomor WhatsApp wajib diisi agar notifikasi bisa terkirim.</p>
@@ -482,7 +486,7 @@ function StepCustomer({ onComplete }: { onComplete: () => void }) {
 
       <div className="flex items-center gap-3">
         <Button size="sm" onClick={onComplete}>
-          {total > 0 ? "Customer Ada — Lanjutkan" : "Lewati (isi nanti)"} <ChevronRight className="h-4 w-4 ml-1" />
+          {status?.steps.customers.done ? "Customer Siap — Lanjutkan" : "Lewati (isi nanti)"} <ChevronRight className="h-4 w-4 ml-1" />
         </Button>
       </div>
     </div>
@@ -566,75 +570,43 @@ function StepVendor({ onComplete }: { onComplete: () => void }) {
 
 function StepFleet({ onComplete }: { onComplete: () => void }) {
   const [, navigate] = useLocation();
-
-  const { data: fleetData, isLoading } = useQuery({
-    queryKey: ["fleet-units-onboarding"],
-    queryFn: () => apiFetch<{ data: FleetUnit[]; total: number }>("/api/fleet/units?limit=5"),
+  // Use the same scoped, read-only checklist source as the dashboard.
+  // Never load an unfiltered Super Admin fleet-unit preview for onboarding.
+  const { data: status, isLoading } = useQuery({
+    queryKey: ["onboarding-status"],
+    queryFn: () => apiFetch<OnboardingStatus>("/api/system/onboarding-status"),
   });
-
-  const total = fleetData?.total ?? 0;
-  const active = (fleetData?.data ?? []).filter(u => u.isActive).length;
-
+  const fleet = status?.steps.fleet;
+  const unavailable = fleet?.status === "unavailable";
+  const cstSource = fleet?.source === "fleet_vehicles";
   return (
     <div className="space-y-5">
       <div>
         <h2 className="text-lg font-semibold">Setup Armada Kendaraan</h2>
-        <p className="text-sm text-muted-foreground mt-1">Fleet Intelligence menghitung biaya, risiko, dan utilisasi setiap unit secara otomatis.</p>
+        <p className="text-sm text-muted-foreground mt-1">Inventaris aktif sesuai perusahaan dari sumber Fleet yang sudah tersedia.</p>
       </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        {[
-          { label: "Total Unit", value: total, color: "text-foreground" },
-          { label: "Unit Aktif", value: active, color: "text-green-600" },
-        ].map((item) => (
-          <div key={item.label} className="border rounded-lg p-3 text-center">
-            <div className={`text-2xl font-bold ${item.color}`}>{item.value}</div>
-            <div className="text-xs text-muted-foreground mt-1">{item.label}</div>
-          </div>
-        ))}
-      </div>
-
       {isLoading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Memuat armada...</div>
-      ) : (fleetData?.data ?? []).length > 0 ? (
-        <div className="border rounded-lg overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/40">
-              <tr>
-                {["Plat Nomor", "Jenis", "Merek", "Status"].map(h => <th key={h} className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">{h}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {(fleetData?.data ?? []).map(u => (
-                <tr key={u.id} className="border-t">
-                  <td className="px-3 py-2 font-mono font-medium">{u.licensePlate}</td>
-                  <td className="px-3 py-2 text-muted-foreground capitalize">{u.vehicleType ?? "—"}</td>
-                  <td className="px-3 py-2 text-muted-foreground">{u.make ?? "—"}</td>
-                  <td className="px-3 py-2">
-                    <Badge variant="outline" className={`text-xs ${u.isActive ? "text-green-600 border-green-300" : "text-muted-foreground"}`}>
-                      {u.isActive ? "Aktif" : "Nonaktif"}
-                    </Badge>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {total > 5 && <p className="px-3 py-2 text-xs text-muted-foreground">+{total - 5} unit lainnya</p>}
-        </div>
+      ) : unavailable || !fleet ? (
+        <div className="border rounded-lg p-4 text-sm text-muted-foreground">Sumber armada belum dapat diverifikasi. Tidak ada data perusahaan lain yang digunakan.</div>
       ) : (
-        <div className="border rounded-lg p-8 text-center">
-          <Truck className="h-8 w-8 text-muted-foreground mx-auto mb-2" />
-          <p className="text-sm font-medium">Belum ada unit armada.</p>
-          <p className="text-xs text-muted-foreground mt-1">Tambahkan kendaraan agar Fleet Intelligence bisa menghitung biaya dan risiko per unit.</p>
+        <div className="border rounded-lg p-5">
+          <div className="text-2xl font-bold">{fleet.count}</div>
+          <div className="text-xs text-muted-foreground">Unit aktif terdaftar</div>
+          <p className="text-sm mt-3">{cstSource ? "Sumber: Fleet Intelligence CST-DEV, pelat unik." : "Sumber: Fleet Units perusahaan."}</p>
+          {cstSource && <p className="text-xs text-muted-foreground mt-2">Pembacaan inventaris saja; bukan bukti kesiapan transaksi, pengiriman atau biaya kendaraan.</p>}
         </div>
       )}
-
       <div className="flex items-center gap-3 flex-wrap">
-        <Button size="sm" variant="outline" onClick={() => navigate("/fleet/units")}>
-          <ExternalLink className="h-4 w-4 mr-1" /> Kelola Armada
-        </Button>
+        {cstSource ? (
+          <a className="text-sm underline" href="https://dev-fleet.cstlogistic.co.id/logistics/fleet-intelligence/vehicles">Lihat Fleet CST-DEV</a>
+        ) : !unavailable && fleet && (
+          <Button size="sm" variant="outline" onClick={() => navigate("/fleet/units")}>
+            <ExternalLink className="h-4 w-4 mr-1" /> Kelola Armada
+          </Button>
+        )}
         <Button size="sm" onClick={onComplete}>
-          {total > 0 ? "Armada Ada — Lanjutkan" : "Lewati (isi nanti)"} <ChevronRight className="h-4 w-4 ml-1" />
+          {fleet?.done ? "Armada Ada — Lanjutkan" : "Lewati (isi nanti)"} <ChevronRight className="h-4 w-4 ml-1" />
         </Button>
       </div>
     </div>

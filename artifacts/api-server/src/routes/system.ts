@@ -207,12 +207,36 @@ router.get("/system/onboarding-status", requireAuth, async (req: Request, res: R
     const teamResult = await db.execute(sql`SELECT COUNT(*) AS cnt FROM team_members WHERE company_id = ${companyId}`).catch(() => ({ rows: [{ cnt: 0 }] }));
     const teamCount = safeCount(teamResult);
 
-    // Customers with phone
-    // DEV shared Customers uses numeric company IDs. Never guess a mapping
-    // for the legacy "default" tenant or accept a client-supplied company ID.
+    // Owner-approved Issue #197 mapping, for this GET-only checklist only.
+    // Never mutate shared company IDs, auth claims or another application's scope.
     const sessionCompany = req.user?.companyId;
     const isDev = process.env.NODE_ENV !== "production";
-    const numericCompany = String(sessionCompany ?? "");
+    const isCstDevRuntime = process.env.NODE_ENV === "development" &&
+      (process.env.APP_ENV === undefined || process.env.APP_ENV === "development") &&
+      process.env.PUBLIC_APP_BASE_URL === "https://dev-ai-task.cstlogistic.co.id" &&
+      process.env.SUPABASE_URL_DEV === "https://xssrfshdrtdfupgqwfdw.supabase.co";
+    const approvedLegacyCstProfile = "google_103728868378401731050";
+    const legacyCstCandidate = isCstDevRuntime &&
+      (sessionCompany === null || sessionCompany === "default") &&
+      req.user?.role === "super_admin" &&
+      String(req.user?.id) === approvedLegacyCstProfile &&
+      typeof req.user?.email === "string" && req.user.email.length > 0;
+    let legacyCstMapped = false;
+    if (legacyCstCandidate) {
+      // The approved profile is the pre-existing, Auth-Admin-pinned Google
+      // Super Admin profile audited in Issue #197. Recheck its live identity,
+      // active status and the active CST master before resolving the alias.
+      const bindingResult = await db.execute(sql`
+        SELECT COUNT(*) AS cnt FROM public.users u
+        JOIN public.companies c ON c.id = 1 AND c.code = 'CST' AND c.is_active IS TRUE
+        WHERE u.id::text = ${String(req.user?.id)}
+          AND u.company_id IS NULL AND u.role = 'super_admin'
+          AND u.is_active IS TRUE AND u.status = 'active'
+          AND lower(btrim(u.email)) = lower(btrim(${req.user?.email ?? ""}))
+      `).catch(() => ({ rows: [{ cnt: 0 }] }));
+      legacyCstMapped = safeCount(bindingResult) === 1;
+    }
+    const numericCompany = legacyCstMapped ? "1" : String(sessionCompany ?? "");
     const validNumericCompany = /^[1-9][0-9]{0,9}$/.test(numericCompany)
       && Number(numericCompany) <= 2147483647;
     let customerQueryFailed = isDev && !validNumericCompany;
@@ -230,10 +254,47 @@ router.get("/system/onboarding-status", requireAuth, async (req: Request, res: R
           return { rows: [{ total: 0, with_wa: 0 }] };
         });
     const custRow = safeRows(custResult)[0] ?? {};
+    const scopedCustomerTotal = parseInt(String(custRow.total ?? "0"), 10);
+    const scopedCustomerPhones = parseInt(String(custRow.with_wa ?? "0"), 10);
+    // Issue #197: current CST assigned row #33 has a test marker; no real
+    // customer has yet been approved. Counts are evidence, not verification.
+    const customerVerificationPending = isCstDevRuntime && numericCompany === "1";
+    const customerStep = {
+      status: customerQueryFailed ? "unavailable" : customerVerificationPending ? "awaiting_verified_customer" : "ok",
+      done: !customerQueryFailed && !customerVerificationPending && scopedCustomerTotal >= 1,
+      total: customerVerificationPending ? 0 : scopedCustomerTotal,
+      withPhone: customerVerificationPending ? 0 : scopedCustomerPhones,
+      ...(customerVerificationPending && !customerQueryFailed ? { unverifiedCount: scopedCustomerTotal } : {}),
+    };
 
-    // Fleet units
-    const fleetResult = await db.execute(sql`SELECT COUNT(*) AS cnt FROM fleet_units WHERE company_id = ${companyId} AND is_active = true`).catch(() => ({ rows: [{ cnt: 0 }] }));
+    // Fleet Intelligence already owns the active numeric CST inventory.
+    // Count distinct nonempty normalized plates, not DVS fleet_units or
+    // imported copies. The generic numeric company and PROD paths stay local.
+    const useCstFleetVehicles = isCstDevRuntime && numericCompany === "1";
+    let fleetQueryFailed = isDev && !validNumericCompany;
+    const fleetResult = fleetQueryFailed
+      ? { rows: [{ cnt: 0 }] }
+      : await db.execute(useCstFleetVehicles ? sql`
+          SELECT COUNT(DISTINCT regexp_replace(upper(v.plate), '[^A-Z0-9]', '', 'g')) AS cnt
+          FROM public.fleet_vehicles v
+          JOIN public.companies c ON c.id = v.company_id AND c.code = 'CST' AND c.is_active IS TRUE
+          WHERE v.company_id = ${Number(numericCompany)} AND v.status = 'active'
+            AND nullif(regexp_replace(upper(v.plate), '[^A-Z0-9]', '', 'g'), '') IS NOT NULL
+        ` : sql`
+          SELECT COUNT(*) AS cnt FROM fleet_units
+          WHERE company_id = ${isDev ? numericCompany : companyId} AND is_active = true
+        `).catch(() => {
+          fleetQueryFailed = true;
+          logger.warn({ code: "ONBOARDING_FLEET_QUERY_FAILED" }, "Fleet onboarding count unavailable");
+          return { rows: [{ cnt: 0 }] };
+        });
     const fleetCount = safeCount(fleetResult);
+    const fleetStep = {
+      status: fleetQueryFailed ? "unavailable" : "ok",
+      source: useCstFleetVehicles ? "fleet_vehicles" : "fleet_units",
+      done: !fleetQueryFailed && fleetCount >= 1,
+      count: fleetCount,
+    };
 
     // Knowledge base
     const kbResult = await db.execute(sql`SELECT COUNT(*) AS cnt FROM intent_master`).catch(() => ({ rows: [{ cnt: 0 }] }));
@@ -254,8 +315,8 @@ router.get("/system/onboarding-status", requireAuth, async (req: Request, res: R
         operationalChannel: waProgress.operationalChannel,
       },
       team: { done: teamCount >= 1, count: teamCount },
-      customers: { status: customerQueryFailed ? "unavailable" : "ok", done: !customerQueryFailed && parseInt(String(custRow.total ?? "0"), 10) >= 1, total: parseInt(String(custRow.total ?? "0"), 10), withPhone: parseInt(String(custRow.with_wa ?? "0"), 10) },
-      fleet: { done: fleetCount >= 1, count: fleetCount },
+      customers: customerStep,
+      fleet: fleetStep,
       knowledge_base: { done: intentCount >= 10, intentCount },
       first_task: { done: taskCount >= 1, taskCount },
     };
