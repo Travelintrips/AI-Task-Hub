@@ -1,8 +1,21 @@
+import { readFileSync } from "node:fs";
 import { Router, type IRouter } from "express";
 import { HealthCheckResponse } from "@workspace/api-zod";
 import { pool } from "@workspace/db";
 
 const router: IRouter = Router();
+
+// The DEV build writes this file beside the bundled API entry point.
+function readBuildSha(): string | undefined {
+  try {
+    const sha = readFileSync(new URL("./build-sha", import.meta.url), "utf8").trim();
+    return /^[a-f0-9]{40}$/.test(sha) ? sha : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+const buildSha = readBuildSha();
 
 router.get("/", (_req, res) => {
   res.json({ status: "ok" });
@@ -10,6 +23,10 @@ router.get("/", (_req, res) => {
 
 router.get("/healthz", (_req, res) => {
   const data = HealthCheckResponse.parse({ status: "ok" });
+  if (buildSha) {
+    res.setHeader("Cache-Control", "no-store");
+    res.setHeader("X-CST-Commit-SHA", buildSha);
+  }
   res.json(data);
 });
 

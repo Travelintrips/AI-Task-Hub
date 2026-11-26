@@ -60,6 +60,8 @@ jobs:
         run: node --test scripts/dev/ai-task-session-secret-cutover-gate.test.mjs
       - name: Verify isolated DEV never auto-creates Storage buckets
         run: node --test scripts/dev/ai-task-storage-bucket-preview-gate.test.mjs
+      - name: Verify DEV onboarding customer company scope
+        run: node --test scripts/dev/onboarding-customers-scope.test.mjs
       - name: API short-link unit regression
         run: pnpm --filter @workspace/api-server run test:short-links
       - name: Verify read-only bridge GET cannot mutate lifecycle
@@ -127,6 +129,14 @@ jobs:
       - name: Verify idempotent Core coding task preparation without command dispatch
         run: |
           bash scripts/dev/test-gpt02-core-task-preparation-isolated.sh
+          bash scripts/dev/test-gpt02-task-scoped-mount.sh
+          sudo python3 -IB scripts/dev/gpt02-task189-delivery.test.py
+          python3 -IB scripts/dev/gpt02-task189-request.test.py
+          python3 -IB scripts/dev/gpt02-task189-supabase.test.py
+          sudo python3 -IB scripts/dev/test-gpt02-task189-supabase-pgcrypto.py
+          python3 -B scripts/dev/task189-release/test_pair.py
+          sudo bash scripts/dev/test-gpt02-task189-inbox.sh
+          sudo bash scripts/dev/test-gpt02-task189-request.sh
           bash scripts/dev/test-gpt02-core-preparer-role-dormant-isolated.sh
           bash scripts/dev/test-gpt02-private-preparation-staging-inactive-isolated.sh
           GPT02_PRIVATE_SCHEMA_TEST_IMAGE=postgres:17-alpine bash scripts/dev/test-gpt02-private-schema-nonsuper-migrator-isolated.sh

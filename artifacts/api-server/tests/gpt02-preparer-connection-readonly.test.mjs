@@ -43,7 +43,7 @@ test('role identity and lifetime never accepted from arbitrary login',async()=>{
   {...expected(),no_membership:false},{...expected(),no_db_create:false},
   {...expected(),connection_limit:2},
   {...expected(),valid_until:new Date(Date.now()-60_000)},
-  {...expected(),valid_until:new Date(Date.now()+11*60_000)},
+  {...expected(),valid_until:new Date(Date.now()+4*60_000)},
  ]){
   const h=harness({role:r});
   await assert.rejects(h.preparer.verifyReadiness(),e=>e.code==='DEV_PREPARER_AUTHENTICATED_ROLE_NOT_SCOPED');

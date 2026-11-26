@@ -6,6 +6,7 @@ import {
   aiTasksTable,
   taskCommentsTable,
   auditLogsTable,
+  documentAuditsTable,
   teamMembersTable,
   whatsappMessagesTable,
   taskTimelineTable,
@@ -476,8 +477,34 @@ router.post("/ai-tasks/:id/attachments", requireAuth, (_req, res) =>
   res.status(501).json({ error: "Upload belum tersedia" }));
 router.delete("/ai-tasks/:id/attachments/:attachmentId", requireAuth, (_req, res) =>
   res.status(501).json({ error: "Hapus belum tersedia" }));
-router.get("/ai-tasks/:id/audit",  requireAuth, (_req, res) =>
-  res.status(404).json({ error: "Tidak ada audit" }));
+// The task detail polls this endpoint. "No document audit yet" is a normal
+// empty state, not an HTTP error; preserve authentication and company scope.
+router.get("/ai-tasks/:id/audit", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const id = Number(req.params.id);
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    res.status(400).json({ error: "Invalid task id" }); return;
+  }
+  try {
+    const companyId = getCompanyId(req);
+    const scope = [eq(aiTasksTable.id, id)];
+    if (companyId) scope.push(eq(aiTasksTable.companyId, companyId));
+    const [task] = await db.select({ id: aiTasksTable.id })
+      .from(aiTasksTable).where(and(...scope)).limit(1);
+    if (!task) { res.status(404).json({ error: "AI task not found" }); return; }
+
+    const [audit] = await db.select().from(documentAuditsTable)
+      .where(eq(documentAuditsTable.taskId, id))
+      .orderBy(desc(documentAuditsTable.createdAt)).limit(1);
+    if (!audit) { res.status(200).json(null); return; }
+    res.json({ ...audit,
+      createdAt: audit.createdAt.toISOString(),
+      updatedAt: audit.updatedAt.toISOString(),
+    });
+  } catch (err) {
+    logger.error({ err, taskId: id }, "GET /ai-tasks/:id/audit failed");
+    res.status(500).json({ error: "Failed to load task audit" });
+  }
+});
 router.post("/ai-tasks/:id/audit", requireAuth, (_req, res) =>
   res.status(501).json({ error: "Audit belum tersedia" }));
 // Timeline is read from the same task-scoped store used by logTimeline and

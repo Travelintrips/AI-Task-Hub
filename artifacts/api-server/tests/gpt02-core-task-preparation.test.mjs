@@ -34,7 +34,7 @@ test('atomic Core PENDING task plus prepared Hub execution never dispatches',asy
  ]);
  assert.ok(h.statements.some(x=>x.sql==='BEGIN')&&h.statements.some(x=>x.sql==='COMMIT'));
  assert.ok(h.statements.some(x=>x.sql.includes("r.rolvaliduntil>clock_timestamp()")&&
-   x.sql.includes("INTERVAL '10 minutes'")&&
+   x.sql.includes("INTERVAL '3 minutes'")&&
    x.sql.includes('r.rolconnlimit AS connection_limit')));
  assert.ok(h.statements.some(x=>x.sql.includes('r.rolinherit')));
  assert.ok(h.statements.findIndex(x=>x.sql.includes('r.rolvaliduntil>clock_timestamp()'))<
@@ -128,6 +128,43 @@ test('candidate connector pins CST-DEV, dedicated identity, session-port and TLS
  assert.equal(config.max,1);assert.equal(config.ssl.rejectUnauthorized,true);
  assert.equal(config.ssl.ca,pinnedCa);
  assert.ok(config.connectionString.includes(`gpt02_core_prep_login.${ref}`));
+});
+test('explicit direct DEV PostgreSQL transport keeps pinned project, native preparer role and TLS',()=>{
+ const original=corePreparationPoolConfig(env);
+ assert.equal(new URL(original.connectionString).hostname,'aws-1-ap-southeast-2.pooler.supabase.com');
+ assert.equal(original.ssl.rejectUnauthorized,true);
+ const direct=corePreparationPoolConfig({...env,GPT02_CORE_PREP_DEV_TRANSPORT:'direct'});
+ const u=new URL(direct.connectionString);
+ assert.equal(u.hostname,'db.xssrfshdrtdfupgqwfdw.supabase.co');
+ assert.equal(decodeURIComponent(u.username),'gpt02_core_prep_login');
+ assert.equal(u.password,'synthetic');
+ assert.equal(u.pathname,'/postgres');
+ assert.equal(u.port,'5432');
+ assert.equal(u.search,'');
+ assert.equal(direct.max,1);
+ assert.equal(direct.ssl.rejectUnauthorized,true);
+ assert.equal(direct.ssl.servername,u.hostname);
+ assert.equal(direct.ssl.ca,pinnedCa);
+ assert.equal(direct.application_name,'gpt02-core-preparation-DEV-only');
+});
+test('direct transport cannot bypass pooler credential validation or cross-project guards',()=>{
+ for(const patch of [
+  {GPT02_CORE_PREP_DEV_TRANSPORT:'prod'},
+  {GPT02_CORE_PREP_DEV_TRANSPORT:'localhost'},
+  {GPT02_CORE_PREP_DEV_TRANSPORT:'http'},
+  {GPT02_CORE_PREP_DEV_TRANSPORT:''},
+  {GPT02_CORE_PREP_DEV_TRANSPORT:'direct',
+    GPT02_CORE_PREP_DATABASE_URL_DEV:env.GPT02_CORE_PREP_DATABASE_URL_DEV.replace('gpt02_core_prep_login','postgres')},
+  {GPT02_CORE_PREP_DEV_TRANSPORT:'direct',
+    GPT02_CORE_PREP_DATABASE_URL_DEV:env.GPT02_CORE_PREP_DATABASE_URL_DEV.replace('aws-1-ap-southeast-2.pooler.supabase.com','db.nzdweipzckfszczzqtuw.supabase.co')},
+  {GPT02_CORE_PREP_DEV_TRANSPORT:'direct',
+    GPT02_CORE_PREP_DATABASE_URL_DEV:env.GPT02_CORE_PREP_DATABASE_URL_DEV+'?sslmode=disable'},
+  {GPT02_CORE_PREP_DEV_TRANSPORT:'direct',GPT02_HUB_DEV_PROJECT_REF:other},
+  {GPT02_CORE_PREP_DEV_TRANSPORT:'direct',GPT02_PROD_PROJECT_REF:ref},
+  {GPT02_CORE_PREP_DEV_TRANSPORT:'direct',NODE_TLS_REJECT_UNAUTHORIZED:'0'},
+ ]) {
+  assert.throws(()=>corePreparationPoolConfig({...env,...patch}));
+ }
 });
 test('configuration refuses PROD, unapproved project, insecure transport and pooler fallback',()=>{
  for(const patch of [{NODE_ENV:'production'},{APP_ENV:'production'},{NODE_TLS_REJECT_UNAUTHORIZED:'0'},
