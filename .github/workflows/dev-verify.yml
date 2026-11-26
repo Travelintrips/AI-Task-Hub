@@ -56,6 +56,8 @@ jobs:
         run: node --test scripts/dev/ai-task-session-secret-cutover-gate.test.mjs
       - name: Verify isolated DEV never auto-creates Storage buckets
         run: node --test scripts/dev/ai-task-storage-bucket-preview-gate.test.mjs
+      - name: Verify DEV onboarding customer company scope
+        run: node --test scripts/dev/onboarding-customers-scope.test.mjs
       - name: API short-link unit regression
         run: pnpm --filter @workspace/api-server run test:short-links
       - name: Verify read-only bridge GET cannot mutate lifecycle
