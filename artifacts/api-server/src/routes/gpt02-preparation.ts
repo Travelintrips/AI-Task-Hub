@@ -11,6 +11,7 @@ import {
 } from "../lib/gpt02-preparation-admission.mjs";
 import { createCoreTaskPreparer } from "../lib/gpt02-core-task-preparation.mjs";
 import { assessGpt02PreparerCatalog } from "../lib/gpt02-preparer-readiness.mjs";
+import { hasRecentVerifiedGpt02DevGoogleOperator, preparationReadinessForOperator } from "../lib/gpt02-google-auth-gate.mjs";
 
 const router: IRouter = Router();
 
@@ -26,7 +27,14 @@ async function readDedicatedPreparerCatalog(){
    r.rolcreaterole AS "createRole",r.rolcreatedb AS "createDb",
    r.rolreplication AS "replication",r.rolinherit AS "inherit",
    (SELECT count(*)::integer FROM pg_stat_activity s
-       WHERE s.usename=r.rolname) AS "activeSessions",
+       WHERE s.usename=r.rolname AND s.state IS DISTINCT FROM 'idle')
+       AS "activeSessions",
+   (SELECT count(*)::integer FROM pg_stat_activity s
+       WHERE s.usename=r.rolname AND s.state='idle'
+         AND s.application_name='Supavisor') AS "knownPooledIdleSessions",
+   (SELECT count(*)::integer FROM pg_stat_activity s
+       WHERE s.usename=r.rolname AND s.state='idle'
+         AND s.application_name IS DISTINCT FROM 'Supavisor') AS "unexpectedIdleSessions",
    (SELECT count(*)::integer FROM pg_auth_members m
        WHERE m.member=r.oid) AS "memberships",
    has_database_privilege(r.oid,current_database(),'CREATE') AS "canCreateDatabase"
@@ -100,34 +108,37 @@ router.get("/ai-tasks/:id/gpt02-preparation-readiness", requireAuth,
     const catalog=facts.preparation.eligible?await readDedicatedPreparerCatalog():
       {catalogReady:false,reason:facts.preparation.reason,dispatchPermitted:false};
     let dedicatedConnectionVerified=false;
+    let connectionReason="GPT02_PREPARER_INDEPENDENT_AUTH_NOT_VERIFIED";
     // A feature flag and PostgreSQL catalog cannot prove that the *separate*
     // preparer credential is genuinely authenticated. Only a real pinned-TLS
     // READ ONLY identity/privilege proof enables the one-shot UI button.
     if(featureEnabled&&facts.preparation.eligible&&catalog.catalogReady){
       let factory:ReturnType<typeof createCoreTaskPreparer>|undefined;
       try{
-        factory=createCoreTaskPreparer({env:process.env,PoolClass:Pool});
+        factory=createCoreTaskPreparer({env:process.env,PoolClass:Pool,taskId});
         const proof=await factory.preparer.verifyReadiness();
         dedicatedConnectionVerified=proof.verified===true&&
           proof.readOnly===true&&proof.dispatchPermitted===false;
-      }catch{
+      }catch(err){
+        if (err instanceof Error && err.message==="GPT02_PREPARER_TASK_SCOPE_MISMATCH")
+          connectionReason="GPT02_PREPARER_TASK_SCOPE_MISMATCH";
         dedicatedConnectionVerified=false;
       }finally{
         if(factory)await factory.close();
       }
     }
-    const canRequestPreparation=featureEnabled&&facts.preparation.eligible&&
-      catalog.catalogReady&&dedicatedConnectionVerified;
+    const serviceReason = !facts.preparation.eligible?facts.preparation.reason:
+        !catalog.catalogReady?catalog.reason:
+        !featureEnabled?"GPT02_CORE_PREPARATION_NOT_ENABLED":
+        !dedicatedConnectionVerified?connectionReason:
+          "READY_FOR_PREPARATION_ONLY";
+    const {reason, canRequestPreparation} = preparationReadinessForOperator(serviceReason, req.user);
     res.status(200).json({
       taskId,preparationEligible:facts.preparation.eligible,
       historicalRepairAvailable:facts.historicalRepair.eligible,
       featureEnabled,preparerRoleReady:catalog.catalogReady,
       dedicatedConnectionVerified,canRequestPreparation,
-      reason:!facts.preparation.eligible?facts.preparation.reason:
-        !catalog.catalogReady?catalog.reason:
-        !featureEnabled?"GPT02_CORE_PREPARATION_NOT_ENABLED":
-        !dedicatedConnectionVerified?"GPT02_PREPARER_INDEPENDENT_AUTH_NOT_VERIFIED":
-          "READY_FOR_PREPARATION_ONLY",
+      reason,
       readOnly:true,commandDispatched:false,operatorApprovalGranted:false,
       dispatchPermitted:false,issuerGrantReady:false,
     });
@@ -150,6 +161,11 @@ router.post("/ai-tasks/:id/gpt02-prepare", requireAuth,
   }
   if (req.user?.role !== "super_admin") {
     res.status(403).json({error:"SUPER_ADMIN_REQUIRED",dispatchPermitted:false}); return;
+  }
+  // Old email-only DEV JWTs are not a verified Google Super Admin session.
+  if (!hasRecentVerifiedGpt02DevGoogleOperator(req.user)) {
+    res.status(403).json({error:"GPT02_FRESH_GOOGLE_OPERATOR_REQUIRED",dispatchPermitted:false});
+    return;
   }
   const origin = req.get("origin"),host=req.get("host");
   try {
@@ -196,7 +212,7 @@ router.post("/ai-tasks/:id/gpt02-prepare", requireAuth,
     }
     let factory: ReturnType<typeof createCoreTaskPreparer> | undefined;
     try {
-      factory=createCoreTaskPreparer({env:process.env,PoolClass:Pool});
+      factory=createCoreTaskPreparer({env:process.env,PoolClass:Pool,taskId});
       const prepared=await factory.preparer.prepare({
         companyId,hubTaskId:taskId,projectName:"GPT02 DEV coding lifecycle",
         repository:"Travelintrips/Core-AI-Foundation",branch:"develop",
@@ -212,6 +228,11 @@ router.post("/ai-tasks/:id/gpt02-prepare", requireAuth,
       if (factory) await factory.close();
     }
   } catch (err) {
+    if (err instanceof Error && err.message==="GPT02_PREPARER_TASK_SCOPE_MISMATCH") {
+      res.status(409).json({error:"GPT02_PREPARER_TASK_SCOPE_MISMATCH",prepared:false,
+        operatorApprovalGranted:false,dispatchPermitted:false});
+      return;
+    }
     logger.warn({taskId,code:"GPT02_PREPARATION_UNAVAILABLE"},
       "Scoped GPT02 DEV preparation failed closed");
     res.status(503).json({
@@ -231,6 +252,10 @@ router.post("/ai-tasks/:id/gpt02-replace-historical-reference", requireAuth,
   }
   if (req.user?.role!=="super_admin") {
     res.status(403).json({error:"SUPER_ADMIN_REQUIRED",dispatchPermitted:false});return;
+  }
+  if (!hasRecentVerifiedGpt02DevGoogleOperator(req.user)) {
+    res.status(403).json({error:"GPT02_FRESH_GOOGLE_OPERATOR_REQUIRED",dispatchPermitted:false});
+    return;
   }
   try {
     const origin=new URL(req.get("origin")??"");

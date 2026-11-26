@@ -182,4 +182,31 @@ psqlAs postgres -c "UPDATE public.ai_tasks SET description='DEV E2E changed afte
 expectDenied CHANGED_PERSISTED_INSTRUCTION_DENIED gpt02_core_prep_login "$(q 171)" PREPARATION_TASK_INSTRUCTION_NOT_BOUND
 [[ "$(psqlAs postgres -c "SELECT count(*) FROM ai_platform.ai_coding_bridge_commands")" == 0 ]] ||
   { echo COMMAND_UNEXPECTEDLY_CREATED >&2;exit 1; }
+# Exercise the candidate with the normal preparer login and the existing Core
+# implementation. The completed legacy example above provides the control task.
+signature='gpt02_stage.prepare_core_task(text,integer,text,text,text,text)'
+psqlAs postgres -q < "$ROOT/scripts/dev/gpt02-preparer-task-lease-wrapper.sql"
+psqlAs postgres -c "COMMENT ON FUNCTION $signature IS 'GPT02 DEV legacy preparation';
+ UPDATE public.ai_tasks SET description='$instruction' WHERE id=189 AND company_id='default';" >/dev/null
+expectDenied UNBOUND_189_HELD gpt02_core_prep_login "$(q 189)" PREPARATION_TASK_OUTSIDE_LEASE
+# The original legacy task still reaches the instruction check, as before.
+expectDenied LEGACY_PATH_RETAINED gpt02_core_prep_login "$(q 171)" PREPARATION_TASK_INSTRUCTION_NOT_BOUND
+psqlAs postgres -c "COMMENT ON FUNCTION $signature IS 'GPT02 DEV prepare-only task 189 request 1bdbed20-ac8d-4e63-898e-6a94b729c018';" >/dev/null
+expectDenied UNBOUNDED_ROLE_WINDOW_REJECTED gpt02_core_prep_login "$(q 189)" PREPARATION_LEASE_INACTIVE
+psqlAs postgres -c "DO \$\$ BEGIN EXECUTE format(
+ 'ALTER ROLE gpt02_core_prep_login CONNECTION LIMIT 1 VALID UNTIL %L',clock_timestamp()+interval '160 seconds'); END \$\$;" >/dev/null
+expectDenied OTHER_TASK_OUTSIDE_LEASE gpt02_core_prep_login "$(q 171)" PREPARATION_TASK_OUTSIDE_LEASE
+expectDenied CLIENT_SETTING_CANNOT_CHANGE_TASK gpt02_core_prep_login \
+ "SET gpt02.prepare_task_id='171'; $(q 171)" PREPARATION_TASK_OUTSIDE_LEASE
+expectDenied PREPARER_CANNOT_CHANGE_BINDING gpt02_core_prep_login \
+ "COMMENT ON FUNCTION $signature IS 'GPT02 DEV legacy preparation'" 'must be owner'
+new189="$(q 189 | psqlAs gpt02_core_prep_login)"
+[[ "$new189" == *'|t|f' ]] || { echo SCOPED_RESERVATION_FAILED >&2;exit 1; }
+[[ "$(q 189 | psqlAs gpt02_core_prep_login)" == "${new189%|t|f}|f|f" ]]
+[[ "$(psqlAs postgres -c "SELECT count(*) FROM public.ai_execution_jobs WHERE task_id=189 AND status='prepared' AND command_id IS NULL AND final_ack_verified=false")" == 1 ]]
+[[ "$(psqlAs postgres -c "SELECT count(*) FROM ai_platform.ai_coding_bridge_commands")" == 0 ]]
+psqlAs postgres -c "COMMENT ON FUNCTION $signature IS NULL;" >/dev/null
+expectDenied MISSING_OWNER_BINDING_DENIED gpt02_core_prep_login \
+ "SET gpt02.prepare_task_id='189'; $(q 189)" PREPARATION_TASK_OUTSIDE_LEASE
+echo PASS:TASK189_DATABASE_SCOPE_ONE_PREPARATION_NO_DISPATCH
 echo GPT02_PREPARER_TASK_SOURCE_BOUND_ISOLATED_PASS:NO_LIVE_DB_NO_DISPATCH
