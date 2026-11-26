@@ -39,3 +39,13 @@ export function hasRecentVerifiedGpt02DevGoogleOperator(
   const age = nowMs - user.authVerifiedAt;
   return age >= -30_000 && age <= GPT02_GOOGLE_OPERATOR_MAX_AGE_MS;
 }
+
+export function preparationReadinessForOperator(serviceReason, user, env = process.env, nowMs = Date.now()) {
+  if (serviceReason !== "READY_FOR_PREPARATION_ONLY") {
+    return { reason: serviceReason, canRequestPreparation: false };
+  }
+  if (!hasRecentVerifiedGpt02DevGoogleOperator(user, env, nowMs)) {
+    return { reason: "GPT02_FRESH_GOOGLE_OPERATOR_REQUIRED", canRequestPreparation: false };
+  }
+  return { reason: serviceReason, canRequestPreparation: true };
+}

@@ -1,0 +1,66 @@
+--- relock-baseline.sql
++++ relock-189.sql
+@@ -26,16 +26,19 @@
+  -- In particular, a role with direct command/job privileges is NEVER preserved.
+  IF pg_catalog.to_regprocedure('gpt02_stage.prepare_core_task(text,integer,text,text,text,text)') IS NOT NULL THEN
+    BEGIN
+-     SELECT count(*)=8
++     SELECT count(*)=9
+        AND count(*) FILTER (WHERE pg_catalog.has_table_privilege(
+         'gpt02_core_prep_login',c.oid,
+-        'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'))=0
++        'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
++         OR pg_catalog.has_any_column_privilege('gpt02_core_prep_login',c.oid,
++           'SELECT,INSERT,UPDATE,REFERENCES'))=0
+        AND pg_catalog.bool_and(c.relrowsecurity)
+      INTO bounded_surface_safe
+      FROM pg_catalog.pg_class c
+        JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
+      WHERE (n.nspname='public' AND c.relname IN
+        ('ai_tasks','team_members','audit_logs','users','ai_execution_jobs'))
++       OR (n.nspname='gpt02_stage' AND c.relname='core_preparations')
+        OR (n.nspname='ai_platform' AND c.relname IN
+        ('ai_coding_tasks','ai_coding_runs','ai_coding_bridge_commands'));
+      bounded_surface_safe := COALESCE(bounded_surface_safe,false)
+@@ -47,6 +50,8 @@
+        AND pg_catalog.has_schema_privilege(
+         'gpt02_core_prep_login','gpt02_stage','USAGE')
+        AND NOT pg_catalog.has_schema_privilege(
++        'gpt02_core_prep_login','gpt02_stage','CREATE')
++       AND NOT pg_catalog.has_schema_privilege(
+         'gpt02_core_prep_login','ai_platform','USAGE')
+        AND NOT pg_catalog.has_schema_privilege(
+         'gpt02_core_prep_login','gpt02_private','USAGE')
+@@ -54,7 +59,7 @@
+         SELECT 1 FROM pg_catalog.pg_proc other
+         JOIN pg_catalog.pg_namespace ns ON ns.oid=other.pronamespace
+         WHERE ns.nspname IN ('gpt02_stage','gpt02_private')
+-          AND NOT (ns.nspname='gpt02_stage' AND other.proname='prepare_core_task')
++          AND other.oid<>pg_catalog.to_regprocedure('gpt02_stage.prepare_core_task(text,integer,text,text,text,text)')
+           AND pg_catalog.has_function_privilege(
+             'gpt02_core_prep_login',other.oid,'EXECUTE'));
+      IF bounded_surface_safe THEN
+@@ -72,11 +77,14 @@
+          AND (SELECT count(*)=2
+               AND pg_catalog.bool_and(
+                 p.prosecdef AND pg_catalog.pg_get_userbyid(p.proowner)='gpt02_core_prep_owner'
++                AND p.proconfig IS NOT DISTINCT FROM ARRAY['search_path=pg_catalog']
++                AND (p.proname<>'prepare_core_task' OR coalesce(pg_catalog.obj_description(p.oid,'pg_proc'),'') IN
++                    ('GPT02 DEV legacy preparation','GPT02 DEV prepare-only task 189 request 1bdbed20-ac8d-4e63-898e-6a94b729c018'))
+                 AND pg_catalog.encode(pg_catalog.sha256(
+                    pg_catalog.convert_to(p.prosrc,'UTF8')),'hex')=
+                  CASE p.proname
+                    WHEN 'prepare_core_task'
+-                     THEN 'a759ab94ab38e0f0fcf0b42bc14dbbf30308274344a14ade666e1bae38a1c456'
++                     THEN '2d0461518f6992c1b404bc44f14c5556f172a1dace2f3bd37ffafe123285f0c3'
+                    WHEN 'prepare_core_task_v1_internal'
+                      THEN 'b18275516add255e76f31414a28732bdd900b556b10f38d42e2e4bdf9f7415d4'
+                    ELSE NULL END)
+@@ -93,6 +101,7 @@
+               AND p.proname IN ('prepare_core_task','prepare_core_task_v1_internal')
+               AND a.privilege_type='EXECUTE'
+               AND (a.grantee=0 OR
++                (a.grantee='gpt02_core_prep_login'::pg_catalog.regrole::oid AND a.is_grantable) OR
+                 (p.proname='prepare_core_task' AND a.grantee NOT IN (
+                    'gpt02_core_prep_owner'::pg_catalog.regrole::oid,
+                    'gpt02_core_prep_login'::pg_catalog.regrole::oid))

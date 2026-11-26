@@ -205,6 +205,27 @@ router.get("/system/onboarding-status", requireAuth, async (req: Request, res: R
       SELECT COUNT(*) AS total, COUNT(CASE WHEN whatsapp IS NOT NULL THEN 1 END) AS with_wa
       FROM customers WHERE company_id::text = ${companyId}
     `).catch(() => ({ rows: [{ total: 0, with_wa: 0 }] }));
+    // DEV shared Customers uses numeric company IDs. Never guess a mapping
+    // for the legacy "default" tenant or accept a client-supplied company ID.
+    const sessionCompany = req.user?.companyId;
+    const isDev = process.env.NODE_ENV !== "production";
+    const numericCompany = String(sessionCompany ?? "");
+    const validNumericCompany = /^[1-9][0-9]{0,9}$/.test(numericCompany)
+      && Number(numericCompany) <= 2147483647;
+    let customerQueryFailed = isDev && !validNumericCompany;
+    const custResult = customerQueryFailed
+      ? { rows: [{ total: 0, with_wa: 0 }] }
+      : await db.execute(isDev ? sql`
+          SELECT COUNT(*) AS total, COUNT(CASE WHEN whatsapp IS NOT NULL THEN 1 END) AS with_wa
+          FROM public.customers WHERE company_id = ${Number(numericCompany)}
+        ` : sql`
+          SELECT COUNT(*) AS total, COUNT(CASE WHEN whatsapp IS NOT NULL THEN 1 END) AS with_wa
+          FROM customers WHERE company_id = ${companyId}
+        `).catch(() => {
+          customerQueryFailed = true;
+          logger.warn({ code: "ONBOARDING_CUSTOMER_QUERY_FAILED" }, "Customer onboarding count unavailable");
+          return { rows: [{ total: 0, with_wa: 0 }] };
+        });
     const custRow = safeRows(custResult)[0] ?? {};
 
     // Fleet units
@@ -230,7 +251,7 @@ router.get("/system/onboarding-status", requireAuth, async (req: Request, res: R
         operationalChannel: waProgress.operationalChannel,
       },
       team: { done: teamCount >= 1, count: teamCount },
-      customers: { done: parseInt(String(custRow.total ?? "0"), 10) >= 1, total: parseInt(String(custRow.total ?? "0"), 10), withPhone: parseInt(String(custRow.with_wa ?? "0"), 10) },
+      customers: { status: customerQueryFailed ? "unavailable" : "ok", done: !customerQueryFailed && parseInt(String(custRow.total ?? "0"), 10) >= 1, total: parseInt(String(custRow.total ?? "0"), 10), withPhone: parseInt(String(custRow.with_wa ?? "0"), 10) },
       fleet: { done: fleetCount >= 1, count: fleetCount },
       knowledge_base: { done: intentCount >= 10, intentCount },
       first_task: { done: taskCount >= 1, taskCount },

@@ -1,0 +1,19 @@
+[Unit]
+Description=Request and issue one CST-DEV preparation package for Task 189
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 -IB /usr/local/libexec/ai-task189-dev/request-package.py
+UMask=0077
+StateDirectory=gpt02-task189-request
+StateDirectoryMode=0700
+ProtectSystem=strict
+ReadWritePaths=/etc/credstore.encrypted
+ProtectHome=yes
+PrivateTmp=yes
+PrivateNetwork=yes
+RestrictAddressFamilies=AF_UNIX
+InaccessiblePaths=-/run/docker.sock -/etc/ai-task
+NoNewPrivileges=yes
+TimeoutStartSec=45s

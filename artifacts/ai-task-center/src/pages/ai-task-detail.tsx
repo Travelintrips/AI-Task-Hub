@@ -1549,6 +1549,8 @@ export default function AiTaskDetail() {
                   "Autentikasi TLS dan izin akun preparer belum terverifikasi. Persiapan tetap dikunci." :
                 gpt02PreparationReadiness.reason==="GPT02_CORE_PREPARATION_NOT_ENABLED" ?
                   "Instruksi sudah memenuhi pemeriksaan, tetapi layanan persiapan khusus DEV belum diaktifkan." :
+                gpt02PreparationReadiness.reason==="GPT02_FRESH_GOOGLE_OPERATOR_REQUIRED" ?
+                  "Layanan persiapan sudah siap. Masuk kembali dengan Google untuk menyiapkan task ini." :
                 gpt02PreparationReadiness.reason==="READY_FOR_PREPARATION_ONLY" ?
                   "Siap mengajukan persiapan saja; belum memiliki izin menjalankan worker." :
                   `Persiapan belum memenuhi syarat: ${gpt02PreparationReadiness.reason}`}

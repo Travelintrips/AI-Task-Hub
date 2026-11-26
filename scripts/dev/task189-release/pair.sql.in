@@ -1,0 +1,69 @@
+-- One statement. Any error unwinds both function replacements and the binding.
+DO $task189_release$
+DECLARE
+  pass integer;
+  old_phase boolean;
+  wrapper regprocedure := 'gpt02_stage.prepare_core_task(text,integer,text,text,text,text)'::regprocedure;
+  helper regprocedure := 'gpt02_stage.prepare_core_task_v1_internal(text,integer,text,text,text,text)'::regprocedure;
+  auditor regprocedure := 'gpt02_guard.relock_task183_preparer()'::regprocedure;
+BEGIN
+  IF current_database()<>'postgres' OR current_user<>'postgres' OR session_user<>'postgres' THEN
+    RAISE EXCEPTION 'TASK189_RELEASE_WRONG_ADMIN_OR_DATABASE';
+  END IF;
+  PERFORM pg_catalog.set_config('search_path','pg_catalog',true);
+  PERFORM set_config('lock_timeout','2s',true);
+  IF NOT pg_try_advisory_xact_lock(hashtextextended('gpt02_preparer_wrapper_hardening_20261114',0))
+     OR NOT pg_try_advisory_xact_lock(hashtextextended('default:189',0)) THEN
+    RAISE EXCEPTION 'TASK189_RELEASE_BUSY';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM vault.secrets
+    WHERE id='6fcc96fe-da67-4002-98c4-26b32d76cba8'
+      AND name='gpt02-task189-prepare-request-1bdbed20-ac8d-4e63-898e-6a94b729c018') THEN
+    RAISE EXCEPTION 'TASK189_DEV_REQUEST_MISSING';
+  END IF;
+  FOR pass IN 1..2 LOOP
+    old_phase := (pass=1) = @UP@;
+    IF NOT EXISTS (SELECT 1 FROM pg_authid WHERE rolname='gpt02_core_prep_login'
+          AND NOT rolcanlogin AND rolpassword IS NULL AND rolconnlimit=0
+          AND rolvaliduntil<clock_timestamp() AND NOT(rolsuper OR rolcreatedb OR
+              rolcreaterole OR rolinherit OR rolreplication OR rolbypassrls))
+       OR EXISTS (SELECT 1 FROM pg_stat_activity WHERE usename='gpt02_core_prep_login')
+       OR EXISTS (SELECT 1 FROM pg_auth_members WHERE member='gpt02_core_prep_login'::regrole)
+       OR EXISTS (SELECT 1 FROM vault.secrets WHERE
+           name='gpt02-task189-prepare-grant-1bdbed20-ac8d-4e63-898e-6a94b729c018')
+       OR EXISTS (SELECT 1 FROM gpt02_stage.core_preparations WHERE expires_at>clock_timestamp()) THEN
+      RAISE EXCEPTION 'TASK189_RELEASE_REQUIRES_CLOSED_WINDOW';
+    END IF;
+    IF @UP@ AND (NOT EXISTS(SELECT 1 FROM public.ai_tasks WHERE id=189 AND company_id='default'
+                        AND source='manual' AND status='new_inquiry' AND assigned_to_id=5)
+        OR EXISTS(SELECT 1 FROM public.ai_execution_jobs WHERE task_id=189 AND company_id='default')
+        OR EXISTS(SELECT 1 FROM gpt02_stage.core_preparations WHERE hub_task_id=189 AND company_id='default')) THEN
+      RAISE EXCEPTION 'TASK189_RELEASE_TASK_DRIFT';
+    END IF;
+    IF EXISTS (
+      SELECT 1 FROM (VALUES
+        (wrapper, 'gpt02_core_prep_owner', CASE WHEN old_phase THEN '@WRAPPER_OLD@' ELSE '@WRAPPER_NEW@' END,
+         '{gpt02_core_prep_owner=X/gpt02_core_prep_owner,gpt02_core_prep_login=X/gpt02_core_prep_owner}'),
+        (helper, 'gpt02_core_prep_owner','b18275516add255e76f31414a28732bdd900b556b10f38d42e2e4bdf9f7415d4',
+         '{gpt02_core_prep_owner=X/gpt02_core_prep_owner}'),
+        (auditor, 'postgres', CASE WHEN old_phase THEN '@GUARD_OLD@' ELSE '@GUARD_NEW@' END,
+         '{postgres=X/postgres,dev_gpt02_relock_catalog_auditor=X/postgres}')
+      ) expected(id,owner_name,sha,acl)
+      LEFT JOIN pg_proc p ON p.oid=expected.id
+      WHERE p.oid IS NULL OR NOT p.prosecdef OR pg_get_userbyid(p.proowner)<>expected.owner_name
+        OR p.proconfig IS DISTINCT FROM ARRAY['search_path=pg_catalog']
+        OR p.proacl::text IS DISTINCT FROM expected.acl
+        OR encode(sha256(convert_to(p.prosrc,'UTF8')),'hex')<>expected.sha
+    ) OR obj_description(wrapper,'pg_proc') IS DISTINCT FROM
+          (CASE WHEN old_phase THEN NULL::text ELSE '@BINDING@' END) THEN
+      RAISE EXCEPTION 'TASK189_RELEASE_PAIR_OR_ACL_DRIFT';
+    END IF;
+    IF pass=1 THEN
+      EXECUTE $task189_wrapper$@WRAPPER_SQL@$task189_wrapper$;
+      EXECUTE $task189_guard$@GUARD_SQL@$task189_guard$;
+      EXECUTE $task189_binding$COMMENT ON FUNCTION gpt02_stage.prepare_core_task(text,integer,text,text,text,text)
+        IS @COMMENT_SQL@$task189_binding$;
+    END IF;
+  END LOOP;
+END
+$task189_release$;
