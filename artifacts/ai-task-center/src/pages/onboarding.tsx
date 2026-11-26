@@ -469,7 +469,7 @@ function StepCustomer({ onComplete }: { onComplete: () => void }) {
         ))}
       </div>
 
-      {status?.steps.customers.status === "awaiting_verified_customer" && (
+      {(status?.steps.customers.unverifiedCount ?? 0) > 0 && (
         <div className="border rounded-lg p-3 text-sm text-muted-foreground">
           {status.steps.customers.unverifiedCount ?? 0} data terikat perusahaan masih menunggu verifikasi pelanggan riil. Data uji tidak meluluskan checklist.
         </div>
