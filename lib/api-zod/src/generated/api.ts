@@ -9,6 +9,27 @@ import * as zod from 'zod';
 
 
 /**
+ * @summary DEV-only Super Admin read-only VPS image inventory
+ */
+export const GetVpsStorageInventoryResponse = zod.object({
+  "generatedAt": zod.string(),
+  "readOnly": zod.boolean(),
+  "categories": zod.array(zod.object({
+  "id": zod.string(),
+  "title": zod.string(),
+  "items": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "sizeDisplay": zod.string(),
+  "created": zod.string(),
+  "protected": zod.boolean(),
+  "reason": zod.string()
+}))
+}))
+})
+
+
+/**
  * @summary Health check
  */
 export const HealthCheckResponse = zod.object({

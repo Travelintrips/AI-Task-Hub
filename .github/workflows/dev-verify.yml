@@ -32,9 +32,168 @@ jobs:
           cache: pnpm
       - name: Install
         run: pnpm install --frozen-lockfile
+      - name: Verify Hostinger DEV exact-SHA release gate (isolated, no deploy)
+        run: |
+          node --test scripts/dev/verify-hostinger-dev-ci-run.test.mjs
+          bash -n deploy/hostinger/deploy.sh
+          bash -n scripts/dev/test-hostinger-dev-sha-pin-isolated.sh
+          bash scripts/dev/test-hostinger-dev-sha-pin-isolated.sh
+      - name: Verify DEV VPS inventory is read-only and scoped
+        run: node --test scripts/dev/vps-storage-readonly.test.mjs
+      - name: Verify VPS Storage requires recent Google identity and active Super Admin
+        run: node --experimental-strip-types --test scripts/dev/vps-storage-google-session-contract.test.mjs
+      - name: Verify DEV Google login is visible while passwordless email stays available
+        run: node --test scripts/dev/vps-storage-google-login-entrypoint.test.mjs
+      - name: Verify VPS identity uses a dedicated least-privilege DEV reader
+        run: node --experimental-strip-types --test scripts/dev/vps-identity-reader-contract.test.mjs
+      - name: Verify VPS identity reader RLS on disposable PostgreSQL 16
+        run: bash scripts/dev/test-vps-identity-reader-postgres16.sh
+      - name: Verify source VPS identity reader TLS and RLS on synthetic PostgreSQL 16
+        run: timeout --kill-after=10s 240s bash scripts/dev/test-vps-identity-reader-node-pg16.sh
+      - name: Verify blue-green DEV cannot start duplicate WA/Core background workers
+        run: node --test scripts/dev/ai-task-background-worker-cutover-gate.test.mjs
+      - name: Verify DEV and PROD startup reject fallback session secrets
+        run: node --test scripts/dev/ai-task-session-secret-cutover-gate.test.mjs
+      - name: Verify isolated DEV never auto-creates Storage buckets
+        run: node --test scripts/dev/ai-task-storage-bucket-preview-gate.test.mjs
+      - name: Verify DEV onboarding customer company scope
+        run: node --test scripts/dev/onboarding-customers-scope.test.mjs
       - name: API short-link unit regression
         run: pnpm --filter @workspace/api-server run test:short-links
+      - name: Verify read-only bridge GET cannot mutate lifecycle
+        run: |
+          node --test artifacts/api-server/tests/bridge-ledger-readback.test.mjs artifacts/api-server/tests/bridge-ledger-event-summary.test.mjs artifacts/api-server/tests/bridge-ledger-source-progress.test.mjs artifacts/api-server/tests/gpt02-prepared-read-inert.test.mjs
+          node --check scripts/dev/build-gpt02-prepared-read-inert-overlay.cjs
+      - name: Verify read-only DEV deployment preflight fails closed
+        run: node --test scripts/dev/bridge-ledger-readback-runtime-preflight.test.mjs
+      - name: Fail closed on privileged AI Task DEV database login cutover
+        run: node --test scripts/dev/gpt02-hub-db-login-cutover-readonly.test.cjs
+      - name: Inventory DEV application database surface conservatively
+        run: node --test scripts/dev/gpt02-hub-db-static-access-inventory.test.cjs
+      - name: Verify isolated PostgreSQL 16 tenant RLS policy boundaries
+        run: bash scripts/dev/test-gpt02-hub-rls-isolated-postgres.sh
+      - name: Deny unverified GPT02 dedicated issuer cutover
+        run: node --test scripts/dev/gpt02-dedicated-issuer-cutover-readonly.test.cjs
+      - name: Verify isolated PostgreSQL atomic GPT02 approval nonce consumption
+        run: bash scripts/dev/test-gpt02-approval-nonce-isolated-postgres.sh
+      - name: Require existing CST-DEV and reject PROD or unapproved branches
+        run: node --test scripts/dev/gpt02-hosted-evidence-target.test.mjs
+      - name: Verify inactive existing CST-DEV schema and locked candidate roles
+        run: bash scripts/dev/test-gpt02-cst-dev-evidence-preparation.sh
+      - name: Verify inactive CST-DEV TEXT operator upgrade and rollback guards
+        run: |
+          bash scripts/dev/test-gpt02-inactive-v2-upgrade.sh
+          bash scripts/dev/test-gpt02-approval-future-task-constraint-isolated.sh
+          bash scripts/dev/test-gpt02-owner-grant-escrow-pg17-isolated.sh
+          bash scripts/dev/test-gpt02-private-operator-sidecars-inert-pg17.sh
+          bash scripts/dev/test-gpt02-post-consumption-fence-hosted-inert-pg17.sh
+          node --test scripts/dev/gpt02-private-operator-sidecars-inert.contract.test.mjs scripts/dev/gpt02-hosted-inert-fence.contract.test.mjs
+      - name: Verify bounded CST-DEV connection probe cannot grant dispatch
+        run: node --test scripts/dev/gpt02-bounded-login-smoke-guards.test.mjs
+      - name: Verify SCRAM issuer and atomic dual-origin Hub/Core identity evidence
+        run: bash scripts/dev/test-gpt02-issuer-store-isolated.sh
+      - name: Verify authenticated tenant admission stays non-authorizing
+        run: node --test scripts/dev/gpt02-verified-tenant-scope.test.cjs
+      - name: Verify AI Task child resources cannot cross tenant boundaries
+        run: node --test artifacts/api-server/tests/ai-task-child-tenant-scope.test.mjs
+      - name: GPT02 new authorized DEV test must stay non-dispatching until signed gates
+        run: node --test scripts/dev/gpt02-new-test-admission-readonly.test.cjs
+      - name: Preserve DEV passwordless dashboard and isolate GPT02 admission
+        run: node --test scripts/dev/gpt02-dev-admin-login-hardening.test.cjs
+      - name: Verify Google-backed GPT02 operator preflight cannot authorize commands
+        run: node --test scripts/dev/gpt02-operator-identity-preflight.test.cjs
+      - name: GPT02 independent native reader health remains NO-GO
+        run: node --test scripts/dev/gpt02-native-readonly-health-preflight.test.mjs
+      - name: GPT02 operator readiness UI is non-authorizing
+        run: node --experimental-strip-types --test scripts/dev/gpt02-approval-readiness-ui.test.mjs
+      - name: GPT02 exact lineage fail-closed regression
+        run: pnpm --filter @workspace/api-server run test:gpt02-lineage
+      - name: Confirm historical FAILED GPT02 PIC without approval or dispatch
+        run: node --test scripts/dev-gpt02-recovery-pic-confirmation.test.mjs
+      - name: Verify signed GPT02 operator proof is task-bound and non-authorizing
+        run: node --test scripts/dev/gpt02-signed-operator-approval-preview.test.cjs scripts/dev/gpt02-nondispatch-fence.contract.test.mjs scripts/dev/gpt02-lifecycle-live-preflight.test.cjs
+      - name: Separate exact native delivery result from lifecycle approval
+        run: node --test artifacts/api-server/tests/gpt02-execution-outcome.test.mjs
+      - name: Verify exact result joins on isolated PostgreSQL
+        run: bash scripts/dev/test-gpt02-execution-outcome-sql.sh
+      - name: Refuse unproven GPT02 lifecycle before command creation
+        run: node --test artifacts/api-server/tests/gpt02-lifecycle-closed-until-admission.test.mjs
+      - name: Block audited GPT02 PIC worker/GPT01 fallback before execution
+        run: |
+          node scripts/dev/test-gpt02-worker-fallback-contract.mjs
+          bash -n scripts/dev/test-gpt02-lifecycle-start-isolated.sh
+      - name: Verify idempotent Core coding task preparation without command dispatch
+        run: |
+          bash scripts/dev/test-gpt02-core-task-preparation-isolated.sh
+          bash scripts/dev/test-gpt02-task-scoped-mount.sh
+          sudo python3 -IB scripts/dev/gpt02-task189-delivery.test.py
+          python3 -IB scripts/dev/gpt02-task189-request.test.py
+          python3 -IB scripts/dev/gpt02-task189-supabase.test.py
+          sudo python3 -IB scripts/dev/test-gpt02-task189-supabase-pgcrypto.py
+          python3 -B scripts/dev/task189-release/test_pair.py
+          sudo bash scripts/dev/test-gpt02-task189-inbox.sh
+          sudo bash scripts/dev/test-gpt02-task189-request.sh
+          bash scripts/dev/test-gpt02-core-preparer-role-dormant-isolated.sh
+          bash scripts/dev/test-gpt02-private-preparation-staging-inactive-isolated.sh
+          GPT02_PRIVATE_SCHEMA_TEST_IMAGE=postgres:17-alpine bash scripts/dev/test-gpt02-private-schema-nonsuper-migrator-isolated.sh
+          bash scripts/dev/test-gpt02-dormant-preparer-function-pg17.sh
+          bash scripts/dev/test-gpt02-preparer-scram-auth-isolated.sh
+          node --test scripts/dev/gpt02-private-preparation-staging-inactive.test.mjs scripts/dev/gpt02-dormant-preparer-function.contract.test.mjs
+      - name: Verify dedicated Core preparation connector and fail-closed identity
+        run: |
+          node --test artifacts/api-server/tests/gpt02-core-task-preparation.test.mjs
+          node --test artifacts/api-server/tests/gpt02-preparation-admission.test.mjs
+          node --test artifacts/api-server/tests/gpt02-preparer-readiness.test.mjs
+          node --test artifacts/api-server/tests/gpt02-preparer-connection-readonly.test.mjs
+          node --test scripts/dev/gpt02-reader-retry-readonly-contract.test.mjs
+      - name: Validate persisted-task instruction bound to dedicated GPT02 Core preparer (no dispatch)
+        run: |
+          node --test scripts/dev/gpt02-preparer-instruction-bound-wrapper.contract.test.mjs
+          bash -n scripts/dev/test-gpt02-preparer-instruction-bound-wrapper-isolated.sh
+          bash scripts/dev/test-gpt02-preparer-instruction-bound-wrapper-isolated.sh
+          bash -n scripts/dev/test-gpt02-preparer-guarded-migration-isolated.sh
+          bash scripts/dev/test-gpt02-preparer-guarded-migration-isolated.sh
+          node --test scripts/dev/gpt02-preparer-dedicated-login-readonly.test.mjs
+      - name: Reject mismatched future Core preparation and signed Hub/Core proof
+        run: |
+          node --test artifacts/api-server/tests/gpt02-prepared-link.test.mjs artifacts/api-server/tests/gpt02-issuer-lease-evidence.test.mjs artifacts/api-server/tests/gpt02-prepared-nonce-consumer.test.mjs artifacts/api-server/tests/gpt02-dev-trust-store.test.mjs artifacts/api-server/tests/gpt02-dev-trust-manifest.test.mjs
+          node --test scripts/dev/gpt02-four-signer-trust-readiness.test.mjs
+          node --test scripts/dev/gpt02-four-signer-contract.test.mjs
+          node --test scripts/dev/gpt02-public-trust-mount-contract.test.mjs
+      - name: Verify scoped issuer evidence RLS canonical forms on isolated PostgreSQL 17 (NO-GO)
+        run: node --test scripts/dev/gpt02-issuer-scoped-rls-catalog-pg17.test.mjs
+      - name: Audit GPT02 future trusted Hub/Core readers without granting dispatch
+        run: |
+          node --test scripts/dev/gpt02-trusted-fact-reader-readiness.test.mjs
+          node --test scripts/dev/gpt02-reader-column-grants-readiness.test.mjs
+          node --test scripts/dev/gpt02-reader-rls-readiness.test.mjs
+          node --test scripts/dev/gpt02-reader-schema-usage-readiness.test.mjs
+          node --test scripts/dev/gpt02-reader-role-settings-readiness.test.mjs
+          node --test scripts/dev/gpt02-reader-sequence-readiness.test.mjs
+          node --test scripts/dev/gpt02-reader-default-acl-readiness.test.mjs
+          node --test scripts/dev/gpt02-reader-callable-routines-readiness.test.mjs
+          node --test scripts/dev/gpt02-issuer-reader-readiness.test.mjs
+          bash -n scripts/dev/gpt02-issuer-native-reader-proof-once.sh
+          node --test scripts/dev/gpt02-issuer-native-reader-proof-once.test.mjs
+      - name: Verify independent Hub and Core read-only fact reconstruction
+        run: |
+          node --test artifacts/api-server/tests/gpt02-trusted-facts-readonly.test.mjs
+          node --test artifacts/api-server/tests/gpt02-reader-pools.test.mjs
+          node --test artifacts/api-server/tests/gpt02-reader-pool-identity.test.mjs
+          node --test scripts/dev/gpt02-reader-runtime.test.mjs
+          systemd-analyze verify deploy/hostinger/gpt02-issue159-reader.service
+          node --test scripts/dev/gpt02-two-reader-native-readonly.test.mjs
+          bash -n scripts/dev/gpt02-native-reader-proof-once.sh
+          node --test scripts/dev/gpt02-native-reader-proof-once.test.mjs
+          node --test scripts/dev/gpt02-runtime-unmounted-contract.test.mjs
+          node --test scripts/dev/gpt02-reader-column-grants-readiness.test.mjs
+          node --test scripts/dev/gpt02-reader-schema-usage-readiness.test.mjs
+          node --test scripts/dev/gpt02-reader-role-settings-readiness.test.mjs
+      - name: Deny prepared Hub/Core reservations before legacy tracking or dispatch
+        run: node --test artifacts/api-server/tests/gpt02-prepared-execution-denied.test.mjs
       - name: Typecheck
         run: pnpm run typecheck
       - name: Build
         run: pnpm run build
+      - name: Verify Pino worker image portability
+        run: pnpm --filter @workspace/api-server run test:build-portability

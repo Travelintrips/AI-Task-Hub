@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import {
@@ -67,7 +67,8 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   });
   const body = await res.json().catch(() => null);
   if (!res.ok) {
-    const message = body && typeof body.error === "string" ? body.error : `HTTP ${res.status}`;
+    const message = body && typeof body.message === "string" ? body.message :
+      body && typeof body.error === "string" ? body.error : `HTTP ${res.status}`;
     throw new Error(message);
   }
   return body as T;
@@ -87,16 +88,50 @@ function eventTone(event: ExecutionEvent) {
   return "border-slate-700 bg-slate-900/60";
 }
 
+const wib = (value: string) => {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Waktu tidak tersedia";
+  return new Intl.DateTimeFormat("id-ID", {
+    timeZone: "Asia/Jakarta", day: "2-digit", month: "short", year: "numeric",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+  }).format(date) + " WIB";
+};
+const duration = (start: string, end: string) => {
+  const ms = Date.parse(end) - Date.parse(start);
+  if (!Number.isFinite(ms) || ms < 0) return "—";
+  const seconds = Math.floor(ms / 1000);
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const rest = seconds % 60;
+  return (hours ? hours + "j " : "") + (minutes ? minutes + "m " : "") + rest + "d";
+};
+
 export default function AiCoreChatPage() {
+  const [clockNow, setClockNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setClockNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
   const queryClient = useQueryClient();
   const [prompt, setPrompt] = useState("");
   const [activeTaskId, setActiveTaskId] = useState<number | null>(null);
   const [accountAlias, setAccountAlias] = useState(() => localStorage.getItem("ai-task-chat-account") || "GPT02");
 
+  const sseState = useServerEvents({
+    new_task: () => void queryClient.invalidateQueries({ queryKey: ["ai-core-chat-tasks"] }),
+    execution_updated: (event) => {
+      const eventTaskId = typeof event.taskId === "number" ? event.taskId : Number(event.taskId);
+      if (activeTaskId && eventTaskId === activeTaskId) {
+        void queryClient.invalidateQueries({ queryKey: ["ai-core-chat-execution", activeTaskId] });
+      }
+      void queryClient.invalidateQueries({ queryKey: ["ai-core-chat-tasks"] });
+    },
+  });
+
   const { data: tasks = [], isLoading: tasksLoading } = useQuery<AiTask[]>({
     queryKey: ["ai-core-chat-tasks"],
     queryFn: () => apiFetch("/api/ai-tasks?category=ai_chat"),
-    refetchInterval: 20_000,
+    refetchInterval: sseState === "connected" ? false : 30_000,
     staleTime: 5_000,
   });
 
@@ -104,18 +139,14 @@ export default function AiCoreChatPage() {
     queryKey: ["ai-core-chat-execution", activeTaskId],
     queryFn: () => apiFetch(`/api/ai-tasks/${activeTaskId}/execution`),
     enabled: Boolean(activeTaskId),
-    refetchInterval: activeTaskId ? 3_000 : false,
-    staleTime: 1_000,
-  });
-
-  useServerEvents({
-    new_task: () => void queryClient.invalidateQueries({ queryKey: ["ai-core-chat-tasks"] }),
-    execution_updated: () => {
-      if (activeTaskId) {
-        void queryClient.invalidateQueries({ queryKey: ["ai-core-chat-execution", activeTaskId] });
-      }
-      void queryClient.invalidateQueries({ queryKey: ["ai-core-chat-tasks"] });
+    refetchInterval: (query) => {
+      const payload = query.state.data as ExecutionPayload | undefined;
+      const status = payload?.execution?.status;
+      if (status && ["completed", "failed", "blocked", "cancelled"].includes(status)) return false;
+      // SSE can miss events across reconnects; reconcile active executions periodically.
+      return 15_000;
     },
+    staleTime: 1_000,
   });
 
   const recentTasks = useMemo(
@@ -132,6 +163,20 @@ export default function AiCoreChatPage() {
     mutationFn: async () => {
       const instruction = prompt.trim();
       if (!instruction) throw new Error("Tulis pesan terlebih dahulu.");
+      // Resume the selected job, never create an orphan chat task for continuation.
+      // The server derives the next step only from AI Core signed checkpoint evidence.
+      const isContinuation = /\bCONTINUE_JOB\b/i.test(instruction) ||
+        /^(?:lanjut(?:kan)?(?: terus)?|continue(?: job)?|resume)[!.\s]*$/i.test(instruction);
+      if (isContinuation) {
+        if (!activeTaskId || !activeTask || !executionData?.execution?.id) {
+          throw new Error("Pilih percakapan dengan job asal sebelum melanjutkan.");
+        }
+        await apiFetch(`/api/ai-tasks/${activeTaskId}/continue`, {
+          method: "POST",
+          body: JSON.stringify({ sourceExecutionId: executionData.execution.id }),
+        });
+        return activeTask;
+      }
 
       const created = await apiFetch<AiTask>("/api/ai-tasks", {
         method: "POST",
@@ -234,6 +279,15 @@ export default function AiCoreChatPage() {
               }`}>
                 {executionData?.bridgeConfigured === false ? "Bridge tidak siap" : "AI Core DEV siap"}
               </div>
+              <div className={`rounded-lg border px-3 py-2 text-xs ${
+                sseState === "connected"
+                  ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
+                  : sseState === "connecting"
+                    ? "border-amber-500/20 bg-amber-500/10 text-amber-300"
+                    : "border-slate-700 bg-slate-900 text-slate-400"
+              }`}>
+                {sseState === "connected" ? "Live SSE" : sseState === "connecting" ? "SSE menghubungkan" : "Fallback polling"}
+              </div>
             </div>
           </div>
         </div>
@@ -275,12 +329,47 @@ export default function AiCoreChatPage() {
                 </div>
               </div>
 
-              {executionData?.events?.map((event) => (
+              {execution && (
+                <div className="flex justify-start">
+                  <div className="w-full max-w-[82%] rounded-2xl rounded-bl-md border border-blue-500/20 bg-[#101c2d] p-4" aria-live="polite">
+                    <div className="flex items-center justify-between gap-3 text-sm font-semibold text-slate-100">
+                      <span className="flex items-center gap-2">
+                        {execution.status === "completed"
+                          ? <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+                          : ["failed", "blocked", "cancelled"].includes(execution.status)
+                            ? <span className="text-red-400" aria-label="Job terhenti">●</span>
+                            : <Loader2 className="h-4 w-4 animate-spin text-blue-400" />}
+                        Job: {execution.status}
+                      </span>
+                      <span className="tabular-nums text-blue-300">{Math.max(0, Math.min(100, execution.progress))}%</span>
+                    </div>
+                    <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-800" role="progressbar" aria-valuenow={Math.max(0, Math.min(100, execution.progress))} aria-valuemin={0} aria-valuemax={100}>
+                      <div className="h-full rounded-full bg-blue-500 transition-all duration-500" style={{ width: `${Math.max(0, Math.min(100, execution.progress))}%` }} />
+                    </div>
+                    <div className="mt-3 flex flex-wrap gap-3 text-xs text-slate-400">
+                      <span>Worker: {execution.workerId ?? execution.assignedClientId ?? "menunggu assignment"}</span>
+                      <span>{executionData?.events?.length ?? 0} aktivitas</span>
+                    </div>
+                    {executionData?.events?.length ? (
+                      <p className="mt-2 text-xs text-slate-300">Terakhir: {executionData.events[executionData.events.length - 1]?.message ?? executionData.events[executionData.events.length - 1]?.eventType}</p>
+                    ) : null}
+                    {verified && execution.status === "completed" && <p className="mt-2 flex items-center gap-1 text-xs text-emerald-400"><ShieldCheck className="h-3.5 w-3.5" /> Callback, attestation, dan final ACK terverifikasi</p>}
+                    {executionRefreshing && <span className="mt-2 block text-xs text-slate-500">Memperbarui status…</span>}
+                  </div>
+                </div>
+              )}
+
+              {executionData?.events?.map((event, index, events) => (
                 <div key={event.id} className="flex justify-start">
                   <div className={`max-w-[82%] rounded-2xl rounded-bl-md border px-4 py-3 ${eventTone(event)}`}>
                     <div className="flex items-center gap-2 text-[10px] font-medium text-slate-400">
                       <Bot className="h-3 w-3 text-violet-400" />
                       AI Core · {event.eventType}
+                    </div>
+                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[10px] tabular-nums text-slate-400">
+                      <span title={event.createdAt}>{wib(event.createdAt)}</span>
+                      {index > 0 && <span>Sejak tahap sebelumnya: {duration(events[index - 1].createdAt, event.createdAt)}</span>}
+                      {index > 0 && <span>Total: {duration(events[0].createdAt, event.createdAt)}</span>}
                     </div>
                     <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-slate-200">
                       {event.message || event.status || "Update diterima"}
@@ -316,6 +405,7 @@ export default function AiCoreChatPage() {
               <div className="mb-3 flex flex-wrap items-center gap-3 text-[11px] text-slate-500">
                 <span className="flex items-center gap-1"><Clock3 className="h-3 w-3" /> {execution.status}</span>
                 <span>{execution.progress}%</span>
+                {executionData?.events?.length ? <span className="tabular-nums">Durasi {duration(executionData.events[0].createdAt, ["completed", "failed", "blocked", "cancelled"].includes(execution.status.toLowerCase()) ? executionData.events[executionData.events.length - 1].createdAt : new Date(clockNow).toISOString())}</span> : null}
                 <span>{execution.workerId ?? execution.assignedClientId ?? "worker belum dipilih"}</span>
                 {verified && (
                   <span className="flex items-center gap-1 text-emerald-400">

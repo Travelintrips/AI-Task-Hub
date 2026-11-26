@@ -1,46 +1,10 @@
-import pg from "pg";
+import { pool } from "@workspace/db";
 import { logger } from "./logger";
 
-const isProduction = process.env.NODE_ENV === "production";
-const databaseEnvName = isProduction
-  ? "SUPABASE_DATABASE_URL"
-  : "SUPABASE_DATABASE_URL_DEV";
-const connectionString = process.env[databaseEnvName]?.trim();
-
-if (!connectionString) {
-  logger.warn(
-    { databaseEnvName },
-    "Supabase database URL is not configured — raw database queries will be unavailable.",
-  );
-}
-
-export const supabasePool = connectionString
-  ? new pg.Pool({
-      connectionString,
-      max: 5,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 5000,
-      ssl: process.env.DB_SSL === "false" ? false : { rejectUnauthorized: false },
-    })
-  : null;
-
-if (supabasePool) {
-  supabasePool.on("error", (err) => {
-    logger.error({ err }, "DB pool error");
-  });
-
-  supabasePool.connect()
-    .then((client) => {
-      client.release();
-      logger.info(
-        { environment: isProduction ? "production" : "development" },
-        "Supabase DB pool connected successfully",
-      );
-    })
-    .catch((err) => {
-      logger.error({ err }, "DB pool failed to connect");
-    });
-}
+// Use the same PostgreSQL pool as Drizzle. A second independent pool
+// exhausted transient Supabase pooler capacity and amplified connection timeouts.
+// The shared pool owns startup, configuration, and its error listener.
+export const supabasePool = pool;
 
 export async function supabaseQuery<T = Record<string, unknown>>(
   queryText: string,

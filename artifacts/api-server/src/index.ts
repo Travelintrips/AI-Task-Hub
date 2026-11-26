@@ -1,5 +1,8 @@
+import "./lib/runtime-session-secret";
 import app from "./app";
 import { logger } from "./lib/logger";
+import { startAiCoreSourceReconciliationRuntime } from "./lib/ai-core-source-reconciliation";
+import { startAiJobWhatsAppDeliveryReconciliation } from "./lib/ai-job-wa-delivery";
 
 const rawPort = process.env["PORT"] ?? "8080";
 const host = process.env["HOST"]?.trim() || "127.0.0.1";
@@ -17,4 +20,10 @@ app.listen(port, host, (err) => {
   }
 
   logger.info({ host, port }, "Server listening");
+  // Blue/green DEV previews must not start a second reconciler/WA worker.
+  // Normal DEV keeps both workers whenever the opt-out flag is absent.
+  if (process.env.DISABLE_BACKGROUND_SCHEDULERS !== "true") {
+    startAiCoreSourceReconciliationRuntime();
+    startAiJobWhatsAppDeliveryReconciliation();
+  }
 });

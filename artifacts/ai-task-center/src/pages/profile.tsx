@@ -3,6 +3,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { apiUpdateUser, apiChangePassword } from "@/lib/auth-api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Separator } from "@/components/ui/separator";
@@ -155,7 +156,7 @@ export default function Profile() {
           <Form {...profileForm}>
             <form onSubmit={profileForm.handleSubmit(onSaveProfile)} className="space-y-4">
               <div className="space-y-2">
-                <FormLabel className="text-sm font-medium text-muted-foreground">Email</FormLabel>
+                <Label className="text-sm font-medium text-muted-foreground">Email</Label>
                 <Input value={user.email} disabled className="bg-muted/50" />
                 <p className="text-xs text-muted-foreground">Email tidak dapat diubah</p>
               </div>

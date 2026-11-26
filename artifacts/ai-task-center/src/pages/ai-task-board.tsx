@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import { getStoredToken } from "@/lib/auth-api";
+import { BridgeJobVisibility } from "@/components/bridge-job-visibility";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { useServerEvents } from "@/hooks/use-server-events";
 import { formatDistanceToNow } from "date-fns";
@@ -199,7 +200,11 @@ function StatusCards({
 
 // ─── Task Row ─────────────────────────────────────────────────────────────────
 
-function TaskRow({ task, highlight, execution }: { task: AiTask; highlight?: string; execution?: ExecutionJobLite }) {
+function canArchiveTask(task: AiTask, execution?: ExecutionJobLite): boolean {
+  if (execution) return execution.status.toLowerCase() === "completed" && execution.callbackVerified && execution.attestationVerified && execution.finalAckVerified;
+  return normalizeStatus(task.status) === "Completed";
+}
+function TaskRow({ task, highlight, execution, selected, onSelect, allowRestore }: { task: AiTask; highlight?: string; execution?: ExecutionJobLite; selected?: boolean; onSelect?: (checked:boolean)=>void; allowRestore?: boolean }) {
   const normalized = normalizeStatus(task.status);
   const cfg = STATUS_CONFIG[normalized];
   const age = formatDistanceToNow(new Date(task.createdAt), { addSuffix: true });
@@ -220,6 +225,7 @@ function TaskRow({ task, highlight, execution }: { task: AiTask; highlight?: str
 
   return (
     <tr className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+      <td className="px-3 py-2.5"><input type="checkbox" aria-label={`Pilih job ${task.id}`} checked={Boolean(selected)} disabled={false} onChange={e=>onSelect?.(e.target.checked)} /></td>
       <td className="px-3 py-2.5 whitespace-nowrap">
         <Link href={`/ai-tasks/${task.id}`}>
           <span className="text-sm font-mono text-blue-600 hover:underline cursor-pointer">
@@ -513,6 +519,9 @@ export default function AiTaskBoard() {
   const [dateFrom,       setDateFrom] = useState("");
   const [dateTo,         setDateTo]   = useState("");
   const [addOpen,        setAddOpen]  = useState(false);
+  const [storageView, setStorageView] = useState<"active" | "archive" | "trash">("active");
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [storageError, setStorageError] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   // Debounce search 300ms
@@ -536,6 +545,21 @@ export default function AiTaskBoard() {
     staleTime: 15_000,
   });
 
+  const { data: stored = [], isError: storageUnavailable, isLoading: storageLoading } = useQuery<Array<{task_id:number;location:string;updated_at:string;snapshot_original_bytes:number|null;snapshot_compressed_bytes:number|null}>>({
+    queryKey: ["ai-task-storage"],
+    queryFn: () => apiFetch(`${BASE}/api/ai-tasks/storage`),
+    refetchInterval: 30_000,
+  });
+  const storageMap = useMemo(() => new Map(stored.map(item=>[item.task_id,item.location])), [stored]);
+  const storageMutation = useMutation({
+    mutationFn: (location:"archive"|"trash"|"active") => apiFetch(`${BASE}/api/ai-tasks/storage`, {
+      method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({taskIds:selectedIds,location}),
+    }),
+    onSuccess: () => { setSelectedIds([]); setStorageError(null); void queryClient.invalidateQueries({queryKey:["ai-task-storage"]}); void queryClient.invalidateQueries({queryKey:["ai-tasks"]}); },
+    onError: (err) => setStorageError(String(err)),
+  });
+
   const { data: executionMapData } = useQuery<ExecutionMapPayload>({
     queryKey: ["ai-task-execution-map"],
     queryFn: () => apiFetch<ExecutionMapPayload>(`${BASE}/api/executions/active-map`),
@@ -552,8 +576,8 @@ export default function AiTaskBoard() {
 
   // Client-side filter: status + search (debounced)
   const filtered = useMemo(() => {
-    let result = allTasks;
-    if (initialView === "active") {
+    let result = storageUnavailable || storageLoading ? [] : allTasks.filter(t => (storageMap.get(t.id) ?? "active") === storageView);
+    if (initialView === "active" && storageView === "active") {
       result = result.filter((t) => !["Completed", "Cancelled"].includes(normalizeStatus(t.status)));
     }
     if (statusFilter !== "all") {
@@ -571,7 +595,9 @@ export default function AiTaskBoard() {
       );
     }
     return result;
-  }, [allTasks, debouncedSearch, statusFilter, initialView]);
+  }, [allTasks, debouncedSearch, statusFilter, initialView, storageView, storageMap, storageUnavailable, storageLoading]);
+
+  const selectedNotCompleted = storageView === "active" ? selectedIds.filter(id => { const task = allTasks.find(t=>t.id===id); return !task || !canArchiveTask(task, executionMapData?.byTask[String(id)]); }).length : 0;
 
   // Hitung berapa filter aktif (selain search)
   const activeServerFilters = [
@@ -616,8 +642,27 @@ export default function AiTaskBoard() {
           </div>
         </div>
 
+        <div className="flex flex-wrap items-center gap-2">
+          {(["active","archive","trash"] as const).map(v=>(
+            <Button key={v} size="sm" className={`bg-blue-600 text-white hover:bg-blue-700 font-semibold ${storageView===v?"ring-2 ring-blue-300":"opacity-85"}`} onClick={()=>{setStorageView(v);setSelectedIds([]);setStorageError(null);}}>
+              {v==="active"?"Job Aktif":v==="archive"?"Arsip":"Sampah"}
+            </Button>
+          ))}
+          <label className="flex items-center gap-1 text-xs text-gray-600"><input type="checkbox" checked={filtered.length>0 && filtered.every(t=>selectedIds.includes(t.id))} onChange={e=>setSelectedIds(e.target.checked?filtered.map(t=>t.id):[])} /> Pilih Semua</label>
+          {storageUnavailable && <span role="alert" className="text-xs text-red-600">Arsip tidak tersedia. Job disembunyikan sementara untuk mencegah salah operasi.</span>}
+          {storageLoading && <span className="text-xs text-gray-500">Memuat status arsip…</span>}
+          <span className="text-xs text-gray-500">{selectedIds.length} dipilih</span>
+          {selectedNotCompleted>0 && <span role="status" className="text-xs text-amber-700">{selectedNotCompleted} job belum E2E COMPLETED; tidak bisa diarsipkan atau dibuang</span>}
+          {storageView==="active" ? <>
+            <Button size="sm" disabled={!selectedIds.length || selectedNotCompleted>0 || storageMutation.isPending} onClick={()=>storageMutation.mutate("archive")}>Arsipkan + kompres</Button>
+            <Button size="sm" variant="outline" disabled={!selectedIds.length || selectedNotCompleted>0 || storageMutation.isPending} onClick={()=>storageMutation.mutate("trash")}>Pindah ke Sampah</Button>
+          </> : <Button size="sm" disabled={!selectedIds.length || storageMutation.isPending} onClick={()=>storageMutation.mutate("active")}>Pulihkan</Button>}
+          {storageError && <span role="alert" className="text-xs text-red-600">{storageError}</span>}
+        </div>
         {/* Status summary cards */}
         <StatusCards tasks={allTasks} activeFilter={statusFilter} onFilter={setStatus} />
+
+        <BridgeJobVisibility location="ai-tasks" />
 
         {/* Search + Filter bar */}
         <div className="flex gap-2 flex-wrap items-center">
@@ -796,7 +841,7 @@ export default function AiTaskBoard() {
         <table className="w-full text-left border-collapse min-w-[960px]">
           <thead className="sticky top-0 z-10 bg-gray-50 border-b border-gray-200">
             <tr>
-              {["No. Task", "Pelanggan", "Judul", "Status", "Progress", "Prioritas", "Kategori", "Divisi", "AI Intent", "Audit", "Pesan Terakhir", "Assignee"].map((h) => (
+              {["Pilih", "No. Task", "Pelanggan", "Judul", "Status", "Progress", "Prioritas", "Kategori", "Divisi", "AI Intent", "Audit", "Pesan Terakhir", "Assignee"].map((h) => (
                 <th key={h} className="px-3 py-2 text-[11px] font-semibold text-gray-500 uppercase tracking-wide whitespace-nowrap">
                   {h}
                 </th>
@@ -808,7 +853,7 @@ export default function AiTaskBoard() {
           ) : filtered.length === 0 ? (
             <tbody>
               <tr>
-                <td colSpan={12} className="px-3 py-16 text-center">
+                <td colSpan={13} className="px-3 py-16 text-center">
                   <div className="flex flex-col items-center gap-3 text-gray-400">
                     <Search className="w-10 h-10 opacity-25" />
                     <div>
@@ -833,7 +878,9 @@ export default function AiTaskBoard() {
           ) : (
             <tbody>
               {filtered.map((task) => (
-                <TaskRow key={task.id} task={task} highlight={debouncedSearch} execution={executionMapData?.byTask[String(task.id)]} />
+                <TaskRow key={task.id} task={task} highlight={debouncedSearch} execution={executionMapData?.byTask[String(task.id)]}
+                  selected={selectedIds.includes(task.id)} allowRestore={storageView!=="active"}
+                  onSelect={checked=>setSelectedIds(old=>checked?[...old,task.id]:old.filter(id=>id!==task.id))} />
               ))}
             </tbody>
           )}

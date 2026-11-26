@@ -1,0 +1,25 @@
+# GPT02 DEV — Core task preparation to independently signed operator approval, non-operational
+
+## User goal and strict limits
+
+Continue only the existing CST-DEV GPT02 roadmap. The native one-shot text run **Task136** has already succeeded with final ACK; the failed **Task135** is never to be retried. A general lifecycle is still blocked on pre-dispatch Core coding task reservation, an immutable pre-dispatch Hub execution, a fresh signed Super Admin approval, a separate trusted Core identity, one-time nonce, and leased issuer fencing. No existing successful completion can manufacture a historical approval record.
+
+## New candidate `gpt02-prepared-link.mjs`
+
+An offline pure verifier checks one **complete** signed approval v2 and independently signed Hub + Core operator link v1 against the *same* future Core task preparation, Hub prepared execution, and independently observed identities. It reuses the existing canonical approval format and the existing Ed25519 dual-origin signature verifier without issuing a signature. It requires **three distinct** server-pinned Ed25519 public keys (approval, Hub origin, Core origin). Signatures are checked over the exact canonical content and origin-separated payload. It never accepts keys embedded inside a request proof.
+
+To match, the supplied **trusted server readbacks** must tie together exact tenant `default`, a new task ID strictly greater than completed #136, active same-company PIC and recorded PIC audit, exact Hub Super Admin subject and role, stable Core coding task ID, reserved command-candidate ID and attempt UUID, a distinct pre-dispatch Hub execution ID, and a genuine Core operator identity (positive integer, owner/admin, active and password-changed). The Hub job must be `prepared` with no command, no earlier worker send and attempt number1. The Core task must be `PENDING` with zero runs and zero commands. Every candidate ID, worker, owner and approval/link nonce must match all three records. Expiry is checked against current time.
+
+**Hard limit:** This module does not fetch these trusted records itself, is not mounted in any HTTP or worker route, does not trust request metadata as a source of database facts, and does not sign, record, consume, issue grants or dispatch. A positive comparison means **only** `matched=true`, `signatureVerified=true`, `dualOriginVerified=true`; its `approvalRecorded`, `nonceConsumed`, `issuerPermitted`, `dispatchPermitted`, and `completionPermitted` are **always false**. The existing DEV HTTP409 lifecycle hold is not relaxed.
+
+## Direct tests
+
+- **43/43** independent Node tests passed: positive cross-origin signature agreement; canonical preparation IDs; prohibited Tasks135/136; tenant, PIC, audit, operator, Hub execution/attempt, Core task/command/run/worker swaps; expired evidence; invalid signatures; caller-injected key; single-key impersonation of multiple origins; missing/changed ownership; and no route/dispatch code path.
+- An additional scenario was integrated into the preexisting SCRAM PostgreSQL16 issuer fixture: a synthetic pending Core task + prepared Hub execution, correct independent Ed25519 approval and two-origin operator link, and four mismatched identity/readback tests. The existing separate **attestor** login then persisted the verified synthetic approval/link into append-only evidence tables. The separate **issuer** login consumed the nonce exactly once, produced one immutable receipt + identity record, and refused replay. **48/48** actual PostgreSQL/Node integration scenarios passed with no network and no CST credentials. Result flags on the linked receipt remain `core_ledger_written=false`, `binding_verified=false`, `may_dispatch_worker=false`, `may_issue_grant=false`, `may_close_job=false`.
+- These signed matching inputs were **synthetic**: the Core preparation PostgreSQL fixture is not a real Hub/Core prepared execution, and the issuer fixture does not insert an actual Core coding task. The earlier Core-preparation PostgreSQL test separately proved atomic idempotency and rollback. **Do not claim one live cross-service transaction exists yet.**
+
+## Remaining operational work
+
+The crucial missing real component is the **durable pre-dispatch Hub execution reservation** (and real Core task) under a server-owned idempotency key, before generating/accepting the approval. Only after that can an independent signed Core/Hub origin attest the exact reservation and the dedicated attestor record an approval. The existing issuer pool on CST-DEV is still locked/no operational functions or credentials; these test keys are generated in-memory and discarded. A successful offline proof cannot set the protected lifecycle grant. A future full lifecycle would require a new, separately approved task and its own one-shot lease/ACK test.
+
+**Result:** proof-matching + disposable one-time nonce evidence PASS in isolation. Full CST-DEV lifecycle admission remains **NO-GO**. No schema, role, key, task, command, ACK, business data or PROD mutation in this stage.

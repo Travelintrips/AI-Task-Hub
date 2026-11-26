@@ -52,6 +52,8 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { getStoredToken } from "@/lib/auth-api";
+import { useAuth } from "@/contexts/auth-context";
+import { evaluateGpt02ApprovalReadiness } from "@/lib/gpt02-approval-readiness";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -117,6 +119,7 @@ interface AiTask {
   customerPhone: string | null;
   companyId: string | null;
   assignedTo: string | null;
+  assignedToId?: number | null;
   aiSummary: string | null;
   missingData: string | null;
   createdAt: string;
@@ -508,6 +511,7 @@ export default function AiTaskDetail() {
   const params = useParams<{ id: string }>();
   const id = params.id;
   const { toast } = useToast();
+  const { user: currentUser } = useAuth();
   const queryClient = useQueryClient();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -548,16 +552,188 @@ export default function AiTaskDetail() {
     },
   });
 
+  // DEV-only assignment view for Super Admin. A team-member record is not
+  // approval to dispatch GPT02 or proof of native worker completion.
+  const gpt02PicPath = `/ai-tasks/${id}/gpt02-pic-options?companyId=${encodeURIComponent(task?.companyId ?? "")}`;
+  const { data: gpt02PicOptions, error: gpt02PicError, isFetching: gpt02PicFetching } = useQuery<{
+    taskId: number; taskStatus: string; taskAssignmentPresent: boolean;
+    assignmentReady: boolean; selectedMemberId: number | null;
+    members: {id: number; name: string}[];
+    choicesTruncated: boolean; operatorApprovalGranted: false;
+    commandDispatched: false;
+  }>({
+    queryKey: ["gpt02-pic-options", id, task?.companyId],
+    queryFn: () => apiFetch(gpt02PicPath),
+    enabled: currentUser?.role === "super_admin" && Boolean(task?.companyId),
+    retry: false,
+    // A verified PIC may be assigned from a separate administrator session.
+    refetchInterval: 30_000,
+  });
+  const { data: gpt02PicAudit, error: gpt02PicAuditError,
+    isFetching: gpt02PicAuditFetching } = useQuery<{
+      taskId:number; assignedMemberId:number|null; assignedTo:string|null;
+      auditPresent:boolean; auditMatchesCurrent:boolean; assignmentAudited:boolean;
+      auditId:number|null; actorId:string|null; actorName:string|null;
+      assignedAt:string|null; operatorApprovalGranted:false;
+      commandDispatched:false; nativeAckVerified:false;
+    }>({
+    queryKey:["gpt02-pic-audit",id,task?.companyId],
+    queryFn:()=>apiFetch(`/ai-tasks/${id}/gpt02-pic-audit?companyId=${encodeURIComponent(task?.companyId ?? "")}`),
+    enabled:currentUser?.role==="super_admin" && Boolean(task?.companyId),
+    retry:false,
+    refetchInterval:30_000,
+  });
+  const {data:gpt02Lineage,error:gpt02LineageError,isFetching:gpt02LineageFetching,
+    refetch:refreshGpt02Lineage} = useQuery<{
+      taskId:number; executionId:string|null; commandId:string|null;
+      executionStatus:string|null; coreStatus:string|null;
+      coreCommandMatched:boolean; coreTaskIdPresent:boolean;
+      attestationVerified:boolean; finalAckVerified:boolean;
+      bindingSchemaReady:boolean; diagnosticReasons:string[];
+      executionOutcome?: { verified:boolean; status:string; route:string; responseId:string|null; acknowledgedAt:string|null; grantsAuthority:false; readOnly:true };
+      nativeLineageAttested:false; dispatchPermitted:false; resumePermitted:false;
+      completionPermitted:false; readOnly:true;
+    }>({
+    queryKey:["gpt02-lineage",id,task?.companyId],
+    queryFn:()=>apiFetch(`/ai-tasks/${id}/gpt02-lineage?companyId=${encodeURIComponent(task?.companyId ?? "")}`),
+    enabled:currentUser?.role==="super_admin" && Boolean(task?.companyId),
+    retry:false,
+  });
+  const gpt02AssignPicMutation = useMutation({
+    mutationFn: (memberId: number) => apiFetch(
+      `/ai-tasks/${id}/gpt02-assign-pic?companyId=${encodeURIComponent(task?.companyId ?? "")}`,
+      { method: "POST", body: JSON.stringify({ memberId }) }),
+    onSuccess: () => {
+      toast({title:"PIC GPT02 dicatat",description:"Identitas anggota tim aktif cocok; otorisasi runtime masih perlu diverifikasi."});
+      void queryClient.invalidateQueries({queryKey:["ai-task",id]});
+      void queryClient.invalidateQueries({queryKey:["ai-tasks"]});
+      void queryClient.invalidateQueries({queryKey:["gpt02-pic-options",id]});
+      void queryClient.invalidateQueries({queryKey:["gpt02-pic-audit",id]});
+    },
+    onError: (err: Error) => toast({title:"Gagal menetapkan PIC GPT02",description:err.message,variant:"destructive"}),
+  });
+
+  // Same task, independent read-only preparation status. This does NOT claim
+  // a signed issuer grant or permission to run GPT02.
+  const { data: gpt02PreparationReadiness, error: gpt02PreparationReadinessError,
+    isFetching: gpt02PreparationReadinessFetching } = useQuery<{
+      taskId:number;preparationEligible:boolean;historicalRepairAvailable:boolean;
+      featureEnabled:boolean;canRequestPreparation:boolean;reason:string;
+      preparerRoleReady:boolean;dedicatedConnectionVerified:boolean;
+      readOnly:true;commandDispatched:false;operatorApprovalGranted:false;
+      dispatchPermitted:false;issuerGrantReady:false;
+    }>({
+      queryKey:["gpt02-preparation-readiness",id,task?.companyId],
+      queryFn:()=>apiFetch(`/ai-tasks/${id}/gpt02-preparation-readiness?companyId=${encodeURIComponent(task?.companyId ?? "")}`),
+      enabled:currentUser?.role==="super_admin" && Boolean(task?.companyId) &&
+        gpt02PicAudit?.auditPresent===true,
+      retry:false,refetchInterval:30_000,
+    });
+  const gpt02PrepareOnlyMutation = useMutation({
+    mutationFn:()=>apiFetch(
+      `/ai-tasks/${id}/gpt02-prepare?companyId=${encodeURIComponent(task?.companyId ?? "")}`,{
+        method:"POST",headers:{"X-GPT02-Intent":"prepare-only"},
+        body:JSON.stringify({prepareOnly:true}),
+      }),
+    onSuccess:()=>{
+      toast({title:"Core Task disiapkan — tanpa dispatch",
+        description:"Reservasi persiapan tercatat; belum ada persetujuan issuer, worker atau ACK."});
+      void queryClient.invalidateQueries({queryKey:["ai-task-execution",id]});
+      void queryClient.invalidateQueries({queryKey:["gpt02-lineage",id]});
+      void queryClient.invalidateQueries({queryKey:["gpt02-preparation-readiness",id]});
+    },
+    onError:(err:Error)=>toast({
+      title:"Persiapan GPT02 ditolak",description:err.message,variant:"destructive",
+    }),
+  });
+  // A DEV-only audited correction for a known historical bridge placeholder.
+  // This edits the existing task, never prepares/dispatches a GPT02 command.
+  const gpt02RepairInstructionMutation = useMutation({
+    mutationFn: () => apiFetch(
+      `/ai-tasks/${id}/gpt02-replace-historical-reference?companyId=${encodeURIComponent(task?.companyId ?? "")}`,
+      { method: "POST",
+        headers: { "X-GPT02-Intent": "replace-historical-reference" },
+        body: JSON.stringify({replaceHistoricalReference:true}) }),
+    onSuccess: () => {
+      toast({title:"Instruksi E2E Task diperbaiki",
+        description:"Judul dan instruksi baru dicatat dengan audit. Belum ada command, worker, atau izin dispatch."});
+      void queryClient.invalidateQueries({queryKey:["ai-task",id]});
+      void queryClient.invalidateQueries({queryKey:["gpt02-lineage",id]});
+      void queryClient.invalidateQueries({queryKey:["gpt02-preparation-readiness",id]});
+    },
+    onError: (err: Error) => toast({
+      title:"Koreksi instruksi GPT02 ditolak",description:err.message,variant:"destructive",
+    }),
+  });
+
+  const [reconciliationRequested, setReconciliationRequested] = useState(false);
+  const { data: reconciliation, isFetching: reconciliationFetching, error: reconciliationError, refetch: checkReconciliation } = useQuery<{
+    status: string; matchCount: number; uniqueCommandMatch: boolean; commandId: string | null;
+    callbackVerified: boolean; attestationVerified: boolean; finalAckVerified: boolean;
+    archiveAvailable: boolean; automaticDispatch: boolean; statusChanged: boolean;
+  }>({
+    queryKey: ["gpt02-reconciliation", id],
+    queryFn: () => apiFetch(`/ai-tasks/${id}/gpt02-reconciliation?companyId=${encodeURIComponent(task?.companyId ?? "")}`),
+    enabled: reconciliationRequested && Boolean(task?.companyId),
+    retry: false,
+    staleTime: 0,
+  });
+
+  const { data: recoveryReview, isFetching: recoveryReviewFetching } = useQuery<{
+    executionId: string | null; executionStatus: string | null;
+    eligibleForHumanReview: boolean; verifiedContinuationCheckpoint: boolean;
+    resumeAuthorized: false; originalError: string | null;
+    picName: string | null; picAccountVerified: false;
+    humanTask: { id: number; task_code: string; status: string; assigned_user: string | null;
+      failure_code?: string | null; send_attempt_recorded?: string | null;
+      assistant_ack_verified?: string | null; openclaw_attempt_verified?: string | null;
+      signed_checkpoint_count?: string | null; } | null;
+    nextAction: string;
+  }>({
+    queryKey: ["ai-task-recovery-review", id],
+    queryFn: () => apiFetch(`/ai-tasks/${id}/recovery-review`),
+    enabled: executionData?.execution?.status?.toLowerCase() === "failed",
+    retry: false,
+    refetchInterval: 30_000,
+  });
+
+  // A failed historical execution may confirm its existing PIC only through
+  // the accepted human review. No new attempt, grant, or worker dispatch.
+  const gpt02RecoveryPicMutation = useMutation({
+    mutationFn: ({memberId,reviewId}:{memberId:number;reviewId:number}) =>
+      apiFetch(`/ai-tasks/${id}/gpt02-confirm-recovery-pic?companyId=${encodeURIComponent(task?.companyId ?? "")}`,
+        {method:"POST",body:JSON.stringify({memberId,reviewId})}),
+    onSuccess: () => {
+      toast({title:"PIC recovery dikonfirmasi",
+        description:"Identitas PIC dicatat bersama audit. Job gagal tetap gagal; persetujuan dan pengiriman ulang tidak diberikan."});
+      void queryClient.invalidateQueries({queryKey:["ai-task",id]});
+      void queryClient.invalidateQueries({queryKey:["ai-tasks"]});
+      void queryClient.invalidateQueries({queryKey:["gpt02-pic-options",id]});
+      void queryClient.invalidateQueries({queryKey:["gpt02-pic-audit",id]});
+      void queryClient.invalidateQueries({queryKey:["gpt02-lineage",id]});
+    },
+    onError: (err:Error) => toast({title:"Konfirmasi PIC recovery ditolak",
+      description:err.message,variant:"destructive"}),
+  });
+  const humanReviewMutation = useMutation({
+    mutationFn: () => apiFetch(`/ai-tasks/${id}/human-review`, {method:"POST",body:JSON.stringify({})}),
+    onSuccess: () => {
+      toast({title:"Review Human dicatat",description:"Menunggu administrator menetapkan Human yang memiliki akun terverifikasi. Resume GPT02 masih dikunci."});
+      void queryClient.invalidateQueries({queryKey:["ai-task-recovery-review",id]});
+    },
+    onError: (err:Error) => toast({title:"Gagal membuat review Human",description:err.message,variant:"destructive"}),
+  });
+
   const startExecutionMutation = useMutation({
     mutationFn: (mode: "worker" | "chatgpt") =>
       apiFetch(`/ai-tasks/${id}/execution`, {
         method: "POST",
         body: JSON.stringify(mode === "chatgpt"
-          ? { mode: "chatgpt", accountAlias: "GPT01" }
+          ? { mode: "chatgpt", accountAlias: "GPT02", lifecycleStart: true }
           : { mode: "worker" }),
       }),
     onSuccess: (_data, mode) => {
-      toast({ title: mode === "chatgpt" ? "Execution dikirim ke ChatGPT via AI Core DEV" : "Execution dikirim ke worker AI Core DEV" });
+      toast({ title: mode === "chatgpt" ? "Permintaan lifecycle GPT02 dicatat di AI Core DEV" : "Execution dikirim ke worker AI Core DEV", description: "Pantau ACK dan checkpoint; status bisnis tidak otomatis menjadi RUNNING." });
       void queryClient.invalidateQueries({ queryKey: ["ai-task-execution", id] });
     },
     onError: (err: Error) => {
@@ -836,6 +1012,15 @@ export default function AiTaskDetail() {
   const missingDataKeys: string[] = (() => {
     try { return JSON.parse(task.missingData ?? "[]"); } catch { return []; }
   })();
+  const operatorReadiness = evaluateGpt02ApprovalReadiness({
+    assignmentReady: gpt02PicOptions?.assignmentReady,
+    auditMatchesCurrent: gpt02PicAudit?.auditMatchesCurrent,
+    executionId: gpt02Lineage?.executionId,
+    coreTaskIdPresent: gpt02Lineage?.coreTaskIdPresent,
+    coreCommandMatched: gpt02Lineage?.coreCommandMatched,
+    bindingSchemaReady: gpt02Lineage?.bindingSchemaReady,
+    diagnosticReasons: gpt02Lineage?.diagnosticReasons,
+  });
 
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-6">
@@ -906,11 +1091,11 @@ export default function AiTaskDetail() {
         </div>
       </div>
 
-      <div className="border border-gray-200 rounded-xl bg-white p-4 shadow-sm">
+      <div id="penugasan-lifecycle" className="border border-blue-200 rounded-xl bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-wide text-blue-600">Execution Control</p>
-            <h2 className="mt-1 text-sm font-semibold text-gray-900">AI Core / Worker Progress</h2>
+            <p className="text-xs font-semibold uppercase tracking-wide text-blue-600">Intake → Penugasan → Lifecycle</p>
+            <h2 className="mt-1 text-base font-semibold text-gray-900">Penugasan & Lifecycle AI Core</h2>
             <p className="mt-1 text-xs text-gray-500">
               Progress ini berasal dari execution ledger dan event AI Core, bukan hanya status bisnis task.
             </p>
@@ -919,8 +1104,17 @@ export default function AiTaskDetail() {
             <Button
               variant="outline"
               size="sm"
-              disabled={executionFetching}
-              onClick={() => void queryClient.invalidateQueries({ queryKey: ["ai-task-execution", id] })}
+              disabled={executionFetching || gpt02PicFetching || gpt02PicAuditFetching || gpt02LineageFetching}
+              onClick={() => {
+                // Sync all related readbacks, not execution alone.
+                void Promise.all([
+                  queryClient.invalidateQueries({ queryKey: ["ai-task", id] }),
+                  queryClient.invalidateQueries({ queryKey: ["ai-task-execution", id] }),
+                  queryClient.invalidateQueries({ queryKey: ["gpt02-pic-options", id] }),
+                  queryClient.invalidateQueries({ queryKey: ["gpt02-pic-audit", id] }),
+                  queryClient.invalidateQueries({ queryKey: ["gpt02-lineage", id] }),
+                ]);
+              }}
             >
               <RefreshCw className={`h-3.5 w-3.5 mr-1 ${executionFetching ? "animate-spin" : ""}`} />
               Sync
@@ -930,41 +1124,316 @@ export default function AiTaskDetail() {
                 <Button
                   variant="outline"
                   size="sm"
-                  disabled={!executionData?.bridgeConfigured || startExecutionMutation.isPending}
+                  disabled={!executionData?.bridgeConfigured || startExecutionMutation.isPending ||
+                    (currentUser?.role === "super_admin" &&
+                      (gpt02PicAuditFetching || !gpt02PicAudit || gpt02PicAudit.auditPresent))}
                   onClick={() => startExecutionMutation.mutate("worker")}
+                  aria-label={gpt02PicAudit?.auditPresent
+                    ? "Run Worker dinonaktifkan: task memiliki audit PIC GPT02; jalur GPT01 fallback tidak diizinkan"
+                    : "Run Worker"}
                 >
                   {startExecutionMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Send className="h-3.5 w-3.5 mr-1" />}
                   Run Worker
                 </Button>
                 <Button
+                  variant="outline"
                   size="sm"
-                  disabled={!executionData?.bridgeConfigured || startExecutionMutation.isPending}
-                  onClick={() => startExecutionMutation.mutate("chatgpt")}
+                  className="opacity-60 cursor-not-allowed"
+                  disabled={true}
+                  aria-label="Lifecycle GPT02 DEV belum aktif karena bukti sebelum pengiriman belum lengkap"
                 >
                   {startExecutionMutation.isPending ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Brain className="h-3.5 w-3.5 mr-1" />}
-                  Run ChatGPT
+                  Mulai Lifecycle GPT02 (belum diaktifkan)
                 </Button>
               </>
             )}
           </div>
         </div>
+        {!executionData?.execution && gpt02PicAudit?.auditPresent && (
+          <p role="status" className="mt-2 text-xs text-amber-700">
+            Run Worker dikunci untuk task dengan audit PIC GPT02. Jalur GPT01 tidak boleh menggantikan lifecycle GPT02 yang memerlukan otorisasi dan bukti sebelum dispatch.
+          </p>
+        )}
+        {!executionData?.execution && (
+          <p role="status" className="mt-2 text-xs text-amber-700">
+            Mode lifecycle GPT02 DEV belum dapat dijalankan: Core Task, persetujuan bertanda tangan, pengikatan percobaan, nonce dan pengaman lease harus terbukti sebelum pengiriman. Hasil uji teks lama tidak diulang.
+          </p>
+        )}
 
+        <div className="mt-4 grid grid-cols-1 gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 md:grid-cols-3">
+          <div>
+            <Label className="text-xs text-slate-600">Penanggung jawab (PIC Human)</Label>
+            {currentUser?.role === "super_admin" ? (
+              <>
+                <Select
+                  value={gpt02PicOptions?.selectedMemberId ? String(gpt02PicOptions.selectedMemberId) : "__none__"}
+                  onValueChange={(value) => {
+                    const memberId = Number(value);
+                    if (Number.isSafeInteger(memberId) && memberId > 0) {
+                      const reviewId=recoveryReview?.humanTask?.id;
+                      if (executionData?.execution?.status?.toLowerCase()==="failed" &&
+                          recoveryReview?.humanTask?.status==="accepted" &&
+                          typeof reviewId==="number" && Number.isSafeInteger(reviewId)) {
+                        if (window.confirm("Konfirmasi anggota tim ID " + memberId +
+                            " sebagai PIC pada review gagal ini? Hanya pencatatan dan audit PIC. Tidak ada persetujuan operator, restart, atau pengiriman command.")) {
+                          gpt02RecoveryPicMutation.mutate({memberId,reviewId});
+                        }
+                      } else gpt02AssignPicMutation.mutate(memberId);
+                    }
+                  }}
+                  disabled={gpt02PicFetching || !!gpt02PicError || gpt02AssignPicMutation.isPending ||
+                    gpt02RecoveryPicMutation.isPending ||
+                    (Boolean(executionData?.execution) &&
+                      !(executionData?.execution?.status?.toLowerCase()==="failed" &&
+                        recoveryReview?.humanTask?.status==="accepted" &&
+                        !gpt02PicOptions?.assignmentReady)) ||
+                    ["completed","cancelled"].includes(task.status)}>
+                  <SelectTrigger className="mt-1 bg-white"><SelectValue placeholder="Pilih PIC aktif" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__" disabled>Belum terverifikasi</SelectItem>
+                    {(gpt02PicOptions?.members ?? []).map(member =>
+                      <SelectItem key={member.id} value={String(member.id)}>{member.name} (ID {member.id})</SelectItem>)}
+                  </SelectContent>
+                </Select>
+                {executionData?.execution?.status?.toLowerCase()==="failed" &&
+                  recoveryReview?.humanTask?.status==="accepted" &&
+                  !gpt02PicOptions?.assignmentReady && (
+                  <p role="status" className="mt-1 text-xs text-amber-700">
+                    Konfirmasi PIC untuk Human Review yang diterima. Ini hanya menautkan ID anggota dan audit;
+                    Job lama tetap FAILED dan penerbitan attempt baru tetap terkunci.
+                  </p>
+                )}
+                {gpt02PicError && <p role="alert" className="mt-1 text-xs text-red-700">Daftar PIC tidak tersedia. Periksa akses Super Admin DEV.</p>}
+                {gpt02PicOptions?.choicesTruncated && <p className="mt-1 text-xs text-amber-700">Daftar dibatasi 100 anggota; pilihan lain memerlukan pemeriksaan admin.</p>}
+                <p className="mt-1 text-xs text-slate-600">
+                  {gpt02PicOptions?.assignmentReady ? "PIC aktif terhubung berdasarkan ID." :
+                    "PIC belum diverifikasi berdasarkan ID dan perusahaan."}
+                </p>
+                <p role="status" className="mt-1 text-xs text-slate-600">
+                  {gpt02PicAuditFetching ? "Memeriksa catatan audit PIC..." :
+                    gpt02PicAuditError ? "Audit PIC tidak tersedia; lifecycle GPT02 ditahan." :
+                    gpt02PicAudit?.auditMatchesCurrent ?
+                      `Audit PIC cocok — ${gpt02PicAudit.actorName ?? "Super Admin"} (${gpt02PicAudit.assignedAt ? new Date(gpt02PicAudit.assignedAt).toLocaleString("id-ID") : "waktu tidak tersedia"}).` :
+                      "Belum ada audit PIC yang cocok dengan penugasan saat ini."}
+                </p>
+              </>
+            ) : (
+              <div className="mt-1 rounded-md border bg-white p-2 text-sm">
+                {task.assignedTo ?? "Belum ditetapkan"} — penugasan GPT02 oleh Super Admin
+              </div>
+            )}
+          </div>
+          <div>
+            <Label className="text-xs text-slate-600">Pelaksana utama</Label>
+            <div className="mt-1 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900">GPT02 — AI Core DEV</div>
+            <p className="mt-1 text-xs text-slate-500">Ketersediaan/ACK harus dibuktikan melalui execution ledger.</p>
+          </div>
+          <div>
+            <Label className="text-xs text-slate-600">Tahapan lifecycle</Label>
+            <div className="mt-1 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800">
+              {executionData?.execution ? `Execution: ${executionData.execution.status}` : gpt02PicOptions?.assignmentReady ? "PIC terhubung; izin runtime belum terverifikasi" : "Menunggu verifikasi PIC"}
+            </div>
+            <p className="mt-1 text-xs text-slate-500">Tidak mengubah status bisnis sebelum bukti worker tersedia.</p>
+          </div>
+        </div>
+        {!gpt02PicOptions?.assignmentReady && <p role="status" className="mt-2 text-xs text-amber-700">Tentukan PIC aktif berdasarkan ID melalui Super Admin DEV. Nama saja tidak mengizinkan lifecycle GPT02.</p>}
+        {gpt02PicOptions?.assignmentReady && !gpt02PicAudit?.auditMatchesCurrent && <p role="status" className="mt-2 text-xs text-amber-700">Audit PIC belum cocok. Tidak mengizinkan lifecycle GPT02 sampai bukti penugasan dapat dibaca kembali.</p>}
+        {currentUser?.role === "super_admin" &&
+          gpt02PicAudit?.auditMatchesCurrent && !executionData?.execution &&
+          /^AI Core bridge command [a-f0-9]{8}$/i.test(task.title) && (
+          <div className="mt-3 rounded-lg border border-amber-200 bg-white p-3 space-y-2">
+            <p className="text-xs text-amber-800">
+              Instruksi Task ini masih menunjuk ke command historis, bukan pekerjaan GPT02 baru.
+              Perbaikan aman hanya mengubah judul dan instruksi Task yang sama dengan audit;
+              tidak mengirim job atau membuka Run Worker.
+            </p>
+            <Button type="button" variant="outline" size="sm"
+              disabled={gpt02RepairInstructionMutation.isPending}
+              onClick={() => {
+                if (window.confirm(`Ganti referensi command lama pada Task #${task.id} menjadi instruksi uji GPT02 DEV baru? Tidak ada dispatch atau persetujuan worker.`))
+                  gpt02RepairInstructionMutation.mutate();
+              }}>
+              {gpt02RepairInstructionMutation.isPending ? "Mencatat koreksi..." :
+                "Perbaiki instruksi Task ini (tanpa dispatch)"}
+            </Button>
+          </div>
+        )}
+        {currentUser?.role === "super_admin" && gpt02PicAudit?.auditPresent && (
+          <section data-testid="gpt02-preparation-readiness"
+            className="mt-3 rounded-lg border border-slate-200 bg-white p-3 space-y-2">
+            <h3 className="text-xs font-semibold text-slate-900">Persiapan Core Task GPT02 — DEV saja</h3>
+            <p role="status" className="text-xs text-slate-700">
+              {gpt02PreparationReadinessFetching ? "Memeriksa kesiapan persiapan..." :
+                gpt02PreparationReadinessError || !gpt02PreparationReadiness ?
+                  "Status persiapan tidak tersedia; tindakan tetap ditahan." :
+                gpt02PreparationReadiness.reason==="FRESH_TASK_INSTRUCTION_REQUIRED" ?
+                  "Instruksi masih berupa referensi lama. Gunakan koreksi ber-audit di atas terlebih dahulu." :
+                gpt02PreparationReadiness.reason==="GPT02_PREPARER_LOGIN_LOCKED" ?
+                  "Akun preparer khusus masih NOLOGIN; belum boleh membuat Core Task." :
+                gpt02PreparationReadiness.reason==="GPT02_PREPARER_PASSWORD_VERIFIER_MISSING" ?
+                  "Autentikasi akun preparer belum tersedia; diperlukan kredensial khusus yang terverifikasi." :
+                gpt02PreparationReadiness.reason==="GPT02_PREPARER_INDEPENDENT_AUTH_NOT_VERIFIED" ?
+                  "Autentikasi TLS dan izin akun preparer belum terverifikasi. Persiapan tetap dikunci." :
+                gpt02PreparationReadiness.reason==="GPT02_CORE_PREPARATION_NOT_ENABLED" ?
+                  "Instruksi sudah memenuhi pemeriksaan, tetapi layanan persiapan khusus DEV belum diaktifkan." :
+                gpt02PreparationReadiness.reason==="GPT02_FRESH_GOOGLE_OPERATOR_REQUIRED" ?
+                  "Layanan persiapan sudah siap. Masuk kembali dengan Google untuk menyiapkan task ini." :
+                gpt02PreparationReadiness.reason==="READY_FOR_PREPARATION_ONLY" ?
+                  "Siap mengajukan persiapan saja; belum memiliki izin menjalankan worker." :
+                  `Persiapan belum memenuhi syarat: ${gpt02PreparationReadiness.reason}`}
+            </p>
+            <Button type="button" variant="outline" size="sm"
+              disabled={!gpt02PreparationReadiness?.canRequestPreparation ||
+                gpt02PrepareOnlyMutation.isPending || gpt02PreparationReadinessFetching ||
+                Boolean(executionData?.execution)}
+              onClick={() => {
+                if (window.confirm(`Siapkan hanya Core PENDING dan Hub prepared untuk Task #${task.id}? Tidak ada approval, worker atau command yang dikirim.`))
+                  gpt02PrepareOnlyMutation.mutate();
+              }}>
+              {gpt02PrepareOnlyMutation.isPending ? "Menyiapkan Core Task..." :
+                "Siapkan Core Task (tanpa dispatch)"}
+            </Button>
+            <p className="text-xs text-amber-800">
+              Preparation bukan persetujuan operator. Run Worker tetap terkunci sampai
+              signed approval, nonce, binding dan issuer lease terverifikasi.
+            </p>
+          </section>
+        )}
+        {currentUser?.role === "super_admin" && (
+          <section data-testid="gpt02-operator-readiness" aria-label="Kesiapan persetujuan operator GPT02"
+            className="mt-3 rounded-lg border border-slate-200 bg-white p-3 text-xs space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h3 className="font-semibold text-slate-900">Kesiapan persetujuan operator GPT02 — baca-saja</h3>
+              <span className="font-semibold text-amber-800">NO-GO · belum ada izin dispatch</span>
+            </div>
+            <p className="text-slate-600">
+              Status di bawah berasal dari bukti PIC dan lineage dalam API AI Task.
+              Service signer aktif bukan bukti persetujuan per-command. Pemeriksaan ini tidak menerbitkan approval.
+            </p>
+            <ol className="grid grid-cols-1 gap-2 sm:grid-cols-2" aria-live="polite">
+              {operatorReadiness.steps.map((step) => (
+                <li key={step.id} className="rounded-md border border-slate-200 p-2">
+                  <p className="font-medium text-slate-800">{step.label}</p>
+                  <p className={step.state === "verified" ? "text-emerald-700" : "text-amber-800"}>
+                    {step.state === "verified" ? "Bukti tersedia" :
+                     step.state === "missing" ? "Belum lengkap" : "Belum dapat diverifikasi di UI"}
+                  </p>
+                  <p className="text-slate-600">{step.detail}</p>
+                </li>
+              ))}
+            </ol>
+            <Button type="button" variant="outline" size="sm" disabled={true}
+              aria-label="Persetujuan operator GPT02 belum diaktifkan; perlu otorisasi bertanda tangan dan issuer independen">
+              Persetujuan operator (belum diaktifkan)
+            </Button>
+            <p role="status" className="text-amber-800">
+              Penyiapan permintaan resmi memerlukan sumber bukti Hub/Core yang terikat pada attempt,
+              otentikasi Super Admin dan issuer yang sah. Jangan memasukkan private key atau token ke halaman ini.
+              Tidak ada command, nonce, atau lease yang diterbitkan dari panel ini.
+            </p>
+          </section>
+        )}
+        {currentUser?.role==="super_admin" && (
+          <div className="mt-3 space-y-2 rounded-lg border border-slate-200 bg-white p-3 text-xs">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="font-semibold text-slate-900">Diagnostik lineage GPT02 — baca-saja</span>
+              <Button variant="outline" size="sm" onClick={()=>{void refreshGpt02Lineage();}}
+                disabled={gpt02LineageFetching}>Periksa ulang bukti</Button>
+            </div>
+            {gpt02LineageError && <p role="alert" className="text-red-700">
+              Diagnostik tidak tersedia. Status NO-GO tetap berlaku.
+            </p>}
+            {gpt02Lineage && (
+              <div role="status" className="space-y-1 text-slate-700">
+                <p>Task #{gpt02Lineage.taskId} · Eksekusi: {gpt02Lineage.executionStatus ?? "Belum ada"} · AI Core: {gpt02Lineage.coreStatus ?? "Belum terhubung"}</p>
+                <p className="break-all">Attempt: {gpt02Lineage.executionId ?? "Belum ada"}</p>
+                <p className="break-all">Command: {gpt02Lineage.commandId ?? "Belum ada"}</p>
+                <p>Core command cocok: {gpt02Lineage.coreCommandMatched ? "Ya" : "Tidak"} · Core Task ID: {gpt02Lineage.coreTaskIdPresent ? "Ada" : "Belum ada"}</p>
+                <p>Binding schema: {gpt02Lineage.bindingSchemaReady ? "Ada" : "Belum tersedia"} · Attestation: {gpt02Lineage.attestationVerified ? "Tercatat" : "Belum"} · Final ACK: {gpt02Lineage.finalAckVerified ? "Tercatat" : "Belum"}</p>
+                <p className="font-medium">Hasil eksekusi: {gpt02Lineage.executionOutcome?.verified === true ? "Selesai — respons native dan ACK akhir cocok dengan command ini." : "Bukti lengkap hasil eksekusi belum terverifikasi."}</p>
+                {gpt02Lineage.executionOutcome?.route === "direct_chatgpt_command" && !gpt02Lineage.coreTaskIdPresent && <p>Jalur uji ini membuat command ChatGPT langsung, bukan Core coding task. Pencatatan lifecycle tetap belum lengkap.</p>}
+                <p className="font-medium text-amber-800">Pencatatan lifecycle — NO-GO: {gpt02Lineage.diagnosticReasons.length ? gpt02Lineage.diagnosticReasons.join(", ") : "Verifikasi native independen tetap diperlukan"}</p>
+                {gpt02PicOptions?.assignmentReady && gpt02PicAudit?.auditMatchesCurrent &&
+                  gpt02Lineage.diagnosticReasons.includes("PIC_ID_NOT_BOUND") && (
+                    <p className="text-amber-800">PIC Human telah diverifikasi pada task, namun belum ada binding PIC ke percobaan eksekusi/Core yang dapat dibuktikan. PIC_ID_NOT_BOUND pada diagnostik lifecycle tidak membatalkan penugasan PIC yang sudah diaudit.</p>
+                  )}
+                <p>Hasil eksekusi dan kelengkapan lifecycle dinilai terpisah. Pemeriksaan ini bukan persetujuan operator, izin resume, atau penutupan bisnis; tidak memberi izin menjalankan ulang.</p>
+              </div>
+            )}
+          </div>
+        )}
         {!executionData?.bridgeConfigured && (
           <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
             AI Core DEV bridge belum dikonfigurasi pada runtime AI Task.
           </div>
         )}
 
+        {executionData?.execution && (
+          <div className="mt-3 rounded-lg border border-slate-200 p-3 text-xs">
+            <Button variant="default" size="sm" disabled={reconciliationFetching}
+              className="bg-blue-700 text-white hover:bg-blue-800 disabled:bg-blue-300 disabled:text-white font-semibold shadow-sm"
+              onClick={() => { setReconciliationRequested(true); if (reconciliationRequested) void checkReconciliation(); }}>
+              {reconciliationFetching ? <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" /> : <Shield className="mr-2 h-3.5 w-3.5" />}
+              Periksa Rekonsiliasi GPT02 (baca-saja)
+            </Button>
+            {reconciliationError && <p role="alert" className="mt-2 text-red-700">Tidak dapat membaca rekonsiliasi: {String(reconciliationError)}</p>}
+            {reconciliation && <div className="mt-3 space-y-2 rounded-lg border border-slate-300 bg-white p-3 text-sm font-medium text-slate-900" aria-live="polite">
+              <p>Status job: {reconciliation.status}; kecocokan unik: {reconciliation.uniqueCommandMatch ? "Ya" : "Tidak"}; jumlah padanan: {reconciliation.matchCount}</p>
+              <p className="break-all font-mono text-slate-900">Command ID: {reconciliation.commandId ?? "Belum terkonfirmasi"}</p>
+              <p>Callback: {reconciliation.callbackVerified ? "Verified" : "Belum"} · Attestation: {reconciliation.attestationVerified ? "Verified" : "Belum"} · Final ACK: {reconciliation.finalAckVerified ? "Verified" : "Belum"}</p>
+              <p>Arsip tersedia: {reconciliation.archiveAvailable ? "Ya" : "Tidak"} · Dispatch otomatis: Tidak · Perubahan status: Tidak</p>
+            </div>}
+          </div>
+        )}
+
         {executionData?.execution ? (
           <div className="mt-4 space-y-4">
+            {executionData.execution.status.toLowerCase() === "failed" && (
+              <div role="alert" className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-900">
+                <strong>Lifecycle GPT02 gagal — pekerjaan belum selesai.</strong>
+                <p className="mt-1">{executionData.execution.errorMessage || "Tidak ada respons worker yang terverifikasi."}</p>
+                <p className="mt-1 text-xs">Jangan mengirim ulang command secara manual. Gunakan Periksa Rekonsiliasi GPT02 (baca-saja) sebelum pemulihan terotorisasi.</p>
+                {recoveryReviewFetching && !recoveryReview && <p className="mt-2 text-xs">Memeriksa kesiapan review pemulihan…</p>}
+                {recoveryReview?.humanTask ? (
+                  <div className="mt-3 rounded-lg border border-amber-300 bg-white p-3 text-xs">
+                    <p className="font-semibold">Human Review: {recoveryReview.humanTask.task_code}</p>
+                    <p>Status: {recoveryReview.humanTask.status} · Penugas: {recoveryReview.humanTask.assigned_user || "Belum ditetapkan (Administrator)"}</p>
+                    <div className="mt-2 rounded border border-gray-200 bg-gray-50 p-2 space-y-1">
+                      <p className="font-semibold">Bukti diagnosis untuk reviewer</p>
+                      <p>Kode kegagalan: {recoveryReview.humanTask.failure_code || "Belum dilampirkan"}</p>
+                      <p>Pengiriman native: {recoveryReview.humanTask.send_attempt_recorded === "true" ? "Ada catatan percobaan" : "Belum terbukti"}</p>
+                      <p>ACK asisten: {recoveryReview.humanTask.assistant_ack_verified === "true" ? "Terverifikasi" : "Belum terverifikasi"}</p>
+                      <p>OpenClaw membantu: {recoveryReview.humanTask.openclaw_attempt_verified === "true" ? "Ada bukti" : "Belum ada bukti"}</p>
+                      <p>Checkpoint bertanda tangan: {recoveryReview.humanTask.signed_checkpoint_count || "0"}</p>
+                    </div>
+                    <p className="mt-2">GPT02 tidak boleh di-resume sampai bukti checkpoint, ACK, lease, dan otorisasi diperiksa.</p>
+                    <a className="mt-2 inline-block font-semibold text-blue-700 underline" href="https://dev.cstlogistic.co.id/human-tasks" target="_blank" rel="noopener noreferrer">Buka Human Tasks (reviewer)</a>
+                  </div>
+                ) : recoveryReview?.eligibleForHumanReview ? (
+                  <div className="mt-3 space-y-2 rounded-lg border border-red-200 bg-white p-3 text-xs">
+                    <p>Checkpoint terverifikasi: Tidak · Resume otomatis: Ditolak · PIC {recoveryReview.picName || "belum ditetapkan"} belum terhubung ke akun Human terverifikasi.</p>
+                    <p>OpenClaw belum terbukti menangani hambatan ini. Permintaan berikut adalah peninjauan, bukan klaim bahwa OpenClaw gagal.</p>
+                    <Button variant="outline" size="sm" disabled={humanReviewMutation.isPending} onClick={() => {
+                      if (window.confirm("Buat Human Review untuk kegagalan GPT02? Tugas menunggu penetapan Administrator. Tidak ada dispatch ulang atau resume.")) humanReviewMutation.mutate();
+                    }}>{humanReviewMutation.isPending ? "Mencatat…" : "Ajukan Review Human (tanpa resume)"}</Button>
+                  </div>
+                ) : recoveryReview?.verifiedContinuationCheckpoint ? (
+                  <p className="mt-2 text-xs">Checkpoint tersedia, tetapi resume hanya boleh dipertimbangkan melalui otorisasi resmi.</p>
+                ) : null}
+              </div>
+            )}
+            {executionData.execution.status.toLowerCase() === "completed" &&
+              !(executionData.execution.callbackVerified && executionData.execution.attestationVerified && executionData.execution.finalAckVerified) && (
+              <p role="status" className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">Status COMPLETED belum berarti PASS. Callback, attestation, dan final ACK harus terverifikasi.</p>
+            )}
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
               <div className="rounded-lg bg-gray-50 p-3">
                 <p className="text-[10px] uppercase text-gray-400">Status</p>
                 <p className="mt-1 text-sm font-semibold capitalize text-gray-800">{executionData.execution.status}</p>
               </div>
               <div className="rounded-lg bg-gray-50 p-3">
-                <p className="text-[10px] uppercase text-gray-400">Progress</p>
-                <p className="mt-1 text-sm font-semibold text-gray-800">{executionData.execution.progress}%</p>
+                <p className="text-[10px] uppercase text-gray-400">Tahap execution (bukan progres proyek)</p>
+                <p className="mt-1 text-sm font-semibold text-gray-800">{executionData.execution.status.toLowerCase() === "failed" ? "GAGAL — bukan 100% selesai" : `${executionData.execution.progress}% ledger`}</p>
               </div>
               <div className="rounded-lg bg-gray-50 p-3">
                 <p className="text-[10px] uppercase text-gray-400">Worker</p>
@@ -979,10 +1448,10 @@ export default function AiTaskDetail() {
             <div>
               <div className="mb-1 flex justify-between text-[11px] text-gray-500">
                 <span>{executionData.execution.externalId}</span>
-                <span>{executionData.execution.progress}%</span>
+                <span>{executionData.execution.status.toLowerCase() === "failed" ? "Execution gagal" : `${executionData.execution.progress}% tahap ledger`}</span>
               </div>
               <div className="h-2 overflow-hidden rounded-full bg-gray-100">
-                <div className="h-full rounded-full bg-blue-500 transition-all" style={{ width: `${executionData.execution.progress}%` }} />
+                {executionData.execution.status.toLowerCase() !== "failed" && <div className="h-full rounded-full bg-blue-500 transition-all" style={{ width: `${executionData.execution.progress}%` }} />}
               </div>
             </div>
 
@@ -1028,7 +1497,9 @@ export default function AiTaskDetail() {
           </div>
         ) : (
           <div className="mt-4 rounded-lg border border-dashed border-gray-200 p-5 text-center text-xs text-gray-500">
-            Belum ada execution. Pilih Run Worker untuk bounded worker atau Run ChatGPT untuk jalur ChatGPT dengan callback + Ed25519 attestation + final ACK.
+            {gpt02PicAudit?.auditMatchesCurrent
+              ? "Belum ada execution. Penugasan PIC sudah diaudit, tetapi Run Worker via GPT01 tidak diizinkan. Lifecycle GPT02 masih NO-GO sampai seluruh bukti resmi lengkap."
+              : "Belum ada execution. Run Worker hanya untuk alur non-GPT02 yang terotorisasi; jalur GPT02 harus memenuhi gate otorisasi dan bukti E2E sebelum dispatch."}
           </div>
         )}
       </div>

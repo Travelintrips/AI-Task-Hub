@@ -5,6 +5,27 @@
  * AI Task Center API specification
  * OpenAPI spec version: 0.1.0
  */
+export interface VpsStorageItem {
+  id: string;
+  name: string;
+  sizeDisplay: string;
+  created: string;
+  protected: boolean;
+  reason: string;
+}
+
+export interface VpsStorageCategory {
+  id: string;
+  title: string;
+  items: VpsStorageItem[];
+}
+
+export interface VpsStorageInventory {
+  generatedAt: string;
+  readOnly: boolean;
+  categories: VpsStorageCategory[];
+}
+
 export interface HealthStatus {
   status: string;
 }
