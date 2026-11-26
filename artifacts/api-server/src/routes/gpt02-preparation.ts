@@ -11,7 +11,6 @@ import {
 } from "../lib/gpt02-preparation-admission.mjs";
 import { createCoreTaskPreparer } from "../lib/gpt02-core-task-preparation.mjs";
 import { assessGpt02PreparerCatalog } from "../lib/gpt02-preparer-readiness.mjs";
-import { hasRecentVerifiedGpt02DevGoogleOperator } from "../lib/gpt02-google-auth-gate.mjs";
 import { hasRecentVerifiedGpt02DevGoogleOperator, preparationReadinessForOperator } from "../lib/gpt02-google-auth-gate.mjs";
 
 const router: IRouter = Router();
