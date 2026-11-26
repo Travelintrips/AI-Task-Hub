@@ -97,6 +97,9 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+      - name: Verify task-scoped preparer mount in isolated Docker
+        if: github.head_ref == 'fix/dev-fresh-gpt02-preparation'
+        run: bash scripts/dev/test-gpt02-task-scoped-mount.sh
       - name: Task183 Owner receipt status UI regression (isolated)
         run: node --test scripts/dev/task183-owner-receipt-toast-gate.test.mjs
       - name: Task183 GPT02-only repository policy boundary regression
@@ -188,6 +191,8 @@ jobs:
           corepack enable
           corepack prepare pnpm@10.33.0 --activate
           pnpm --version
+      - name: Check available actions for fresh GPT02 tasks
+        run: node --test scripts/dev/gpt02-preparation-action.test.mjs
       - name: Install locked dependencies without environment secrets
         run: pnpm install --frozen-lockfile
       - name: Type-check workspace libraries and Task183 frontend
