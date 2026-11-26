@@ -78,7 +78,7 @@ try {
   assert.ok(detail.includes("NOT_RECORDED"));
   assert.ok(detail.includes("reasonCategory: row.reason_category"));
   assert.ok(detail.includes("res.json({ events: result.rows, failureDiagnostic })"));
-  assert.ok(!/\\b(?:INSERT INTO|UPDATE ai_|DELETE FROM|FOR UPDATE)\\b/.test(detail));
+  assert.ok(!/\b(?:INSERT\s+INTO|UPDATE\s+|DELETE\s+FROM|FOR\s+UPDATE)\b/i.test(detail));
   assert.ok(!detail.includes("r.message"));
   assert.ok(!detail.includes("reason: row"));
   assert.ok(!detail.includes("metadata: row"));
