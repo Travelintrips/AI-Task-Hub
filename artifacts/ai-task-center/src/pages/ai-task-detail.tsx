@@ -740,6 +740,7 @@ export default function AiTaskDetail() {
     taskId:number;signingReady:boolean;decisionDurationSeconds:number;
     successorRequestId?: string | null;
     ownerDecisionStatus?: "not_recorded" | "recorded" | "expired" | "successor_reserved" | "renewal_review_pending" | "unavailable";
+    ownerDecisionStatus?: "not_recorded" | "recorded" | "expired" | "successor_reserved" | "successor_recorded" | "unavailable";
     issuerAuthorized:false;dispatchPermitted:false;readOnly:true;
   }>({
     queryKey:["task183-owner-approval-readiness",id],
@@ -1365,6 +1366,15 @@ export default function AiTaskDetail() {
     diagnosticReasons: gpt02Lineage?.diagnosticReasons,
   });
 
+  const successorRecorded = task183OwnerSigningReadiness?.ownerDecisionStatus === "successor_recorded";
+  const ownerDecisionDone = successorRecorded || task183OwnerDecisionMutation.isSuccess;
+  const ownerActionBlock = currentUser?.role !== "super_admin" ? "Persetujuan memerlukan sesi Super Admin." :
+    task183RecoveryEvidence?.readOnly !== true || task183RecoveryEvidence.ownerApprovalGranted !== false ? "Bukti review pemulihan belum terverifikasi." :
+    !task183ReviewAck?.recorded ? "Konfirmasi pembacaan bukti belum tercatat." :
+    !task183RecoveryConsentStatus?.recorded ? "Niat pemulihan belum terverifikasi." :
+    !task183OwnerIdentity?.eligible || !task183OwnerIdentity.googleSessionVerified || !task183OwnerIdentity.enabledOperatorLinkVerified ? "Identitas Owner pada sesi ini belum terverifikasi." :
+    task183Postprep?.corePreparations !== 1 || task183Postprep.reservationCurrent || task183Postprep.status !== "NO_GO_RESERVATION_EXPIRED" ? "Status reservasi pemulihan belum memenuhi syarat." :
+    task183OwnerSigningReadiness?.signingReady !== true ? "Layanan penandatanganan belum siap." : "";
   return (
     <div className="max-w-5xl mx-auto p-6 space-y-6">
 
@@ -1396,6 +1406,31 @@ export default function AiTaskDetail() {
             )}
           </div>
           <h1 className="text-xl font-semibold text-gray-900 leading-tight">{task.title}</h1>
+          {task.id === 183 && (
+            <div className="mt-3 space-y-1">
+              <Button type="button" size="sm" variant="outline"
+                data-testid="task183-explicit-owner-approval"
+                disabled={ownerDecisionDone || !!ownerActionBlock || task183OwnerDecisionMutation.isPending ||
+                  task183OwnerDecisionMutation.isSuccess ||
+                  task183RecoveryConsentStatus?.recorded!==true ||
+                  (task183OwnerSigningReadiness?.ownerDecisionStatus!=="not_recorded" &&
+                   !(task183OwnerSigningReadiness?.ownerDecisionStatus==="successor_reserved" &&
+                     task183OwnerSigningReadiness.successorRequestId)) ||
+                  task183OwnerSigningReadiness?.signingReady!==true ||
+                  task183Postprep?.status!=="NO_GO_RESERVATION_EXPIRED"}
+                onClick={()=>{
+                  if(window.confirm("Setujui satu keputusan Owner untuk recovery attempt #2 Task #183? Keputusan akan dicatat ke database DEV melalui sesi Super Admin Anda. Layanan DEV akan mencoba menandatangani keputusan ini satu kali."))
+                    task183OwnerDecisionMutation.mutate(task183OwnerSigningReadiness?.successorRequestId ?? null);
+                }}>
+                {task183OwnerDecisionMutation.isPending
+                  ? "Mencatat keputusan Owner..."
+                  : ownerDecisionDone
+                    ? "Keputusan Owner sudah tercatat"
+                    : "Setujui recovery attempt #2 (tanpa eksekusi)"}
+              </Button>
+              {!ownerDecisionDone && ownerActionBlock && <p role="status" className="text-sm">{ownerActionBlock}</p>}
+            </div>
+          )}
           {task.customerName && (
             <p className="text-sm text-gray-500 mt-0.5">
               {task.customerName}
@@ -1807,13 +1842,15 @@ export default function AiTaskDetail() {
                                           ? "Keputusan Owner sudah tercatat"
                                           : "Setujui recovery attempt #2 (tanpa eksekusi)"}
                                     </Button>
+                                      {ownerDecisionDone ? "Keputusan Owner sudah tercatat." : "Keputusan final memerlukan tindakan Anda secara eksplisit."}</p>
+
                                     {task183OwnerSigningReadiness?.ownerDecisionStatus==="successor_reserved" && (
                                       <p role="status">Permintaan pengganti sudah tersedia. Persetujuan menunggu kesiapan jalur penandatanganan untuk permintaan ini.</p>
                                     )}
                                     {task183OwnerSigningReadiness?.ownerDecisionStatus==="expired" && (
                                       <p role="status">Keputusan Owner sudah tercatat dan kedaluwarsa. Pemulihan memerlukan jalur keputusan pengganti.</p>
                                     )}
-                                    {task183OwnerSigningReadiness?.signingReady!==true && (
+                                    {!ownerDecisionDone && task183OwnerSigningReadiness?.signingReady!==true && (
                                       <p role="status" data-testid="task183-signer-not-ready">
                                         Persetujuan final dikunci sampai broker receipt dan
                                         signer DEV aktif dan terverifikasi. Keputusan Owner
