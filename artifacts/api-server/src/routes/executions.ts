@@ -122,7 +122,12 @@ async function syncExecution(execution: typeof aiExecutionJobsTable.$inferSelect
     finalAckVerified = false;
   }
 
-  const commandMetadata = asRecord(timeline.commandMetadata);
+  if (commandMetadata["e2eCode"] === "MCP_ACK_VERIFIED" ||
+      commandMetadata["e2eCode"] === "E2E_VERIFIED") {
+    finalAckVerified = true;
+  }
+  if (commandMetadata["deliveryCode"] === "DELIVERY_CONFIRMED") {
+    callbackVerified = true;
   // For attested mode, do not accept unverified booleans or delivery labels
   // from the timeline as proof of a signed terminal acknowledgement.
   if (!requiresAttestedFinalAck) {
@@ -145,6 +150,21 @@ async function syncExecution(execution: typeof aiExecutionJobsTable.$inferSelect
     const hasFlag = flag(checkpoint, metadata);
     const getText = textValue(checkpoint, metadata);
 
+    callbackVerified ||= hasFlag(["callbackVerified", "verifiedCallback", "callback_verified"]) ||
+      checkpoint["deliveryCode"] === "DELIVERY_CONFIRMED" ||
+      metadata["deliveryCode"] === "DELIVERY_CONFIRMED";
+    const attestation = asRecord(metadata["attestation"]);
+    attestationVerified ||= hasFlag(["attestationVerified", "verifiedAttestation", "attestation_verified"]) ||
+      (metadata["verified"] === true &&
+       metadata["verifiedAssistantReply"] === true &&
+       attestation["algorithm"] === "Ed25519" &&
+       typeof attestation["signature"] === "string" &&
+       String(attestation["signature"]).length > 80);
+    finalAckVerified ||= hasFlag(["finalAckVerified", "ackVerified", "final_ack_verified"]) ||
+      checkpoint["e2eCode"] === "MCP_ACK_VERIFIED" ||
+      metadata["e2eCode"] === "MCP_ACK_VERIFIED" ||
+      checkpoint["e2eCode"] === "E2E_VERIFIED" ||
+      metadata["e2eCode"] === "E2E_VERIFIED";
     if (!requiresAttestedFinalAck) {
       callbackVerified ||= hasFlag(["callbackVerified", "verifiedCallback", "callback_verified"]) ||
         checkpoint["deliveryCode"] === "DELIVERY_CONFIRMED" ||
