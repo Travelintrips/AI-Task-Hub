@@ -47,7 +47,9 @@ test("onboarding endpoint is scoped to CST-DEV and performs read-only gateway ch
   assert.match(onboarding, /const custResult = customerQueryFailed\s*\?\s*\{ rows: \[\{ total: 0, with_wa: 0 \}\] \}/);
   assert.match(onboarding, /FROM public\.customers WHERE company_id = \$\{Number\(numericCompany\)\}/);
   assert.match(onboarding, /FROM customers WHERE company_id = \$\{companyId\}/);
-  assert.match(onboarding, /status: customerQueryFailed \? "unavailable" : "ok"/);
+  assert.match(onboarding, /status: customerQueryFailed \? "unavailable" : customerVerificationPending \? "awaiting_verified_customer" : "ok"/);
+  assert.match(onboarding, /done: !customerQueryFailed && !customerVerificationPending/);
+  assert.match(onboarding, /fleet: fleetStep/);
   assert.doesNotMatch(src, /company_id IS NULL OR/);
 });
 
