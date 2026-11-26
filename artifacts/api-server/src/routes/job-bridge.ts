@@ -490,15 +490,7 @@ router.get("/bridge/admin/jobs/:id/events", ...adminOnly, async (req: Request, r
             coalesce(c.metadata_json->>'e2eCode' = 'UNKNOWN_UNVERIFIED', false) AS e2e_unverified
           FROM ai_task_bridge.jobs j
           JOIN ai_platform.ai_coding_bridge_commands c ON c.id = CASE
-            WHEN j.external_id ~ '^bridge-command:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}
-  } catch (error) { queryError(res, error); }
-});
-
-attachBridgeCleanupRoutes(router);
-attachBridgeDashboardVisibilityRoutes(router);
-
-export default router;
-
+            WHEN j.external_id ~ '^bridge-command:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
             THEN split_part(j.external_id, ':', 2)::uuid ELSE NULL END
           LEFT JOIN LATERAL (
             SELECT id, metadata_json FROM ai_platform.ai_coding_bridge_responses
