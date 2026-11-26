@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import {assessGpt02PreparerCatalog as assess} from '../src/lib/gpt02-preparer-readiness.mjs';
 const now=Date.parse('2026-11-14T09:10:00Z');
 const role={role:'gpt02_core_prep_login',canLogin:true,passwordVerifierReady:true,
- connectionLimit:1,activeSessions:0,memberships:0,superuser:false,bypassRls:false,
+ connectionLimit:1,activeSessions:0,knownPooledIdleSessions:0,
+ unexpectedIdleSessions:0,memberships:0,superuser:false,bypassRls:false,
  createRole:false,createDb:false,replication:false,inherit:false,
  canCreateDatabase:false,validUntil:new Date(now+90_000)};
 const denied=(patch,why)=>{
@@ -17,6 +18,22 @@ test('bounded inactive-risk login is catalogue eligible but not authenticated or
  assert.equal(r.catalogReady,true);
  assert.equal(r.reason,'PREPARER_ACCOUNT_SCOPED_NOT_YET_AUTHENTICATED');
  assert.equal(r.dispatchPermitted,false);
+});
+test('one idle Supavisor pooled backend is allowed only with independent TLS check later',()=>{
+ const r=assess({...role,knownPooledIdleSessions:1},now);
+ assert.equal(r.catalogReady,true);
+ assert.equal(r.dispatchPermitted,false);
+ assert.equal(r.reason,'PREPARER_ACCOUNT_SCOPED_NOT_YET_AUTHENTICATED');
+});
+test('untrusted or concurrent sessions fail closed even if idle pooler is present',()=>{
+ const deniedReason='GPT02_PREPARER_CONNECTION_LIMIT_NOT_VERIFIED';
+ denied({knownPooledIdleSessions:2},deniedReason);
+ denied({knownPooledIdleSessions:-1},deniedReason);
+ denied({knownPooledIdleSessions:undefined},deniedReason);
+ denied({unexpectedIdleSessions:1},deniedReason);
+ denied({unexpectedIdleSessions:undefined},deniedReason);
+ denied({activeSessions:1,knownPooledIdleSessions:1},deniedReason);
+ denied({connectionLimit:2,knownPooledIdleSessions:1},deniedReason);
 });
 test('current actual DEV role NOLOGIN is denied',()=>{
  denied({canLogin:false,passwordVerifierReady:false,connectionLimit:0,
@@ -60,4 +77,8 @@ test('server route uses database-backed, independently authenticated role proof'
   'submitAiTaskCommand(', 'submitAiTaskChatGptCommand('])
    assert.ok(!get.includes(forbidden),forbidden);
  assert.ok(route.includes("a.rolpassword IS NOT NULL"));
+ assert.ok(route.includes("knownPooledIdleSessions"));
+ assert.ok(route.includes("unexpectedIdleSessions"));
+ assert.ok(route.includes("s.state IS DISTINCT FROM 'idle'"));
+ assert.ok(route.includes("s.application_name='Supavisor'"));
 });

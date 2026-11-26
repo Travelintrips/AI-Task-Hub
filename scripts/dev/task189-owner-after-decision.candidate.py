@@ -1,0 +1,75 @@
+#!/usr/bin/env python3
+"""One-shot post-decision handoff after authenticated Task189 Owner POST.
+
+NEVER grants authority, retries after failure, calls this module on startup,
+or fabricates Owner approval. This is called ONLY after the existing writer
+commits exact Owner decision and matching outbox. No signing happens if
+the independently authorized release gate is absent.
+"""
+from pathlib import Path
+import os
+import re
+import stat
+import subprocess
+
+REQUEST="66ae915fde2dc1aab68b55272a7107cb3e4b"
+HANDOFF=Path("/opt/ai-coding-standalone-dev/qa/task189-owner-signer-one-shot.candidate.py")
+LIMIT=16
+
+class HandoffDenied(RuntimeError):pass
+
+def validate_writer_result(decision,expected_request=None):
+    if (type(decision) is not dict or
+        decision.get("requestId")!=(REQUEST if expected_request is None else expected_request) or
+        (expected_request is not None and not re.fullmatch("[a-f0-9]{36}",expected_request)) or
+        decision.get("recorded") is not True or
+        decision.get("ownerDecisionStored") is not True or
+        decision.get("cryptographicOwnerSignatureCreated") is not False or
+        decision.get("issuerAuthorized") is not False or
+        decision.get("attemptIssued") is not False or
+        decision.get("dispatchPermitted") is not False or
+        decision.get("releaseDecision")!="NO_GO"):
+        raise HandoffDenied("UNTRUSTED_COMMITTED_OWNER_DECISION")
+
+def run_handoff(decision,*,expected_request=None,runner=None,path=HANDOFF):
+    validate_writer_result(decision,expected_request)
+    if os.geteuid()!=0:raise HandoffDenied("ROOT_SERVER_REQUIRED")
+    p=Path(path)
+    st=os.lstat(p)
+    if (not stat.S_ISREG(st.st_mode) or p.is_symlink() or
+        st.st_uid!=0 or st.st_gid!=0 or stat.S_IMODE(st.st_mode)!=0o400):
+        raise HandoffDenied("ONE_SHOT_SCRIPT_SOURCE_UNTRUSTED")
+    if runner is None:runner=subprocess.run
+    try:
+        args=["/usr/bin/python3",str(p),"--execute"]
+        if expected_request is not None:
+            args.extend(["--request-id",expected_request])
+        proc=runner(args,
+            capture_output=True,text=True,timeout=LIMIT,check=False)
+    except (OSError,subprocess.SubprocessError):
+        return {"taskId":189,"ownerDecisionStored":True,
+            "signedEvidenceVerified":False,"manualReviewRequired":True,
+            "issuerAuthorized":False,"dispatchPermitted":False,
+            "releaseDecision":"NO_GO"}
+    # Handoff prints this line ONLY after detached Ed25519 signature
+    # and durable broker receipt have BOTH verified.
+    success=(proc.returncode==0 and
+        proc.stdout.count("TASK189_ONE_SHOT_HANDOFF=PASS")==1 and
+        "ISSUER_AUTHORIZED=FALSE" in proc.stdout and
+        "DISPATCH_PERMITTED=FALSE" in proc.stdout)
+    registered=False
+    if success and expected_request is not None:
+        try:
+            unit=f"cst-task189-register-receipt@{expected_request}.service"
+            registration=runner(["/usr/bin/systemctl","start",unit],
+                capture_output=True,text=True,timeout=25,check=False)
+            registered=registration.returncode==0
+        except (OSError,subprocess.SubprocessError):
+            # A timed-out registration may have committed. Never retry here.
+            pass
+    return {"taskId":189,"ownerDecisionStored":True,
+        "signedEvidenceVerified":success,
+        "receiptRegistered":registered,
+        "manualReviewRequired":not success or (expected_request is not None and not registered),
+        "issuerAuthorized":False,"dispatchPermitted":False,
+        "releaseDecision":"NO_GO"}

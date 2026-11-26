@@ -1,0 +1,11 @@
+[Unit]
+Description=CST DEV Task 189 authenticated review intake
+[Service]
+ExecStart=/usr/bin/python3 -IB /opt/ai-coding-standalone-dev/qa/task189-owner-review-service.py
+StateDirectory=cst-dev-task189-recovery
+StateDirectoryMode=0700
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+UMask=0077
