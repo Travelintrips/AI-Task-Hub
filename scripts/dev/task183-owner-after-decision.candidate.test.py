@@ -39,8 +39,17 @@ with tempfile.TemporaryDirectory(prefix="task183-postdecision-fixture-") as td:
  successor="a"*36
  new_decision={**decision,"requestId":successor}
  rejected("STALE_CLICK_CANNOT_SELECT_SUCCESSOR",lambda:m.run_handoff(new_decision,expected_request=m.REQUEST,**kw))
- m.run_handoff(new_decision,expected_request=successor,**kw)
- ok("SUCCESSOR_PASSED_TO_ONE_SHOT",calls[-1][-2:]==["--request-id",successor])
+ receipt_result=m.run_handoff(new_decision,expected_request=successor,**kw)
+ ok("SUCCESSOR_PASSED_TO_ONE_SHOT",calls[-2][-2:]==["--request-id",successor])
+ ok("VERIFIED_SUCCESSOR_REGISTERS_EXACT_RECEIPT",receipt_result["receiptRegistered"] and
+    calls[-1]==["/usr/bin/systemctl","start",f"cst-task183-register-receipt@{successor}.service"])
+ def failed_registration(args,**kwargs):
+  if args[0]=="/usr/bin/systemctl":
+   raise subprocess.TimeoutExpired(args,25)
+  return runner(args,**kwargs)
+ uncertain=m.run_handoff(new_decision,expected_request=successor,runner=failed_registration,path=script)
+ ok("REGISTRATION_TIMEOUT_PRESERVES_SIGNATURE",uncertain["signedEvidenceVerified"] and
+    uncertain["manualReviewRequired"] and not uncertain["receiptRegistered"])
  bad=lambda *a,**k:SimpleNamespace(returncode=2,stdout="")
  result=m.run_handoff(decision,runner=bad,path=script)
  ok("ONE_SHOT_DENIAL_REPORTED_WITHOUT_RETRY",result["manualReviewRequired"] is True and result["signedEvidenceVerified"] is False)

@@ -69,6 +69,16 @@ on:
       - '.github/workflows/task183-root-supervisor-candidate.yml'
   pull_request:
     paths:
+      - 'AGENTS.md'
+      - 'docs/dev/TASK183_RECEIPT_SCHEMA_AND_CUSTODY_SCOPE_20261122.md'
+      - 'scripts/dev/task183-repo-policy-scope.test.mjs'
+      - 'scripts/dev/task183-read-issuer-receipt.py'
+      - 'scripts/dev/task183-receipt-verifier-grant-gate.test.py'
+      - 'scripts/dev/test-task183-receipt-column-grants-isolated.sh'
+      - 'artifacts/ai-task-center/src/pages/ai-task-detail.tsx'
+      - 'scripts/dev/task183-owner-receipt-toast-gate.test.mjs'
+      - 'scripts/dev/task183-owner-after-decision.candidate*.py'
+      - 'scripts/dev/cst-task183-register-receipt@.service'
       - 'scripts/dev/task183-owner-window-activate.candidate*.py'
       - 'scripts/dev/task183_successor_reservation*.py'
       - 'scripts/dev/task183-owner-approval-writer-dev*.py'
@@ -89,6 +99,17 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+      - name: Verify task-scoped preparer mount in isolated Docker
+        if: github.head_ref == 'fix/dev-fresh-gpt02-preparation'
+        run: bash scripts/dev/test-gpt02-task-scoped-mount.sh
+      - name: Task183 Owner receipt status UI regression (isolated)
+        run: node --test scripts/dev/task183-owner-receipt-toast-gate.test.mjs
+      - name: Task183 GPT02-only repository policy boundary regression
+        run: node --test scripts/dev/task183-repo-policy-scope.test.mjs
+      - name: Task183 verifier identity and scoped INSERT fail-closed regression
+        run: python3 scripts/dev/task183-receipt-verifier-grant-gate.test.py
+      - name: Task183 real PostgreSQL 17 column grants and forced RLS (synthetic only)
+        run: bash scripts/dev/test-task183-receipt-column-grants-isolated.sh
       - name: Verify successor reservation and issuer contract
         run: |
           python3 scripts/dev/task183_successor_reservation_test.py
@@ -158,3 +179,36 @@ jobs:
         run: |
           python3 scripts/dev/task183-pinned-approval-verifier.offline.test.py
           python3 scripts/dev/task183-pinned-broker-verifier.candidate.test.py
+
+  task183-frontend-build:
+    name: Task183 Owner UI TypeScript and production build (isolated CI)
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Enable repo-pinned pnpm
+        run: |
+          corepack enable
+          corepack prepare pnpm@10.33.0 --activate
+          pnpm --version
+      - name: Check available actions for fresh GPT02 tasks
+        run: node --test scripts/dev/gpt02-preparation-action.test.mjs
+      - name: Install locked dependencies without environment secrets
+        run: pnpm install --frozen-lockfile
+      - name: Type-check workspace libraries and Task183 frontend
+        run: |
+          pnpm run typecheck:libs
+          pnpm --filter @workspace/ai-task-center run typecheck
+      - name: Build Task183 frontend without deployment
+        run: pnpm --filter @workspace/ai-task-center run build
+      - name: Archive exact nonsecret frontend for isolated VPS preview
+        uses: actions/upload-artifact@v4
+        with:
+          name: task183-frontend-dist-${{ github.run_id }}
+          path: artifacts/ai-task-center/dist/
+          if-no-files-found: error
+          retention-days: 2

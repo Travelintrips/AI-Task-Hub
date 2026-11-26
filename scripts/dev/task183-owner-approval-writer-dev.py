@@ -131,18 +131,21 @@ def record(*,actor,evidence,explicit_action,db_path=LIVE_DB,
   if successor_request is not None:
    if not isinstance(successor_request,str) or not re.fullmatch('[a-f0-9]{36}',successor_request) or successor_request==REQUEST:
     _deny('INVALID_SUCCESSOR_REQUEST')
-   reservations=con.execute('''SELECT s.request_id FROM task183_successor_requests s
-    JOIN gpt02_task183_owner_recovery_decisions d ON d.id=s.predecessor_id
-    WHERE d.task_id=183 AND d.company_id='default' AND d.request_id=?
-      AND d.evidence_sha256=? AND d.owner_subject=? AND d.auth_user_id=?
-      AND d.expires_at_ms<=s.created_at_ms AND s.created_at_ms<=?
-      AND d.nonce<>? AND (SELECT count(*) FROM task183_successor_requests)=1''' ,
-    (REQUEST,SHA,claims['ownerSubject'],actor['authSupabaseId'],now_ms,claims['nonce'])).fetchall()
-   if reservations!=[(successor_request,)]:
-    _deny('MATCHING_SUCCESSOR_RESERVATION_REQUIRED')
+   reader_path=Path(__file__).resolve().with_name("task183-owner-recovery-decision-reader.py")
+   if operational:
+    info=reader_path.lstat()
+    if not stat.S_ISREG(info.st_mode) or info.st_uid or info.st_gid or stat.S_IMODE(info.st_mode)!=0o400:
+     _deny("INDEPENDENT_SOURCE_CUSTODY_INVALID")
+   spec=importlib.util.spec_from_file_location("task183_lineage_reader",reader_path)
+   reader=importlib.util.module_from_spec(spec)
+   spec.loader.exec_module(reader)
+   chain=reader.reserved_predecessors(con,successor_request,now_ms)
+   if (not chain or chain[-1][2]!=actor["authSupabaseId"] or chain[-1][3]!=claims["ownerSubject"]
+       or any(row[4]==claims["nonce"] for row in chain)):
+    _deny("MATCHING_SUCCESSOR_RESERVATION_REQUIRED")
    claims['requestId']=successor_request
    digest=hashlib.sha256(_canonical(claims)).hexdigest()
-   existing=1
+   existing=len(chain)
   for table in ('gpt02_task183_owner_recovery_decisions',
                 'gpt02_task183_owner_recovery_outbox'):
    if not con.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",(table,)).fetchone():

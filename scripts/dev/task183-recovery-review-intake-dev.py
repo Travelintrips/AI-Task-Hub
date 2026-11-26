@@ -161,6 +161,63 @@ def record_pending_request(*,actor,source,store_path=DB_PATH,now_ms=None):
         raise
     finally:db.close()
 
+def reserve_renewal_review(db, original_request, expired_request, now_ms):
+    """Stage an independent review after a signed successor expires. Grants no authority."""
+    db.execute("BEGIN IMMEDIATE")
+    try:
+        previous = db.execute("""
+            SELECT child.id FROM history.task183_successor_requests s
+            JOIN history.gpt02_task183_owner_recovery_decisions parent ON parent.id=s.predecessor_id
+            JOIN history.gpt02_task183_owner_recovery_decisions child ON child.request_id=s.request_id
+            JOIN history.gpt02_task183_owner_recovery_outbox o ON o.decision_id=child.id
+            JOIN custody.signature_receipts c ON c.request_id=child.request_id
+            JOIN main.reviews r ON r.request_id=parent.request_id
+            WHERE parent.request_id=? AND child.request_id=? AND parent.task_id=183
+              AND child.task_id=r.hub_task_id AND r.hub_task_id=183
+              AND parent.company_id=r.company_id AND child.company_id=r.company_id
+              AND r.company_id='default' AND r.owner_approval_granted=0 AND r.issuer_grant=0
+              AND r.dispatch_permitted=0 AND child.expires_at_ms<=?
+              AND o.request_id=child.request_id AND o.claims_sha256=child.claims_sha256
+              AND c.evidence_sha256=child.evidence_sha256 AND c.state='COMPLETED'
+              AND c.issuer_authorized=0 AND c.dispatch_permitted=0
+              AND NOT EXISTS (SELECT 1 FROM history.task183_successor_requests n
+                              WHERE n.predecessor_id=child.id)
+        """, (original_request,expired_request,now_ms)).fetchall()
+        if len(previous)!=1:
+            raise ValueError("EXPIRED_SIGNED_SUCCESSOR_REQUIRED")
+        db.execute("""CREATE TABLE IF NOT EXISTS renewal_reviews (
+            parent_request TEXT NOT NULL REFERENCES reviews(request_id),
+            expired_request TEXT PRIMARY KEY NOT NULL,
+            request_id TEXT UNIQUE NOT NULL,
+            created_at_ms INTEGER NOT NULL,
+            status TEXT NOT NULL CHECK(status='PENDING_INDEPENDENT_OWNER_REVIEW'))""")
+        db.execute("""INSERT INTO renewal_reviews VALUES(?,?,lower(hex(randomblob(18))),?,?)
+                      ON CONFLICT(expired_request) DO NOTHING""",
+                   (original_request,expired_request,now_ms,REVIEW_STATUS))
+        row=db.execute("SELECT request_id FROM renewal_reviews WHERE expired_request=?",
+                       (expired_request,)).fetchone()
+        db.commit()
+        return row[0]
+    except BaseException:
+        db.rollback()
+        raise
+
+
+def get_pending_renewal(actor,expired_request,store_path=DB_PATH):
+    """Return the review visible to this Super Admin for the exact expired successor."""
+    if actor.get("role")!="super_admin" or not actor.get("id") or actor.get("companyId") not in (None,"default"):
+        raise ValueError("SUPER_ADMIN_REQUIRED")
+    with sqlite3.connect(Path(store_path).as_uri()+"?mode=ro",uri=True,timeout=3) as db:
+        if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='renewal_reviews'").fetchone():
+            return None
+        row=db.execute("""SELECT n.request_id FROM renewal_reviews n
+            JOIN reviews r ON r.request_id=n.parent_request
+            WHERE r.hub_task_id=183 AND r.company_id='default' AND r.requested_by=?
+            AND n.expired_request=? AND n.status=?""",
+            (actor["id"],expired_request,REVIEW_STATUS)).fetchone()
+        return row[0] if row else None
+
+
 def get_status(actor,store_path=DB_PATH):
     if actor.get("role")!="super_admin":raise ValueError("SUPER_ADMIN_REQUIRED")
     loc=Path(store_path)
@@ -170,7 +227,12 @@ def get_status(actor,store_path=DB_PATH):
         row=db.execute("SELECT request_id,requested_by,status FROM reviews WHERE company_id='default' AND hub_task_id=183").fetchone()
         if not row:return {"requested":False,"status":"NOT_REQUESTED","approvalGranted":False,"dispatchPermitted":False}
         if row[1]!=actor.get("id"):raise ValueError("REQUEST_NOT_VISIBLE_TO_OTHER_USER")
-        return {"requested":True,"requestId":row[0],"status":row[2],"approvalGranted":False,"dispatchPermitted":False}
+        result={"requested":True,"requestId":row[0],"status":row[2],"approvalGranted":False,"dispatchPermitted":False}
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='renewal_reviews'").fetchone():
+            renewal=db.execute("SELECT request_id,status FROM renewal_reviews WHERE parent_request=? ORDER BY created_at_ms DESC LIMIT 1",(row[0],)).fetchone()
+            if renewal:
+                result["renewalReview"]={"requestId":renewal[0],"status":renewal[1]}
+        return result
     finally:db.close()
 
 def review_evidence_packet(actor, store_path=DB_PATH, actual_source=None, now_ms=None):

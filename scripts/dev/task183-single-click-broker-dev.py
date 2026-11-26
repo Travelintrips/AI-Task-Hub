@@ -241,7 +241,7 @@ def task183_owner_signing_ready():
     except (OSError,ValueError,KeyError,subprocess.SubprocessError):
         return False
 
-def task183_owner_decision_status(*,include_request=False):
+def task183_owner_decision_status(*,include_request=False,review_actor=None):
     uri="file:/opt/ai-coding-standalone-dev/tasks.db?mode=ro"
     db=sqlite3.connect(uri,uri=True,timeout=2)
     try:
@@ -251,6 +251,13 @@ def task183_owner_decision_status(*,include_request=False):
         successor=None
         if status=="successor_reserved":
             successor=db.execute("SELECT request_id FROM task183_successor_requests").fetchone()[0]
+        if status=="expired" and review_actor is not None:
+            table=db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='task183_successor_requests'").fetchone()
+            expired=db.execute("SELECT request_id FROM task183_successor_requests").fetchone() if table else None
+            if expired:
+                renewal=load_review_intake().get_pending_renewal(review_actor,expired[0])
+                if renewal:
+                    return "renewal_review_pending",renewal
         return status,successor
     finally:
         db.close()
@@ -331,10 +338,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 if actor.get("role")!="super_admin":
                     raise ValueError("SUPER_ADMIN_REQUIRED")
                 try:
-                    decision_status,successor=task183_owner_decision_status(include_request=True)
+                    decision_status,successor=task183_owner_decision_status(include_request=True,review_actor=actor)
                 except sqlite3.Error:
                     decision_status,successor="unavailable",None
-                self.reply(200,{"taskId":183,"ownerDecisionStatus":decision_status,"successorRequestId":successor,
+                self.reply(200,{"taskId":183,"ownerDecisionStatus":decision_status,
+                    "successorRequestId":successor if decision_status=="successor_reserved" else None,
+                    "renewalReviewRequestId":successor if decision_status=="renewal_review_pending" else None,
                     "signingReady":decision_status in ("not_recorded","successor_reserved") and task183_owner_signing_ready(),
                     "decisionDurationSeconds":120,"readOnly":True,
                     "issuerAuthorized":False,"dispatchPermitted":False,

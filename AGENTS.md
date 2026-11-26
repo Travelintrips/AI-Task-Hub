@@ -148,16 +148,17 @@ Jika konflik terdeteksi:
 
 ### CODE ENFORCEMENT (STRICT MODE)
 
-- ALL data persistence MUST use Supabase client only
-- NO other DB SDKs allowed
-- NO fallback database implementations
-- NO mock replacement of DB in production logic
+- ALL ordinary application data persistence MUST use the repository's approved Supabase clients / existing Drizzle integration against **Supabase PostgreSQL**. No other database system is allowed.
+- NO other DB SDKs in application routes, browser code, schedulers or general persistence. A **single proposed, review-gated CST-DEV-only exception** is the root-owned one-shot `scripts/dev/task183-read-issuer-receipt.py --record` invoked exclusively through `cst-task183-register-receipt@.service`. It uses native `psycopg` only against the existing CST-DEV Supabase PostgreSQL project to prove exact `session_user`, `current_user`, `SET LOCAL ROLE`, five-column INSERT grants and forced RLS in one transaction **after independent Owner signature verification**. It is NOT an application persistence fallback, a general SQL permission, or permission to use `service_role`, PROD, or new infrastructure.
+- This one-shot exception remains **NO-GO for live deployment or receipt writes** until repo code-owner/architecture approval, current signed evidence, least-privilege encrypted custody and fail-closed tests are confirmed. Any other native client remains prohibited.
+- NO fallback database implementations.
+- NO mock replacement of DB in production logic.
 
 ### MANDATORY PRE-CODE VALIDATION
 
 BEFORE writing ANY code involving data, AI MUST VERIFY:
-1. Is database = Supabase?
-2. Is schema inside `sport_center` namespace?
+1. Is database = Supabase PostgreSQL?
+2. Is schema authorized for the product being modified? **Sport Center tables** use `sport_center` / `scSchema`. **Existing GPT02 operational evidence** uses `gpt02_stage` and `gpt02_private` with their current RLS/FK/immutable security contracts. Existing AI Task `public` tables may only be used as already provisioned; **no new public tables** without explicit schema/DDL review.
 3. Is no external DB referenced?
 
 If any answer is NO → request missing context OR proceed with explicitly stated assumptions (no total block).
@@ -320,7 +321,7 @@ Web app untuk manajemen dan pemesanan fasilitas olahraga — customer-facing boo
 - Always run `pnpm --filter @workspace/api-spec run codegen` after changing `openapi.yaml`
 - Do NOT edit files in `lib/api-client-react/src/generated/` — they are overwritten by codegen
 - After updating `routes/index.ts`, the API server needs to rebuild (restart workflow)
-- DB is a **shared Supabase** instance — our tables live in a dedicated `sport_center` Postgres schema (via `pgSchema` in `lib/db/src/schema/_schema.ts`), NOT `public` (which holds ~150 tables from other apps). Always define new tables on `scSchema`. Runtime uses transaction pooler (6543); DDL/migrations need session pooler (5432).
+- **Sport Center scope only:** the shared Supabase instance stores **Sport Center tables** in the dedicated `sport_center` schema (`scSchema` via `pgSchema` in `lib/db/src/schema/_schema.ts`), NOT `public`. Always define new **Sport Center** tables on `scSchema`. Other applications' pre-existing scoped tables, notably GPT02's `gpt02_stage`/`gpt02_private` audit and custody ledgers, are not Sport Center tables and MUST NOT be moved or rewritten to satisfy this section. Transaction pooler (6543) is for ordinary Sport Center runtime; DDL uses session pooler (5432) only under authorized migrations.
 - The `Customers` page currently shows only registered users (role=customer), not anonymous bookings. Existing demo bookings are made without a user account, so the customers list may appear empty until actual user registrations occur.
 
 ## Pointers

@@ -177,6 +177,7 @@ jobs:
       - name: Verify idempotent Core coding task preparation without command dispatch
         run: |
           bash scripts/dev/test-gpt02-core-task-preparation-isolated.sh
+          bash scripts/dev/test-gpt02-task-scoped-mount.sh
           bash scripts/dev/test-gpt02-core-preparer-role-dormant-isolated.sh
           bash scripts/dev/test-gpt02-private-preparation-staging-inactive-isolated.sh
           GPT02_PRIVATE_SCHEMA_TEST_IMAGE=postgres:17-alpine bash scripts/dev/test-gpt02-private-schema-nonsuper-migrator-isolated.sh

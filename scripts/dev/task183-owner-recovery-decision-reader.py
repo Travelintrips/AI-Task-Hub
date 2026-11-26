@@ -23,6 +23,44 @@ def denied(reason):
       'signatureVerified':False,'persistedIndependentOwnerDecision':False,
       'issuerAuthorizationGranted':False,'dispatchPermitted':False}
 
+def reserved_predecessors(connection,request_id,now):
+    """Follow every immutable reservation from the original decision to the requested leaf."""
+    rows=connection.execute("""
+        SELECT d.request_id, s.request_id, d.auth_user_id, d.owner_subject,
+               d.nonce, s.created_at_ms, d.expires_at_ms, d.recorded_at_ms
+          FROM task183_successor_requests s
+          JOIN gpt02_task183_owner_recovery_decisions d ON d.id=s.predecessor_id
+          JOIN gpt02_task183_owner_recovery_outbox o ON o.decision_id=d.id
+           AND o.request_id=d.request_id AND o.claims_sha256=d.claims_sha256
+           AND o.nonce=d.nonce AND o.evidence_sha256=d.evidence_sha256
+           AND o.expires_at_ms=d.expires_at_ms AND o.recorded_at_ms=d.recorded_at_ms
+           AND o.auth_user_id=d.auth_user_id AND o.owner_subject=d.owner_subject
+         WHERE d.task_id=183 AND d.company_id='default' AND d.evidence_sha256=?
+         AND o.task_id=d.task_id AND o.company_id=d.company_id
+         AND o.auth_method=d.auth_method AND o.role_at_decision=d.role_at_decision
+    """,(EVIDENCE,)).fetchall()
+    count=connection.execute("SELECT count(*) FROM task183_successor_requests").fetchone()[0]
+    by_parent={r[0]:r for r in rows}
+    if len(by_parent)!=count or len(rows)!=count:
+        raise ValueError("SUCCESSOR_LEDGER_INVALID")
+    chain=[]
+    current=REQUEST
+    earliest=0
+    while current in by_parent:
+        row=by_parent.pop(current)
+        parent,child,auth,owner,nonce,created,expires,recorded=row
+        if (not re.fullmatch("[a-f0-9]{36}",child) or child==REQUEST
+            or not earliest<=recorded<expires<=created<=now
+            or (chain and tuple(row[2:4])!=tuple(chain[-1][2:4]))):
+            raise ValueError("SUCCESSOR_LINEAGE_INVALID")
+        chain.append(row)
+        earliest=created
+        current=child
+    if current!=request_id or by_parent:
+        raise ValueError("SUCCESSOR_LEAF_REQUIRED")
+    return chain
+
+
 def verify_lookup(x,now):
     return (type(x) is dict and set(x)=={
       'claimsSha256','taskId','requestId','evidenceSha256',
@@ -59,23 +97,13 @@ def read_decision(lookup, *, db_path=DB, operational=True, now=None):
         if has_ledger is not None:
             if has_ledger[0] != 'table':
                 return denied('SUCCESSOR_LEDGER_INVALID')
-            reservations = connection.execute("""
-                SELECT s.request_id, d.request_id AS original_request,
-                       d.auth_user_id, d.owner_subject, d.nonce, s.created_at_ms,
-                       d.expires_at_ms, d.evidence_sha256
-                  FROM task183_successor_requests s
-                  LEFT JOIN gpt02_task183_owner_recovery_decisions d
-                    ON d.id = s.predecessor_id AND d.task_id = 183 AND d.company_id = 'default'
-            """).fetchall()
-            if reservations:
-                if len(reservations) != 1 or request_id == REQUEST:
-                    return denied('ORIGINAL_REQUEST_SUPERSEDED_OR_LEDGER_AMBIGUOUS')
-                predecessor = reservations[0]
-                if (predecessor['original_request'] != REQUEST or
-                    predecessor['request_id'] != request_id or
-                    predecessor['evidence_sha256'] != EVIDENCE or
-                    not predecessor['expires_at_ms'] <= predecessor['created_at_ms'] <= now):
-                    return denied('SUCCESSOR_LINEAGE_INVALID')
+            try:
+                chain=reserved_predecessors(connection,request_id,now)
+            except ValueError as exc:
+                return denied(str(exc))
+            if chain:
+                row=chain[-1]
+                predecessor=dict(auth_user_id=row[2],owner_subject=row[3],nonce=row[4],created_at_ms=row[5])
         if request_id != REQUEST and predecessor is None:
             return denied('SUCCESSOR_RESERVATION_REQUIRED')
         # Both decision and immutable outbox must exist IN SAME DB SNAPSHOT.

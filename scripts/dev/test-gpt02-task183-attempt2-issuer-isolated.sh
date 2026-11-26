@@ -65,6 +65,18 @@ denied WRONG_OLD_ATTEMPT_DENIED task183_recovery_issuer "SELECT * FROM isolated.
 denied WRONG_OWNER_PROOF_DIGEST_DENIED task183_recovery_issuer "SELECT * FROM isolated.create_attempt2('default',183,'$old','$receipt','$digest')" INDEPENDENT_SIGNED_OWNER_RECEIPT_REQUIRED
 denied FOREIGN_TENANT_DENIED task183_recovery_issuer "SELECT * FROM isolated.create_attempt2('foreign',183,'$old','$receipt','$sha')" EXACT_ISSUER_SCOPE_REQUIRED
 denied WRONG_TASK_DENIED task183_recovery_issuer "SELECT * FROM isolated.create_attempt2('default',184,'$old','$receipt','$sha')" EXACT_ISSUER_SCOPE_REQUIRED
+# Hold this isolated transaction past a deliberately short fixture expiry.
+pg postgres -q <<'SQL'
+CREATE FUNCTION isolated.delay_fixture_insert() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN PERFORM pg_sleep(2); RETURN NEW; END $$;
+CREATE TRIGGER delay_test BEFORE INSERT ON isolated.core_tasks
+FOR EACH ROW EXECUTE FUNCTION isolated.delay_fixture_insert();
+SQL
+pg postgres -q -c "UPDATE isolated.signed_owner_receipts SET expires_at=clock_timestamp()+interval '1 second' WHERE id='$receipt'"
+denied EXPIRY_DURING_PREPARATION task183_recovery_issuer "$call" RECEIPT_CONSUMPTION_LOST
+test "$(query postgres 'SELECT (SELECT count(*) FROM isolated.core_tasks)+(SELECT count(*) FROM isolated.hub_jobs)+(SELECT count(*) FROM isolated.issued_attempts)+(SELECT count(*) FROM isolated.signed_owner_receipts WHERE consumed_at IS NOT NULL)')" = 0
+echo PASS:MID_TRANSACTION_EXPIRY_ROLLS_BACK_ALL_RECORDS
+pg postgres -q -c "DROP TRIGGER delay_test ON isolated.core_tasks; DROP FUNCTION isolated.delay_fixture_insert(); UPDATE isolated.signed_owner_receipts SET expires_at=to_timestamp($expires_ms/1000.0) WHERE id='$receipt'"
 for i in 1 2;do (query task183_recovery_issuer "$call" >/tmp/task183-race-"$NAME"-"$i" 2>/tmp/task183-race-"$NAME"-"$i".err || true) & done
 wait
 successes=0

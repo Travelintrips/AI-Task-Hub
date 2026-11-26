@@ -77,9 +77,11 @@ test('route is off by default, super admin + same origin + intent + scoped pool 
   const routes=await readFile(new URL('../src/routes/index.ts',import.meta.url),'utf8');
   for(const expected of ['req.user?.role !== "super_admin"','SAME_ORIGIN_REQUIRED',
     'EXPLICIT_PREPARE_ONLY_INTENT_REQUIRED','GPT02_CORE_PREPARATION_ENABLED',
-    'createCoreTaskPreparer({env:process.env,PoolClass:Pool})','assessGpt02PreparationAdmission',
+    'assessGpt02PreparationAdmission',
     'operatorApprovalGranted:false','dispatchPermitted:false','continuationScheduled:false',
     'commandDispatched:false']) assert.ok(route.includes(expected),expected);
+  const factoryCall='createCoreTaskPreparer({env:process.env,PoolClass:Pool,taskId})';
+  assert.equal(route.split(factoryCall).length-1,2,'both readiness and prepare must bind the route task');
   assert.ok(routes.includes('router.use(gpt02PreparationRouter);'));
   for(const forbidden of ['submitAiTaskCommand(', 'submitAiTaskChatGptCommand(',
     'createCommand(', 'startExecutionMutation(', 'process.env.SUPABASE_DATABASE_URL_DEV'])

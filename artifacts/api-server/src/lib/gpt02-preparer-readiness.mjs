@@ -18,7 +18,14 @@ export function assessGpt02PreparerCatalog(role,now=Date.now()){
     return blocked('GPT02_PREPARER_LOGIN_LOCKED');
   if(role.passwordVerifierReady!==true)
     return blocked('GPT02_PREPARER_PASSWORD_VERIFIER_MISSING');
-  if(role.connectionLimit!==1||role.activeSessions!==0)
+  // Supavisor keeps the same backend socket idle after a verified read-only
+  // TLS probe. It is not a second running preparer operation. Preserve the
+  // connlimit=1 boundary and reject ANY non-idle or foreign idle backend.
+  // Missing census columns always fail closed, rather than defaulting to 0.
+  if(role.connectionLimit!==1||role.activeSessions!==0||
+     !Number.isSafeInteger(role.knownPooledIdleSessions)||
+     role.knownPooledIdleSessions<0||role.knownPooledIdleSessions>1||
+     role.unexpectedIdleSessions!==0)
     return blocked('GPT02_PREPARER_CONNECTION_LIMIT_NOT_VERIFIED');
   const expires=role.validUntil instanceof Date?role.validUntil.getTime():
     typeof role.validUntil==='string'?Date.parse(role.validUntil):NaN;

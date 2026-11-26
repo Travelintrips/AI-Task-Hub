@@ -57,8 +57,19 @@ def run_handoff(decision,*,expected_request=None,runner=None,path=HANDOFF):
         proc.stdout.count("TASK183_ONE_SHOT_HANDOFF=PASS")==1 and
         "ISSUER_AUTHORIZED=FALSE" in proc.stdout and
         "DISPATCH_PERMITTED=FALSE" in proc.stdout)
+    registered=False
+    if success and expected_request is not None:
+        try:
+            unit=f"cst-task183-register-receipt@{expected_request}.service"
+            registration=runner(["/usr/bin/systemctl","start",unit],
+                capture_output=True,text=True,timeout=25,check=False)
+            registered=registration.returncode==0
+        except (OSError,subprocess.SubprocessError):
+            # A timed-out registration may have committed. Never retry here.
+            pass
     return {"taskId":183,"ownerDecisionStored":True,
         "signedEvidenceVerified":success,
-        "manualReviewRequired":not success,
+        "receiptRegistered":registered,
+        "manualReviewRequired":not success or (expected_request is not None and not registered),
         "issuerAuthorized":False,"dispatchPermitted":False,
         "releaseDecision":"NO_GO"}

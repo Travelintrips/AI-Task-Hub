@@ -90,7 +90,7 @@ CREATE FUNCTION isolated.create_attempt2(
  p_company text,p_task integer,p_old uuid,p_receipt uuid,p_original_sha text
 ) RETURNS TABLE(core_task_id uuid,hub_job_id uuid,candidate_command_id uuid,dispatch_permitted boolean)
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
-DECLARE oldrow record;approved record;cc uuid;hh uuid;candidate uuid;
+DECLARE oldrow record;approved record;use_time timestamptz;cc uuid;hh uuid;candidate uuid;
 BEGIN
  IF session_user<>'task183_recovery_issuer' OR p_company<>'default'
     OR p_task<>183 OR p_old IS NULL OR p_receipt IS NULL OR
@@ -131,8 +131,9 @@ BEGIN
  VALUES(hh,183,2,cc,'prepared',
     'gpt02-managed-preparation:default:183:attempt:2',
     'ai-task:default:183:attempt:2');
- UPDATE isolated.signed_owner_receipts SET consumed_at=clock_timestamp()
- WHERE id=p_receipt AND consumed_at IS NULL;
+ use_time:=clock_timestamp();
+ UPDATE isolated.signed_owner_receipts SET consumed_at=use_time
+ WHERE id=p_receipt AND consumed_at IS NULL AND verified_at<=use_time AND expires_at>use_time;
  IF NOT FOUND THEN RAISE EXCEPTION 'RECEIPT_CONSUMPTION_LOST'; END IF;
  INSERT INTO isolated.issued_attempts(company_id,task_id,attempt_number,
      old_attempt_id,core_task_id,hub_job_id,candidate_command_id,receipt_id,issuer_role)
