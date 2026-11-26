@@ -1,9 +1,14 @@
 import { Router, type IRouter, type Request, type Response } from "express";
-import { eq, asc } from "drizzle-orm";
+import { eq, asc, getTableColumns, sql } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import { recentGoogleOAuthEvidenceAt } from "../lib/vps-storage-google-session";
+import {
+  selectUniqueActiveGoogleDevProfile,
+  trustedGoogleDevProfilePin,
+  profileMatchesTrustedGoogleDevPin,
+} from "../lib/google-dev-profile-match";
 import { createClient } from "@supabase/supabase-js";
 import { db, usersTable, type UserRole, USER_ROLES } from "@workspace/db";
 import { signToken, requireAuth, requireRole, type AuthUser } from "../middleware/auth";
@@ -200,16 +205,46 @@ router.post("/auth/google", async (req: Request, res: Response): Promise<void> =
     }
 
     if (!isProduction) {
-      const [registeredUser] = await db
-        .select()
-        .from(usersTable)
-        .where(eq(usersTable.email, email))
-        .limit(1);
-
-      if (!registeredUser || !registeredUser.isActive) {
-        res.status(403).json({ error: "Google account is not registered or is inactive" });
+      // Reuse verified Supabase Auth app_metadata, as existing PROD OAuth does.
+      // Never trust user_metadata or infer the preferred role from a duplicate.
+      const pin = trustedGoogleDevProfilePin(authUser.app_metadata, USER_ROLES);
+      if (pin === "invalid") {
+        res.status(403).json({ error: "Invalid canonical Google account binding" });
         return;
       }
+      // CST-DEV has TEXT IDs, nullable email/company, and duplicate normalized
+      // email values. Detect ambiguity before choosing a profile for JWT minting.
+      const projection = {
+        ...getTableColumns(usersTable),
+        loginStatus: sql<string>`"users"."status"`,
+      };
+      const matchingProfiles = await db
+        .select(projection)
+        .from(usersTable)
+        .where(sql`lower(btrim(${usersTable.email})) = ${email}`)
+        .limit(2);
+      let uniqueProfile = selectUniqueActiveGoogleDevProfile(matchingProfiles, USER_ROLES);
+      if (pin !== "absent") {
+        if (matchingProfiles.length > 1) {
+          // Pin is a SELECT filter, never a role grant: re-check the exact
+          // TEXT user ID and verified email in the database, then re-check
+          // real role, company, is_active and status before signing a JWT.
+          const pinnedProfiles = await db
+            .select(projection)
+            .from(usersTable)
+            .where(sql`lower(btrim(${usersTable.email})) = ${email}
+              AND ${usersTable.id}::text = ${pin.id}`)
+            .limit(2);
+          uniqueProfile = selectUniqueActiveGoogleDevProfile(pinnedProfiles, USER_ROLES);
+        }
+        if (!profileMatchesTrustedGoogleDevPin(uniqueProfile, pin)) uniqueProfile = null;
+      }
+      if (!uniqueProfile) {
+        res.status(403).json({ error: "Google account is not registered, active and unambiguous" });
+        return;
+      }
+      // Keep the original API response and signed JWT field shape unchanged.
+      const { loginStatus: _loginStatus, ...registeredUser } = uniqueProfile;
 
       await db
         .update(usersTable)
