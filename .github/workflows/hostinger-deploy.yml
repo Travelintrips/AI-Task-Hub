@@ -24,6 +24,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
+      - name: Reject DEV deployment from stale workflow branch
+        if: github.event_name == 'workflow_dispatch' && inputs.target == 'development' && github.ref_name != 'develop'
+        run: |
+          echo '::error::DEV deployment must use the develop branch workflow. Start a new Run workflow with branch develop and target development.'
+          exit 1
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
         with:
@@ -267,8 +272,9 @@ jobs:
   deploy-development:
     needs: verify
     if: >-
-      (github.event_name == 'workflow_dispatch' && inputs.target == 'development') ||
-      (github.event_name == 'push' && github.ref_name == 'develop' && vars.HOSTINGER_AUTO_DEPLOY == 'true')
+      github.ref_name == 'develop' &&
+      ((github.event_name == 'workflow_dispatch' && inputs.target == 'development') ||
+       (github.event_name == 'push' && vars.HOSTINGER_AUTO_DEPLOY == 'true'))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: development
