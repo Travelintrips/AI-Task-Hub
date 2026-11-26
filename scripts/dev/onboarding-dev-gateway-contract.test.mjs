@@ -35,6 +35,17 @@ test("onboarding endpoint is scoped to CST-DEV and performs read-only gateway ch
   assert.match(src, /await probeJobWaDevGateway\(\)/);
   assert.doesNotMatch(src, /sendJobViaDevWaGateway/);
   assert.match(src, /productionChannelReady/);
-  assert.match(src, /company_id::text = \$\{companyId\}/);
+  // PR #233 uses the authenticated numeric company in DEV; keep the
+  // legacy PROD query and reject unresolved DEV companies before SQL.
+  // Behavioral coverage also runs in onboarding-customers-scope.test.mjs.
+  const onboarding = src.split('router.get("/system/onboarding-status"')[1]
+    .split('router.post("/system/ai-test"')[0];
+  assert.equal((onboarding.match(/\bconst custResult\b/g) ?? []).length, 1);
+  assert.match(onboarding, /const sessionCompany = req\.user\?\.companyId;/);
+  assert.match(onboarding, /let customerQueryFailed = isDev && !validNumericCompany;/);
+  assert.match(onboarding, /const custResult = customerQueryFailed\s*\?\s*\{ rows: \[\{ total: 0, with_wa: 0 \}\] \}/);
+  assert.match(onboarding, /FROM public\.customers WHERE company_id = \$\{Number\(numericCompany\)\}/);
+  assert.match(onboarding, /FROM customers WHERE company_id = \$\{companyId\}/);
+  assert.match(onboarding, /status: customerQueryFailed \? "unavailable" : "ok"/);
   assert.doesNotMatch(src, /company_id IS NULL OR/);
 });
