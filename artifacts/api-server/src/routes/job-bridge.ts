@@ -8,7 +8,8 @@ import {
 } from "../lib/job-bridge-validation";
 
 import { attachBridgeCleanupRoutes } from "./job-bridge-admin-cleanup";
-import { scopedDevLedgerRecoveryCommand, scopedDevLedgerRegistrationAllowed, scopedDevLedgerEventAllowed, SCOPED_DEV_PING_EVIDENCE_SQL } from "../lib/dev-passive-ledger-recovery";
+import { scopedDevLedgerRecoveryCommand, scopedDevLedgerRegistrationAllowed, scopedDevLedgerEventAllowed, SCOPED_DEV_PING_EVIDENCE_SQL, AUTO_DEV_PING_EVIDENCE_SQL, devLedgerEnvironmentAllowed, automaticDevPingSyncSince, canonicalDevPingId } from "../lib/dev-passive-ledger-recovery";
+import { DEV_BRIDGE_SOURCE_GAP_SQL, projectDevBridgeSourceGap, unavailableDevBridgeSourceGap, type DevBridgeSourceGap } from "../lib/dev-bridge-source-gap";
 import { attachBridgeDashboardVisibilityRoutes } from "./job-bridge-dashboard-visibility";
 import {
   parseAiCoreExternalId,
@@ -48,7 +49,7 @@ function queryError(res: Response, error: unknown): void {
 }
 
 // Idempotency is scoped by source. A replay returns the original persisted job.
-function registerBridgeJob(scoped = false) { return async (req: Request, res: Response): Promise<void> => {
+function registerBridgeJob(scoped: boolean | "automatic" = false) { return async (req: Request, res: Response): Promise<void> => {
   const input = req.body ?? {};
   const source = input.source;
   const externalId = requiredString(input.externalId);
@@ -62,11 +63,14 @@ function registerBridgeJob(scoped = false) { return async (req: Request, res: Re
   }
   try {
     if (scoped) {
-      const pinned = scopedDevLedgerRecoveryCommand(process.env, req.hostname);
+      const autoSince = scoped === "automatic" ? automaticDevPingSyncSince(process.env, req.hostname) : null;
+      const pinned = scoped === "automatic" ? (autoSince ? canonicalDevPingId(externalId) : null) : scopedDevLedgerRecoveryCommand(process.env, req.hostname);
       if (!pinned || !scopedDevLedgerRegistrationAllowed(pinned, { source, externalId, key, title, sessionId })) {
         res.status(403).json({ error: "DEV passive recovery scope denied" }); return;
       }
-      const evidence = await pool.query<{eligible: boolean}>(SCOPED_DEV_PING_EVIDENCE_SQL, [pinned]);
+      const evidence = autoSince
+        ? await pool.query<{eligible: boolean}>(AUTO_DEV_PING_EVIDENCE_SQL, [pinned, autoSince])
+        : await pool.query<{eligible: boolean}>(SCOPED_DEV_PING_EVIDENCE_SQL, [pinned]);
       if (evidence.rows[0]?.eligible !== true) {
         res.status(409).json({ error: "DEV passive recovery evidence missing" }); return;
       }
@@ -100,19 +104,21 @@ function registerBridgeJob(scoped = false) { return async (req: Request, res: Re
 }; }
 router.post("/bridge/jobs", requireBridge, registerBridgeJob());
 router.post("/bridge/dev-passive-recovery/jobs", requireBridge, registerBridgeJob(true));
+router.post("/bridge/dev-passive-sync/jobs", requireBridge, registerBridgeJob("automatic"));
 
 // Source-verified lifecycle observation. AI Core remains the sole dispatcher.
 // The receiver checks the persisted AI Core record and cannot be convinced
 // that a job is finished by a producer-supplied status alone.
-function observeBridgeSourceEvent(scoped = false) { return async (req: Request, res: Response): Promise<void> => {
+function observeBridgeSourceEvent(scoped: boolean | "automatic" = false) { return async (req: Request, res: Response): Promise<void> => {
   const id = uuidParam(req);
   const eventId = requiredString(req.body?.eventId, 180);
   const claimedStatus = requiredString(req.body?.status, 40);
   if (!safeUuid(id) || !eventId || !claimedStatus || !eventId.startsWith("ai-core:")) {
     res.status(400).json({ error: "Invalid source lifecycle event" }); return;
   }
-  const pinned = scoped ? scopedDevLedgerRecoveryCommand(process.env, req.hostname) : null;
-  if (scoped && (!pinned || claimedStatus !== "COMPLETED")) {
+  const autoSince = scoped === "automatic" ? automaticDevPingSyncSince(process.env, req.hostname) : null;
+  let pinned = scoped === true ? scopedDevLedgerRecoveryCommand(process.env, req.hostname) : null;
+  if (scoped && (!(pinned || autoSince) || claimedStatus !== "COMPLETED")) {
     res.status(403).json({ error: "DEV passive recovery scope denied" }); return;
   }
   const client = await pool.connect().catch(() => null);
@@ -132,6 +138,7 @@ function observeBridgeSourceEvent(scoped = false) { return async (req: Request, 
       res.status(404).json({ error: "AI Core source job not found" }); return;
     }
     if (scoped) {
+      if (autoSince) pinned = canonicalDevPingId(job.external_id);
       if (!pinned || job.source_session_id !== null || !scopedDevLedgerEventAllowed(pinned, {
         source: job.source, externalId: job.external_id, key: job.idempotency_key,
         owner: job.owner, leaseToken: job.lease_token, leaseUntil: job.lease_until,
@@ -140,7 +147,9 @@ function observeBridgeSourceEvent(scoped = false) { return async (req: Request, 
         await client.query("ROLLBACK");
         res.status(403).json({ error: "DEV passive recovery scope denied" }); return;
       }
-      const evidence = await client.query<{eligible:boolean}>(SCOPED_DEV_PING_EVIDENCE_SQL, [pinned]);
+      const evidence = autoSince
+        ? await client.query<{eligible:boolean}>(AUTO_DEV_PING_EVIDENCE_SQL, [pinned, autoSince])
+        : await client.query<{eligible:boolean}>(SCOPED_DEV_PING_EVIDENCE_SQL, [pinned]);
       if (evidence.rows[0]?.eligible !== true) {
         await client.query("ROLLBACK");
         res.status(409).json({ error: "DEV passive recovery evidence missing" }); return;
@@ -232,13 +241,17 @@ function observeBridgeSourceEvent(scoped = false) { return async (req: Request, 
   // Independently verify the canonical database after committing result.
   // This verifier cannot be controlled with only a worker-supplied result.
   if (callbackToVerify) {
-    void verifyAndAckAiCoreSource(id,callbackToVerify).catch((error: unknown) => {
+    const ack = autoSince && pinned
+      ? verifyAndAckAiCoreSource(id,callbackToVerify,{commandId:pinned,since:autoSince})
+      : verifyAndAckAiCoreSource(id,callbackToVerify);
+    void ack.catch((error: unknown) => {
       console.error("AI Core canonical ACK verification failed", error instanceof Error ? error.name : "unknown");
     });
   }
 }; }
 router.post("/bridge/jobs/:id/source-event", requireBridge, observeBridgeSourceEvent());
 router.post("/bridge/dev-passive-recovery/jobs/:id/source-event", requireBridge, observeBridgeSourceEvent(true));
+router.post("/bridge/dev-passive-sync/jobs/:id/source-event", requireBridge, observeBridgeSourceEvent("automatic"));
 
 // Atomic leasing. A stale worker cannot update a job after another owner takes its lease.
 router.post("/bridge/jobs/:id/claim", requireBridge, async (req: Request, res: Response): Promise<void> => {
@@ -509,10 +522,21 @@ router.get("/bridge/admin/jobs", ...adminOnly, async (req: Request, res: Respons
         console.warn("DEV passive event classification unavailable", error instanceof Error ? error.name : "unknown");
       }
     }
+    let sourceSyncGap: DevBridgeSourceGap | undefined;
+    if (devLedgerEnvironmentAllowed(process.env, req.hostname)) {
+      try {
+        const gap = await pool.query(DEV_BRIDGE_SOURCE_GAP_SQL);
+        sourceSyncGap = projectDevBridgeSourceGap(gap.rows);
+      } catch (error) {
+        sourceSyncGap = unavailableDevBridgeSourceGap();
+        console.warn("DEV source coverage unavailable", error instanceof Error ? error.name : "unknown");
+      }
+    }
     const jobs = result.rows.map(row => passiveIds.has(row.id)
       ? { ...row, queue_classification: "PASSIVE_EVENT" } : row);
     res.json({ jobs, hiddenTaskIds: hidden.rows.map(row => Number(row.entity_id)),
-      ...(passiveEventClassification ? { passiveEventClassification } : {}) });
+      ...(passiveEventClassification ? { passiveEventClassification } : {}),
+      ...(sourceSyncGap ? { sourceSyncGap } : {}) });
   } catch (error) { queryError(res, error); }
 });
 router.get("/bridge/admin/sessions", ...adminOnly, async (_req: Request, res: Response): Promise<void> => {

@@ -3,6 +3,7 @@ import { Link } from "wouter";
 import { useAuth } from "@/contexts/auth-context";
 import { getStoredToken } from "@/lib/auth-api";
 import { isPassiveBridgeEvent, type PassiveEventClassification } from "@/lib/bridge-queue-presentation";
+import { BridgeSourceGap, type SourceSyncGap } from "@/components/bridge-source-gap";
 import { RefreshCw, ExternalLink } from "lucide-react";
 
 type BridgeJob = {
@@ -17,7 +18,7 @@ type BridgeJob = {
   queue_classification?: string | null;
 };
 
-async function fetchRegistryJobs(): Promise<{ jobs: BridgeJob[]; passiveEventClassification?: PassiveEventClassification }> {
+async function fetchRegistryJobs(): Promise<{ jobs: BridgeJob[]; passiveEventClassification?: PassiveEventClassification; sourceSyncGap?: SourceSyncGap }> {
   const token = getStoredToken();
   const response = await fetch("/api/bridge/admin/jobs", {
     headers: token ? { Authorization: "Bearer " + token } : {},
@@ -73,6 +74,7 @@ export function BridgeJobVisibility({ location }: { location: "dashboard" | "ai-
           Dari {jobs.length} job terbaru: {verified.length} selesai dengan ACK terverifikasi, {needsAttention.length} perlu perhatian{data.passiveEventClassification === "AVAILABLE" ? `, ${jobs.filter(isPassiveBridgeEvent).length} event pasif` : ""}.
         </p>
         {data.passiveEventClassification === "UNAVAILABLE" && <p role="alert" className="text-xs text-amber-700">Klasifikasi event pasif belum dapat diverifikasi.</p>}
+        <BridgeSourceGap gap={data.sourceSyncGap} />
         {jobs.length === 0 && <p>Belum ada pekerjaan integrasi yang tercatat.</p>}
         <div className="flex flex-wrap gap-2">
           {jobs.slice(0, 4).map(job => (
