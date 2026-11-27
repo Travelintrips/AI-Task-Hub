@@ -9,7 +9,7 @@ const dashboard = read("pages/dashboard.tsx");
 const aiTasks = read("pages/ai-task-board.tsx");
 
 test("Stat cards filter the returned registry jobs", () => {
-  assert.match(registry, /type SummaryFilter = "all" \| "running" \| "waiting" \| "attention"/);
+  assert.match(registry, /type SummaryFilter = "all" \| "running" \| "waiting" \| "attention" \| "queued" \| "passive"/);
   assert.match(registry, /aria-pressed=\{filter === stat.key\}/);
   assert.match(registry, /onClick=\{\(\) => setFilter\(/);
   assert.match(registry, /filter === "attention" && attention\(j.status\)/);

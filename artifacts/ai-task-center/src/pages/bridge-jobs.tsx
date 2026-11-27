@@ -3,6 +3,7 @@ import { Fragment, useEffect, useState } from "react";
 import { Link } from "wouter";
 import { useAuth } from "@/contexts/auth-context";
 import { getStoredToken } from "@/lib/auth-api";
+import { isPassiveBridgeEvent, isExecutionQueued, type PassiveEventClassification } from "@/lib/bridge-queue-presentation";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -12,6 +13,7 @@ type Job = {
   id: string; source: string; external_id: string; source_session_id: string | null;
   title: string; status: string; owner: string | null; created_at: string;
   updated_at: string; callback_received_at: string | null; result_verified_at: string | null;
+  queue_classification?: string | null;
 };
 type Session = {
   source: string; session_id: string; state: string; owner: string | null;
@@ -21,7 +23,7 @@ type JobEvent = {
   event_id: string; kind: string; sender: string; received_at: string;
   payload: unknown;
 };
-type SummaryFilter = "all" | "running" | "waiting" | "attention";
+type SummaryFilter = "all" | "running" | "waiting" | "attention" | "queued" | "passive";
 
 type FailureDiagnostic = {
   source: "canonical_bridge_response";
@@ -109,7 +111,7 @@ export default function BridgeJobsPage() {
 
   const jobs = useQuery({
     queryKey: ["bridge-admin-jobs"],
-    queryFn: () => load<{ jobs: Job[] }>("/api/bridge/admin/jobs"),
+    queryFn: () => load<{ jobs: Job[]; passiveEventClassification?: PassiveEventClassification }>("/api/bridge/admin/jobs"),
     enabled: authorized, retry: false,
     refetchOnWindowFocus: false, refetchInterval: false,
   });
@@ -136,7 +138,9 @@ export default function BridgeJobsPage() {
     const matchesStatus = filter === "all" ||
       (filter === "running" && j.status === "RUNNING") ||
       (filter === "waiting" && j.status === "WAITING_FOR_ACK") ||
-      (filter === "attention" && attention(j.status));
+      (filter === "attention" && attention(j.status)) ||
+      (filter === "queued" && isExecutionQueued(j)) ||
+      (filter === "passive" && isPassiveBridgeEvent(j));
     const keyword = search.trim().toLowerCase();
     return matchesStatus && (!keyword ||
       [j.title, j.external_id, j.id, j.source].some(v => v.toLowerCase().includes(keyword)));
@@ -146,6 +150,9 @@ export default function BridgeJobsPage() {
     { key: "running", label: "Running", value: rows.filter(j => j.status === "RUNNING").length },
     { key: "waiting", label: "Menunggu ACK", value: rows.filter(j => j.status === "WAITING_FOR_ACK").length },
     { key: "attention", label: "Perlu perhatian", value: rows.filter(j => attention(j.status)).length },
+    ...(jobs.data?.passiveEventClassification ? [{ key: "queued" as const, label: "Antrean eksekusi", value: rows.filter(isExecutionQueued).length }] : []),
+    ...(jobs.data?.passiveEventClassification === "AVAILABLE" || rows.some(isPassiveBridgeEvent) ?
+      [{ key: "passive" as const, label: "Event pasif", value: rows.filter(isPassiveBridgeEvent).length }] : []),
   ];
 
   return (
@@ -179,7 +186,8 @@ export default function BridgeJobsPage() {
         </div>
       )}
 
-      <div className="grid gap-3 grid-cols-2 md:grid-cols-4">
+      {jobs.data?.passiveEventClassification === "UNAVAILABLE" && <p role="alert" className="text-sm text-amber-700">Klasifikasi event pasif belum dapat diverifikasi; antrean belum dipisahkan.</p>}
+      <div className="grid gap-3 grid-cols-2 md:grid-cols-3 lg:grid-cols-6">
         {stats.map((stat) => (
           <button type="button" key={stat.key}
             onClick={() => setFilter(current => current === stat.key && current !== "all" ? "all" : stat.key)}
@@ -236,15 +244,16 @@ export default function BridgeJobsPage() {
                       </button>
                     </td>
                     <td className="py-2 pr-4">{j.owner ?? "—"}</td>
-                    <td className="py-2 pr-4"><Badge variant={stateColor(j.status)}>{j.status}</Badge></td>
+                    <td className="py-2 pr-4"><Badge variant={stateColor(j.status)}>{j.status}</Badge>{isPassiveBridgeEvent(j) && <span className="block text-xs text-muted-foreground mt-1">Event pasif · bukan antrean worker</span>}</td>
                     <td className="py-2 pr-4 whitespace-nowrap tabular-nums">{inWib(j.created_at)}</td>
-                    <td className="py-2 pr-4 whitespace-nowrap tabular-nums" title={isTerminal(j.status) ? "Pembaruan: " + inWib(j.updated_at) : "Durasi berjalan"}>{elapsed(j.created_at, isTerminal(j.status) ? j.updated_at : null, now)}</td>
+                    <td className="py-2 pr-4 whitespace-nowrap tabular-nums" title={isTerminal(j.status) ? "Pembaruan: " + inWib(j.updated_at) : "Durasi berjalan"}>{isPassiveBridgeEvent(j) ? "—" : elapsed(j.created_at, isTerminal(j.status) ? j.updated_at : null, now)}</td>
                     <td className="py-2">{j.callback_received_at && j.result_verified_at ? "ACK " + inWib(j.result_verified_at) : "Belum diverifikasi"}</td>
                   </tr>
                   {selectedJobId === j.id && (
                     <tr><td colSpan={7} className="bg-slate-50 px-4 py-3">
                       <div className="space-y-2">
                         <p className="font-semibold">Riwayat event — {j.title}</p>
+                        {isPassiveBridgeEvent(j) && <p className="text-xs text-muted-foreground">EVENT_BINDING pasif; status registry tetap QUEUED. Tidak menyatakan notifikasi atau ACK berhasil.</p>}
                         <p className="text-xs text-muted-foreground break-all">Job ID: {j.id} · Sumber: {j.external_id}</p>
                         {j.status === "FAILED" && events.data?.failureDiagnostic && (
                           <div className="border rounded-md p-3 text-xs space-y-1 bg-white dark:bg-slate-900">
