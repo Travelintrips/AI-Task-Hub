@@ -19,7 +19,13 @@ async function apiFetch(path: string, init?: RequestInit) {
     ...init,
     headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(init?.headers ?? {}) },
   });
-  if (!res.ok) throw new Error(`${res.status}`);
+  if (!res.ok) {
+    const error = await res.json().catch(() => null);
+    if (res.status === 403 && typeof error?.error === "string" && error.error.startsWith("CRM_COMPANY_SCOPE_")) {
+      throw new Error("Akun harus terikat pada perusahaan aktif sebelum dapat menambah customer.");
+    }
+    throw new Error(`HTTP ${res.status}`);
+  }
   if (res.status === 204) return null;
   return res.json();
 }
@@ -50,13 +56,26 @@ export default function CustomersCrm() {
 
   const { data: customers = [], isLoading } = useQuery<Customer[]>({
     queryKey: ["crm-customers", search],
-    queryFn: () => apiFetch(`/crm/customers${search ? `?search=${encodeURIComponent(search)}` : ""}`),
+    queryFn: async () => {
+      // Current SQL list returns physical PostgreSQL field names. Normalize
+      // only presentation; do not infer a company or modify record ownership.
+      const rows = await apiFetch(`/crm/customers${search ? `?search=${encodeURIComponent(search)}` : ""}`);
+      if (!Array.isArray(rows)) throw new Error("Data customer tidak valid");
+      return rows.map((row) => ({
+        ...row,
+        companyName: row.companyName ?? row.company_name ?? "",
+        picName: row.picName ?? row.pic_name ?? null,
+        totalTasks: row.totalTasks ?? row.total_tasks ?? 0,
+        aiSummary: row.aiSummary ?? row.ai_summary ?? null,
+        createdAt: row.createdAt ?? row.created_at,
+      }));
+    },
   });
 
   const createMut = useMutation({
     mutationFn: (data: typeof emptyForm) => apiFetch("/crm/customers", { method: "POST", body: JSON.stringify(data) }),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["crm-customers"] }); setDialog(null); toast({ title: "Customer berhasil ditambahkan" }); },
-    onError: () => toast({ title: "Gagal menambahkan customer", variant: "destructive" }),
+    onError: (error: Error) => toast({ title: "Gagal menambahkan customer", description: error.message, variant: "destructive" }),
   });
 
   const updateMut = useMutation({
