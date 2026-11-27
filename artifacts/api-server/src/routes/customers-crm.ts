@@ -1,4 +1,4 @@
-import { Router, type IRouter, type Request, type Response } from "express";
+import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import { eq, and, desc, ilike, or, sql } from "drizzle-orm";
 import { db, customersTable, aiTasksTable } from "@workspace/db";
 import { requireAuth, getCompanyId, type AuthUser } from "../middleware/auth";
@@ -8,6 +8,7 @@ const router: IRouter = Router();
 
 // Owner approval, 27 Nov 2026 WIB: one existing Google Super Admin
 // may CREATE customers for CST company 1 in this exact DEV application.
+// Subsequent explicit Owner approval also permits the read-only CRM list.
 // This is NOT the onboarding alias, an account change or an edit/delete grant.
 function isApprovedLegacyCrmProfile(user: AuthUser | undefined, env: Record<string, string | undefined> = process.env, nowMs: number = Date.now()): boolean {
   if (env.NODE_ENV !== "development" ||
@@ -59,18 +60,102 @@ function crmProfileCompanyPredicate(user: AuthUser) {
     )`;
 }
 
+function isCstCrmDevRuntime(env: Record<string, string | undefined> = process.env): boolean {
+  return env.NODE_ENV === "development" &&
+    (env.APP_ENV === undefined || env.APP_ENV === "development") &&
+    env.PUBLIC_APP_BASE_URL === "https://dev-ai-task.cstlogistic.co.id" &&
+    env.SUPABASE_URL_DEV === "https://xssrfshdrtdfupgqwfdw.supabase.co";
+}
+
+// Restrict the entire CRM customer subtree, including customer-memory routes
+// mounted after this router. The legacy approval covers collection GET/POST
+// only. Do not promote it into detail, memory, edit, delete or another tenant.
+function resolveCrmSubtreeAccess(user: AuthUser | undefined, method: string, path: string, requestedCompany: unknown, env: Record<string, string | undefined> = process.env, nowMs: number = Date.now()): "bound" | "legacy_collection" | "deny" | "unchanged" {
+  if (!isCstCrmDevRuntime(env)) return "unchanged";
+  if (!user || user.id == null || typeof user.email !== "string" || !user.email.trim()) return "deny";
+  const raw = String(user.companyId ?? "");
+  if (/^[1-9][0-9]{0,9}$/.test(raw) && Number(raw) <= 2147483647) {
+    return requestedCompany === undefined || (typeof requestedCompany === "string" && requestedCompany === raw) ? "bound" : "deny";
+  }
+  if (!isApprovedLegacyCrmProfile(user, env, nowMs) || (path !== "/" && path !== "")) return "deny";
+  if (method === "GET" && (requestedCompany === undefined || requestedCompany === "1")) return "legacy_collection";
+  if (method === "POST" && requestedCompany === "1") return "legacy_collection";
+  return "deny";
+}
+
+router.use("/crm/customers", requireAuth, async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  const access = resolveCrmSubtreeAccess(req.user, req.method, req.path, req.query.companyId);
+  if (access === "deny") {
+    res.status(403).json({ error: "CRM_COMPANY_SCOPE_DENIED" }); return;
+  }
+  if (access === "bound") {
+    try {
+      const current = await db.execute(sql`
+        SELECT co.id FROM public.companies co
+        JOIN public.users u ON u.company_id = co.id
+        WHERE co.id = ${Number(req.user!.companyId)} AND co.is_active IS TRUE
+          AND u.id::text = ${String(req.user!.id)}
+          AND lower(btrim(u.email)) = lower(btrim(${req.user!.email}))
+          AND u.role = ${req.user!.role} AND u.is_active IS TRUE AND u.status = 'active'
+        LIMIT 2
+      `);
+      if (current.rows.length !== 1) { res.status(403).json({ error: "CRM_COMPANY_SCOPE_INACTIVE" }); return; }
+    } catch (err) {
+      logger.warn({ code: "CRM_COMPANY_SCOPE_UNAVAILABLE" }, "CRM profile recheck unavailable");
+      res.status(503).json({ error: "CRM_COMPANY_SCOPE_UNAVAILABLE" }); return;
+    }
+  }
+  next();
+});
+
 // GET /api/crm/customers
 router.get("/crm/customers", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  res.set("Cache-Control", "private, no-store");
   try {
-    const companyId = getCompanyId(req) ?? req.user!.companyId;
-    const { search } = req.query as Record<string, string | undefined>;
-
-    // company_id is INTEGER in DB — use raw SQL to avoid type mismatch
-    const result = await db.execute(sql`
-      SELECT * FROM customers WHERE company_id = ${Number(companyId) || 0}
-      ORDER BY updated_at DESC LIMIT 300
-    `);
-    let rows = ((result as unknown as { rows?: Record<string, unknown>[] }).rows ?? result as unknown as Record<string, unknown>[]);
+    const { search } = req.query;
+    if (search !== undefined && (typeof search !== "string" || search.length > 300)) {
+      res.status(400).json({ error: "Invalid search" }); return;
+    }
+    let rows: Record<string, unknown>[];
+    if (isApprovedLegacyCrmProfile(req.user)) {
+      const companyId = resolveCrmCreateCompany(req.user, req.query.companyId, {});
+      if (companyId !== 1) { res.status(403).json({ error: "CRM_COMPANY_SCOPE_DENIED" }); return; }
+      const profileCompany = crmProfileCompanyPredicate(req.user!);
+      // Return only the master-list fields, never task history or memory.
+      // Auth pin, live profile, company and customer ownership are checked
+      // in one SQL statement; distinguish an empty list from a revoked grant.
+      const result = await db.execute(sql`
+        WITH eligible AS (
+          SELECT co.id FROM public.companies co
+          JOIN public.users u ON ${profileCompany}
+          WHERE co.id = ${companyId} AND co.is_active IS TRUE
+            AND u.id::text = ${String(req.user!.id)}
+            AND lower(btrim(u.email)) = lower(btrim(${req.user!.email}))
+            AND u.role = ${req.user!.role}
+            AND u.is_active IS TRUE AND u.status = 'active'
+        ), customer_rows AS (
+          SELECT c.id, c.company_id, c.company_name, c.pic_name, c.whatsapp, c.email,
+            c.address, c.created_at, c.updated_at
+          FROM public.customers c JOIN eligible e ON e.id = c.company_id
+          ORDER BY c.updated_at DESC, c.id DESC LIMIT 300
+        )
+        SELECT EXISTS(SELECT 1 FROM eligible) AS authorized,
+          COALESCE((SELECT jsonb_agg(to_jsonb(r) ORDER BY r.updated_at DESC, r.id DESC) FROM customer_rows r), '[]'::jsonb) AS customers
+      `);
+      const row = result.rows[0] as { authorized?: boolean; customers?: unknown } | undefined;
+      if (row?.authorized !== true || !Array.isArray(row.customers)) {
+        res.status(403).json({ error: "CRM_COMPANY_SCOPE_INACTIVE" }); return;
+      }
+      rows = row.customers as Record<string, unknown>[];
+    } else {
+      // Existing bound-company path. The DEV subtree guard prevents overrides.
+      const companyId = getCompanyId(req) ?? req.user!.companyId;
+      const result = await db.execute(sql`
+        SELECT * FROM customers WHERE company_id = ${Number(companyId) || 0}
+        ORDER BY updated_at DESC LIMIT 300
+      `);
+      rows = ((result as unknown as { rows?: Record<string, unknown>[] }).rows ?? result as unknown as Record<string, unknown>[]);
+    }
     if (search) {
       const q = search.toLowerCase();
       rows = rows.filter((r) => String(r.company_name ?? "").toLowerCase().includes(q) || String(r.pic_name ?? "").toLowerCase().includes(q) || String(r.whatsapp ?? "").includes(q) || String(r.email ?? "").toLowerCase().includes(q));
@@ -133,6 +218,7 @@ router.get("/crm/customer-create-companies", requireAuth, async (req: Request, r
       companies: [{ id: companyId, code: String(rows[0]?.code ?? ""), name: String(rows[0]?.name ?? "") }],
       status: "ok",
       mode: isApprovedLegacyCrmProfile(req.user) ? "owner_approved_cst_create" : "bound_company",
+      canList: true,
     });
   } catch (err) {
     logger.error({ err }, "GET /crm/customer-create-companies failed");
