@@ -19,8 +19,15 @@ const router: IRouter = Router();
 // Only the default CST-DEV tenant may use the dedicated AI Core DEV gateway
 // as a WhatsApp setup signal. This probe is GET-only; never sends a message.
 async function readDevGatewayStatus(companyId: string) {
+  // The Hostinger legacy DEV compose runtime does not set APP_ENV. For
+  // this read-only health probe only, require both exact server-side CST-DEV
+  // identities, and reject every explicitly non-DEV APP_ENV. Do not set
+  // APP_ENV globally or enable any GPT02, inventory, or sender capability.
   if (process.env.NODE_ENV !== "development" ||
-      process.env.APP_ENV !== "development" ||
+      (process.env.APP_ENV !== undefined &&
+        process.env.APP_ENV !== "development") ||
+      process.env.PUBLIC_APP_BASE_URL !== "https://dev-ai-task.cstlogistic.co.id" ||
+      process.env.SUPABASE_URL_DEV !== "https://xssrfshdrtdfupgqwfdw.supabase.co" ||
       companyId !== "default") return null;
 
   if (!jobWaConfig().ready) {
@@ -249,15 +256,50 @@ router.get("/system/onboarding-status", requireAuth, async (req: Request, res: R
     const custRow = safeRows(custResult)[0] ?? {};
     const scopedCustomerTotal = parseInt(String(custRow.total ?? "0"), 10);
     const scopedCustomerPhones = parseInt(String(custRow.with_wa ?? "0"), 10);
-    // Issue #197: current CST assigned row #33 has a test marker; no real
-    // customer has yet been approved. Counts are evidence, not verification.
-    const customerVerificationPending = isCstDevRuntime && numericCompany === "1";
+    // Issue #197: explicit Owner approval (27 Nov 2026 WIB) and the
+    // operator-recorded audit receipt are paired with the existing master.
+    // Generic audit writes can carry arbitrary action names, so do not trust
+    // such names alone. Only the reviewed DEV receipt/master pair qualifies.
+    // Future evidence pairs require explicit approval, not arbitrary CRM logs.
+    const requiresCstCustomerEvidence = isCstDevRuntime && numericCompany === "1";
+    let verifiedCustomerTotal = 0;
+    let verifiedCustomerPhones = 0;
+    if (requiresCstCustomerEvidence && !customerQueryFailed) {
+      const evidence = await db.execute(sql`
+        SELECT COUNT(*) AS total, COUNT(CASE WHEN nullif(btrim(c.whatsapp), '') IS NOT NULL THEN 1 END) AS with_wa
+        FROM public.customers c
+        JOIN public.companies co ON co.id = c.company_id AND co.code = 'CST' AND co.is_active IS TRUE
+        JOIN public.audit_logs a ON a.id = 2656 AND a.entity_id = c.id::text
+          AND a.company_id = c.company_id::text
+        WHERE c.id = 34 AND c.company_id = ${Number(numericCompany)}
+          AND c.name = 'PT Avia Technics Dirgantara' AND c.company_name = c.name
+          AND a.action = 'customer_onboarding_owner_verified' AND a.entity_type = 'customer'
+          AND a.module = 'customers' AND a.user_name = 'ChatGPT operator on explicit Owner approval'
+          AND a.after_data->>'actor_type' = 'operator_on_behalf_of_owner'
+          AND a.after_data->>'customer_id' = c.id::text
+          AND a.after_data->>'company_id' = c.company_id::text
+          AND a.after_data->>'legal_name' = c.name
+          AND a.after_data->>'evidence_type' = 'customer_finance_confirmation_and_payment_advice'
+          AND a.after_data->>'evidence_reference' = '045/INVOICE-CST/X/2026'
+          AND a.after_data->>'owner_approval_date_wib' = '2026-11-27'
+          AND a.after_data->>'scope' = 'CST-DEV customer master only'
+      `).catch(() => {
+        customerQueryFailed = true;
+        logger.warn({ code: "ONBOARDING_CUSTOMER_EVIDENCE_UNAVAILABLE" }, "Customer evidence unavailable");
+        return { rows: [{ total: 0, with_wa: 0 }] };
+      });
+      const row = safeRows(evidence)[0] ?? {};
+      verifiedCustomerTotal = parseInt(String(row.total ?? "0"), 10);
+      verifiedCustomerPhones = parseInt(String(row.with_wa ?? "0"), 10);
+    }
+    const customerVerificationPending = requiresCstCustomerEvidence && verifiedCustomerTotal !== 1;
     const customerStep = {
       status: customerQueryFailed ? "unavailable" : customerVerificationPending ? "awaiting_verified_customer" : "ok",
-      done: !customerQueryFailed && !customerVerificationPending && scopedCustomerTotal >= 1,
-      total: customerVerificationPending ? 0 : scopedCustomerTotal,
-      withPhone: customerVerificationPending ? 0 : scopedCustomerPhones,
-      ...(customerVerificationPending && !customerQueryFailed ? { unverifiedCount: scopedCustomerTotal } : {}),
+      done: !customerQueryFailed && (requiresCstCustomerEvidence ? verifiedCustomerTotal === 1 : scopedCustomerTotal >= 1),
+      total: customerQueryFailed ? 0 : requiresCstCustomerEvidence ? verifiedCustomerTotal : scopedCustomerTotal,
+      withPhone: customerQueryFailed ? 0 : requiresCstCustomerEvidence ? verifiedCustomerPhones : scopedCustomerPhones,
+      ...(requiresCstCustomerEvidence && !customerQueryFailed
+        ? { unverifiedCount: Math.max(0, scopedCustomerTotal - verifiedCustomerTotal) } : {}),
     };
 
     // Fleet Intelligence already owns the active numeric CST inventory.
