@@ -44,6 +44,8 @@ test("PR196 built DEV API + Google login bundle run safely without live services
     SUPABASE_URL_DEV: "https://synthetic.invalid",
     AI_CORE_JOB_WA_ENABLED: "false",
     AI_TASK_DEV_SOURCE_RECONCILE_ENABLED: "false",
+    AI_TASK_BRIDGE_TOKEN: "synthetic-bridge-test-pr196-not-real-20261115",
+    AI_TASK_BRIDGE_ACK_TOKEN: "synthetic-ack-test-pr196-not-real-20261115",
     GPT02_CORE_PREPARATION_ENABLED: "false",
     DISABLE_BACKGROUND_SCHEDULERS: "true",
     DISABLE_STORAGE_BUCKET_AUTO_CREATE: "true",
@@ -111,6 +113,23 @@ test("PR196 built DEV API + Google login bundle run safely without live services
         signal: AbortSignal.timeout(3000),
       });
       assert.equal(response.status, 401, endpoint + " must require authentication");
+    }
+
+    // Recovery aliases must require the ordinary producer credential and remain
+    // closed when the single-command pin/project interlock is not provisioned.
+    const auditCommand = "11111111-1111-4111-8111-111111111111";
+    const auditJob = "22222222-2222-4222-8222-222222222222";
+    const ext = "bridge-command:" + auditCommand;
+    for (const [endpoint, body] of [
+      ["/api/bridge/dev-passive-recovery/jobs", { source: "AI_CORE", externalId: ext, idempotencyKey: ext, title: "AI Core bridge command 11111111" }],
+      ["/api/bridge/dev-passive-recovery/jobs/" + auditJob + "/source-event", { eventId: "ai-core:" + ext + ":COMPLETED:terminal", status: "COMPLETED" }],
+    ]) {
+      for (const [token, expected] of [[undefined,401],[env.AI_TASK_BRIDGE_ACK_TOKEN,401],[env.AI_TASK_BRIDGE_TOKEN,403]]) {
+        const res = await fetch(origin + endpoint, { method: "POST", headers: {
+          "Content-Type": "application/json", ...(token ? { Authorization: "Bearer " + token } : {}),
+        }, body: JSON.stringify(body), redirect: "manual", signal: AbortSignal.timeout(3000) });
+        assert.equal(res.status, expected, endpoint + " must fail closed before DB access");
+      }
     }
 
     const page = await fetch(origin + "/", { signal: AbortSignal.timeout(3000) });
