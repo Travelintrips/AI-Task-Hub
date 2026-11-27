@@ -52,14 +52,15 @@ sql=schema+"\nPREPARE evidence(uuid) AS "+query+";\n"
 id="11111111-1111-4111-8111-111111111111"
 def check(label, allowed, mutation=None, command_id=id):
  global sql
+ bs=chr(92)
  sql+="BEGIN;\n"
  if mutation: sql+=mutation+";\n"
- sql+=f"EXECUTE evidence('{command_id}') \\gset\n"
- sql+="\\if :eligible\n"
- sql+=(f"\\echo PASS {label}\n" if allowed else f"\\echo FAIL {label}\\n\\quit 1\n")
- sql+="\\else\n"
- sql+=(f"\\echo FAIL {label}\\n\\quit 1\n" if allowed else f"\\echo PASS {label}\n")
- sql+="\\endif\\nROLLBACK;\n"
+ sql+=f"EXECUTE evidence('{command_id}') {bs}gset\n"
+ sql+=f"{bs}if :eligible\n"
+ sql+=f"{bs}echo {'PASS' if allowed else 'FAIL'} {label}\n"
+ sql+=f"{bs}else\n"
+ sql+=f"{bs}echo {'FAIL' if allowed else 'PASS'} {label}\n"
+ sql+=f"{bs}endif\nROLLBACK;\n"
 check("canonical_ping",True)
 check("other_command",False,command_id="22222222-2222-4222-8222-222222222222")
 check("wrong_source",False,"UPDATE ai_platform.ai_coding_bridge_commands SET source='ai-core'")
