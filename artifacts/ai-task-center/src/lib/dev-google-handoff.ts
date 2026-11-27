@@ -4,11 +4,10 @@ export type DevGoogleCallback = { accessToken: string | null; error: string | nu
 export function isDevGoogleHandoff(host: string, pathname: string): boolean {
   return host === CST_DEV_HOST && (pathname === "/" || pathname === "/login");
 }
-export function readDevGoogleCallback(host: string, pathname: string, hash: string, search: string): DevGoogleCallback | null {
+export function readDevGoogleCallback(host: string, pathname: string, accessToken: string | null, fragmentError: string | null, search: string): DevGoogleCallback | null {
   if (!isDevGoogleHandoff(host, pathname)) return null;
-  const fragment = new URLSearchParams(hash.replace(/^#/, ""));
   const query = new URLSearchParams(search);
-  const callback = { accessToken: fragment.get("access_token"), error: fragment.get("error") ?? query.get("error"), code: query.get("code") };
+  const callback = { accessToken, error: fragmentError ?? query.get("error"), code: query.get("code") };
   return callback.accessToken || callback.error || callback.code ? callback : null;
 }
 export function devGoogleFailureMessage(error: unknown): string {

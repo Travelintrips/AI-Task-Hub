@@ -34,12 +34,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       initAuthTokenGetter();
 
       const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+      // Read the OAuth token exactly once; the bundle release guard audits this boundary.
+      const fragmentAccessToken = hash.get("access_token");
       const handoffEnabled = isDevGoogleHandoff(window.location.hostname, window.location.pathname);
       if (devCallback.current === undefined) {
-        devCallback.current = readDevGoogleCallback(window.location.hostname, window.location.pathname, window.location.hash, window.location.search);
+        devCallback.current = readDevGoogleCallback(window.location.hostname, window.location.pathname, fragmentAccessToken, hash.get("error"), window.location.search);
       }
       const callback = devCallback.current;
-      const supabaseAccessToken = handoffEnabled ? callback?.accessToken : hash.get("access_token");
+      const supabaseAccessToken = handoffEnabled ? callback?.accessToken : fragmentAccessToken;
 
       if (supabaseAccessToken || (handoffEnabled && callback)) {
         // Strip Supabase tokens from the URL before any asynchronous network
