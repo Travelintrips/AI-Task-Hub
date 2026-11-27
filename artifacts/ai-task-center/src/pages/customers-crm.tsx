@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { getStoredToken } from "@/lib/auth-api";
+import { useAuth } from "@/contexts/auth-context";
 import { Link } from "wouter";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -44,15 +45,34 @@ interface Customer {
   createdAt: string;
 }
 
+interface CrmCompanyScope {
+  companies: { id: number; code: string; name: string }[];
+  status: "ok" | "no_authorized_company";
+}
+
 const emptyForm = { companyName: "", picName: "", whatsapp: "", email: "", npwp: "", address: "", notes: "" };
 
 export default function CustomersCrm() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { user, isLoading: authLoading } = useAuth();
   const [search, setSearch] = useState("");
   const [dialog, setDialog] = useState<"create" | "edit" | null>(null);
   const [editTarget, setEditTarget] = useState<Customer | null>(null);
   const [form, setForm] = useState(emptyForm);
+  const [createCompanyId, setCreateCompanyId] = useState("");
+  const scope = useQuery<CrmCompanyScope>({
+    queryKey: ["crm-create-companies", user?.id, user?.companyId, user?.role],
+    queryFn: () => apiFetch("/crm/customer-create-companies"),
+    enabled: !!user && !authLoading,
+    staleTime: 0,
+    refetchOnMount: "always",
+    retry: false,
+  });
+  const scopes = !scope.isError && !scope.isFetching && !!user && !authLoading &&
+    scope.data?.status === "ok" ? scope.data.companies : [];
+  const selectedCreateScope = scopes.find(c => String(c.id) === createCompanyId);
+
 
   const { data: customers = [], isLoading } = useQuery<Customer[]>({
     queryKey: ["crm-customers", search],
@@ -73,7 +93,8 @@ export default function CustomersCrm() {
   });
 
   const createMut = useMutation({
-    mutationFn: (data: typeof emptyForm) => apiFetch("/crm/customers", { method: "POST", body: JSON.stringify(data) }),
+    mutationFn: ({ companyId, data }: { companyId: number; data: typeof emptyForm }) =>
+      apiFetch(`/crm/customers?companyId=${encodeURIComponent(String(companyId))}`, { method: "POST", body: JSON.stringify(data) }),
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["crm-customers"] }); setDialog(null); toast({ title: "Customer berhasil ditambahkan" }); },
     onError: (error: Error) => toast({ title: "Gagal menambahkan customer", description: error.message, variant: "destructive" }),
   });
@@ -89,7 +110,13 @@ export default function CustomersCrm() {
     onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["crm-customers"] }); toast({ title: "Customer dihapus" }); },
   });
 
-  const openCreate = () => { setForm(emptyForm); setEditTarget(null); setDialog("create"); };
+  const openCreate = () => {
+    if (!scopes.length) return;
+    setCreateCompanyId("");
+    setForm(emptyForm);
+    setEditTarget(null);
+    setDialog("create");
+  };
   const openEdit = (c: Customer) => { setForm({ companyName: c.companyName, picName: c.picName ?? "", whatsapp: c.whatsapp ?? "", email: c.email ?? "", npwp: c.npwp ?? "", address: c.address ?? "", notes: c.notes ?? "" }); setEditTarget(c); setDialog("edit"); };
   const f = (k: keyof typeof emptyForm) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setForm((p) => ({ ...p, [k]: e.target.value }));
 
@@ -100,9 +127,15 @@ export default function CustomersCrm() {
           <h1 className="text-2xl font-bold flex items-center gap-2"><Building2 className="h-6 w-6 text-primary" /> CRM Customer</h1>
           <p className="text-muted-foreground text-sm mt-1">{customers.length} customer terdaftar</p>
         </div>
-        <Button onClick={openCreate}><Plus className="h-4 w-4 mr-2" /> Tambah Customer</Button>
+        <Button onClick={openCreate} disabled={!scopes.length}><Plus className="h-4 w-4 mr-2" /> Tambah Customer</Button>
       </div>
 
+      {!authLoading && !scope.isFetching && !scopes.length && (
+        <div role="status" className="rounded-md border p-3 text-sm text-muted-foreground">
+          {scope.isError ? "Otorisasi perusahaan belum dapat diperiksa. Coba perbarui halaman."
+            : "Belum ada perusahaan aktif yang diizinkan untuk akun ini. Hubungi Owner untuk menetapkan kewenangan CRM; pemetaan onboarding bukan izin membuat customer."}
+        </div>
+      )}
       <div className="relative max-w-sm">
         <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
         <Input placeholder="Cari nama perusahaan, PIC, nomor WA..." className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} />
@@ -151,10 +184,21 @@ export default function CustomersCrm() {
         <DialogContent className="max-w-lg">
           <DialogHeader><DialogTitle>{dialog === "create" ? "Tambah Customer Baru" : "Edit Customer"}</DialogTitle></DialogHeader>
           <div className="grid gap-3">
+            {dialog === "create" && (
+              <div className="rounded-md border p-3">
+                <Label htmlFor="crm-create-company">Perusahaan pemilik customer *</Label>
+                <select id="crm-create-company" className="mt-1 block w-full rounded border bg-background px-2 py-2 text-sm"
+                  value={createCompanyId} onChange={e => setCreateCompanyId(e.target.value)} disabled={!scopes.length}>
+                  <option value="">Pilih perusahaan yang diizinkan</option>
+                  {scopes.map(c => <option key={c.id} value={String(c.id)}>{c.name} ({c.code})</option>)}
+                </select>
+                <p className="mt-1 text-xs text-muted-foreground">Pilihan berasal dari otorisasi server. Nama pelanggan diisi pada kolom terpisah.</p>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <div className="col-span-2"><Label>Nama Perusahaan *</Label><Input className="mt-1" value={form.companyName} onChange={f("companyName")} placeholder="PT. Contoh Indonesia" /></div>
               <div><Label>Nama PIC</Label><Input className="mt-1" value={form.picName} onChange={f("picName")} placeholder="Budi Santoso" /></div>
-              <div><Label>WhatsApp</Label><Input className="mt-1" value={form.whatsapp} onChange={f("whatsapp")} placeholder="628..." /></div>
+              <div><Label>WhatsApp{dialog === "create" ? " *" : ""}</Label><Input className="mt-1" value={form.whatsapp} onChange={f("whatsapp")} placeholder="628..." /></div>
               <div><Label>Email</Label><Input className="mt-1" type="email" value={form.email} onChange={f("email")} placeholder="pic@perusahaan.com" /></div>
               <div><Label>NPWP</Label><Input className="mt-1" value={form.npwp} onChange={f("npwp")} placeholder="01.234.567.8-901.000" /></div>
               <div className="col-span-2"><Label>Alamat</Label><Input className="mt-1" value={form.address} onChange={f("address")} /></div>
@@ -163,7 +207,12 @@ export default function CustomersCrm() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialog(null)}>Batal</Button>
-            <Button onClick={() => dialog === "create" ? createMut.mutate(form) : updateMut.mutate({ id: editTarget!.id, data: form })} disabled={!form.companyName || createMut.isPending || updateMut.isPending}>
+            <Button onClick={() => {
+              if (dialog === "create") {
+                if (!selectedCreateScope) return;
+                createMut.mutate({ companyId: selectedCreateScope.id, data: form });
+              } else if (editTarget) updateMut.mutate({ id: editTarget.id, data: form });
+            }} disabled={!form.companyName.trim() || (dialog === "create" && (!selectedCreateScope || !form.whatsapp.trim())) || createMut.isPending || updateMut.isPending}>
               {dialog === "create" ? "Tambah" : "Simpan"}
             </Button>
           </DialogFooter>

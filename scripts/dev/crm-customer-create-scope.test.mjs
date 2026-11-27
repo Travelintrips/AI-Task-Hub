@@ -53,3 +53,26 @@ test("real insert statement binds active current profile and numeric company; au
   assert.doesNotMatch(post, /companyId.*\?\?\s*"default"/);
   assert.doesNotMatch(post, /\.catch\(\(\) => \{\}\)/);
 });
+
+test("company picker reuses create authority and cannot grant access", () => {
+  const routeBody = route.split('router.get("/crm/customer-create-companies", requireAuth,')[1].split("// POST /api/crm/customers")[0];
+  assert.match(routeBody, /resolveCrmCreateCompany\(req\.user, undefined, \{\}\)/);
+  assert.match(routeBody, /JOIN public\.users u ON u\.company_id = co\.id/);
+  assert.match(routeBody, /u\.id::text = \$\{String\(req\.user!\.id\)\}/);
+  assert.match(routeBody, /u\.is_active IS TRUE AND u\.status = 'active'/);
+  assert.match(routeBody, /co\.is_active IS TRUE/);
+  assert.match(routeBody, /rows\.length !== 1/);
+  assert.match(routeBody, /companies: \[\], status: "no_authorized_company"/);
+  assert.match(routeBody, /Cache-Control", "private, no-store"/);
+  assert.doesNotMatch(routeBody, /req\.query|req\.body|INSERT INTO|UPDATE |DELETE FROM|signToken/);
+});
+test("CRM form requires a server-provided selection without writing a tenant field", () => {
+  const ui = readFileSync(new URL("../../artifacts/ai-task-center/src/pages/customers-crm.tsx", import.meta.url), "utf8");
+  assert.match(ui, /apiFetch\("\/crm\/customer-create-companies"\)/);
+  assert.match(ui, /queryKey: \["crm-create-companies", user\?\.id, user\?\.companyId, user\?\.role\]/);
+  assert.match(ui, /scopes\.find\(c => String\(c\.id\) === createCompanyId\)/);
+  assert.match(ui, /if \(!selectedCreateScope\) return;/);
+  assert.match(ui, /createMut\.mutate\(\{ companyId: selectedCreateScope\.id, data: form \}\)/);
+  assert.match(ui, /body: JSON\.stringify\(data\)/);
+  assert.match(ui, /disabled=\{!scopes\.length\}/);
+});

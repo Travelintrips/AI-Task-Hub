@@ -66,6 +66,42 @@ router.get("/crm/customers/:id", requireAuth, async (req: Request, res: Response
   }
 });
 
+// GET /api/crm/customer-create-companies
+// This is a read-only capability discovery endpoint. It cannot establish a
+// company affiliation, mint a new session, or turn onboarding's alias into a
+// CRM write permission. Revalidate the current profile, not a client filter.
+router.get("/crm/customer-create-companies", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  res.set("Cache-Control", "private, no-store");
+  try {
+    const companyId = resolveCrmCreateCompany(req.user, undefined, {});
+    if (companyId === null) {
+      res.json({ companies: [], status: "no_authorized_company" }); return;
+    }
+    const result = await db.execute(sql`
+      SELECT co.id, co.code, co.name
+      FROM public.companies co
+      JOIN public.users u ON u.company_id = co.id
+      WHERE co.id = ${companyId} AND co.is_active IS TRUE
+        AND u.id::text = ${String(req.user!.id)}
+        AND lower(btrim(u.email)) = lower(btrim(${req.user!.email}))
+        AND u.role = ${req.user!.role}
+        AND u.is_active IS TRUE AND u.status = 'active'
+      LIMIT 2
+    `);
+    const rows = result.rows as Record<string, unknown>[];
+    if (rows.length !== 1 || Number(rows[0]?.id) !== companyId) {
+      res.json({ companies: [], status: "no_authorized_company" }); return;
+    }
+    res.json({
+      companies: [{ id: companyId, code: String(rows[0]?.code ?? ""), name: String(rows[0]?.name ?? "") }],
+      status: "ok",
+    });
+  } catch (err) {
+    logger.error({ err }, "GET /crm/customer-create-companies failed");
+    res.status(503).json({ error: "CRM_COMPANY_SCOPE_UNAVAILABLE" });
+  }
+});
+
 // POST /api/crm/customers
 router.post("/crm/customers", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
