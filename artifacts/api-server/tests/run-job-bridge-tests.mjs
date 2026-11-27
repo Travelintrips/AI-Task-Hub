@@ -82,7 +82,18 @@ try {
   assert.ok(!detail.includes("r.message"));
   assert.ok(!detail.includes("reason: row"));
   assert.ok(!detail.includes("metadata: row"));
-  assert.ok(!detail.includes("checkpoint_json"));
+  // Only inspect checkpoint scalars in SQL; never serialize checkpoint contents.
+  assert.ok(detail.includes("END AS reconciliation_category"));
+  assert.ok(detail.includes("REPORTED_EXECUTION_SIGNAL"));
+  assert.ok(detail.includes("REPORTED_NO_EXECUTION_SIGNAL"));
+  assert.ok(detail.includes("INCOMPLETE_STAGE_EVIDENCE"));
+  assert.ok(detail.includes("TERMINAL_EVIDENCE_UNCONFIRMED"));
+  assert.ok(detail.includes("MISSING_FAILED_RESPONSE"));
+  assert.ok(detail.includes("retryAllowed: false"));
+  assert.ok(detail.includes("reconciliationCategory: row.reconciliation_category"));
+  assert.ok(!detail.includes("checkpoint: row"));
+  assert.ok(!detail.includes("checkpoint_json:"));
+  assert.ok(!detail.includes("assistantResponseText"));
   const migrationPath = path.join(projectDir, "supabase/migrations/20261013154257_ai_task_unified_job_registry.sql");
   const schema = await readFile(migrationPath, "utf8");
   assert.ok(route.includes("requireReceipt"), "ACK requires separate receiver credential");

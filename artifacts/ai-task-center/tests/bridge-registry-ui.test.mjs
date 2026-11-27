@@ -46,3 +46,13 @@ test("Failed job details present bounded canonical diagnostic without retry cont
   assert.match(registry, /status gagal tetap dipertahankan/);
   assert.doesNotMatch(registry, /method:\s*["'](?:POST|PUT|PATCH|DELETE)["']/);
 });
+
+test("failed response evidence is observational and has no automatic retry permission", () => {
+  assert.match(registry, /REPORTED_EXECUTION_SIGNAL/);
+  assert.match(registry, /REPORTED_NO_EXECUTION_SIGNAL/);
+  assert.match(registry, /INCOMPLETE_STAGE_EVIDENCE/);
+  assert.match(registry, /TERMINAL_EVIDENCE_UNCONFIRMED/);
+  assert.match(registry, /belum membuktikan tidak ada efek samping/);
+  assert.match(registry, /Retry otomatis tidak diizinkan/);
+  assert.doesNotMatch(registry, /method:\s*["'](?:POST|PUT|PATCH|DELETE)["']/);
+});

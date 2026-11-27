@@ -28,6 +28,15 @@ type FailureDiagnostic = {
   reasonCategory: string;
   deliveryUnverified: boolean;
   e2eUnverified: boolean;
+  reconciliationCategory?: string;
+  retryAllowed?: false;
+};
+const reconciliationLabels: Record<string, string> = {
+  MISSING_FAILED_RESPONSE: "Respons gagal tidak tersedia — cari bukti dari sumber.",
+  TERMINAL_EVIDENCE_UNCONFIRMED: "Status, pengiriman atau checkpoint tidak dapat dicocokkan — rekonsiliasi diperlukan.",
+  REPORTED_EXECUTION_SIGNAL: "Ada catatan aktivitas browser/model atau balasan. Periksa kemungkinan hasil dan efek samping sebelum keputusan.",
+  REPORTED_NO_EXECUTION_SIGNAL: "Worker melaporkan belum ada aktivitas pengiriman/model. Ini belum membuktikan tidak ada efek samping.",
+  INCOMPLETE_STAGE_EVIDENCE: "Bukti tahap eksekusi tidak lengkap — jangan anggap belum dijalankan.",
 };
 const failureReasonLabels: Record<string, string> = {
   NAVIGATION_UNKNOWN_NO_RETRY: "Navigasi belum terkonfirmasi — jangan otomatis ulang",
@@ -243,6 +252,11 @@ export default function BridgeJobsPage() {
                             <p>{failureReasonLabels[events.data.failureDiagnostic.reasonCategory] ?? "Kategori tidak dikenal — perlu peninjauan"}</p>
                             {events.data.failureDiagnostic.deliveryUnverified && <p>Pengiriman belum terverifikasi.</p>}
                             {events.data.failureDiagnostic.e2eUnverified && <p>Hasil end-to-end belum terverifikasi.</p>}
+                            <div className="border-t pt-2 mt-2 space-y-1">
+                              <p className="font-semibold">Rekonsiliasi bukti — perlu pemeriksaan</p>
+                              <p>{reconciliationLabels[events.data.failureDiagnostic.reconciliationCategory ?? ""] ?? "Bukti tahap eksekusi belum tersedia."}</p>
+                              <p className="font-medium">Retry otomatis tidak diizinkan.</p>
+                            </div>
                             <p className="text-muted-foreground">Kategori observasi, bukan izin retry atau bukti penyelesaian.</p>
                           </div>
                         )}
