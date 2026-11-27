@@ -36,3 +36,13 @@ test("Dashboard and AI Tasks show the read-only registry separately", () => {
   assert.match(visibility, /href=\{"\/bridge-jobs\?job=" \+ encodeURIComponent\(job.id\)\}/);
   assert.doesNotMatch(visibility, /method:\s*["'](?:POST|PUT|PATCH|DELETE)["']/);
 });
+
+test("Failed job details present bounded canonical diagnostic without retry controls", () => {
+  assert.match(registry, /j\.status === "FAILED" && events\.data\?\.failureDiagnostic/);
+  assert.match(registry, /failureReasonLabels\[events\.data\.failureDiagnostic\.reasonCategory\]/);
+  assert.match(registry, /Pengiriman belum terverifikasi/);
+  assert.match(registry, /Hasil end-to-end belum terverifikasi/);
+  assert.match(registry, /bukan izin retry atau bukti penyelesaian/);
+  assert.match(registry, /status gagal tetap dipertahankan/);
+  assert.doesNotMatch(registry, /method:\s*["'](?:POST|PUT|PATCH|DELETE)["']/);
+});
