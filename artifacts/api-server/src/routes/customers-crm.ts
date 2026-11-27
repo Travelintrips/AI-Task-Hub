@@ -6,20 +6,58 @@ import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
 
-// Customer writes must use the authenticated numeric company, never a legacy
-// alias, request-supplied tenant, or the read-only onboarding exception.
-function resolveCrmCreateCompany(user: AuthUser | undefined, requestedCompany: unknown, body: Record<string, unknown>): number | null {
+// Owner approval, 27 Nov 2026 WIB: one existing Google Super Admin
+// may CREATE customers for CST company 1 in this exact DEV application.
+// This is NOT the onboarding alias, an account change or an edit/delete grant.
+function isApprovedLegacyCrmProfile(user: AuthUser | undefined, env: Record<string, string | undefined> = process.env, nowMs: number = Date.now()): boolean {
+  if (env.NODE_ENV !== "development" ||
+      (env.APP_ENV !== undefined && env.APP_ENV !== "development") ||
+      env.PUBLIC_APP_BASE_URL !== "https://dev-ai-task.cstlogistic.co.id" ||
+      env.SUPABASE_URL_DEV !== "https://xssrfshdrtdfupgqwfdw.supabase.co" ||
+      typeof env.SESSION_SECRET !== "string" || env.SESSION_SECRET.length < 32 ||
+      env.SESSION_SECRET === "fallback-secret-change-in-production") return false;
+  if (!user || user.role !== "super_admin" ||
+      String(user.id) !== "google_103728868378401731050" ||
+      (user.companyId !== null && user.companyId !== "default") ||
+      user.authSource !== "supabase_google_identity" ||
+      user.authSupabaseId !== "75a7c311-3f6e-4c95-8a66-9b98f6dd26ad" ||
+      typeof user.email !== "string" || !user.email.trim()) return false;
+  const verifiedAt = user.authVerifiedAt;
+  // Use the existing signed app-session lifetime, not a new session.
+  return typeof verifiedAt === "number" && Number.isSafeInteger(verifiedAt) &&
+    verifiedAt >= nowMs - 7 * 24 * 60 * 60_000 && verifiedAt <= nowMs + 30_000;
+}
+
+function resolveCrmCreateCompany(user: AuthUser | undefined, requestedCompany: unknown, body: Record<string, unknown>, env: Record<string, string | undefined> = process.env, nowMs: number = Date.now()): number | null {
   if (!user || !["owner", "super_admin", "company_admin"].includes(user.role) ||
       user.id === undefined || user.id === null ||
       typeof user.email !== "string" || !user.email.trim()) return null;
-  const raw = String(user.companyId ?? "");
-  if (!/^[1-9][0-9]{0,9}$/.test(raw) || Number(raw) > 2147483647) return null;
-  if (requestedCompany !== undefined && (typeof requestedCompany !== "string" || requestedCompany !== raw)) return null;
   if (Object.prototype.hasOwnProperty.call(body, "companyId") ||
       Object.prototype.hasOwnProperty.call(body, "company_id")) return null;
-  return Number(raw);
+  const raw = String(user.companyId ?? "");
+  const scope = isApprovedLegacyCrmProfile(user, env, nowMs) ? "1" : raw;
+  if (!/^[1-9][0-9]{0,9}$/.test(scope) || Number(scope) > 2147483647) return null;
+  if (requestedCompany !== undefined && (typeof requestedCompany !== "string" || requestedCompany !== scope)) return null;
+  return Number(scope);
 }
 
+// Current profile and Auth pin must match in the same SQL as the operation.
+// Numeric profiles keep the original JOIN and do not query auth.users.
+function crmProfileCompanyPredicate(user: AuthUser) {
+  if (!isApprovedLegacyCrmProfile(user)) return sql`u.company_id = co.id`;
+  return sql`co.id = 1 AND co.code = 'CST' AND u.company_id IS NULL
+    AND EXISTS (
+      SELECT 1 FROM auth.users a
+      WHERE a.id = ${user.authSupabaseId}::uuid
+        AND lower(btrim(a.email)) = lower(btrim(u.email))
+        AND a.email_confirmed_at IS NOT NULL
+        AND a.deleted_at IS NULL AND (a.banned_until IS NULL OR a.banned_until <= now())
+        AND a.raw_app_meta_data->>'ai_task_user_id' = u.id::text
+        AND a.raw_app_meta_data->>'ai_task_role' = 'super_admin'
+        AND a.raw_app_meta_data->>'ai_task_company_id' = '@NULL@'
+        AND a.raw_app_meta_data->>'provider' = 'google'
+    )`;
+}
 
 // GET /api/crm/customers
 router.get("/crm/customers", requireAuth, async (req: Request, res: Response): Promise<void> => {
@@ -66,6 +104,42 @@ router.get("/crm/customers/:id", requireAuth, async (req: Request, res: Response
   }
 });
 
+// GET /api/crm/customer-create-companies
+// Read-only discovery of the bound company or separate Owner-approved CST CREATE capability.
+router.get("/crm/customer-create-companies", requireAuth, async (req: Request, res: Response): Promise<void> => {
+  res.set("Cache-Control", "private, no-store");
+  try {
+    const companyId = resolveCrmCreateCompany(req.user, undefined, {});
+    if (companyId === null) {
+      res.json({ companies: [], status: "no_authorized_company" }); return;
+    }
+    const profileCompany = crmProfileCompanyPredicate(req.user!);
+    const result = await db.execute(sql`
+      SELECT co.id, co.code, co.name
+      FROM public.companies co
+      JOIN public.users u ON ${profileCompany}
+      WHERE co.id = ${companyId} AND co.is_active IS TRUE
+        AND u.id::text = ${String(req.user!.id)}
+        AND lower(btrim(u.email)) = lower(btrim(${req.user!.email}))
+        AND u.role = ${req.user!.role}
+        AND u.is_active IS TRUE AND u.status = 'active'
+      LIMIT 2
+    `);
+    const rows = result.rows as Record<string, unknown>[];
+    if (rows.length !== 1 || Number(rows[0]?.id) !== companyId) {
+      res.json({ companies: [], status: "no_authorized_company" }); return;
+    }
+    res.json({
+      companies: [{ id: companyId, code: String(rows[0]?.code ?? ""), name: String(rows[0]?.name ?? "") }],
+      status: "ok",
+      mode: isApprovedLegacyCrmProfile(req.user) ? "owner_approved_cst_create" : "bound_company",
+    });
+  } catch (err) {
+    logger.error({ err }, "GET /crm/customer-create-companies failed");
+    res.status(503).json({ error: "CRM_COMPANY_SCOPE_UNAVAILABLE" });
+  }
+});
+
 // POST /api/crm/customers
 router.post("/crm/customers", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
@@ -74,8 +148,10 @@ router.post("/crm/customers", requireAuth, async (req: Request, res: Response): 
       res.status(400).json({ error: "Data customer tidak valid" }); return;
     }
     const companyId = resolveCrmCreateCompany(req.user, req.query.companyId, body);
-    if (companyId === null) {
-      res.status(403).json({ error: "CRM_COMPANY_SCOPE_REQUIRED", message: "Akun pengelola harus terikat pada perusahaan yang sah; identitas perusahaan dari formulir tidak diterima." }); return;
+    // The extra legacy permission requires an explicit CST selection.
+    if (companyId === null ||
+        (isApprovedLegacyCrmProfile(req.user) && req.query.companyId !== "1")) {
+      res.status(403).json({ error: "CRM_COMPANY_SCOPE_REQUIRED", message: "Pilih perusahaan yang diizinkan oleh server." }); return;
     }
     const { companyName, picName, whatsapp, email, npwp, address, notes } = body;
 
@@ -94,13 +170,15 @@ router.post("/crm/customers", requireAuth, async (req: Request, res: Response): 
 
     // Revalidate the live profile and company in the same SQL statement as
     // the insert. The old Drizzle customer schema does not match the numeric
-    // shared company_id column. No legacy default -> numeric write mapping.
-    // If the audit insert fails, the customer insert rolls back too.
+    // shared company_id column. The one approved legacy CST case has its
+    // own current Auth pin check. Audit and customer commit together.
+    const profileCompany = crmProfileCompanyPredicate(req.user!);
+    const createAuthority = isApprovedLegacyCrmProfile(req.user) ? "owner_approved_cst_create" : "bound_company";
     const insertResult = await db.execute(sql`
       WITH eligible AS (
         SELECT co.id
         FROM public.companies co
-        JOIN public.users u ON u.company_id = co.id
+        JOIN public.users u ON ${profileCompany}
         WHERE co.id = ${companyId} AND co.is_active IS TRUE
           AND u.id::text = ${String(req.user!.id)}
           AND lower(btrim(u.email)) = lower(btrim(${req.user!.email}))
@@ -120,7 +198,8 @@ router.post("/crm/customers", requireAuth, async (req: Request, res: Response): 
         INSERT INTO public.audit_logs
           (action, entity_type, entity_id, company_id, module, user_email, after_data)
         SELECT 'customer_created', 'customer', id::text, company_id::text, 'customers',
-          ${req.user!.email}, jsonb_build_object('customer_id', id, 'company_id', company_id)
+          ${req.user!.email}, jsonb_build_object('customer_id', id, 'company_id', company_id,
+            'create_authority', ${createAuthority}::text, 'actor_profile_id', ${String(req.user!.id)}::text)
         FROM created
         RETURNING entity_id
       )
