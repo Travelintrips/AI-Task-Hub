@@ -49,6 +49,7 @@ interface CrmCompanyScope {
   companies: { id: number; code: string; name: string }[];
   status: "ok" | "no_authorized_company";
   mode?: "bound_company" | "owner_approved_cst_create";
+  canList?: boolean;
 }
 
 const emptyForm = { companyName: "", picName: "", whatsapp: "", email: "", npwp: "", address: "", notes: "" };
@@ -74,17 +75,26 @@ export default function CustomersCrm() {
   const scopes = !scope.isError && !scope.isFetching && !!user && !authLoading &&
     scope.data?.status === "ok" ? scope.data.companies : [];
   const selectedCreateScope = scopes.find(c => String(c.id) === createCompanyId);
-  const legacyCreateOnly = scope.data?.mode === "owner_approved_cst_create" && scopes.length === 1;
+  const legacyReadOnly = scope.data?.mode === "owner_approved_cst_create" && scope.data?.canList === true && scopes.length === 1 && scopes[0]?.id === 1;
   const unbound = !!user && (user.companyId == null || user.companyId === "default");
+  const canList = !!user && !authLoading && (!unbound || legacyReadOnly);
+  const canManageExisting = !!user && !authLoading && !unbound;
 
 
-  const { data: customers = [], isLoading } = useQuery<Customer[]>({
-    queryKey: ["crm-customers", user?.id, user?.companyId, search],
-    enabled: !!user && !authLoading && !unbound,
+  const { data: customers = [], isLoading, isError: listError } = useQuery<Customer[]>({
+    queryKey: ["crm-customers", user?.id, user?.companyId, user?.role, legacyReadOnly ? "approved_cst_list" : "bound", search],
+    enabled: canList,
+    retry: false,
+    staleTime: 0,
+    refetchOnMount: "always",
     queryFn: async () => {
       // Current SQL list returns physical PostgreSQL field names. Normalize
       // only presentation; do not infer a company or modify record ownership.
-      const rows = await apiFetch(`/crm/customers${search ? `?search=${encodeURIComponent(search)}` : ""}`);
+      const query = new URLSearchParams();
+      if (legacyReadOnly) query.set("companyId", "1");
+      if (search) query.set("search", search);
+      const rows = await apiFetch(`/crm/customers${query.size ? `?${query.toString()}` : ""}`);
+      if (legacyReadOnly && Array.isArray(rows) && rows.some(row => row.company_id !== 1)) throw new Error("Lingkup customer tidak sesuai");
       if (!Array.isArray(rows)) throw new Error("Data customer tidak valid");
       return rows.map((row) => ({
         ...row,
@@ -131,7 +141,7 @@ export default function CustomersCrm() {
     setEditTarget(null);
     setDialog("create");
   };
-  const openEdit = (c: Customer) => { setForm({ companyName: c.companyName, picName: c.picName ?? "", whatsapp: c.whatsapp ?? "", email: c.email ?? "", npwp: c.npwp ?? "", address: c.address ?? "", notes: c.notes ?? "" }); setEditTarget(c); setDialog("edit"); };
+  const openEdit = (c: Customer) => { if (!canManageExisting) return; setForm({ companyName: c.companyName, picName: c.picName ?? "", whatsapp: c.whatsapp ?? "", email: c.email ?? "", npwp: c.npwp ?? "", address: c.address ?? "", notes: c.notes ?? "" }); setEditTarget(c); setDialog("edit"); };
   const f = (k: keyof typeof emptyForm) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setForm((p) => ({ ...p, [k]: e.target.value }));
 
   return (
@@ -139,7 +149,7 @@ export default function CustomersCrm() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2"><Building2 className="h-6 w-6 text-primary" /> CRM Customer</h1>
-          <p className="text-muted-foreground text-sm mt-1">{unbound ? "Pembuatan customer sesuai kewenangan perusahaan" : `${customers.length} customer terdaftar`}</p>
+          <p className="text-muted-foreground text-sm mt-1">{!canList || listError ? "Daftar customer belum tersedia" : `${customers.length} customer terdaftar${legacyReadOnly ? " · CST" : ""}`}</p>
         </div>
         <Button onClick={openCreate} disabled={!scopes.length}><Plus className="h-4 w-4 mr-2" /> Tambah Customer</Button>
       </div>
@@ -150,12 +160,12 @@ export default function CustomersCrm() {
             : "Belum ada perusahaan aktif yang diizinkan untuk akun ini. Hubungi Owner untuk menetapkan kewenangan CRM; pemetaan onboarding bukan izin membuat customer."}
         </div>
       )}
-      {legacyCreateOnly && (
+      {legacyReadOnly && (
         <div role="status" className="rounded-md border p-3 text-sm">
-          Persetujuan Owner: tambah Customer khusus PT Cahaya Sejati Teknologi (CST-DEV). Kewenangan ini tidak mengubah company ID akun atau memberi izin edit/hapus.
+          Persetujuan Owner: tambah Customer dan lihat daftar PT Cahaya Sejati Teknologi (CST-DEV). Daftar baca-saja; edit, hapus dan Memory tidak diizinkan.
         </div>
       )}
-      {createdReceipt && createdReceipt.actor === String(user?.id ?? "") && (
+      {canList && createdReceipt && createdReceipt.actor === String(user?.id ?? "") && (
         <div role="status" className="rounded-md border p-3 text-sm">
           <p className="font-medium">Customer berhasil disimpan</p>
           <p>{createdReceipt.name} · Customer ID {createdReceipt.id} · Company ID {createdReceipt.companyId}</p>
@@ -166,8 +176,10 @@ export default function CustomersCrm() {
         <Input placeholder="Cari nama perusahaan, PIC, nomor WA..." className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} />
       </div>
 
-      {unbound ? (
-        <Card><CardContent className="py-8 text-center text-sm text-muted-foreground">Daftar tidak dimuat untuk akun tanpa company ID. Bukti Customer yang baru disimpan tampil di atas.</CardContent></Card>
+      {!canList ? (
+        <Card><CardContent className="py-8 text-center text-sm text-muted-foreground">{scope.isFetching || authLoading ? "Memeriksa otorisasi perusahaan..." : "Daftar tidak tersedia untuk sesi ini."}</CardContent></Card>
+      ) : listError ? (
+        <Card><CardContent className="py-8 text-center text-sm text-destructive">Daftar customer gagal dimuat. Periksa sesi dan perbarui halaman.</CardContent></Card>
       ) : isLoading ? (
         <div className="flex justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-2 border-primary border-t-transparent" /></div>
       ) : customers.length === 0 ? (
@@ -187,20 +199,20 @@ export default function CustomersCrm() {
                       {c.picName && <p className="text-xs text-muted-foreground truncate">{c.picName}</p>}
                     </div>
                   </div>
-                  <Badge variant="secondary" className="shrink-0 text-xs">{c.totalTasks} task</Badge>
+                  <Badge variant="secondary" className="shrink-0 text-xs">{legacyReadOnly ? "Baca-saja" : `${c.totalTasks} task`}</Badge>
                 </div>
               </CardHeader>
               <CardContent className="space-y-1.5 pt-0">
                 {c.whatsapp && <p className="text-xs flex items-center gap-1.5 text-muted-foreground"><Phone className="h-3 w-3" />{c.whatsapp}</p>}
                 {c.email && <p className="text-xs flex items-center gap-1.5 text-muted-foreground"><Mail className="h-3 w-3" />{c.email}</p>}
                 {c.address && <p className="text-xs text-muted-foreground line-clamp-1">{c.address}</p>}
-                <div className="flex gap-2 pt-2">
+                {canManageExisting && <div className="flex gap-2 pt-2">
                   <Button variant="outline" size="sm" className="flex-1 h-7 text-xs" onClick={() => openEdit(c)}><Edit className="h-3 w-3 mr-1" /> Edit</Button>
                   <Link href={`/crm/customers/${c.id}/memory`}>
                     <Button variant="outline" size="sm" className="h-7 text-xs text-purple-600 border-purple-200 hover:bg-purple-50"><Brain className="h-3 w-3 mr-1" />Memory</Button>
                   </Link>
                   <Button variant="ghost" size="sm" className="h-7 text-xs text-destructive hover:bg-destructive/10" onClick={() => { if (confirm("Hapus customer ini?")) deleteMut.mutate(c.id); }}><Trash2 className="h-3 w-3" /></Button>
-                </div>
+                </div>}
               </CardContent>
             </Card>
           ))}
@@ -238,7 +250,7 @@ export default function CustomersCrm() {
               if (dialog === "create") {
                 if (!selectedCreateScope) return;
                 createMut.mutate({ companyId: selectedCreateScope.id, data: form });
-              } else if (editTarget) updateMut.mutate({ id: editTarget.id, data: form });
+              } else if (canManageExisting && editTarget) updateMut.mutate({ id: editTarget.id, data: form });
             }} disabled={!form.companyName.trim() || (dialog === "create" && (!selectedCreateScope || !form.whatsapp.trim())) || createMut.isPending || updateMut.isPending}>
               {dialog === "create" ? "Tambah" : "Simpan"}
             </Button>

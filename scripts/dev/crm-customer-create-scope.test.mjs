@@ -121,7 +121,7 @@ test("wrong Google identity, role, profile, stale or absent OAuth evidence denie
   ]) assert.equal(resolve(candidate,"1",{},dev,now),null);
 });
 test("current Auth admin pin and active CST are required in the same SQL join", () => {
-  const predicate = route.split("function crmProfileCompanyPredicate(")[1].split("// GET /api/crm/customers")[0];
+  const predicate = route.split("function crmProfileCompanyPredicate(")[1].split("function isCstCrmDevRuntime(")[0];
   assert.ok(predicate.includes("u.company_id = co.id"));
   assert.match(predicate, /co\.id = 1 AND co\.code = 'CST' AND u\.company_id IS NULL/);
   assert.match(predicate, /FROM auth\.users a/);
@@ -134,9 +134,62 @@ test("current Auth admin pin and active CST are required in the same SQL join", 
   const patch = route.split("// PATCH /api/crm/customers/:id")[1];
   assert.doesNotMatch(patch,/isApprovedLegacyCrmProfile|crmProfileCompanyPredicate/);
 });
-test("legacy create does not load other customer data and confirms returned ownership", () => {
+test("legacy create and approved list use explicit permission and confirm returned ownership", () => {
   const ui = readFileSync(new URL("../../artifacts/ai-task-center/src/pages/customers-crm.tsx", import.meta.url), "utf8");
-  assert.match(ui, /enabled: !!user && !authLoading && !unbound/);
+  assert.match(ui, /const canList = !!user && !authLoading && \(!unbound \|\| legacyReadOnly\)/);
+  assert.match(ui, /enabled: canList/);
   assert.match(ui, /Number\(created\.company_id\) !== variables\.companyId/);
   assert.match(ui, /createdReceipt\.actor === String\(user\?\.id \?\? ""\)/);
+});
+
+const accessStart = route.indexOf("function isCstCrmDevRuntime(");
+const accessEnd = route.indexOf('router.use("/crm/customers"', accessStart);
+assert.ok(accessStart > 0 && accessEnd > accessStart);
+const accessFn = route.slice(accessStart, accessEnd)
+  .replace("function isCstCrmDevRuntime(env: Record<string, string | undefined> = process.env): boolean", "function isCstCrmDevRuntime(env = process.env)")
+  .replace('function resolveCrmSubtreeAccess(user: AuthUser | undefined, method: string, path: string, requestedCompany: unknown, env: Record<string, string | undefined> = process.env, nowMs: number = Date.now()): "bound" | "legacy_collection" | "deny" | "unchanged"', "function resolveCrmSubtreeAccess(user, method, path, requestedCompany, env = process.env, nowMs = Date.now())");
+const access = runInNewContext(fn + "\n" + accessFn + "\nresolveCrmSubtreeAccess", { process: { env: {} } });
+test("approved legacy Google profile can list CST and create only on collection", () => {
+  assert.equal(access(approved,"GET","/","1",dev,now),"legacy_collection");
+  assert.equal(access(approved,"GET","/",undefined,dev,now),"legacy_collection");
+  assert.equal(access(approved,"POST","/","1",dev,now),"legacy_collection");
+  for (const target of ["2","3","4","5",["1","3"],1]) assert.equal(access(approved,"GET","/",target,dev,now),"deny");
+  for (const path of ["/35","/35/memory","/35/ai-context","/35/preferences","/35/documents","/35/aggregates"]) for (const method of ["GET","POST","PATCH","PUT","DELETE"]) assert.equal(access(approved,method,path,"1",dev,now),"deny");
+  for (const method of ["PATCH","PUT","DELETE"]) assert.equal(access(approved,method,"/","1",dev,now),"deny");
+  assert.equal(access(approved,"POST","/",undefined,dev,now),"deny");
+  assert.equal(access({...approved,authSupabaseId:"other"},"GET","/","1",dev,now),"deny");
+  assert.equal(access({...approved,authSource:undefined},"GET","/","1",dev,now),"deny");
+});
+test("numeric bound profiles cannot override company across CRM subtree; other runtimes unchanged", () => {
+  for (const method of ["GET","POST","PATCH","DELETE"]) {
+    assert.equal(access(user,method,"/35","1",dev,now),"bound");
+    assert.equal(access(user,method,"/35","3",dev,now),"deny");
+    assert.equal(access({...user,role:"super_admin"},method,"/35","3",dev,now),"deny");
+  }
+  assert.equal(access({...user,companyId:"3"},"GET","/","3",dev,now),"bound");
+  assert.equal(access({...user,companyId:"default"},"GET","/","1",dev,now),"deny");
+  assert.equal(access(undefined,"GET","/","1",dev,now),"deny");
+  assert.equal(access(approved,"GET","/","1",{...dev,NODE_ENV:"production"},now),"unchanged");
+});
+test("CRM subtree guard executes before detail and memory; list SQL rechecks current authority and projects only list fields", () => {
+  const guard = route.split('router.use("/crm/customers", requireAuth,')[1].split("// GET /api/crm/customers")[0];
+  assert.match(guard,/resolveCrmSubtreeAccess\(req\.user, req\.method, req\.path, req\.query\.companyId\)/);
+  assert.match(guard,/access === "deny"/);
+  assert.match(guard,/current\.rows\.length !== 1/);
+  const list = route.split('router.get("/crm/customers", requireAuth,')[1].split("// GET /api/crm/customers/:id")[0];
+  assert.match(list,/isApprovedLegacyCrmProfile\(req\.user\)/);
+  assert.match(list,/companyId !== 1/);
+  assert.match(list,/JOIN public\.users u ON \$\{profileCompany\}/);
+  assert.match(list,/FROM public\.customers c JOIN eligible e ON e\.id = c\.company_id/);
+  assert.match(list,/EXISTS\(SELECT 1 FROM eligible\) AS authorized/);
+  assert.match(list,/row\?\.authorized !== true/);
+  assert.match(list,/Cache-Control", "private, no-store"/);
+  assert.doesNotMatch(list,/INSERT INTO|UPDATE public|DELETE FROM/);
+  const ui = readFileSync(new URL("../../artifacts/ai-task-center/src/pages/customers-crm.tsx", import.meta.url), "utf8");
+  assert.match(ui,/scope\.data\?\.canList === true/);
+  assert.match(ui,/query\.set\("companyId", "1"\)/);
+  assert.match(ui,/row\.company_id !== 1/);
+  assert.match(ui,/canManageExisting && <div/);
+  assert.match(ui,/else if \(canManageExisting && editTarget\)/);
+  assert.match(ui,/listError \?/);
 });
