@@ -487,13 +487,40 @@ router.get("/bridge/admin/jobs/:id/events", ...adminOnly, async (req: Request, r
               ELSE 'OTHER_RECORDED_REASON'
             END AS reason_category,
             coalesce(c.metadata_json->>'deliveryCode' = 'UNKNOWN_UNVERIFIED', false) AS delivery_unverified,
-            coalesce(c.metadata_json->>'e2eCode' = 'UNKNOWN_UNVERIFIED', false) AS e2e_unverified
+            coalesce(c.metadata_json->>'e2eCode' = 'UNKNOWN_UNVERIFIED', false) AS e2e_unverified,
+            CASE
+              WHEN r.id IS NULL THEN 'MISSING_FAILED_RESPONSE'
+              WHEN (c.metadata_json->>'statusCode' = 'FAILED'
+                AND r.metadata_json->>'statusCode' = 'FAILED'
+                AND r.checkpoint_json->>'status' = 'FAILED'
+                AND r.checkpoint_json->>'statusCode' = 'FAILED'
+                AND c.metadata_json->>'deliveryCode' = 'UNKNOWN_UNVERIFIED'
+                AND c.metadata_json->>'e2eCode' = 'UNKNOWN_UNVERIFIED'
+                AND r.metadata_json->>'deliveryCode' = c.metadata_json->>'deliveryCode'
+                AND r.metadata_json->>'e2eCode' = c.metadata_json->>'e2eCode'
+                AND r.checkpoint_json->>'deliveryCode' = c.metadata_json->>'deliveryCode'
+                AND r.checkpoint_json->>'e2eCode' = c.metadata_json->>'e2eCode') IS NOT TRUE
+                THEN 'TERMINAL_EVIDENCE_UNCONFIRMED'
+              WHEN r.metadata_json->'chatgptSubmitted' = 'true'::jsonb
+                OR r.metadata_json->'modelInvoked' = 'true'::jsonb
+                OR r.metadata_json->'browserConfirmed' = 'true'::jsonb
+                OR r.metadata_json->'verifiedAssistantReply' = 'true'::jsonb
+                OR r.metadata_json->'verified' = 'true'::jsonb
+                THEN 'REPORTED_EXECUTION_SIGNAL'
+              WHEN r.metadata_json->'chatgptSubmitted' = 'false'::jsonb
+                AND r.metadata_json->'modelInvoked' = 'false'::jsonb
+                AND r.metadata_json->'browserConfirmed' = 'false'::jsonb
+                AND r.metadata_json->'verifiedAssistantReply' = 'false'::jsonb
+                AND r.metadata_json->'verified' = 'false'::jsonb
+                THEN 'REPORTED_NO_EXECUTION_SIGNAL'
+              ELSE 'INCOMPLETE_STAGE_EVIDENCE'
+            END AS reconciliation_category
           FROM ai_task_bridge.jobs j
           JOIN ai_platform.ai_coding_bridge_commands c ON c.id = CASE
             WHEN j.external_id ~ '^bridge-command:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
             THEN split_part(j.external_id, ':', 2)::uuid ELSE NULL END
           LEFT JOIN LATERAL (
-            SELECT id, metadata_json FROM ai_platform.ai_coding_bridge_responses
+            SELECT id, metadata_json, checkpoint_json FROM ai_platform.ai_coding_bridge_responses
             WHERE command_id=c.id AND kind='FAILED'
             ORDER BY created_at DESC, id DESC LIMIT 1
           ) r ON true
@@ -506,6 +533,8 @@ router.get("/bridge/admin/jobs/:id/events", ...adminOnly, async (req: Request, r
           reasonCategory: row.reason_category,
           deliveryUnverified: row.delivery_unverified === true,
           e2eUnverified: row.e2e_unverified === true,
+          reconciliationCategory: row.reconciliation_category,
+          retryAllowed: false,
         };
       } catch (error) {
         // Optional diagnostic never makes the existing event history unavailable.
