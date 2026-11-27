@@ -4,14 +4,17 @@ import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 
 const route = readFileSync(new URL("../../artifacts/api-server/src/routes/customers-crm.ts", import.meta.url), "utf8");
-const start = route.indexOf("function resolveCrmCreateCompany(");
-const end = route.indexOf("// GET /api/crm/customers", start);
+const start = route.indexOf("function isApprovedLegacyCrmProfile(");
+const end = route.indexOf("// Current profile and Auth pin", start);
 assert.ok(start >= 0 && end > start);
 const fn = route.slice(start, end).replace(
-  "function resolveCrmCreateCompany(user: AuthUser | undefined, requestedCompany: unknown, body: Record<string, unknown>): number | null",
-  "function resolveCrmCreateCompany(user, requestedCompany, body)",
+  "function isApprovedLegacyCrmProfile(user: AuthUser | undefined, env: Record<string, string | undefined> = process.env, nowMs: number = Date.now()): boolean",
+  "function isApprovedLegacyCrmProfile(user, env = process.env, nowMs = Date.now())",
+).replace(
+  "function resolveCrmCreateCompany(user: AuthUser | undefined, requestedCompany: unknown, body: Record<string, unknown>, env: Record<string, string | undefined> = process.env, nowMs: number = Date.now()): number | null",
+  "function resolveCrmCreateCompany(user, requestedCompany, body, env = process.env, nowMs = Date.now())",
 );
-const resolve = runInNewContext(fn + "\nresolveCrmCreateCompany");
+const resolve = runInNewContext(fn + "\nresolveCrmCreateCompany", { process: { env: {} } });
 const user = { id: "fixture-profile", role: "company_admin", email: "fixture@example.invalid", companyId: "1" };
 test("numeric signed company resolves without trusting form ownership", () => {
   assert.equal(resolve(user, undefined, {}), 1);
@@ -41,8 +44,10 @@ test("only management profiles with identity can create", () => {
 test("real insert statement binds active current profile and numeric company; audit is atomic", () => {
   const post = route.split('router.post("/crm/customers", requireAuth,')[1].split('// PATCH /api/crm/customers/:id')[0];
   assert.match(post, /resolveCrmCreateCompany\(req\.user, req\.query\.companyId, body\)/);
-  assert.match(post, /if \(companyId === null\)/);
-  assert.match(post, /JOIN public\.users u ON u\.company_id = co\.id/);
+  assert.match(post, /if \(companyId === null \|\|/);
+  assert.match(post, /isApprovedLegacyCrmProfile\(req\.user\) && req\.query\.companyId !== "1"/);
+  assert.match(post, /const profileCompany = crmProfileCompanyPredicate\(req\.user!\)/);
+  assert.match(post, /JOIN public\.users u ON \$\{profileCompany\}/);
   assert.match(post, /WHERE co\.id = \$\{companyId\} AND co\.is_active IS TRUE/);
   assert.match(post, /u\.id::text = \$\{String\(req\.user!\.id\)\}/);
   assert.match(post, /u\.role = \$\{req\.user!\.role\}/);
@@ -57,7 +62,8 @@ test("real insert statement binds active current profile and numeric company; au
 test("company picker reuses create authority and cannot grant access", () => {
   const routeBody = route.split('router.get("/crm/customer-create-companies", requireAuth,')[1].split("// POST /api/crm/customers")[0];
   assert.match(routeBody, /resolveCrmCreateCompany\(req\.user, undefined, \{\}\)/);
-  assert.match(routeBody, /JOIN public\.users u ON u\.company_id = co\.id/);
+  assert.match(routeBody, /const profileCompany = crmProfileCompanyPredicate\(req\.user!\)/);
+  assert.match(routeBody, /JOIN public\.users u ON \$\{profileCompany\}/);
   assert.match(routeBody, /u\.id::text = \$\{String\(req\.user!\.id\)\}/);
   assert.match(routeBody, /u\.is_active IS TRUE AND u\.status = 'active'/);
   assert.match(routeBody, /co\.is_active IS TRUE/);
@@ -75,4 +81,62 @@ test("CRM form requires a server-provided selection without writing a tenant fie
   assert.match(ui, /createMut\.mutate\(\{ companyId: selectedCreateScope\.id, data: form \}\)/);
   assert.match(ui, /body: JSON\.stringify\(data\)/);
   assert.match(ui, /disabled=\{!scopes\.length\}/);
+});
+
+const now = Date.UTC(2026, 10, 27, 6, 0, 0);
+const dev = {
+  NODE_ENV: "development",
+  PUBLIC_APP_BASE_URL: "https://dev-ai-task.cstlogistic.co.id",
+  SUPABASE_URL_DEV: "https://xssrfshdrtdfupgqwfdw.supabase.co",
+  SESSION_SECRET: "fixture-only-not-a-real-secret-32chars",
+};
+const approved = {
+  id: "google_103728868378401731050", email: "fixture@example.invalid", role: "super_admin",
+  companyId: null, authSource: "supabase_google_identity",
+  authSupabaseId: "75a7c311-3f6e-4c95-8a66-9b98f6dd26ad", authVerifiedAt: now - 60_000,
+};
+test("Owner-approved Google profile can discover and explicitly select only CST", () => {
+  assert.equal(resolve(approved, undefined, {}, dev, now), 1);
+  assert.equal(resolve(approved, "1", {}, dev, now), 1);
+  assert.equal(resolve({...approved, companyId:"default"}, "1", {}, dev, now), 1);
+  for (const target of ["2","3","4","5",1,["1","3"]]) assert.equal(resolve(approved,target,{},dev,now),null);
+  assert.equal(resolve(approved,"1",{company_id:1},dev,now),null);
+});
+test("wrong project, origin, mode, or missing strong session key cannot enable approval", () => {
+  for (const env of [
+    {...dev, NODE_ENV:"production"}, {...dev, NODE_ENV:"test"},
+    {...dev, APP_ENV:"production"}, {...dev, APP_ENV:""},
+    {...dev, SUPABASE_URL_DEV:"https://wrong.supabase.co"}, {...dev,PUBLIC_APP_BASE_URL:"https://other.invalid"},
+    {...dev, SESSION_SECRET:"short"}, {...dev, SESSION_SECRET:"fallback-secret-change-in-production"},
+    {...dev, SESSION_SECRET:undefined},
+  ]) assert.equal(resolve(approved,"1",{},env,now),null);
+});
+test("wrong Google identity, role, profile, stale or absent OAuth evidence denied", () => {
+  for (const candidate of [
+    {...approved,id:"other"}, {...approved,role:"owner"}, {...approved,role:"staff"},
+    {...approved,authSource:undefined}, {...approved,authSupabaseId:"other"},
+    {...approved,authVerifiedAt:undefined}, {...approved,authVerifiedAt:now+30_001},
+    {...approved,authVerifiedAt:now-7*24*60*60_000-1}, {...approved,companyId:undefined},
+    {...approved,email:""},
+  ]) assert.equal(resolve(candidate,"1",{},dev,now),null);
+});
+test("current Auth admin pin and active CST are required in the same SQL join", () => {
+  const predicate = route.split("function crmProfileCompanyPredicate(")[1].split("// GET /api/crm/customers")[0];
+  assert.ok(predicate.includes("u.company_id = co.id"));
+  assert.match(predicate, /co\.id = 1 AND co\.code = 'CST' AND u\.company_id IS NULL/);
+  assert.match(predicate, /FROM auth\.users a/);
+  assert.match(predicate, /a\.id = \$\{user\.authSupabaseId\}::uuid/);
+  assert.match(predicate, /a\.deleted_at IS NULL AND \(a\.banned_until IS NULL OR a\.banned_until <= now\(\)\)/);
+  assert.match(predicate, /a\.raw_app_meta_data->>'ai_task_user_id' = u\.id::text/);
+  assert.match(predicate, /a\.raw_app_meta_data->>'ai_task_role' = 'super_admin'/);
+  assert.match(predicate, /a\.raw_app_meta_data->>'ai_task_company_id' = '@NULL@'/);
+  assert.doesNotMatch(predicate, /raw_user_meta_data|UPDATE |INSERT INTO/);
+  const patch = route.split("// PATCH /api/crm/customers/:id")[1];
+  assert.doesNotMatch(patch,/isApprovedLegacyCrmProfile|crmProfileCompanyPredicate/);
+});
+test("legacy create does not load other customer data and confirms returned ownership", () => {
+  const ui = readFileSync(new URL("../../artifacts/ai-task-center/src/pages/customers-crm.tsx", import.meta.url), "utf8");
+  assert.match(ui, /enabled: !!user && !authLoading && !unbound/);
+  assert.match(ui, /Number\(created\.company_id\) !== variables\.companyId/);
+  assert.match(ui, /createdReceipt\.actor === String\(user\?\.id \?\? ""\)/);
 });
