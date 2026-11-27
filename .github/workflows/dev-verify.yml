@@ -263,6 +263,7 @@ jobs:
         run: |
           node --experimental-strip-types --test scripts/dev/dev-passive-ledger-recovery.test.mjs scripts/dev/dev-bridge-source-coverage.test.mjs
           bash scripts/dev/test-dev-passive-ledger-recovery-pg16.sh
+          bash scripts/dev/test-dev-source-coverage-pg16.sh
       - name: Verify passive event binding visibility and existing registry regression (read-only)
         run: node --experimental-strip-types --test artifacts/ai-task-center/tests/bridge-passive-queue.test.mjs artifacts/ai-task-center/tests/bridge-registry-ui.test.mjs artifacts/ai-task-center/tests/unified-dashboard.test.mjs artifacts/api-server/tests/bridge-dashboard-visibility.test.mjs
       - name: Verify CST-DEV Google callback overlay behavior in canonical SPA
