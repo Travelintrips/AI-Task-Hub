@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { useAuth } from "@/contexts/auth-context";
 import { getStoredToken } from "@/lib/auth-api";
+import { isPassiveBridgeEvent, type PassiveEventClassification } from "@/lib/bridge-queue-presentation";
 import { RefreshCw, ExternalLink } from "lucide-react";
 
 type BridgeJob = {
@@ -13,9 +14,10 @@ type BridgeJob = {
   callback_received_at: string | null;
   result_verified_at: string | null;
   created_at: string;
+  queue_classification?: string | null;
 };
 
-async function fetchRegistryJobs(): Promise<{ jobs: BridgeJob[] }> {
+async function fetchRegistryJobs(): Promise<{ jobs: BridgeJob[]; passiveEventClassification?: PassiveEventClassification }> {
   const token = getStoredToken();
   const response = await fetch("/api/bridge/admin/jobs", {
     headers: token ? { Authorization: "Bearer " + token } : {},
@@ -68,8 +70,9 @@ export function BridgeJobVisibility({ location }: { location: "dashboard" | "ai-
       </p>}
       {data && <>
         <p className="text-xs text-slate-600 mb-2">
-          Dari {jobs.length} job terbaru: {verified.length} selesai dengan ACK terverifikasi, {needsAttention.length} perlu perhatian.
+          Dari {jobs.length} job terbaru: {verified.length} selesai dengan ACK terverifikasi, {needsAttention.length} perlu perhatian{data.passiveEventClassification === "AVAILABLE" ? `, ${jobs.filter(isPassiveBridgeEvent).length} event pasif` : ""}.
         </p>
+        {data.passiveEventClassification === "UNAVAILABLE" && <p role="alert" className="text-xs text-amber-700">Klasifikasi event pasif belum dapat diverifikasi.</p>}
         {jobs.length === 0 && <p>Belum ada pekerjaan integrasi yang tercatat.</p>}
         <div className="flex flex-wrap gap-2">
           {jobs.slice(0, 4).map(job => (
@@ -77,7 +80,7 @@ export function BridgeJobVisibility({ location }: { location: "dashboard" | "ai-
               title={"Lihat hasil dan event " + job.title}
               className="rounded border border-slate-200 bg-white px-2 py-1 hover:border-blue-500 hover:text-blue-700">
               <span className="font-medium">{job.title}</span>
-              <span className="ml-2 text-xs text-slate-600">{job.status}</span>
+              <span className="ml-2 text-xs text-slate-600">{job.status}{isPassiveBridgeEvent(job) ? " · Event pasif" : ""}</span>
               {job.result_verified_at && <span className="ml-2 text-xs text-green-700">ACK</span>}
             </Link>
           ))}

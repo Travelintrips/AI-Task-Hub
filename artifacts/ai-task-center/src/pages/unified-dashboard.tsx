@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { useAuth } from "@/contexts/auth-context";
 import { getStoredToken } from "@/lib/auth-api";
+import { isPassiveBridgeEvent, type PassiveEventClassification } from "@/lib/bridge-queue-presentation";
 import { OnboardingBanner } from "@/components/onboarding-banner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -18,6 +19,7 @@ type BridgeJob = {
   id: string; source: string; external_id: string; title: string; status: string;
   owner: string | null; created_at: string; updated_at: string;
   callback_received_at: string | null; result_verified_at: string | null;
+  queue_classification?: string | null;
 };
 type Session = {
   source: string; session_id: string; state: string; owner: string | null;
@@ -25,7 +27,7 @@ type Session = {
 };
 type JobEvent = { event_id: string; kind: string; sender: string; received_at: string };
 type SourceFilter = "all" | "task" | "bridge" | "session";
-type StatusFilter = "all" | "new" | "running" | "completed" | "attention";
+type StatusFilter = "all" | "new" | "running" | "completed" | "attention" | "passive";
 
 type WorkRow = {
   key: string; kind: "task" | "bridge"; rawId: string;
@@ -101,7 +103,7 @@ export default function UnifiedDashboard() {
   });
   const bridge = useQuery({
     queryKey: ["bridge-admin-jobs"],
-    queryFn: () => getJson<{ jobs: BridgeJob[]; hiddenTaskIds?: number[] }>("/api/bridge/admin/jobs"),
+    queryFn: () => getJson<{ jobs: BridgeJob[]; hiddenTaskIds?: number[]; passiveEventClassification?: PassiveEventClassification }>("/api/bridge/admin/jobs"),
     enabled: canSeeBridge, retry: false, refetchInterval: false, refetchOnWindowFocus: false,
   });
   const sessions = useQuery({
@@ -138,7 +140,7 @@ export default function UnifiedDashboard() {
         key: "bridge:" + j.id, kind: "bridge", rawId: j.id,
         title: j.title, sourceLabel: j.source === "AI_CORE" ? "AI Core" : j.source,
         sourceType: j.source, owner: j.owner || "—", status: j.status,
-        bucket: bucket(j.status), date: j.created_at,
+        bucket: isPassiveBridgeEvent(j) ? "passive" : bucket(j.status), date: j.created_at,
         ack: Boolean(j.callback_received_at && j.result_verified_at), job: j,
       }));
     return [...nativeRows, ...bridgeRows].sort((a, b) =>
@@ -170,6 +172,8 @@ export default function UnifiedDashboard() {
     { key: "running", name: "Sedang berjalan", count: sourceRows.filter(r => r.bucket === "running").length },
     { key: "completed", name: "Selesai", count: sourceRows.filter(r => r.bucket === "completed").length },
     { key: "attention", name: "Perlu perhatian", count: sourceRows.filter(r => r.bucket === "attention").length },
+    ...(canSeeBridge && source !== "task" && (bridge.data?.passiveEventClassification === "AVAILABLE" || sourceRows.some(r => r.bucket === "passive")) ?
+      [{ key: "passive" as const, name: "Event pasif", count: sourceRows.filter(r => r.bucket === "passive").length }] : []),
   ];
   const sourceTabs: Array<{ key: SourceFilter; name: string }> = [
     { key: "all", name: "Semua sumber" },
@@ -275,7 +279,8 @@ export default function UnifiedDashboard() {
         {errors.length > 0 && <div role="alert" className="rounded-lg border border-red-300 p-3 text-sm text-red-700">
           {errors.join("; ")}. Data dari sumber tersebut belum tersedia; angka yang tampil hanya data yang berhasil dibaca.
         </div>}
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        {bridge.data?.passiveEventClassification === "UNAVAILABLE" && <p role="alert" className="text-sm text-amber-700">Klasifikasi event pasif belum dapat diverifikasi; antrean belum dipisahkan.</p>}
+        <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
           {stats.map(s => <button type="button" key={s.key} onClick={() => {setSource(source === "session" ? "all" : source); setSelectedJobs([]); setSelectedTasks([]); setStatus(current => current === s.key && s.key !== "all" ? "all" : s.key);}}
             aria-pressed={status === s.key && source !== "session"}
             className={"text-left rounded-xl border-2 bg-white p-4 transition-colors hover:border-blue-400 focus-visible:outline-2 focus-visible:outline-blue-600 " +
@@ -343,7 +348,7 @@ export default function UnifiedDashboard() {
             <div className="p-4 flex flex-wrap justify-between gap-3 items-center">
               <div><h2 className="font-semibold">Daftar pekerjaan terpadu</h2>
                 <p className="text-xs text-muted-foreground mt-1">{filtered.length} pekerjaan ditampilkan · klik baris untuk detail dan bukti</p>
-                <p className="text-xs text-muted-foreground">Bisa disembunyikan: job AI Core COMPLETED/FAILED dan AI Tasks new_inquiry yang belum ditugaskan. QUEUED/RUNNING tetap terkunci karena terkait eksekusi. Riwayat dan ACK tidak dihapus.</p>
+                <p className="text-xs text-muted-foreground">Bisa disembunyikan: job AI Core COMPLETED/FAILED dan AI Tasks new_inquiry yang belum ditugaskan. QUEUED/RUNNING tetap terkunci; event pasif juga tidak dapat diarsipkan melalui kontrol ini. Riwayat dan ACK tidak dihapus.</p>
               </div>
               <div className="flex items-center gap-2">
                 <Button type="button" size="sm" variant="destructive"
@@ -434,7 +439,7 @@ function RowWithEvents({ row, expanded, onExpand, events, selectable, selected, 
       </td>
       <td className="p-3"><Badge variant="outline">{row.sourceLabel}</Badge></td>
       <td className="p-3">{row.owner}</td>
-      <td className="p-3"><Badge variant={badgeVariant(row.status)}>{row.status}</Badge></td>
+      <td className="p-3"><Badge variant={badgeVariant(row.status)}>{row.status}</Badge>{row.bucket === "passive" && <span className="block text-xs text-muted-foreground mt-1">Event pasif · bukan antrean worker</span>}</td>
       <td className="p-3 whitespace-nowrap">{stamp(row.date)}</td>
       <td className="p-3">{row.kind === "bridge" ?
         row.ack ? <span className="text-green-700 font-semibold">ACK Terverifikasi</span> : "Belum terverifikasi" :
@@ -449,6 +454,7 @@ function RowWithEvents({ row, expanded, onExpand, events, selectable, selected, 
           <p>{row.task?.description ?? "Tidak ada keterangan tambahan."}</p>
           <Link href={"/ai-tasks/" + row.rawId} className="text-blue-700 underline">Buka pengelolaan task</Link>
         </> : <>
+          {row.bucket === "passive" && <p className="text-muted-foreground">Catatan EVENT_BINDING dari sumber. Status registry tetap QUEUED; bukan pekerjaan baru untuk worker. Riwayat notifikasi/ACK tetap perlu diperiksa.</p>}
           <p>Hasil terverifikasi: {row.ack ? "Ya" : "Belum"} · Callback: {stamp(row.job?.callback_received_at ?? null)}</p>
           <p className="font-medium">Riwayat event dan ACK</p>
           {events?.isLoading && <p>Memuat event…</p>}

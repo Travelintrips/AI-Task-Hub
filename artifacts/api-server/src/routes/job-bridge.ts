@@ -440,7 +440,43 @@ router.get("/bridge/admin/jobs", ...adminOnly, async (req: Request, res: Respons
       "WHERE action='dashboard_hidden' AND entity_type='ai_task' " +
       "AND entity_id ~ '^[0-9]+$' LIMIT 5000",
     );
-    res.json({ jobs: result.rows, hiddenTaskIds: hidden.rows.map(row => Number(row.entity_id)) });
+    // DEV-only display enrichment. Never rewrite the canonical registry status,
+    // claim a job, replay a command, or acknowledge a failed notification.
+    let passiveEventClassification: "AVAILABLE" | "UNAVAILABLE" | undefined;
+    const passiveIds = new Set<string>();
+    if (process.env.NODE_ENV === "development" &&
+        (process.env.APP_ENV === undefined || process.env.APP_ENV === "development") &&
+        process.env.PUBLIC_APP_BASE_URL === "https://dev-ai-task.cstlogistic.co.id" &&
+        process.env.SUPABASE_URL_DEV === "https://xssrfshdrtdfupgqwfdw.supabase.co") {
+      try {
+        const candidates = result.rows.filter(row => row.source === "AI_CORE" &&
+          row.status === "QUEUED" && row.owner === null &&
+          parseAiCoreExternalId(row.external_id)?.kind === "bridge-command");
+        if (candidates.length) {
+          const passive = await pool.query(
+            `SELECT j.id FROM ai_task_bridge.jobs j
+             JOIN ai_platform.ai_coding_bridge_commands c ON c.id=CASE
+               WHEN j.external_id ~ '^bridge-command:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+               THEN split_part(j.external_id,':',2)::uuid ELSE NULL END
+             WHERE j.id=ANY($1::uuid[]) AND j.source='AI_CORE' AND j.status='QUEUED'
+               AND j.owner IS NULL AND j.lease_token IS NULL
+               AND c.command_type='EVENT_BINDING' AND c.status='RECEIVED'
+               AND coalesce(c.metadata_json->>'assignedClientId','')=''`,
+            [candidates.map(row => row.id)],
+          );
+          for (const row of passive.rows) passiveIds.add(row.id);
+        }
+        passiveEventClassification = "AVAILABLE";
+      } catch (error) {
+        passiveIds.clear();
+        passiveEventClassification = "UNAVAILABLE";
+        console.warn("DEV passive event classification unavailable", error instanceof Error ? error.name : "unknown");
+      }
+    }
+    const jobs = result.rows.map(row => passiveIds.has(row.id)
+      ? { ...row, queue_classification: "PASSIVE_EVENT" } : row);
+    res.json({ jobs, hiddenTaskIds: hidden.rows.map(row => Number(row.entity_id)),
+      ...(passiveEventClassification ? { passiveEventClassification } : {}) });
   } catch (error) { queryError(res, error); }
 });
 router.get("/bridge/admin/sessions", ...adminOnly, async (_req: Request, res: Response): Promise<void> => {
