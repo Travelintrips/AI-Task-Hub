@@ -82,5 +82,8 @@ export const SCOPED_DEV_PING_EVIDENCE_SQL = `SELECT EXISTS (
        AND (j.idempotency_key<>j.external_id OR j.owner IS NOT NULL OR j.lease_token IS NOT NULL
          OR j.lease_until IS NOT NULL OR j.source_session_id IS NOT NULL
          OR j.status NOT IN ('QUEUED','WAITING_FOR_ACK','COMPLETED')
+         OR (j.status='QUEUED' AND (j.callback_id IS NOT NULL OR j.result_verified_at IS NOT NULL OR j.callback_received_at IS NOT NULL))
+         OR (j.status='WAITING_FOR_ACK' AND (j.callback_id IS DISTINCT FROM 'core-source:'||j.id::text OR j.result_verified_at IS NOT NULL OR j.callback_received_at IS NOT NULL))
+         OR (j.status='COMPLETED' AND (j.callback_id IS DISTINCT FROM 'core-source:'||j.id::text OR j.result_verified_at IS NULL OR j.callback_received_at IS NULL))
          OR EXISTS(SELECT 1 FROM ai_task_bridge.job_events ev WHERE ev.job_id=j.id AND ev.kind='DASHBOARD_ARCHIVED')))
 ) AS eligible`;
