@@ -7,11 +7,24 @@ name="dev-source-coverage-fixture-$$"
 cleanup(){ docker rm -f "$name" >/dev/null 2>&1 || true; rm -rf "$tmp"; }
 trap cleanup EXIT
 docker run --rm -d --network none --name "$name" -e POSTGRES_HOST_AUTH_METHOD=trust postgres:16-alpine >/dev/null
+# The image entrypoint starts a temporary Unix-socket-only PostgreSQL server
+# during initdb, then stops it before starting the final TCP listener.
+# A socket pg_isready probe can succeed against that temporary server.
+# Use the same loopback TCP transport for readiness and the actual fixtures.
+ready=false
 for i in $(seq 1 45); do
-  if docker exec "$name" pg_isready -U postgres >/dev/null 2>&1; then break; fi
+  if docker exec "$name" env PGCONNECT_TIMEOUT=2 psql -X -h 127.0.0.1 -U postgres -d postgres -Atqc 'SELECT 1' 2>/dev/null | grep -qx '1'; then
+    ready=true
+    break
+  fi
   sleep 1
 done
-docker exec "$name" pg_isready -U postgres >/dev/null
+if [ "$ready" != true ]; then
+  echo 'DISPOSABLE_PG16_FINAL_TCP_NOT_READY' >&2
+  docker logs --tail 40 "$name" >&2 || true
+  exit 1
+fi
+echo 'DISPOSABLE_PG16_FINAL_TCP_READY'
 python3 - "$root" "$tmp/fixture.sql" <<'PY'
 from pathlib import Path
 import sys
@@ -76,7 +89,7 @@ gap_check('gap_limit_and_exact_total', "count(*)=100 AND min(total_count)=106 AN
     "INSERT INTO ai_platform.ai_coding_bridge_commands(id,source,command_type,task_id,instruction,status,metadata_json,created_at) SELECT gen_random_uuid(),'fixture','EXTERNAL_AGENT_WORK',NULL,'fixture','FAILED','{}',now() FROM generate_series(1,105)")
 out.write_text(sql)
 PY
-docker exec -i "$name" psql -X -U postgres -v ON_ERROR_STOP=1 < "$tmp/fixture.sql" | tee "$tmp/result"
+docker exec -i "$name" env PGCONNECT_TIMEOUT=2 psql -X -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1 < "$tmp/fixture.sql" | tee "$tmp/result"
 test "$(grep -c '^PASS ' "$tmp/result")" -eq 23
 ! grep -q '^FAIL ' "$tmp/result"
 echo 'DEV_SOURCE_COVERAGE_SQL_FIXTURES=23/23_PASS'
