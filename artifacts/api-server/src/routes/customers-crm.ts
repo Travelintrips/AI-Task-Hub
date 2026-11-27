@@ -1,10 +1,25 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { eq, and, desc, ilike, or, sql } from "drizzle-orm";
-import { db, customersTable, aiTasksTable, auditLogsTable } from "@workspace/db";
-import { requireAuth, getCompanyId } from "../middleware/auth";
+import { db, customersTable, aiTasksTable } from "@workspace/db";
+import { requireAuth, getCompanyId, type AuthUser } from "../middleware/auth";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
+
+// Customer writes must use the authenticated numeric company, never a legacy
+// alias, request-supplied tenant, or the read-only onboarding exception.
+function resolveCrmCreateCompany(user: AuthUser | undefined, requestedCompany: unknown, body: Record<string, unknown>): number | null {
+  if (!user || !["owner", "super_admin", "company_admin"].includes(user.role) ||
+      user.id === undefined || user.id === null ||
+      typeof user.email !== "string" || !user.email.trim()) return null;
+  const raw = String(user.companyId ?? "");
+  if (!/^[1-9][0-9]{0,9}$/.test(raw) || Number(raw) > 2147483647) return null;
+  if (requestedCompany !== undefined && (typeof requestedCompany !== "string" || requestedCompany !== raw)) return null;
+  if (Object.prototype.hasOwnProperty.call(body, "companyId") ||
+      Object.prototype.hasOwnProperty.call(body, "company_id")) return null;
+  return Number(raw);
+}
+
 
 // GET /api/crm/customers
 router.get("/crm/customers", requireAuth, async (req: Request, res: Response): Promise<void> => {
@@ -54,7 +69,15 @@ router.get("/crm/customers/:id", requireAuth, async (req: Request, res: Response
 // POST /api/crm/customers
 router.post("/crm/customers", requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
-    const { companyName, picName, whatsapp, email, npwp, address, notes } = req.body as Record<string, unknown>;
+    const body = req.body as Record<string, unknown> | undefined;
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      res.status(400).json({ error: "Data customer tidak valid" }); return;
+    }
+    const companyId = resolveCrmCreateCompany(req.user, req.query.companyId, body);
+    if (companyId === null) {
+      res.status(403).json({ error: "CRM_COMPANY_SCOPE_REQUIRED", message: "Akun pengelola harus terikat pada perusahaan yang sah; identitas perusahaan dari formulir tidak diterima." }); return;
+    }
+    const { companyName, picName, whatsapp, email, npwp, address, notes } = body;
 
     // Task 3: mandatory fields validation
     if (!companyName || !String(companyName).trim()) {
@@ -69,28 +92,44 @@ router.post("/crm/customers", requireAuth, async (req: Request, res: Response): 
       res.status(400).json({ error: "Nomor WhatsApp tidak valid (minimal 10 digit)" }); return;
     }
 
-    // NOTE: customers.company_id is INTEGER in DB (nullable), not TEXT.
-    // Drizzle schema drift: schema says text("company_id") but DB is integer.
-    // We use raw SQL and pass NULL for company_id (super_admin has no integer company id).
+    // Revalidate the live profile and company in the same SQL statement as
+    // the insert. The old Drizzle customer schema does not match the numeric
+    // shared company_id column. No legacy default -> numeric write mapping.
+    // If the audit insert fails, the customer insert rolls back too.
     const insertResult = await db.execute(sql`
-      INSERT INTO customers (name, company_name, pic_name, whatsapp, email, npwp, address, notes, created_at, updated_at)
-      VALUES (
-        ${String(companyName).trim()},
-        ${String(companyName).trim()},
-        ${picName ? String(picName) : null},
-        ${normalizedWa},
-        ${email ? String(email) : null},
-        ${npwp ? String(npwp) : null},
-        ${address ? String(address) : null},
-        ${notes ? String(notes) : null},
-        NOW(), NOW()
+      WITH eligible AS (
+        SELECT co.id
+        FROM public.companies co
+        JOIN public.users u ON u.company_id = co.id
+        WHERE co.id = ${companyId} AND co.is_active IS TRUE
+          AND u.id::text = ${String(req.user!.id)}
+          AND lower(btrim(u.email)) = lower(btrim(${req.user!.email}))
+          AND u.role = ${req.user!.role}
+          AND u.is_active IS TRUE AND u.status = 'active'
+      ), created AS (
+        INSERT INTO public.customers
+          (name, company_name, company_id, pic_name, whatsapp, email, npwp, address, notes, created_at, updated_at)
+        SELECT ${String(companyName).trim()}, ${String(companyName).trim()}, id,
+          ${picName ? String(picName) : null}, ${normalizedWa},
+          ${email ? String(email) : null}, ${npwp ? String(npwp) : null},
+          ${address ? String(address) : null}, ${notes ? String(notes) : null},
+          NOW(), NOW()
+        FROM eligible
+        RETURNING id, company_id, company_name, pic_name, whatsapp, email, created_at
+      ), logged AS (
+        INSERT INTO public.audit_logs
+          (action, entity_type, entity_id, company_id, module, user_email, after_data)
+        SELECT 'customer_created', 'customer', id::text, company_id::text, 'customers',
+          ${req.user!.email}, jsonb_build_object('customer_id', id, 'company_id', company_id)
+        FROM created
+        RETURNING entity_id
       )
-      RETURNING id, company_name, pic_name, whatsapp, email, created_at
+      SELECT created.* FROM created JOIN logged ON logged.entity_id = created.id::text
     `);
     const created = (insertResult.rows as Record<string, unknown>[])[0];
-    if (!created) { res.status(500).json({ error: "Gagal menyimpan customer" }); return; }
-
-    await db.insert(auditLogsTable).values({ action: "customer_created", module: "customers", before: `Customer baru: ${String(companyName).trim()}`, entityId: Number(created["id"]) }).catch(() => {});
+    if (!created) {
+      res.status(403).json({ error: "CRM_COMPANY_SCOPE_INACTIVE", message: "Profil atau perusahaan tidak aktif atau tidak cocok." }); return;
+    }
     res.status(201).json(created);
   } catch (err) {
     logger.error({ err }, "POST /crm/customers failed");
