@@ -23,7 +23,7 @@ async function apiFetch(path: string, init?: RequestInit) {
   if (!res.ok) {
     const error = await res.json().catch(() => null);
     if (res.status === 403 && typeof error?.error === "string" && error.error.startsWith("CRM_COMPANY_SCOPE_")) {
-      throw new Error("Akun harus terikat pada perusahaan aktif sebelum dapat menambah customer.");
+      throw new Error("Perusahaan atau sesi belum diizinkan. Untuk otorisasi Google khusus CST, masuk kembali melalui Google jika diperlukan.");
     }
     throw new Error(`HTTP ${res.status}`);
   }
@@ -48,6 +48,7 @@ interface Customer {
 interface CrmCompanyScope {
   companies: { id: number; code: string; name: string }[];
   status: "ok" | "no_authorized_company";
+  mode?: "bound_company" | "owner_approved_cst_create";
 }
 
 const emptyForm = { companyName: "", picName: "", whatsapp: "", email: "", npwp: "", address: "", notes: "" };
@@ -61,6 +62,7 @@ export default function CustomersCrm() {
   const [editTarget, setEditTarget] = useState<Customer | null>(null);
   const [form, setForm] = useState(emptyForm);
   const [createCompanyId, setCreateCompanyId] = useState("");
+  const [createdReceipt, setCreatedReceipt] = useState<{ id: number; companyId: number; name: string; actor: string } | null>(null);
   const scope = useQuery<CrmCompanyScope>({
     queryKey: ["crm-create-companies", user?.id, user?.companyId, user?.role],
     queryFn: () => apiFetch("/crm/customer-create-companies"),
@@ -72,10 +74,13 @@ export default function CustomersCrm() {
   const scopes = !scope.isError && !scope.isFetching && !!user && !authLoading &&
     scope.data?.status === "ok" ? scope.data.companies : [];
   const selectedCreateScope = scopes.find(c => String(c.id) === createCompanyId);
+  const legacyCreateOnly = scope.data?.mode === "owner_approved_cst_create" && scopes.length === 1;
+  const unbound = !!user && (user.companyId == null || user.companyId === "default");
 
 
   const { data: customers = [], isLoading } = useQuery<Customer[]>({
-    queryKey: ["crm-customers", search],
+    queryKey: ["crm-customers", user?.id, user?.companyId, search],
+    enabled: !!user && !authLoading && !unbound,
     queryFn: async () => {
       // Current SQL list returns physical PostgreSQL field names. Normalize
       // only presentation; do not infer a company or modify record ownership.
@@ -95,7 +100,16 @@ export default function CustomersCrm() {
   const createMut = useMutation({
     mutationFn: ({ companyId, data }: { companyId: number; data: typeof emptyForm }) =>
       apiFetch(`/crm/customers?companyId=${encodeURIComponent(String(companyId))}`, { method: "POST", body: JSON.stringify(data) }),
-    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["crm-customers"] }); setDialog(null); toast({ title: "Customer berhasil ditambahkan" }); },
+    onSuccess: (created, variables) => {
+      if (!created || Number(created.company_id) !== variables.companyId || !Number.isSafeInteger(Number(created.id))) {
+        toast({ title: "Bukti penyimpanan belum dapat diverifikasi", description: "Jangan ulangi penyimpanan sebelum memeriksa data.", variant: "destructive" });
+        return;
+      }
+      setCreatedReceipt({ id: Number(created.id), companyId: Number(created.company_id), name: String(created.company_name ?? variables.data.companyName), actor: String(user?.id ?? "") });
+      queryClient.invalidateQueries({ queryKey: ["crm-customers"] });
+      setDialog(null);
+      toast({ title: "Customer berhasil ditambahkan", description: `ID ${created.id} · Company ID ${created.company_id}` });
+    },
     onError: (error: Error) => toast({ title: "Gagal menambahkan customer", description: error.message, variant: "destructive" }),
   });
 
@@ -125,7 +139,7 @@ export default function CustomersCrm() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2"><Building2 className="h-6 w-6 text-primary" /> CRM Customer</h1>
-          <p className="text-muted-foreground text-sm mt-1">{customers.length} customer terdaftar</p>
+          <p className="text-muted-foreground text-sm mt-1">{unbound ? "Pembuatan customer sesuai kewenangan perusahaan" : `${customers.length} customer terdaftar`}</p>
         </div>
         <Button onClick={openCreate} disabled={!scopes.length}><Plus className="h-4 w-4 mr-2" /> Tambah Customer</Button>
       </div>
@@ -136,12 +150,25 @@ export default function CustomersCrm() {
             : "Belum ada perusahaan aktif yang diizinkan untuk akun ini. Hubungi Owner untuk menetapkan kewenangan CRM; pemetaan onboarding bukan izin membuat customer."}
         </div>
       )}
+      {legacyCreateOnly && (
+        <div role="status" className="rounded-md border p-3 text-sm">
+          Persetujuan Owner: tambah Customer khusus PT Cahaya Sejati Teknologi (CST-DEV). Kewenangan ini tidak mengubah company ID akun atau memberi izin edit/hapus.
+        </div>
+      )}
+      {createdReceipt && createdReceipt.actor === String(user?.id ?? "") && (
+        <div role="status" className="rounded-md border p-3 text-sm">
+          <p className="font-medium">Customer berhasil disimpan</p>
+          <p>{createdReceipt.name} · Customer ID {createdReceipt.id} · Company ID {createdReceipt.companyId}</p>
+        </div>
+      )}
       <div className="relative max-w-sm">
         <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
         <Input placeholder="Cari nama perusahaan, PIC, nomor WA..." className="pl-9" value={search} onChange={(e) => setSearch(e.target.value)} />
       </div>
 
-      {isLoading ? (
+      {unbound ? (
+        <Card><CardContent className="py-8 text-center text-sm text-muted-foreground">Daftar tidak dimuat untuk akun tanpa company ID. Bukti Customer yang baru disimpan tampil di atas.</CardContent></Card>
+      ) : isLoading ? (
         <div className="flex justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-2 border-primary border-t-transparent" /></div>
       ) : customers.length === 0 ? (
         <Card><CardContent className="py-16 text-center text-muted-foreground"><Building2 className="h-12 w-12 mx-auto mb-3 opacity-30" /><p className="font-medium">Belum ada data customer</p><p className="text-sm mt-1">Klik "Tambah Customer" untuk mulai</p></CardContent></Card>
