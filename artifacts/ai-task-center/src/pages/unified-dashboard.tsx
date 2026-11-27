@@ -4,7 +4,7 @@ import { Link } from "wouter";
 import { useAuth } from "@/contexts/auth-context";
 import { getStoredToken } from "@/lib/auth-api";
 import { isPassiveBridgeEvent, type PassiveEventClassification } from "@/lib/bridge-queue-presentation";
-import { isEmployeeKasbonTask, isPendingBusinessTask } from "@/lib/business-task-presentation";
+import { isEmployeeKasbonTask, isPendingBusinessTask, canNavigateToDevKasbonFinance, DEV_KASBON_FINANCE_URL } from "@/lib/business-task-presentation";
 import { BridgeSourceGap, type SourceSyncGap } from "@/components/bridge-source-gap";
 import { OnboardingBanner } from "@/components/onboarding-banner";
 import { Button } from "@/components/ui/button";
@@ -283,9 +283,16 @@ export default function UnifiedDashboard() {
           {errors.join("; ")}. Data dari sumber tersebut belum tersedia; angka yang tampil hanya data yang berhasil dibaca.
         </div>}
         {source !== "bridge" && source !== "session" && sourceRows.some(r => r.bucket === "business") &&
-          <p className="text-sm text-muted-foreground" data-testid="business-workflow-note">
-            Alur kasbon belum selesai dipisahkan dari antrean dan pekerjaan dalam proses. Status berasal dari AI Tasks, bukan bukti worker aktif, persetujuan Owner, pencairan dana, atau posting jurnal.
-          </p>}
+          <div className="space-y-2 text-sm text-muted-foreground" data-testid="business-workflow-note">
+            <p>Alur kasbon belum selesai dipisahkan dari antrean dan pekerjaan dalam proses. Status berasal dari AI Tasks, bukan bukti worker aktif, persetujuan Owner, pencairan dana, atau posting jurnal.</p>
+            {typeof window !== "undefined" && canNavigateToDevKasbonFinance(window.location.hostname, user?.role) &&
+              <div className="flex flex-wrap items-center gap-2">
+                <a href={DEV_KASBON_FINANCE_URL} target="_blank" rel="noopener noreferrer"
+                  referrerPolicy="no-referrer" data-testid="dev-kasbon-finance-link"
+                  className="font-medium text-blue-700 underline">Lihat status Finance di BizPortal DEV</a>
+                <span>Gunakan sesi OTP BizPortal sendiri dan pilih perusahaan CST. Tautan ini tidak memberikan hak akses Finance.</span>
+              </div>}
+          </div>}
         {bridge.data?.passiveEventClassification === "UNAVAILABLE" && <p role="alert" className="text-sm text-amber-700">Klasifikasi event pasif belum dapat diverifikasi; antrean belum dipisahkan.</p>}
         {canSeeBridge && <BridgeSourceGap gap={bridge.data?.sourceSyncGap} />}
         <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-7 gap-3">

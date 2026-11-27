@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { isEmployeeKasbonTask, isPendingBusinessTask } from "../src/lib/business-task-presentation.ts";
+import { isEmployeeKasbonTask, isPendingBusinessTask, canNavigateToDevKasbonFinance, DEV_KASBON_FINANCE_URL } from "../src/lib/business-task-presentation.ts";
 
 const dir = new URL("../src/", import.meta.url);
 const file = name => readFileSync(new URL(name, dir), "utf8");
@@ -78,4 +78,28 @@ test("business labels preserve recorded status and explicitly avoid approval or 
   assert.match(ui, /<Badge variant=\{row.bucket === "business" \? "secondary" : badgeVariant\(row.status\)\}>\{row.status\}<\/Badge>/);
   assert.match(ui, /Terakhir diperbarui: \{stamp\(row.task.updatedAt\)\}/);
   assert.match(ui, /Status alur · bukan bukti pencairan/);
+});
+
+test("Finance navigation is limited to the canonical DEV host and management roles", () => {
+  for (const role of ["owner", "super_admin"]) {
+    assert.equal(canNavigateToDevKasbonFinance("dev-ai-task.cstlogistic.co.id", role), true);
+  }
+  for (const host of ["ai-task.cstlogistic.co.id", "localhost", "dev-ai-task.cstlogistic.co.id.example.invalid", ""]) {
+    assert.equal(canNavigateToDevKasbonFinance(host, "super_admin"), false);
+  }
+  for (const role of ["staff", "finance", "admin", "company_admin", null, undefined]) {
+    assert.equal(canNavigateToDevKasbonFinance("dev-ai-task.cstlogistic.co.id", role), false);
+  }
+});
+test("Finance link carries no token, company query, or task ID and relies on independent session", () => {
+  const destination = new URL(DEV_KASBON_FINANCE_URL);
+  assert.equal(destination.origin, "https://dev-bizportal.cstlogistic.co.id");
+  assert.equal(destination.pathname, "/expense/kasbon");
+  assert.equal(destination.search, "");
+  assert.equal(destination.hash, "");
+  assert.match(ui, /canNavigateToDevKasbonFinance\(window.location.hostname, user\?\.role\)/);
+  assert.match(ui, /<a href=\{DEV_KASBON_FINANCE_URL\} target="_blank" rel="noopener noreferrer"/);
+  assert.match(ui, /referrerPolicy="no-referrer"/);
+  assert.match(ui, /Gunakan sesi OTP BizPortal sendiri/);
+  assert.match(ui, /Tautan ini tidak memberikan hak akses Finance/);
 });
