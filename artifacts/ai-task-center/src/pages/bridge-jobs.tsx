@@ -4,6 +4,7 @@ import { Link } from "wouter";
 import { useAuth } from "@/contexts/auth-context";
 import { getStoredToken } from "@/lib/auth-api";
 import { isPassiveBridgeEvent, isExecutionQueued, type PassiveEventClassification } from "@/lib/bridge-queue-presentation";
+import { BridgeSourceGap, type SourceSyncGap } from "@/components/bridge-source-gap";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -111,7 +112,7 @@ export default function BridgeJobsPage() {
 
   const jobs = useQuery({
     queryKey: ["bridge-admin-jobs"],
-    queryFn: () => load<{ jobs: Job[]; passiveEventClassification?: PassiveEventClassification }>("/api/bridge/admin/jobs"),
+    queryFn: () => load<{ jobs: Job[]; passiveEventClassification?: PassiveEventClassification; sourceSyncGap?: SourceSyncGap }>("/api/bridge/admin/jobs"),
     enabled: authorized, retry: false,
     refetchOnWindowFocus: false, refetchInterval: false,
   });
@@ -204,6 +205,7 @@ export default function BridgeJobsPage() {
         ))}
       </div>
 
+      <BridgeSourceGap gap={jobs.data?.sourceSyncGap} detail />
       <Card>
         <CardHeader>
           <div className="flex flex-wrap gap-3 justify-between items-center">

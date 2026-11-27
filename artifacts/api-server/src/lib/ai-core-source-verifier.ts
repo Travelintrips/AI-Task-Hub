@@ -4,6 +4,7 @@
  * grants a new worker lease or executes a job.
  */
 import { pool } from "@workspace/db";
+import { AUTO_DEV_PING_EVIDENCE_SQL } from "./dev-passive-ledger-recovery";
 
 type SourceRow = {
   status: string;
@@ -43,6 +44,7 @@ export function observeKind(status: string): string {
 export async function verifyAndAckAiCoreSource(
   jobId: string,
   callbackId: string,
+  automaticPing?: {commandId:string;since:string},
 ): Promise<boolean> {
   const client = await pool.connect();
   try {
@@ -61,6 +63,15 @@ export async function verifyAndAckAiCoreSource(
     }
     const source = parseAiCoreExternalId(job.external_id);
     if (!source) { await client.query("ROLLBACK"); return false; }
+    if (automaticPing) {
+      if (source.kind !== "bridge-command" || source.id !== automaticPing.commandId) {
+        await client.query("ROLLBACK"); return false;
+      }
+      const evidence = await client.query<{eligible:boolean}>(AUTO_DEV_PING_EVIDENCE_SQL, [automaticPing.commandId, automaticPing.since]);
+      if (evidence.rows[0]?.eligible !== true) {
+        await client.query("ROLLBACK"); return false;
+      }
+    }
     const canonical = await client.query<{ status: string }>(
       source.kind === "coding-task"
         ? "SELECT status FROM ai_platform.ai_coding_tasks WHERE id=$1"

@@ -123,6 +123,8 @@ test("PR196 built DEV API + Google login bundle run safely without live services
     for (const [endpoint, body] of [
       ["/api/bridge/dev-passive-recovery/jobs", { source: "AI_CORE", externalId: ext, idempotencyKey: ext, title: "AI Core bridge command 11111111" }],
       ["/api/bridge/dev-passive-recovery/jobs/" + auditJob + "/source-event", { eventId: "ai-core:" + ext + ":COMPLETED:terminal", status: "COMPLETED" }],
+      ["/api/bridge/dev-passive-sync/jobs", { source: "AI_CORE", externalId: ext, idempotencyKey: ext, title: "AI Core bridge command 11111111" }],
+      ["/api/bridge/dev-passive-sync/jobs/" + auditJob + "/source-event", { eventId: "ai-core:" + ext + ":COMPLETED:terminal", status: "COMPLETED" }],
     ]) {
       for (const [token, expected] of [[undefined,401],[env.AI_TASK_BRIDGE_ACK_TOKEN,401],[env.AI_TASK_BRIDGE_TOKEN,403]]) {
         const res = await fetch(origin + endpoint, { method: "POST", headers: {

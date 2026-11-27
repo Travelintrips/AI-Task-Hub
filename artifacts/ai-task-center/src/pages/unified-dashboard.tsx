@@ -4,6 +4,7 @@ import { Link } from "wouter";
 import { useAuth } from "@/contexts/auth-context";
 import { getStoredToken } from "@/lib/auth-api";
 import { isPassiveBridgeEvent, type PassiveEventClassification } from "@/lib/bridge-queue-presentation";
+import { BridgeSourceGap, type SourceSyncGap } from "@/components/bridge-source-gap";
 import { OnboardingBanner } from "@/components/onboarding-banner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -103,7 +104,7 @@ export default function UnifiedDashboard() {
   });
   const bridge = useQuery({
     queryKey: ["bridge-admin-jobs"],
-    queryFn: () => getJson<{ jobs: BridgeJob[]; hiddenTaskIds?: number[]; passiveEventClassification?: PassiveEventClassification }>("/api/bridge/admin/jobs"),
+    queryFn: () => getJson<{ jobs: BridgeJob[]; hiddenTaskIds?: number[]; passiveEventClassification?: PassiveEventClassification; sourceSyncGap?: SourceSyncGap }>("/api/bridge/admin/jobs"),
     enabled: canSeeBridge, retry: false, refetchInterval: false, refetchOnWindowFocus: false,
   });
   const sessions = useQuery({
@@ -280,6 +281,7 @@ export default function UnifiedDashboard() {
           {errors.join("; ")}. Data dari sumber tersebut belum tersedia; angka yang tampil hanya data yang berhasil dibaca.
         </div>}
         {bridge.data?.passiveEventClassification === "UNAVAILABLE" && <p role="alert" className="text-sm text-amber-700">Klasifikasi event pasif belum dapat diverifikasi; antrean belum dipisahkan.</p>}
+        {canSeeBridge && <BridgeSourceGap gap={bridge.data?.sourceSyncGap} />}
         <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
           {stats.map(s => <button type="button" key={s.key} onClick={() => {setSource(source === "session" ? "all" : source); setSelectedJobs([]); setSelectedTasks([]); setStatus(current => current === s.key && s.key !== "all" ? "all" : s.key);}}
             aria-pressed={status === s.key && source !== "session"}
