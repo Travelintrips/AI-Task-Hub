@@ -16,7 +16,7 @@ import { expireOldIntakeSessions } from "./lib/intake-engine";
 import { ensurePaymentProofBucket } from "./lib/supabase";
 import { supabasePool } from "./lib/supabase-db";
 import paymentProofPublicRouter from "./routes/payment-proof-public";
-import { isRootPaymentProofTokenFormat } from "./lib/payment-proof-token";
+import { isReservedCstDevOnboardingToken, isRootPaymentProofTokenFormat } from "./lib/payment-proof-token";
 
 const app: Express = express();
 
@@ -85,6 +85,17 @@ app.use("/api", paymentProofPublicRouter);
 // outside /api because the URL is sent to WhatsApp as /p/:token. It is placed
 // after application routes so the validated root-token route is last before
 // production static serving/SPA fallback.
+// The exact CST-DEV onboarding entry otherwise matches the 10-character
+// payment-proof root token route. Redirect only this reserved literal before
+// mounting the root resolver. All other token paths keep their existing checks.
+app.get(/^\/onboarding$/, (_req, res, next) => {
+  if (!isReservedCstDevOnboardingToken("onboarding")) {
+    next();
+    return;
+  }
+  res.set("Cache-Control", "no-store");
+  res.redirect(302, "/onboarding/company");
+});
 app.use(paymentProofPublicRouter);
 
 // Serve the built frontend whenever the bundle is available. Production always
