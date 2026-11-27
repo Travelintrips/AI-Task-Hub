@@ -23,26 +23,6 @@ type JobEvent = {
 };
 type SummaryFilter = "all" | "running" | "waiting" | "attention";
 
-type FailureDiagnostic = {
-  source: "canonical_bridge_response";
-  reasonCategory: string;
-  deliveryUnverified: boolean;
-  e2eUnverified: boolean;
-};
-const failureReasonLabels: Record<string, string> = {
-  NAVIGATION_UNKNOWN_NO_RETRY: "Navigasi belum terkonfirmasi — jangan otomatis ulang",
-  RATE_LIMITED_RECONCILIATION_REQUIRED: "Rate limit — rekonsiliasi diperlukan",
-  RATE_LIMITED: "Pembatasan permintaan",
-  VERIFICATION_FAILED: "Bukti verifikasi tidak terpenuhi",
-  TIMEOUT: "Batas waktu terlampaui",
-  BROWSER_UNCONFIRMED: "Status browser belum terkonfirmasi",
-  AUTH_OR_SESSION: "Masalah autentikasi atau sesi",
-  NOT_RECORDED: "Alasan spesifik belum tercatat",
-  OTHER_RECORDED_REASON: "Alasan lain tercatat di sumber (perlu peninjauan)",
-  NO_FAILED_RESPONSE: "Respons gagal dari sumber belum tersedia",
-};
-
-
 async function load<T>(url: string): Promise<T> {
   const token = getStoredToken();
   const response = await fetch(url, {
@@ -112,7 +92,7 @@ export default function BridgeJobsPage() {
   });
   const events = useQuery({
     queryKey: ["bridge-admin-job-events", selectedJobId],
-    queryFn: () => load<{ events: JobEvent[]; failureDiagnostic?: FailureDiagnostic | null }> (
+    queryFn: () => load<{ events: JobEvent[] }>(
       "/api/bridge/admin/jobs/" + encodeURIComponent(selectedJobId || "") + "/events"
     ),
     enabled: authorized && selectedJobId !== null,
@@ -237,18 +217,6 @@ export default function BridgeJobsPage() {
                       <div className="space-y-2">
                         <p className="font-semibold">Riwayat event — {j.title}</p>
                         <p className="text-xs text-muted-foreground break-all">Job ID: {j.id} · Sumber: {j.external_id}</p>
-                        {j.status === "FAILED" && events.data?.failureDiagnostic && (
-                          <div className="border rounded-md p-3 text-xs space-y-1 bg-white dark:bg-slate-900">
-                            <p className="font-semibold">Diagnostik kegagalan dari AI Core</p>
-                            <p>{failureReasonLabels[events.data.failureDiagnostic.reasonCategory] ?? "Kategori tidak dikenal — perlu peninjauan"}</p>
-                            {events.data.failureDiagnostic.deliveryUnverified && <p>Pengiriman belum terverifikasi.</p>}
-                            {events.data.failureDiagnostic.e2eUnverified && <p>Hasil end-to-end belum terverifikasi.</p>}
-                            <p className="text-muted-foreground">Kategori observasi, bukan izin retry atau bukti penyelesaian.</p>
-                          </div>
-                        )}
-                        {j.status === "FAILED" && events.data && !events.data.failureDiagnostic && (
-                          <p className="text-xs text-muted-foreground">Diagnostik sumber belum tersedia; status gagal tetap dipertahankan.</p>
-                        )}
                         {events.isLoading && <p>Memuat riwayat event…</p>}
                         {events.isError && <p role="alert" className="text-red-700">Tidak dapat membaca event: {events.error instanceof Error ? events.error.message : "Kesalahan API"}</p>}
                         {events.data?.events.length === 0 && <p className="text-muted-foreground">Belum ada event untuk job ini.</p>}
