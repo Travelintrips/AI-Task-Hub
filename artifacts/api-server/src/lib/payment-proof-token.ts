@@ -5,21 +5,6 @@ export const PAYMENT_PROOF_LEGACY_TOKEN_LENGTH = 24;
 export const PAYMENT_PROOF_COMPAT_TOKEN_LENGTH = 12;
 const PAYMENT_PROOF_TOKEN_MAX_ATTEMPTS = 3;
 
-/** Only this audited literal DEV frontend route is reserved. Do not change
- * the general 10-character token format or the legacy /p/:token resolver.
- * CST-DEV has no stored token hash for this reserved word (Issue #197).
- */
-export function isReservedCstDevOnboardingToken(
-  token: string,
-  env: Record<string, string | undefined> = process.env,
-): boolean {
-  return token === "onboarding" &&
-    env.NODE_ENV === "development" &&
-    (env.APP_ENV === undefined || env.APP_ENV === "development") &&
-    env.PUBLIC_APP_BASE_URL === "https://dev-ai-task.cstlogistic.co.id" &&
-    env.SUPABASE_URL_DEV === "https://xssrfshdrtdfupgqwfdw.supabase.co";
-}
-
 export function generatePaymentProofToken(): string {
   // Base64URL is generated from CSPRNG bytes and trimmed to the new
   // fixed-length root token format.
@@ -55,12 +40,9 @@ export function isUniqueConstraintViolation(error: unknown): boolean {
 export async function generatePaymentProofTokenWithCollisionRetry(
   reserveToken: (token: string) => Promise<void>,
   tokenFactory: () => string = generatePaymentProofToken,
-  env: Record<string, string | undefined> = process.env,
 ): Promise<string> {
   for (let attempt = 0; attempt < PAYMENT_PROOF_TOKEN_MAX_ATTEMPTS; attempt += 1) {
     const token = tokenFactory();
-    // Never reserve a new DEV root token that is also a frontend route.
-    if (isReservedCstDevOnboardingToken(token, env)) continue;
 
     try {
       await reserveToken(token);
