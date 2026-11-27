@@ -261,6 +261,8 @@ jobs:
         run: node --test artifacts/api-server/tests/gpt02-prepared-execution-denied.test.mjs
       - name: Verify passive event binding visibility and existing registry regression (read-only)
         run: node --experimental-strip-types --test artifacts/ai-task-center/tests/bridge-passive-queue.test.mjs artifacts/ai-task-center/tests/bridge-registry-ui.test.mjs artifacts/ai-task-center/tests/unified-dashboard.test.mjs artifacts/api-server/tests/bridge-dashboard-visibility.test.mjs
+      - name: Verify CST-DEV Google callback overlay behavior in canonical SPA
+        run: node --experimental-strip-types --test scripts/dev/canonical-dev-google-handoff.test.mjs
       - name: Typecheck
         run: pnpm run typecheck
       - name: Build

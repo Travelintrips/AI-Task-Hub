@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { useToast } from "@/hooks/use-toast";
 
 export default function Login() {
-  const { login } = useAuth();
+  const { login, googleLoginError, clearGoogleLoginError } = useAuth();
   const { toast } = useToast();
   const [email, setEmail]         = useState("");
   const [password, setPassword]   = useState("");
@@ -47,12 +47,15 @@ export default function Login() {
             <CardDescription>{isDevPasswordless ? "Masuk dengan akun Google yang terverifikasi" : "Gunakan email dan password yang terdaftar"}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            {isDevPasswordless && googleLoginError && (
+              <div role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">{googleLoginError}</div>
+            )}
             <Button
               type="button"
               variant="outline"
               className="w-full"
               disabled={loading}
-              onClick={() => window.location.assign("/api/auth/google/start")}
+              onClick={() => { if (isDevPasswordless) clearGoogleLoginError(); window.location.assign("/api/auth/google/start"); }}
             >
               Masuk dengan Google
             </Button>
