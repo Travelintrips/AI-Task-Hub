@@ -4,6 +4,7 @@ import { Link } from "wouter";
 import { useAuth } from "@/contexts/auth-context";
 import { getStoredToken } from "@/lib/auth-api";
 import { isPassiveBridgeEvent, type PassiveEventClassification } from "@/lib/bridge-queue-presentation";
+import { isEmployeeKasbonTask, isPendingBusinessTask } from "@/lib/business-task-presentation";
 import { BridgeSourceGap, type SourceSyncGap } from "@/components/bridge-source-gap";
 import { OnboardingBanner } from "@/components/onboarding-banner";
 import { Button } from "@/components/ui/button";
@@ -28,7 +29,7 @@ type Session = {
 };
 type JobEvent = { event_id: string; kind: string; sender: string; received_at: string };
 type SourceFilter = "all" | "task" | "bridge" | "session";
-type StatusFilter = "all" | "new" | "running" | "completed" | "attention" | "passive";
+type StatusFilter = "all" | "new" | "running" | "completed" | "attention" | "passive" | "business";
 
 type WorkRow = {
   key: string; kind: "task" | "bridge"; rawId: string;
@@ -129,7 +130,7 @@ export default function UnifiedDashboard() {
       key: "task:" + t.id, kind: "task", rawId: String(t.id),
       title: t.title, sourceLabel: "AI Tasks", sourceType: "AI Tasks",
       owner: t.assignedTo || "Belum ditugaskan", status: t.status,
-      bucket: bucket(t.status), date: t.createdAt, ack: false, task: t,
+      bucket: isPendingBusinessTask(t) ? "business" : bucket(t.status), date: t.createdAt, ack: false, task: t,
     }));
     const bridgeRows: WorkRow[] = (canSeeBridge ? bridge.data?.jobs ?? [] : [])
       // Suppress only verifiable 1:1 references; do not guess cross-system identity.
@@ -170,7 +171,8 @@ export default function UnifiedDashboard() {
   const stats: Array<{ key: StatusFilter; name: string; count: number }> = [
     { key: "all", name: "Semua pekerjaan", count: sourceRows.length },
     { key: "new", name: "Baru / Antrean", count: sourceRows.filter(r => r.bucket === "new").length },
-    { key: "running", name: "Sedang berjalan", count: sourceRows.filter(r => r.bucket === "running").length },
+    { key: "running", name: "Dalam proses", count: sourceRows.filter(r => r.bucket === "running").length },
+    ...(source !== "bridge" ? [{ key: "business" as const, name: "Alur kasbon belum selesai", count: sourceRows.filter(r => r.bucket === "business").length }] : []),
     { key: "completed", name: "Selesai", count: sourceRows.filter(r => r.bucket === "completed").length },
     { key: "attention", name: "Perlu perhatian", count: sourceRows.filter(r => r.bucket === "attention").length },
     ...(canSeeBridge && source !== "task" && (bridge.data?.passiveEventClassification === "AVAILABLE" || sourceRows.some(r => r.bucket === "passive")) ?
@@ -280,9 +282,13 @@ export default function UnifiedDashboard() {
         {errors.length > 0 && <div role="alert" className="rounded-lg border border-red-300 p-3 text-sm text-red-700">
           {errors.join("; ")}. Data dari sumber tersebut belum tersedia; angka yang tampil hanya data yang berhasil dibaca.
         </div>}
+        {source !== "bridge" && source !== "session" && sourceRows.some(r => r.bucket === "business") &&
+          <p className="text-sm text-muted-foreground" data-testid="business-workflow-note">
+            Alur kasbon belum selesai dipisahkan dari antrean dan pekerjaan dalam proses. Status berasal dari AI Tasks, bukan bukti worker aktif, persetujuan Owner, pencairan dana, atau posting jurnal.
+          </p>}
         {bridge.data?.passiveEventClassification === "UNAVAILABLE" && <p role="alert" className="text-sm text-amber-700">Klasifikasi event pasif belum dapat diverifikasi; antrean belum dipisahkan.</p>}
         {canSeeBridge && <BridgeSourceGap gap={bridge.data?.sourceSyncGap} />}
-        <div className="grid grid-cols-2 lg:grid-cols-6 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-7 gap-3">
           {stats.map(s => <button type="button" key={s.key} onClick={() => {setSource(source === "session" ? "all" : source); setSelectedJobs([]); setSelectedTasks([]); setStatus(current => current === s.key && s.key !== "all" ? "all" : s.key);}}
             aria-pressed={status === s.key && source !== "session"}
             className={"text-left rounded-xl border-2 bg-white p-4 transition-colors hover:border-blue-400 focus-visible:outline-2 focus-visible:outline-blue-600 " +
@@ -441,11 +447,16 @@ function RowWithEvents({ row, expanded, onExpand, events, selectable, selected, 
       </td>
       <td className="p-3"><Badge variant="outline">{row.sourceLabel}</Badge></td>
       <td className="p-3">{row.owner}</td>
-      <td className="p-3"><Badge variant={badgeVariant(row.status)}>{row.status}</Badge>{row.bucket === "passive" && <span className="block text-xs text-muted-foreground mt-1">Event pasif · bukan antrean worker</span>}</td>
+      <td className="p-3">
+        <Badge variant={row.bucket === "business" ? "secondary" : badgeVariant(row.status)}>{row.status}</Badge>
+        {row.bucket === "passive" && <span className="block text-xs text-muted-foreground mt-1">Event pasif · bukan antrean worker</span>}
+        {row.kind === "task" && row.task && isEmployeeKasbonTask(row.task) &&
+          <span className="block text-xs text-muted-foreground mt-1">Alur kasbon · status bisnis</span>}
+      </td>
       <td className="p-3 whitespace-nowrap">{stamp(row.date)}</td>
       <td className="p-3">{row.kind === "bridge" ?
         row.ack ? <span className="text-green-700 font-semibold">ACK Terverifikasi</span> : "Belum terverifikasi" :
-        <span className="text-muted-foreground">Status tugas</span>}</td>
+        <span className="text-muted-foreground">{row.task && isEmployeeKasbonTask(row.task) ? "Status alur · bukan bukti pencairan" : "Status tugas"}</span>}</td>
     </tr>
     {expanded && <tr className="bg-slate-50 border-b"><td colSpan={7} className="p-4">
       <div className="space-y-2 text-sm">
@@ -454,6 +465,9 @@ function RowWithEvents({ row, expanded, onExpand, events, selectable, selected, 
         {row.kind === "task" ? <>
           <p>Pelanggan: {row.task?.customerName ?? "—"} · Prioritas: {row.task?.priority ?? "—"}</p>
           <p>{row.task?.description ?? "Tidak ada keterangan tambahan."}</p>
+          {row.task && isEmployeeKasbonTask(row.task) && <p className="text-xs text-muted-foreground">
+            Terakhir diperbarui: {stamp(row.task.updatedAt)}. Konfirmasi persetujuan dan pencairan pada sumber bisnis yang berwenang; tidak disimpulkan dari status task.
+          </p>}
           <Link href={"/ai-tasks/" + row.rawId} className="text-blue-700 underline">Buka pengelolaan task</Link>
         </> : <>
           {row.bucket === "passive" && <p className="text-muted-foreground">Catatan EVENT_BINDING dari sumber. Status registry tetap QUEUED; bukan pekerjaan baru untuk worker. Riwayat notifikasi/ACK tetap perlu diperiksa.</p>}
