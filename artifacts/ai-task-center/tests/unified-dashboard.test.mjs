@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { isEmployeeKasbonTask, isPendingBusinessTask, canNavigateToDevKasbonFinance, DEV_KASBON_FINANCE_URL } from "../src/lib/business-task-presentation.ts";
+import { isEmployeeKasbonTask, isPendingBusinessTask, canNavigateToDevKasbonFinance, DEV_KASBON_FINANCE_URL, kasbonWorkflowState, kasbonWorkflowCounts } from "../src/lib/business-task-presentation.ts";
 
 const dir = new URL("../src/", import.meta.url);
 const file = name => readFileSync(new URL(name, dir), "utf8");
@@ -102,4 +102,36 @@ test("Finance link carries no token, company query, or task ID and relies on ind
   assert.match(ui, /referrerPolicy="no-referrer"/);
   assert.match(ui, /Gunakan sesi OTP BizPortal sendiri/);
   assert.match(ui, /Tautan ini tidak memberikan hak akses Finance/);
+});
+
+test("kasbon workflow counts distinguish pending review from in-progress only", () => {
+  const native = (status) => ({ source: "employee_kasbon_conversation", status });
+  const fixtures = [
+    native("ready_for_review"), native("ready_for_review"),
+    ...Array.from({length: 4}, () => native("in_progress")),
+    native("completed"), native("paid"), native("failed"),
+    {source: "manual", status: "ready_for_review"},
+    {source: "AI_CORE", status: "in_progress"}, undefined,
+  ];
+  assert.deepEqual(kasbonWorkflowCounts(fixtures), {ready_for_review: 2, in_progress: 4});
+  assert.deepEqual(kasbonWorkflowCounts([]), {ready_for_review: 0, in_progress: 0});
+  assert.equal(kasbonWorkflowState(native("ready_for_review")), "ready_for_review");
+  assert.equal(kasbonWorkflowState(native("in_progress")), "in_progress");
+  for (const status of ["completed", "approved", "paid", "READY_FOR_REVIEW", "ready for review", " ready_for_review"]) {
+    assert.equal(kasbonWorkflowState(native(status)), null);
+  }
+});
+test("review chips filter existing native tasks without granting any finance action", () => {
+  assert.match(ui, /tasks\.isSuccess && !tasks\.isFetching\s*\? kasbonWorkflowCounts\(sourceRows\.filter\(r => r\.kind === "task"\)\.map\(r => r\.task\)\)/);
+  assert.match(ui, /status === "business" && kasbonFilter !== "all" &&\s*\(!tasks\.isSuccess \|\| tasks\.isFetching \|\| row\.kind !== "task" \|\| kasbonWorkflowState\(row\.task\) !== kasbonFilter\)/);
+  const handler = ui.split("const chooseKasbonWorkflow = ")[1].split("const refreshAll = ")[0];
+  assert.match(handler, /chooseSource\("task"\)/);
+  assert.match(handler, /setStatus\("business"\)/);
+  assert.match(handler, /setKasbonFilter\(next\)/);
+  assert.match(handler, /setSearch\("")/);
+  assert.doesNotMatch(handler, /fetch|mutate|postAdminCleanup|approve|disburse/);
+  assert.match(ui, /data-testid="kasbon-review-filter"/);
+  assert.match(ui, /data-testid="kasbon-in-progress-filter"/);
+  assert.match(ui, /Status tugas tercatat saja; periksa bukti Finance terpisah/);
+  assert.match(ui, /const chooseSource = [\s\S]+?setKasbonFilter\("all"\)/);
 });
