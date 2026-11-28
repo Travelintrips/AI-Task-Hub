@@ -4,7 +4,7 @@ import { Link } from "wouter";
 import { useAuth } from "@/contexts/auth-context";
 import { getStoredToken } from "@/lib/auth-api";
 import { isPassiveBridgeEvent, type PassiveEventClassification } from "@/lib/bridge-queue-presentation";
-import { isEmployeeKasbonTask, isPendingBusinessTask, canNavigateToDevKasbonFinance, DEV_KASBON_FINANCE_URL } from "@/lib/business-task-presentation";
+import { isEmployeeKasbonTask, isPendingBusinessTask, canNavigateToDevKasbonFinance, DEV_KASBON_FINANCE_URL, kasbonWorkflowState, kasbonWorkflowCounts, type KasbonWorkflowState } from "@/lib/business-task-presentation";
 import { BridgeSourceGap, type SourceSyncGap } from "@/components/bridge-source-gap";
 import { OnboardingBanner } from "@/components/onboarding-banner";
 import { Button } from "@/components/ui/button";
@@ -87,6 +87,7 @@ export default function UnifiedDashboard() {
   const canSeeBridge = user?.role === "super_admin";
   const [source, setSource] = useState<SourceFilter>("all");
   const [status, setStatus] = useState<StatusFilter>("all");
+  const [kasbonFilter, setKasbonFilter] = useState<KasbonWorkflowState | "all">("all");
   const [search, setSearch] = useState("");
   const [openedJob, setOpenedJob] = useState<string | null>(null);
   const [openedSession, setOpenedSession] = useState<string | null>(null);
@@ -154,10 +155,12 @@ export default function UnifiedDashboard() {
     if (source === "session") return false;
     if (source !== "all" && source !== row.kind) return false;
     if (status !== "all" && row.bucket !== status) return false;
+    if (status === "business" && kasbonFilter !== "all" &&
+        (!tasks.isSuccess || tasks.isFetching || row.kind !== "task" || kasbonWorkflowState(row.task) !== kasbonFilter)) return false;
     const q = search.trim().toLowerCase();
     return !q || [row.title, row.sourceLabel, row.rawId, row.job?.external_id ?? "",
       row.task?.taskNumber ?? "", row.task?.customerName ?? ""].some(v => v.toLowerCase().includes(q));
-  }), [rows, source, status, search]);
+  }), [rows, source, status, search, kasbonFilter, tasks.isSuccess, tasks.isFetching]);
 
   const loading = tasks.isLoading || (canSeeBridge && bridge.isLoading);
   const errors = [
@@ -168,6 +171,8 @@ export default function UnifiedDashboard() {
   // Keep clickable status counts consistent with the selected data source.
   const sourceRows = source === "task" || source === "bridge"
     ? rows.filter(r => r.kind === source) : rows;
+  const kasbonCounts = tasks.isSuccess && !tasks.isFetching
+    ? kasbonWorkflowCounts(sourceRows.filter(r => r.kind === "task").map(r => r.task)) : null;
   const stats: Array<{ key: StatusFilter; name: string; count: number }> = [
     { key: "all", name: "Semua pekerjaan", count: sourceRows.length },
     { key: "new", name: "Baru / Antrean", count: sourceRows.filter(r => r.bucket === "new").length },
@@ -238,11 +243,18 @@ export default function UnifiedDashboard() {
   const chooseSource = (next: SourceFilter) => {
     setSource(next);
     setStatus("all");
+    setKasbonFilter("all");
     setOpenedJob(null);
     setSelectedJobs([]);
     setSelectedTasks([]);
     setSelectedSessions([]);
     setCleanupMessage("");
+  };
+  const chooseKasbonWorkflow = (next: KasbonWorkflowState) => {
+    chooseSource("task");
+    setStatus("business");
+    setKasbonFilter(next);
+    setSearch("");
   };
   const refreshAll = () => {
     void tasks.refetch();
@@ -285,6 +297,19 @@ export default function UnifiedDashboard() {
         {source !== "bridge" && source !== "session" && sourceRows.some(r => r.bucket === "business") &&
           <div className="space-y-2 text-sm text-muted-foreground" data-testid="business-workflow-note">
             <p>Alur kasbon belum selesai dipisahkan dari antrean dan pekerjaan dalam proses. Status berasal dari AI Tasks, bukan bukti worker aktif, persetujuan Owner, pencairan dana, atau posting jurnal.</p>
+            {kasbonCounts !== null && <div className="flex flex-wrap gap-2 items-center" role="group" aria-label="Filter status alur kasbon">
+              <Button type="button" size="sm" variant={status === "business" && kasbonFilter === "ready_for_review" ? "default" : "outline"}
+                aria-pressed={status === "business" && kasbonFilter === "ready_for_review"}
+                onClick={() => chooseKasbonWorkflow("ready_for_review")} data-testid="kasbon-review-filter">
+                Menunggu review ({kasbonCounts.ready_for_review})
+              </Button>
+              <Button type="button" size="sm" variant={status === "business" && kasbonFilter === "in_progress" ? "default" : "outline"}
+                aria-pressed={status === "business" && kasbonFilter === "in_progress"}
+                onClick={() => chooseKasbonWorkflow("in_progress")} data-testid="kasbon-in-progress-filter">
+                Alur dalam proses ({kasbonCounts.in_progress})
+              </Button>
+              <span className="text-xs">Status tugas tercatat saja; periksa bukti Finance terpisah.</span>
+            </div>}
             {typeof window !== "undefined" && canNavigateToDevKasbonFinance(window.location.hostname, user?.role) &&
               <div className="flex flex-wrap items-center gap-2">
                 <a href={DEV_KASBON_FINANCE_URL} target="_blank" rel="noopener noreferrer"
@@ -296,7 +321,7 @@ export default function UnifiedDashboard() {
         {bridge.data?.passiveEventClassification === "UNAVAILABLE" && <p role="alert" className="text-sm text-amber-700">Klasifikasi event pasif belum dapat diverifikasi; antrean belum dipisahkan.</p>}
         {canSeeBridge && <BridgeSourceGap gap={bridge.data?.sourceSyncGap} />}
         <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-7 gap-3">
-          {stats.map(s => <button type="button" key={s.key} onClick={() => {setSource(source === "session" ? "all" : source); setSelectedJobs([]); setSelectedTasks([]); setStatus(current => current === s.key && s.key !== "all" ? "all" : s.key);}}
+          {stats.map(s => <button type="button" key={s.key} onClick={() => {setSource(source === "session" ? "all" : source); setSelectedJobs([]); setSelectedTasks([]); setKasbonFilter("all"); setStatus(current => current === s.key && s.key !== "all" && kasbonFilter === "all" ? "all" : s.key);}}
             aria-pressed={status === s.key && source !== "session"}
             className={"text-left rounded-xl border-2 bg-white p-4 transition-colors hover:border-blue-400 focus-visible:outline-2 focus-visible:outline-blue-600 " +
               (status === s.key && source !== "session" ? "border-blue-500" : "border-slate-200")}>
@@ -414,7 +439,7 @@ export default function UnifiedDashboard() {
                       events={row.kind === "bridge" && openedJob === row.key ? events : undefined} />
                   ))}
                   {filtered.length === 0 && <tr><td colSpan={7} className="py-12 text-center text-muted-foreground">
-                    {loading ? "Memuat pekerjaan…" : errors.length ? "Sebagian sumber tidak tersedia, atau tidak ada hasil untuk filter ini." : "Tidak ada pekerjaan untuk filter ini."}
+                    {loading || (status === "business" && kasbonFilter !== "all" && tasks.isFetching) ? "Memuat pekerjaan…" : errors.length ? "Sebagian sumber tidak tersedia, atau tidak ada hasil untuk filter ini." : "Tidak ada pekerjaan untuk filter ini."}
                   </td></tr>}
                 </tbody>
               </table>
