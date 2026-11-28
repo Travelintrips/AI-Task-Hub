@@ -1,3 +1,4 @@
+import { summarizeSourceGap } from "../src/lib/source-gap-presentation.ts";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -55,4 +56,29 @@ test("failed response evidence is observational and has no automatic retry permi
   assert.match(registry, /belum membuktikan tidak ada efek samping/);
   assert.match(registry, /Retry otomatis tidak diizinkan/);
   assert.doesNotMatch(registry, /method:\s*["'](?:POST|PUT|PATCH|DELETE)["']/);
+});
+
+test("source gap breakdown distinguishes observations from worker backlog",()=>{
+  const fixture=[...Array.from({length:4},()=>({category:"HANDSHAKE",sourceAckRecorded:false})),
+    ...Array.from({length:4},()=>({category:"PROTECTED_WAKE",sourceAckRecorded:false}))];
+  assert.deepEqual(summarizeSourceGap(8,fixture),{
+    counts:{HANDSHAKE:4,PROTECTED_WAKE:4,PASSIVE_EVENT:0,OTHER_COMMAND:0},
+    observed:8,complete:true,ackRecorded:0,ackNotRecorded:8
+  });
+  const partial=summarizeSourceGap(120,Array.from({length:100},()=>({category:"HANDSHAKE",sourceAckRecorded:true})));
+  assert.equal(partial.complete,false); assert.equal(partial.observed,100); assert.equal(partial.ackRecorded,100);
+  assert.equal(summarizeSourceGap(8,fixture.slice(1)),null);
+  assert.equal(summarizeSourceGap(1,[{category:"OTHER_COMMAND",sourceAckRecorded:"false"}]),null);
+  assert.equal(summarizeSourceGap(1,[{category:"__proto__",sourceAckRecorded:true}]),null);
+  assert.equal(summarizeSourceGap(1,[{category:"UNKNOWN",sourceAckRecorded:true}]),null);
+  assert.equal(summarizeSourceGap(0,[]).complete,true);
+});
+test("source gap summary never presents capped samples as complete or offers retries",()=>{
+  const gap=read("components/bridge-source-gap.tsx");
+  assert.match(gap,/summary.complete && summary.observed > 0/);
+  assert.match(gap,/Sampel record yang ditampilkan/);
+  assert.match(gap,/Command lainnya: \{summary.counts.OTHER_COMMAND\}/);
+  assert.match(gap,/Bukan bukti hasil end-to-end/);
+  assert.match(gap,/Jangan anggap sebagai antrean worker/);
+  assert.doesNotMatch(gap,/fetch\(|method:|checkbox|onClick=|result_verified_at/);
 });
