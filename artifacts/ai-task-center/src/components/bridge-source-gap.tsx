@@ -1,4 +1,5 @@
 import { Link } from "wouter";
+import { summarizeSourceGap } from "@/lib/source-gap-presentation";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 
 export type SourceSyncGap = {
@@ -17,10 +18,20 @@ const date=(value:string) => new Intl.DateTimeFormat("id-ID",{timeZone:"Asia/Jak
 export function BridgeSourceGap({gap,detail=false}:{gap?:SourceSyncGap;detail?:boolean}) {
   if (!gap) return null;
   if (gap.status!=="AVAILABLE" || gap.total===null) return <p role="alert" className="text-sm text-amber-700">Cakupan sinkronisasi AI Core belum dapat diperiksa; jumlah record yang hilang belum diketahui.</p>;
+  const summary = summarizeSourceGap(gap.total, gap.rows);
+  if (!summary) return <p role="alert" className="text-sm text-amber-700">Rincian cakupan sumber belum konsisten; jumlah per kategori tidak dapat disimpulkan.</p>;
+  const breakdown = <div data-testid="source-gap-breakdown" className="mt-2 space-y-1 text-xs text-muted-foreground">
+    <p>{summary.complete ? "Seluruh record dalam cakupan" : "Sampel record yang ditampilkan"}: {summary.observed} dari {gap.total}.</p>
+    <p>Handshake: {summary.counts.HANDSHAKE} · Wake terlindungi: {summary.counts.PROTECTED_WAKE} · Event pasif: {summary.counts.PASSIVE_EVENT} · Command lainnya: {summary.counts.OTHER_COMMAND}</p>
+    <p>ACK sumber tercatat: {summary.ackRecorded} · Belum tercatat: {summary.ackNotRecorded}. Bukan bukti hasil end-to-end.</p>
+    {summary.complete && summary.observed > 0 && summary.counts.HANDSHAKE + summary.counts.PROTECTED_WAKE === summary.observed &&
+      <p>Semua record dalam cakupan ini adalah handshake atau wake terlindungi. Jangan anggap sebagai antrean worker yang harus dijalankan ulang.</p>}
+  </div>;
   if (!detail) return <div className="rounded-md border p-3 text-sm">
     <strong>{gap.total} record sumber belum masuk Job Registry</strong>
     <span className="ml-2 text-xs text-muted-foreground">14 hari terakhir · observasi terpisah, bukan antrean atau ACK baru.</span>
     <Link href="/bridge-jobs#source-gap" className="ml-2 text-blue-700 hover:underline">Lihat cakupan sinkronisasi</Link>
+    {breakdown}
   </div>;
   return <Card id="source-gap" data-testid="bridge-source-gap">
     <CardHeader>
@@ -28,6 +39,7 @@ export function BridgeSourceGap({gap,detail=false}:{gap?:SourceSyncGap;detail?:b
       <p className="text-sm text-muted-foreground">{gap.total} record sumber belum masuk registry dalam {gap.lookbackDays} hari terakhir. Ini pembacaan langsung dari AI Core, bukan penambahan job atau bukti penyelesaian. Tidak ada retry maupun ACK otomatis dari panel ini.</p>
     </CardHeader>
     <CardContent className="overflow-x-auto">
+      {breakdown}
       {gap.total===0 ? <p className="text-sm text-muted-foreground">Tidak ada record sumber yang belum tercermin pada rentang ini.</p> :
       <table className="w-full text-sm text-left">
         <thead className="border-b text-muted-foreground"><tr><th className="py-2 pr-4">ID sumber</th><th className="py-2 pr-4">Kategori</th><th className="py-2 pr-4">Status sumber</th><th className="py-2 pr-4">ACK sumber</th><th className="py-2">Waktu</th></tr></thead>
