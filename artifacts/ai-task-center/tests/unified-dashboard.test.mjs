@@ -128,7 +128,7 @@ test("review chips filter existing native tasks without granting any finance act
   assert.match(handler, /chooseSource\("task"\)/);
   assert.match(handler, /setStatus\("business"\)/);
   assert.match(handler, /setKasbonFilter\(next\)/);
-  assert.match(handler, /setSearch\("")/);
+  assert.ok(handler.includes('setSearch("");'));
   assert.doesNotMatch(handler, /fetch|mutate|postAdminCleanup|approve|disburse/);
   assert.match(ui, /data-testid="kasbon-review-filter"/);
   assert.match(ui, /data-testid="kasbon-in-progress-filter"/);
